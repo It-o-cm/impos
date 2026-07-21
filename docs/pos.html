@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IHM Caisse Supermarché</title>
+    <style>
+        :root {
+            --bg-dark: #121212;
+            --bg-panel: #1E1E1E;
+            --text-main: #FFFFFF;
+            --text-muted: #AAAAAA;
+            --primary: #0055FF;
+            --success: #00C853;
+            --danger: #D32F2F;
+            --warning: #FF9800;
+            --border-color: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+        }
+        .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
+        .receipt-area { background-color: var(--bg-dark); padding: 15px; border-right: 1px solid var(--border-color); overflow-y: auto; display: flex; flex-direction: column; }
+        .receipt-empty { margin: auto; color: var(--text-muted); font-size: 1.5rem; text-align: center; }
+        .receipt-item { display: flex; justify-content: space-between; font-size: 1.2rem; margin-bottom: 15px; border-bottom: 1px dashed #444; padding-bottom: 5px; }
+        .receipt-item .item-details { flex: 1; padding-right: 20px; }
+        .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 80px; }
+        .receipt-item .unit-qty { color: var(--text-muted); }
+        .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; }
+        .receipt-item.negative .price { color: var(--danger); }
+        .action-area { background-color: var(--bg-panel); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+        .total-display { position: relative; text-align: right; }
+        .total-label { font-size: 1.1rem; color: var(--text-muted); }
+        .total-amount { font-size: 3rem; font-weight: bold; color: var(--text-main); transition: color 0.3s; }
+        .total-amount.zero { color: var(--text-muted); }
+        .fid-icon { position: absolute; top: 5px; left: 0; width: 28px; height: 28px; transition: all 0.4s ease; }
+        .fid-icon.inactive { stroke: #333; fill: transparent; }
+        .fid-icon.active { stroke: var(--success); fill: var(--success); filter: drop-shadow(0 0 4px rgba(0,200,83,0.6)); }
+        .grid-buttons { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3,1fr); gap: 8px; flex: 1; max-height: 290px; }
+        .grid-buttons .btn { padding: 6px 10px; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; }
+
+        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+        .btn-primary { background-color: var(--primary); }
+        .btn-danger { background-color: var(--danger); }
+        .btn-warning { background-color: var(--warning); color: black; }
+        .btn-success { background-color: var(--success); }
+        .btn-muted { background-color: #555; }
+        .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+        .bottom-nav .btn { width: 180px; height: 50px; font-size: 0.85rem; padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1.15; }
+
+        /* ── Clavier alphabétique partagé ── */
+        .alpha-kb {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .alpha-kb-btn {
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            font-size: 0.95rem;
+            font-weight: bold;
+            padding: 9px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+        .alpha-kb-btn:active { background: #555; }
+        .alpha-kb-btn.wide { grid-column: span 5; font-size: 0.7rem; }
+        .alpha-kb-btn.del { background: var(--danger); }
+        /* ── Fin clavier partagé ── */
+
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay.active { display: flex; }
+        .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 10px; flex-shrink: 0; }
+        .overlay-title { font-size: 1.5rem; }
+        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; }
+        .close-btn:hover { color: white; }
+
+        .plu-toolbar { display: flex; gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
+        .plu-tool-btn { flex: 1; padding: 14px; background: #222; border: 2px solid #444; color: #ddd; font-size: 1.05rem; font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center; text-transform: uppercase; transition: 0.2s; }
+        .plu-tool-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .plu-tool-btn:active { background: #444; }
+        .plu-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.88); z-index: 5; justify-content: center; align-items: center; }
+        .plu-modal.active { display: flex; }
+        .plu-modal-panel { background: var(--bg-panel); border: 1px solid #555; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.5); overflow: hidden; }
+        .plu-modal-panel.search-panel { width: 874px; height: 520px; }
+        .plu-modal-panel.code-panel { width: 340px; }
+        .plu-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-shrink: 0; }
+        .plu-modal-title { font-size: 1.2rem; font-weight: bold; color: white; }
+        .plu-modal-close { font-size: 1.8rem; background: none; border: none; color: var(--text-muted); cursor: pointer; line-height: 1; }
+        .plu-modal-close:hover { color: white; }
+        .plu-search-input { background: #000; color: white; padding: 12px 14px; font-size: 1.2rem; border-radius: 6px; border: 1px solid var(--primary); width: 100%; margin-bottom: 8px; flex-shrink: 0; }
+        .plu-search-results { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; }
+        .plu-search-result { background: #222; border: 1px solid #444; color: white; padding: 14px 16px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; }
+        .plu-search-result:hover { background: #444; border-color: var(--primary); }
+        .plu-search-result .psr-emoji { font-size: 1.26rem; margin-right: 11px; }
+        .plu-search-result .psr-name { flex: 1; }
+        .plu-search-result .psr-code { color: var(--warning); font-weight: bold; font-size: 0.81rem; margin-left: 7px; white-space: nowrap; }
+        .plu-search-result .psr-price { color: var(--success); font-weight: bold; font-size: 0.9rem; margin-left: 9px; white-space: nowrap; }
+        .plu-search-empty { color: var(--text-muted); text-align: center; padding: 30px; font-size: 1.1rem; }
+        .plu-code-display { background: #000; color: white; padding: 14px; font-size: 2rem; border-radius: 6px; border: 2px solid var(--warning); text-align: center; letter-spacing: 8px; margin-bottom: 14px; flex-shrink: 0; transition: border-color 0.3s; }
+        .plu-code-numpad { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 14px; flex-shrink: 0; }
+        .plu-np-btn { background: #333; border: 1px solid #555; color: white; font-size: 1.6rem; padding: 14px; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; }
+        .plu-np-btn:active { background: #555; }
+        .plu-np-btn.clr { background: var(--danger); }
+        .plu-np-btn.bksp { background: #222; color: var(--text-muted); }
+        .plu-container { flex: 1; display: flex; flex-direction: column; background: #111; border: 1px solid #333; border-radius: 5px; overflow: hidden; min-height: 0; }
+        .plu-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; padding: 10px; align-content: start; }
+        .plu-btn { background: #222; font-size: 0.9rem; padding: 8px 4px; border: 1px solid #444; color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .plu-btn:hover { background: #444; border-color: var(--primary); }
+        .plu-btn .plu-emoji { font-size: 1.2rem; }
+        .plu-btn .plu-name { margin: 2px 0; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
+        .plu-btn .plu-meta { display: flex; gap: 8px; justify-content: center; }
+        .plu-btn .plu-code { display: block; font-size: 0.7rem; color: var(--warning); font-weight: bold; }
+        .plu-btn .plu-price { display: block; font-size: 0.75rem; color: var(--text-muted); }
+        .no-result { color: var(--text-muted); grid-column: 1/-1; text-align: center; padding: 40px; font-size: 1.2rem; }
+        .plu-pagination { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-top: 1px solid #333; background: #181818; flex-shrink: 0; }
+
+        .fid-container { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 12px; padding-top: 10px; padding-bottom: 30px; margin: 0 auto; }
+        .fid-modes { display: flex; gap: 10px; justify-content: center; }
+        .fid-toggle { flex: 1; padding: 12px; background: #222; border: 2px solid #333; color: var(--text-muted); font-size: 1rem; font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; transition: 0.2s; text-transform: uppercase; }
+        .fid-toggle.active { background: var(--primary); border-color: white; color: white; }
+        .fid-display { width: 100%; font-size: 2rem; text-align: center; color: var(--primary); font-weight: bold; background: #000; border: 3px solid var(--primary); border-radius: 8px; padding: 10px; transition: border-color 0.3s, color 0.3s; }
+        .fid-keyboard-area { min-height: 180px; }
+        .fid-numpad { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+        .fid-num-btn { background: #333; border: 1px solid #555; color: white; font-size: 1.8rem; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .fid-num-btn:active { background: #555; }
+        .fid-num-btn.clear { background: var(--danger); }
+        .fid-actions { display: flex; gap: 15px; justify-content: center; margin-top: 5px; }
+
+        .manual-form { display: flex; gap: 20px; height: 100%; }
+        .product-selection { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-radius: 4px; transition: box-shadow 0.15s; position: relative; }
+        .product-selection.flash-error { box-shadow: inset 0 0 0 5px var(--danger), inset 0 0 40px rgba(211, 47, 47, 0.35); }
+        .product-selection .flash-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--danger); color: white; font-weight: bold; font-size: 1.4rem; padding: 12px 28px; border-radius: 8px; pointer-events: none; z-index: 5; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 0 20px rgba(211,47,47,0.6); display: none; }
+        .product-selection .flash-label.show { display: block; }
+        .breadcrumb { font-size: 1.1rem; color: var(--text-muted); margin-bottom: 10px; background: #181818; padding: 10px 15px; border-radius: 4px; border-left: 4px solid var(--primary); flex-shrink: 0; }
+        .breadcrumb span { color: white; font-weight: bold; }
+        .product-grid { flex: 1; display: grid; grid-template-columns: repeat(3,1fr); grid-auto-rows: 1fr; gap: 8px; overflow-y: auto; min-height: 0; }
+        .grid-btn { background: #222; border: 2px solid #333; color: #ddd; font-size: 0.85rem; font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center; text-transform: uppercase; transition: 0.2s; display: flex; align-items: center; justify-content: center; padding: 6px 5px; overflow: hidden; line-height: 1.15; }
+        .grid-btn:active { background: #444; transform: scale(0.98); }
+        .grid-btn.back-btn { border-color: var(--warning); color: var(--warning); font-size: 0.9rem; background: rgba(255,152,0,0.1); grid-column: 1 / -1; }
+        .grid-btn.skip-btn { border-color: var(--danger); color: var(--danger); font-size: 0.9rem; background: rgba(211,47,47,0.1); grid-column: 1 / -1; }
+        .grid-btn.selected { background: rgba(0,85,255,0.2); border-color: var(--primary); color: var(--primary); }
+        .manual-pagination { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; margin-top: 8px; border-top: 1px solid #333; flex-shrink: 0; }
+        .manual-pagination.hidden { visibility: hidden; pointer-events: none; }
+        .price-section { width: 260px; display: flex; flex-direction: column; gap: 8px; background: #181818; padding: 12px; border-radius: 5px; border-left: 1px solid #333; }
+        .price-display { font-size: 2.2rem; text-align: right; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 4px; padding: 8px; }
+        .numpad-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; flex: 1; }
+        .numpad-btn { background: #333; border: 1px solid #555; color: white; font-size: 1.2rem; border-radius: 5px; cursor: pointer; font-weight: bold; display: flex; align-items: center; justify-content: center; }
+        .numpad-btn:active { background: #555; }
+        .numpad-action { background: #222; color: var(--text-muted); }
+        .numpad-clear { background: var(--danger); color: white; }
+
+        .pause-container { margin: auto; text-align: center; display: flex; flex-direction: column; gap: 30px; }
+        .pause-warning { font-size: 3rem; color: var(--warning); }
+        .pause-reason { color: white; font-size: 1.5rem; font-weight: bold; }
+        .resume-container { margin: auto; text-align: center; width: 260px; }
+        .resume-display { font-size: 1.8rem; text-align: center; color: var(--primary); font-weight: bold; background: #000; border: 3px solid var(--primary); border-radius: 8px; padding: 10px; letter-spacing: 4px; margin-bottom: 12px; }
+        .resume-numpad { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+        .resume-num-btn { background: #333; border: 2px solid var(--primary); color: white; font-size: 1.5rem; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .resume-num-btn:active { background: var(--primary); }
+        .resume-num-btn.clear { background: var(--danger); border-color: var(--danger); }
+        .lane-closed-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #300000; border: 8px solid var(--danger); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 50; border-radius: 10px; gap: 20px; }
+        .lane-closed-screen.active { display: flex; }
+        .lane-closed-text { font-size: 4rem; color: var(--danger); font-weight: bold; }
+        .lane-closed-sub { color: #ccc; font-size: 1.5rem; margin-bottom: 30px; }
+        .lane-closed-btn { padding: 20px 50px; font-size: 1.5rem; border-radius: 8px; }
+        .age-content { margin: auto; text-align: center; }
+        .age-warning { color: var(--warning); font-size: 3rem; margin-bottom: 30px; }
+        .age-actions { display: flex; gap: 30px; justify-content: center; }
+
+        .pay-content { flex: 1; display: flex; flex-direction: column; width: 96%; margin: 0 auto; min-height: 0; }
+        .pay-top-row { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+        .pay-top-row .overlay-title { flex-shrink: 0; }
+        .pay-top-row .total-display { text-align: right; }
+        #payScreen .total-label { font-size: 0.85rem; }
+        #payScreen .total-amount { font-size: 1.8rem; }
+        .payment-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; flex-shrink: 0; }
+        .pay-btn { height: 80px; font-size: 1rem; }
+        .pay-bottom { display: flex; gap: 8px; flex: 1; min-height: 0; margin-top: 6px; }
+        .pay-history { flex: 1; display: flex; flex-direction: column; background: #0d0d0d; border: 1px solid #333; border-radius: 8px; overflow: hidden; min-width: 0; }
+        .pay-history-title { padding: 6px 10px; font-weight: bold; font-size: 0.7rem; color: var(--text-muted); border-bottom: 1px solid #333; background: #161616; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+        .pay-history-list { flex: 1; overflow-y: auto; padding: 2px 0; min-height: 0; }
+        .pay-history-empty { color: #333; text-align: center; padding: 15px 10px; font-size: 0.75rem; }
+        .pay-history-entry { display: flex; justify-content: space-between; padding: 5px 12px; font-size: 0.8rem; border-bottom: 1px solid #1a1a1a; }
+        .pay-history-entry:last-child { border-bottom: none; }
+        .phe-method { color: var(--text-muted); }
+        .phe-amount { color: var(--success); font-weight: bold; }
+        .pay-history-remaining { padding: 8px 12px; border-top: 1px solid #333; background: #161616; font-weight: bold; font-size: 0.95rem; flex-shrink: 0; text-align: center; }
+        .pay-info-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; gap: 4px; min-width: 0; }
+        .pay-info-zone .sub-input-area { display: none; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 0 4px; }
+        .pay-info-zone .sub-input-area.active { display: flex; }
+        .pay-mode-label { font-size: 0.9rem; font-weight: bold; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .sub-info { color: var(--text-muted); font-size: 0.75rem; }
+        .sub-result { font-size: 1rem; font-weight: bold; }
+        .sub-display { font-size: 1.5rem; text-align: center; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 6px; padding: 6px; width: 100%; }
+        .pay-no-selection { color: #333; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
+        .pay-no-selection.hidden { display: none; }
+        .pay-numpad-zone { width: 254px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
+        .numpad-slot { display: none; flex-direction: column; min-height: 0; }
+        .numpad-slot.active { display: flex; flex: 1; }
+
+        .confirm-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.92); z-index: 55; justify-content: center; align-items: center; }
+        .confirm-modal.active { display: flex; }
+        .confirm-panel { background: var(--bg-panel); border: 2px solid var(--success); border-radius: 16px; padding: 30px; width: 420px; text-align: center; }
+        .confirm-title { font-size: 1.8rem; font-weight: bold; color: var(--success); margin-bottom: 20px; }
+        .confirm-payments { text-align: left; margin-bottom: 20px; }
+        .confirm-entry { display: flex; justify-content: space-between; padding: 7px 0; font-size: 0.95rem; border-bottom: 1px solid #333; }
+        .confirm-entry:last-child { border-bottom: none; }
+        .confirm-entry .ce-method { color: var(--text-muted); }
+        .confirm-entry .ce-amount { color: var(--success); font-weight: bold; }
+        .confirm-labels { font-size: 1.4rem; font-weight: bold; color: var(--warning); padding: 18px; background: #1a1400; border: 2px solid var(--warning); border-radius: 10px; margin-bottom: 25px; line-height: 1.3; }
+
+        .supervisor-content { margin: auto; text-align: center; display: flex; flex-direction: column; gap: 20px; align-items: center; }
+        .supervisor-icon { width: 64px; height: 64px; }
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal" id="posTerminal">
+    <div class="top-bar">
+        <span class="store-name">INTERMARCHÉ</span>
+        <span id="opInfo">CAISSE 04 | Opérateur : MARIE</span>
+        <span id="clock">14:32:05</span>
+    </div>
+    <div class="main-area">
+        <div class="receipt-area" id="receiptList"><div class="receipt-empty">EN ATTENTE D'ARTICLES...</div></div>
+        <div class="action-area">
+            <div class="total-display">
+                <svg id="fidIcon" class="fid-icon inactive" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 12l2 2 4-4"/></svg>
+                <div class="total-label">TOTAL À PAYER</div>
+                <div class="total-amount zero" id="mainTotal">0,00 €</div>
+            </div>
+            <div class="grid-buttons">
+                <button class="btn btn-muted" onclick="cancelLine()">ANNULER LIGNE</button>
+                <button class="btn btn-warning" onclick="showScreen('pluScreen')">FRUITS & LÉGUMES</button>
+                <button class="btn btn-muted" onclick="showScreen('fidScreen')">FIDÉLITÉ</button>
+                <button class="btn btn-muted" onclick="showScreen('manualScreen')">SAISIE DIRECTE</button>
+                <button class="btn btn-muted" onclick="addDepositReturn()">DÉCONSIGNATION</button>
+                <button class="btn btn-primary" id="btnEncaisser" onclick="showScreen('payScreen')" disabled>ENCAISSER</button>
+            </div>
+        </div>
+    </div>
+    <div class="bottom-nav">
+        <button class="btn btn-danger" onclick="cancelTicket()">ANNULER TICKET</button>
+        <button class="btn btn-muted" onclick="">AUTRES...</button>
+        <button class="btn btn-warning" onclick="showScreen('supervisorScreen')">APPEL SUPERVISEUR</button>
+        <button class="btn btn-muted" onclick="startPause()">DÉCONNEXION</button>
+    </div>
+
+    <div class="overlay" id="pluScreen">
+        <div class="overlay-header"><div class="overlay-title">FRUITS, LÉGUMES & FRAIS</div><button class="close-btn" onclick="closeAllScreens()">&times;</button></div>
+        <div class="plu-toolbar">
+            <button class="plu-tool-btn" onclick="openPluSearch()">🔍 Rechercher un produit</button>
+            <button class="plu-tool-btn" onclick="openPluCode()">🔢 Saisir un code PLU</button>
+        </div>
+        <div class="plu-container">
+            <div class="plu-grid" id="pluGrid"></div>
+            <div class="plu-pagination">
+                <button class="btn btn-muted" style="padding:10px;font-size:1rem;width:auto;" onclick="pluPrevPage()">PRÉCÉDENT</button>
+                <span id="pluPageInfo" style="color:var(--text-muted);font-size:1.1rem;font-weight:bold;">1 / 3</span>
+                <button class="btn btn-muted" style="padding:10px;font-size:1rem;width:auto;" onclick="pluNextPage()">SUIVANT</button>
+            </div>
+        </div>
+        <div class="plu-modal" id="pluSearchModal">
+            <div class="plu-modal-panel search-panel">
+                <div class="plu-modal-header"><span class="plu-modal-title">Rechercher un produit</span><button class="plu-modal-close" onclick="closePluSearch()">&times;</button></div>
+                <input type="text" class="plu-search-input" id="pluSearch" placeholder="Tapez un nom..." oninput="filterPluSearch()">
+                <div id="pluSearchKb"></div>
+                <div class="plu-search-results" id="pluSearchResults"><div class="plu-search-empty">Tapez pour rechercher...</div></div>
+            </div>
+        </div>
+        <div class="plu-modal" id="pluCodeModal">
+            <div class="plu-modal-panel code-panel">
+                <div class="plu-modal-header"><span class="plu-modal-title">Code PLU</span><button class="plu-modal-close" onclick="closePluCode()">&times;</button></div>
+                <input type="text" class="plu-code-display" id="pluCode" value="" readonly>
+                <div class="plu-code-numpad" id="pluCodeNumpad"></div>
+                <button class="btn btn-success" style="width:100%;font-size:1.1rem;" onclick="addPLUByCode()">VALIDER</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="overlay" id="manualScreen">
+        <div class="overlay-header"><div class="overlay-title">SAISIE DIRECTE</div><button class="close-btn" onclick="closeAllScreens()">&times;</button></div>
+        <div class="manual-form">
+            <div class="product-selection" id="productSelection">
+                <div class="flash-label" id="flashLabel">⚠ SÉLECTIONNEZ UN PRODUIT</div>
+                <div class="breadcrumb" id="breadcrumb">Accueil</div>
+                <div class="product-grid" id="productGrid"></div>
+                <div class="manual-pagination hidden" id="manualPagination">
+                    <button class="btn btn-muted" style="padding:8px;font-size:0.9rem;width:auto;" id="manualPrevBtn" onclick="manualPrevPage()">PRÉCÉDENT</button>
+                    <span id="manualPageInfo" style="color:var(--text-muted);font-size:1rem;font-weight:bold;">1 / 1</span>
+                    <button class="btn btn-muted" style="padding:8px;font-size:0.9rem;width:auto;" id="manualNextBtn" onclick="manualNextPage()">SUIVANT</button>
+                </div>
+            </div>
+            <div class="price-section">
+                <div style="text-align:center;color:var(--primary);font-weight:bold;font-size:1.05rem;">SAISIE DU PRIX</div>
+                <input type="text" id="manualPrice" class="price-display" placeholder="0,00" readonly>
+                <div class="numpad-grid">
+                    <button class="numpad-btn" onclick="numpadPress('7')">7</button><button class="numpad-btn" onclick="numpadPress('8')">8</button><button class="numpad-btn" onclick="numpadPress('9')">9</button><button class="numpad-btn numpad-action" onclick="numpadDelete()">⌫</button>
+                    <button class="numpad-btn" onclick="numpadPress('4')">4</button><button class="numpad-btn" onclick="numpadPress('5')">5</button><button class="numpad-btn" onclick="numpadPress('6')">6</button><button class="numpad-btn numpad-clear" onclick="numpadClear()">C</button>
+                    <button class="numpad-btn" onclick="numpadPress('1')">1</button><button class="numpad-btn" onclick="numpadPress('2')">2</button><button class="numpad-btn" onclick="numpadPress('3')">3</button><button class="numpad-btn" onclick="numpadPress('00')" style="font-size:1rem">00</button>
+                    <button class="numpad-btn" onclick="numpadPress('0')" style="grid-column:span 2;">0</button><button class="numpad-btn" onclick="numpadPress('.')">,</button><button class="btn btn-success" style="font-size:1.1rem;" onclick="addManualItem()">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="overlay" id="pauseScreen"><div class="pause-container"><div class="pause-warning">⚠️</div><div class="overlay-title">TRANSACTION EN COURS</div><div class="pause-reason">Une transaction est en cours sur cette caisse.<br>Si vous quittez, elle sera annulée.</div><div style="display:flex;gap:30px;justify-content:center;margin-top:20px;"><button class="btn btn-danger" style="width:250px;height:80px;" onclick="confirmPause()">OUI, QUITTER</button><button class="btn btn-muted" style="width:250px;height:80px;" onclick="closeAllScreens()">NON, RESTER</button></div></div></div>
+    <div class="overlay" id="resumeScreen"><div class="resume-container"><div class="overlay-title">REPRISE DE CAISSE</div><div style="color:var(--text-muted);margin-bottom:12px;font-size:1rem;">Saisissez votre code :</div><input type="text" id="resumeDisplay" class="resume-display" value="" readonly><div class="resume-numpad" id="resumeNumpad"></div><button class="btn btn-primary" style="width:100%;font-size:1.1rem;margin-top:12px;" onclick="validateResume()">DÉVERROUILLER</button></div></div>
+    <div class="overlay" id="fidScreen"><div class="overlay-header"><div class="overlay-title">PROGRAMME DE FIDÉLITÉ</div><button class="close-btn" onclick="closeAllScreens()">&times;</button></div><div class="fid-container"><div class="fid-modes"><button class="fid-toggle active" onclick="setFidMode('card',this)">N° CARTE</button><button class="fid-toggle" onclick="setFidMode('tel',this)">TÉLÉPHONE</button><button class="fid-toggle" onclick="setFidMode('name',this)">NOM / PRÉNOM</button></div><input type="text" id="fidDisplay" class="fid-display" value="" readonly><div class="fid-keyboard-area" id="fidKeyboardArea"></div><div class="fid-actions"><button class="btn btn-primary" style="width:180px;" onclick="validateFidelity()">VALIDER</button><button class="btn btn-muted" style="width:180px;" onclick="closeAllScreens()">PASSER</button></div></div></div>
+    <div class="overlay" id="supervisorScreen"><div class="supervisor-content"><svg class="supervisor-icon" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><div class="overlay-title">APPEL SUPERVISEUR</div><div style="color:var(--text-muted);font-size:1.2rem;">Un superviseur a été prévenu.<br>Veuillez patienter.</div><button class="btn btn-muted" style="width:250px;height:70px;margin-top:20px;" onclick="closeAllScreens()">ANNULER L'APPEL</button></div></div>
+    <div class="overlay" id="ageScreen" style="border:4px solid var(--warning);"><div class="age-content"><div class="age-warning">⚠️ ATTENTION ⚠️</div><div class="overlay-title" style="color:var(--warning);margin-bottom:20px;">VENTE D'ALCOOL OU TABAC</div><div class="age-actions"><button class="btn btn-success" style="width:250px;height:80px;" onclick="closeAllScreens()">OUI, Vu > 18 ans</button><button class="btn btn-danger" style="width:250px;height:80px;" onclick="closeAllScreens()">NON, Refus</button></div></div></div>
+
+    <div class="overlay" id="payScreen">
+        <div class="pay-content">
+            <div class="pay-top-row">
+                <div class="overlay-title">MODE DE PAIEMENT</div>
+                <div class="total-display">
+                    <div class="total-label">RESTANT</div>
+                    <div class="total-amount" id="payTotal">0,00 €</div>
+                </div>
+            </div>
+            <div class="payment-grid">
+                <button class="btn btn-primary pay-btn" onclick="payByMethod('CARTE BANCAIRE')">CARTE BANCAIRE</button>
+                <button class="btn btn-success pay-btn" onclick="toggleCashInput()">ESPÈCES</button>
+                <button class="btn btn-muted pay-btn" onclick="toggleTRInput()">TICKET RESTO</button>
+                <button class="btn btn-muted pay-btn" onclick="payByMethod('CHÈQUE')">CHÈQUE</button>
+                <button class="btn btn-warning pay-btn" id="payFidBtn" onclick="toggleFidDeduct()" disabled>CAGNOTTE</button>
+                <button class="btn btn-danger pay-btn" onclick="cancelPaymentProcess()">ANNULER</button>
+            </div>
+            <div class="pay-bottom">
+                <div class="pay-history"><div class="pay-history-title">PAIEMENTS EFFECTUÉS</div><div class="pay-history-list" id="paymentSummary"><div class="pay-history-empty">Aucun paiement</div></div><div class="pay-history-remaining" id="payHistoryRemaining">RESTE : 0,00 €</div></div>
+                <div class="pay-info-zone">
+                    <div class="pay-no-selection" id="payNoSelection">Choisissez un moyen</div>
+                    <div class="sub-input-area" id="cashInfo"><div class="pay-mode-label">ESPÈCES</div><div class="sub-info">Montant donné :</div><input type="text" id="cashDisp" class="sub-display" value="0,00" readonly><div class="sub-result" id="changeDisplay" style="color:var(--success);">Rendu : 0,00 €</div><button class="btn btn-success" style="width:100%;font-size:0.9rem;" onclick="finalizeCash()">VALIDER</button></div>
+                    <div class="sub-input-area" id="trInfo"><div class="pay-mode-label">TICKET RESTO</div><div class="sub-info">Montant TR :</div><input type="text" id="trDisp" class="sub-display" value="0,00" readonly><div class="sub-result" id="trRemaining" style="color:var(--text-muted);"></div><button class="btn btn-success" style="width:100%;font-size:0.9rem;" onclick="validateTR()">VALIDER</button></div>
+                    <div class="sub-input-area" id="fidInfo"><div class="pay-mode-label" id="fidDeductModeLabel">CAGNOTTE</div><div class="sub-info">Montant à décagnotter :</div><input type="text" id="fidDeductDisp" class="sub-display" value="0,00" readonly><div class="sub-result" id="fidRemaining" style="color:var(--text-muted);"></div><button class="btn btn-warning" style="width:100%;font-size:0.9rem;color:black;" onclick="validateFidDeduct()">VALIDER</button></div>
+                </div>
+                <div class="pay-numpad-zone" id="payNumpadZone">
+                    <div id="cashNpGrid" class="numpad-slot"></div>
+                    <div id="trNpGrid" class="numpad-slot"></div>
+                    <div id="fidDeductNpGrid" class="numpad-slot"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="lane-closed-screen" id="laneClosed"><div class="lane-closed-text">CAISSE FERMÉE</div><div class="lane-closed-sub">Cette caisse est actuellement inutilisable</div><button class="lane-closed-btn btn btn-warning" onclick="showResumeFromClosed()">S'IDENTIFIER POUR REPRENDRE</button></div>
+
+    <div class="confirm-modal" id="confirmModal">
+        <div class="confirm-panel">
+            <div class="confirm-title">✓ TRANSACTION VALIDÉE</div>
+            <div class="confirm-payments" id="confirmPayments"></div>
+            <div class="confirm-labels" id="confirmLabels"></div>
+            <button class="btn btn-primary" style="width:100%;font-size:1.2rem;" onclick="closeConfirm()">NOUVELLE TRANSACTION</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    /* ── Composant clavier alphabétique partagé ── */
+    function buildAlphaKeyboard(containerId, onKey, onBackspace, opts) {
+        opts = opts || {};
+        const cont = document.getElementById(containerId);
+        cont.innerHTML = '';
+        cont.className = 'alpha-kb';
+        if (opts.extraClass) cont.classList.add(opts.extraClass);
+        if (opts.marginBottom) cont.style.marginBottom = opts.marginBottom;
+        const rows = ['AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN'];
+        rows.forEach(row => {
+            row.split('').forEach(l => {
+                const b = document.createElement('button');
+                b.className = 'alpha-kb-btn';
+                b.textContent = l;
+                b.onmousedown = e => e.preventDefault();
+                b.onclick = () => onKey(l.toLowerCase());
+                cont.appendChild(b);
+            });
+        });
+        const sp = document.createElement('button');
+        sp.className = 'alpha-kb-btn wide';
+        sp.textContent = 'ESPACE';
+        sp.onmousedown = e => e.preventDefault();
+        sp.onclick = () => onKey(' ');
+        cont.appendChild(sp);
+        const dl = document.createElement('button');
+        dl.className = 'alpha-kb-btn wide del';
+        dl.textContent = 'EFFACER';
+        dl.onmousedown = e => e.preventDefault();
+        dl.onclick = () => onBackspace();
+        cont.appendChild(dl);
+    }
+    /* ── Fin composant partagé ── */
+
+    let isLaneClosed = false;
+    let resumePinStr = "";
+    const VALID_RESUME_PIN = "1234";
+    let payments = [];
+    let paidAmount = 0;
+    let cashNp = null, trNp = null, fidDeductNp = null;
+    let pluCodeStr = "";
+    let isFidelityCardSet = false;
+    let fidelityLabel = "";
+
+    function makeNumpad(containerId, displayId, onChange, onOk, opts) {
+        opts = opts || {};
+        const gap = opts.gap || 4, fs = opts.fontSize || 1.1;
+        let str = '';
+        const disp = document.getElementById(displayId);
+        const cont = document.getElementById(containerId);
+        function update() { disp.value = str ? str.replace('.', ',') : '0,00'; }
+        cont.innerHTML = '';
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:' + gap + 'px;width:100%;height:100%;';
+        [{k:'7'},{k:'8'},{k:'9'},{k:'del'},{k:'4'},{k:'5'},{k:'6'},{k:'clr'},{k:'1'},{k:'2'},{k:'3'},{k:'00'},{k:','},{k:'0',span:2},{k:'ok'}].forEach(({k, span}) => {
+            const b = document.createElement('button');
+            b.style.cssText = 'background:#333;border:1px solid #555;color:white;font-size:' + fs + 'rem;border-radius:5px;cursor:pointer;font-weight:bold;';
+            if (span) b.style.gridColumn = 'span ' + span;
+            if (k === 'del') { b.textContent = '⌫'; b.style.background = '#222'; b.style.color = 'var(--text-muted)'; }
+            else if (k === 'clr') { b.textContent = 'C'; b.style.background = 'var(--danger)'; }
+            else if (k === 'ok') { b.textContent = 'OK'; b.style.background = 'var(--success)'; b.style.fontSize = (fs * 0.9) + 'rem'; }
+            else if (k === '00') { b.textContent = '00'; b.style.fontSize = (fs * 0.85) + 'rem'; }
+            else { b.textContent = k; }
+            b.onmousedown = e => e.preventDefault();
+            b.onclick = () => {
+                if (k === 'ok') { if (onOk) onOk(); return; }
+                if (k === 'del') str = str.slice(0, -1);
+                else if (k === 'clr') str = '';
+                else { const ch = k === ',' ? '.' : k; if (ch === '.' && str.includes('.')) return; if (str.includes('.') && str.split('.')[1].length >= 2) return; str += ch; }
+                update(); if (onChange) onChange();
+            };
+            grid.appendChild(b);
+        });
+        cont.appendChild(grid);
+        return { getValue: () => parseFloat(str) || 0, reset: () => { str = ''; update(); } };
+    }
+
+    function showScreen(id) {
+        if (isLaneClosed && id !== 'resumeScreen') return;
+        closeAllScreens();
+        document.getElementById(id).classList.add('active');
+        if (id === 'pluScreen') { pluPage = 0; renderPLU(); }
+        if (id === 'manualScreen') { resetManualScreen(); renderGridLevel(annalesTree, "Accueil", true); }
+        if (id === 'fidScreen') { fidStr = ""; const d = document.getElementById('fidDisplay'); d.value = ''; d.style.borderColor = 'var(--primary)'; d.style.color = 'var(--primary)'; renderFidKeyboard(); }
+        if (id === 'resumeScreen') { resumePinStr = ""; document.getElementById('resumeDisplay').value = ""; renderResumeNumpad(); }
+        if (id === 'payScreen') {
+            resetPayments(); deactivatePayInputs(); updatePayDisplay();
+            document.getElementById('payFidBtn').disabled = !isFidelityCardSet;
+            const npOpts = { gap: 5, fontSize: 1.25 };
+            if (!cashNp) cashNp = makeNumpad('cashNpGrid', 'cashDisp', calculateChange, finalizeCash, npOpts);
+            else cashNp.reset();
+            if (!trNp) trNp = makeNumpad('trNpGrid', 'trDisp', updateTRRemaining, validateTR, npOpts);
+            else trNp.reset();
+            if (!fidDeductNp) fidDeductNp = makeNumpad('fidDeductNpGrid', 'fidDeductDisp', updateFidRemaining, validateFidDeduct, npOpts);
+            else fidDeductNp.reset();
+        }
+    }
+    function closeAllScreens() {
+        const payWasActive = document.getElementById('payScreen').classList.contains('active');
+        document.querySelectorAll('.overlay').forEach(el => { el.classList.remove('active'); el.style.zIndex = ''; });
+        document.querySelectorAll('.plu-modal').forEach(el => el.classList.remove('active'));
+        if (payWasActive) resetPayments();
+    }
+
+    function startPause() { if (document.querySelectorAll('#receiptList .receipt-item').length > 0) showScreen('pauseScreen'); else confirmPause(); }
+    function confirmPause() { isLaneClosed = true; cancelTicket(); closeAllScreens(); document.getElementById('laneClosed').classList.add('active'); }
+    function showResumeFromClosed() { resumePinStr = ""; document.getElementById('resumeDisplay').value = ""; renderResumeNumpad(); const r = document.getElementById('resumeScreen'); r.style.zIndex = '60'; r.classList.add('active'); }
+    function renderResumeNumpad() {
+        const pad = document.getElementById('resumeNumpad'); pad.innerHTML = '';
+        ['1','2','3','4','5','6','7','8','9','C','0','⌫'].forEach(k => {
+            const btn = document.createElement('button');
+            btn.className = 'resume-num-btn' + (k === 'C' ? ' clear' : '');
+            if (k === '⌫') { btn.style.borderColor = 'var(--warning)'; btn.style.color = 'var(--warning)'; }
+            btn.innerText = k;
+            btn.onclick = () => { if (k === 'C' || k === '⌫') resumePinStr = resumePinStr.slice(0, -1); else if (resumePinStr.length < 4) resumePinStr += k; document.getElementById('resumeDisplay').value = resumePinStr.replace(/./g, '*'); };
+            pad.appendChild(btn);
+        });
+    }
+    function validateResume() { if (resumePinStr === VALID_RESUME_PIN) { isLaneClosed = false; document.getElementById('laneClosed').classList.remove('active'); closeAllScreens(); } else { const d = document.getElementById('resumeDisplay'); d.style.borderColor = 'var(--danger)'; d.style.color = 'var(--danger)'; setTimeout(() => { d.style.borderColor = 'var(--primary)'; d.style.color = 'var(--primary)'; }, 1000); } }
+
+    const pluDatabase = [
+        { name: 'Tomates grappe', code: 4010, price: 3.20, emoji: '🍅' }, { name: 'Tomates rondes', code: 4011, price: 2.90, emoji: '🍅' },
+        { name: 'Pommes Golden', code: 4020, price: 2.50, emoji: '🍎' }, { name: 'Pommes Gala', code: 4021, price: 3.10, emoji: '🍎' },
+        { name: 'Poires Williams', code: 4030, price: 3.40, emoji: '🍐' }, { name: 'Bananes', code: 4040, price: 1.90, emoji: '🍌' },
+        { name: 'Oranges de table', code: 4050, price: 2.80, emoji: '🍊' }, { name: 'Citrons jaunes', code: 4051, price: 3.50, emoji: '🍋' },
+        { name: 'Clémentines', code: 4052, price: 4.20, emoji: '🍊' }, { name: 'Fraises Gariguette', code: 4060, price: 6.90, emoji: '🍓' },
+        { name: 'Fraises rondes', code: 4061, price: 4.50, emoji: '🍓' }, { name: 'Framboises', code: 4062, price: 8.50, emoji: '🫐' },
+        { name: 'Myrtilles', code: 4063, price: 7.90, emoji: '🫐' }, { name: 'Melon cantaloup', code: 4070, price: 2.50, emoji: '🍈' },
+        { name: 'Pastèque', code: 4071, price: 1.80, emoji: '🍉' }, { name: 'Raisin blanc', code: 4080, price: 3.80, emoji: '🍇' },
+        { name: 'Carottes vrac', code: 4100, price: 1.60, emoji: '🥕' }, { name: 'Pommes de terre', code: 4110, price: 1.20, emoji: '🥔' },
+        { name: 'Oignons jaunes', code: 4120, price: 2.10, emoji: '🧅' }, { name: 'Ail blanc', code: 4121, price: 8.50, emoji: '🧄' },
+        { name: 'Échalotes', code: 4122, price: 10.90, emoji: '🧅' }, { name: 'Courgettes vertes', code: 4130, price: 2.40, emoji: '🥒' },
+        { name: 'Aubergines', code: 4131, price: 3.20, emoji: '🍆' }, { name: 'Poivrons rouges', code: 4140, price: 4.20, emoji: '🫑' },
+        { name: 'Haricots verts', code: 4150, price: 5.90, emoji: '🫘' }, { name: 'Salade batavia', code: 4160, price: 1.10, emoji: '🥬' },
+        { name: 'Épinards', code: 4161, price: 3.80, emoji: '🥬' }, { name: 'Brocolis', code: 4170, price: 4.50, emoji: '🥦' },
+        { name: 'Chou-fleur', code: 4171, price: 3.20, emoji: '🥬' }, { name: 'Concombres', code: 4190, price: 1.90, emoji: '🥒' },
+    ];
+    let pluPage = 0; const pluPerPage = 12;
+    function renderPLU() {
+        const grid = document.getElementById('pluGrid'); grid.innerHTML = '';
+        const tp = Math.ceil(pluDatabase.length / pluPerPage);
+        if (pluPage >= tp) pluPage = tp - 1; if (pluPage < 0) pluPage = 0;
+        pluDatabase.slice(pluPage * pluPerPage, pluPage * pluPerPage + pluPerPage).forEach(item => {
+            const btn = document.createElement('button'); btn.className = 'plu-btn';
+            btn.innerHTML = '<span class="plu-emoji">' + item.emoji + '</span><span class="plu-name">' + item.name + '</span><span class="plu-meta"><span class="plu-code">' + item.code + '</span><span class="plu-price">' + item.price.toFixed(2) + '€/kg</span></span>';
+            btn.onclick = () => addPLU(item.name, item.price);
+            grid.appendChild(btn);
+        });
+        document.getElementById('pluPageInfo').innerText = (pluPage + 1) + ' / ' + tp;
+    }
+    function pluPrevPage() { pluPage--; renderPLU(); }
+    function pluNextPage() { pluPage++; renderPLU(); }
+    function addPLU(n, p) {
+        let w = Math.random() * 1.2 + 0.3;
+        addItemToReceipt('<span class="qty">' + w.toFixed(3).replace('.', ',') + ' kg</span> ' + n.toUpperCase() + ' <span style="font-size:0.9rem;color:#888">(' + p.toFixed(2).replace('.', ',') + '€/kg)</span>', w * p);
+        closeAllScreens();
+    }
+
+    function openPluSearch() {
+        document.getElementById('pluSearch').value = '';
+        document.getElementById('pluSearchResults').innerHTML = '<div class="plu-search-empty">Tapez pour rechercher...</div>';
+        document.getElementById('pluSearchModal').classList.add('active');
+        buildAlphaKeyboard('pluSearchKb',
+            l => { document.getElementById('pluSearch').value += l; filterPluSearch(); document.getElementById('pluSearch').focus(); },
+            () => { const inp = document.getElementById('pluSearch'); inp.value = inp.value.slice(0, -1); filterPluSearch(); },
+            { marginBottom: '10px' }
+        );
+    }
+    function closePluSearch() { document.getElementById('pluSearchModal').classList.remove('active'); }
+    function filterPluSearch() {
+        const q = document.getElementById('pluSearch').value.toLowerCase();
+        const cont = document.getElementById('pluSearchResults');
+        if (!q) { cont.innerHTML = '<div class="plu-search-empty">Tapez pour rechercher...</div>'; return; }
+        const results = pluDatabase.filter(i => i.name.toLowerCase().includes(q)).slice(0, 4);
+        if (!results.length) { cont.innerHTML = '<div class="plu-search-empty">Aucun résultat</div>'; return; }
+        cont.innerHTML = results.map(i => '<div class="plu-search-result" onclick="addPLU(\'' + i.name.replace(/'/g, "\\'") + '\',' + i.price + ')"><span><span class="psr-emoji">' + i.emoji + '</span><span class="psr-name">' + i.name + '</span></span><span class="psr-code">' + i.code + '</span><span class="psr-price">' + i.price.toFixed(2) + '€/kg</span></div>').join('');
+    }
+
+    function openPluCode() { pluCodeStr = ''; document.getElementById('pluCode').value = ''; document.getElementById('pluCode').style.borderColor = 'var(--warning)'; document.getElementById('pluCodeModal').classList.add('active'); }
+    function closePluCode() { document.getElementById('pluCodeModal').classList.remove('active'); }
+    function initPluCodeNumpad() {
+        const cont = document.getElementById('pluCodeNumpad'); cont.innerHTML = '';
+        [{k:'1'},{k:'2'},{k:'3'},{k:'4'},{k:'5'},{k:'6'},{k:'7'},{k:'8'},{k:'9'},{k:'C',cls:'clr'},{k:'0'},{k:'⌫',cls:'bksp'}].forEach(({k, cls}) => {
+            const btn = document.createElement('button'); btn.className = 'plu-np-btn' + (cls ? ' ' + cls : ''); btn.textContent = k; btn.onmousedown = e => e.preventDefault();
+            btn.onclick = () => { if (k === '⌫') pluCodeStr = pluCodeStr.slice(0, -1); else if (k === 'C') pluCodeStr = ''; else { if (pluCodeStr.length < 6) pluCodeStr += k; } document.getElementById('pluCode').value = pluCodeStr; };
+            cont.appendChild(btn);
+        });
+    }
+    function addPLUByCode() {
+        const cd = parseInt(pluCodeStr);
+        if (isNaN(cd) || pluCodeStr.length === 0) { document.getElementById('pluCode').style.borderColor = 'var(--danger)'; setTimeout(() => document.getElementById('pluCode').style.borderColor = 'var(--warning)', 1000); return; }
+        const item = pluDatabase.find(e => e.code === cd);
+        if (!item) { document.getElementById('pluCode').style.borderColor = 'var(--danger)'; setTimeout(() => document.getElementById('pluCode').style.borderColor = 'var(--warning)', 1000); return; }
+        addPLU(item.name, item.price);
+    }
+
+    let fidMode = 'card', fidStr = "";
+    function setFidMode(mode, el) { fidMode = mode; fidStr = ""; const d = document.getElementById('fidDisplay'); d.value = ''; d.style.borderColor = 'var(--primary)'; d.style.color = 'var(--primary)'; document.querySelectorAll('.fid-toggle').forEach(b => b.classList.remove('active')); el.classList.add('active'); renderFidKeyboard(); }
+    function renderFidKeyboard() {
+        const a = document.getElementById('fidKeyboardArea');
+        a.innerHTML = '';
+        a.className = 'fid-keyboard-area';
+        if (fidMode === 'name') {
+            buildAlphaKeyboard('fidKeyboardArea', c => fidAdd(c), () => fidDel(), { extraClass: 'fid-keyboard-area' });
+        } else {
+            const p = document.createElement('div'); p.className = 'fid-numpad';
+            ['1','2','3','4','5','6','7','8','9','C','0','⌫'].forEach(k => {
+                const b = document.createElement('button'); b.className = 'fid-num-btn' + (k === 'C' ? ' clear' : ''); b.innerText = k;
+                b.onclick = () => { if (k === 'C') fidClear(); else if (k === '⌫') fidDel(); else fidAdd(k); };
+                p.appendChild(b);
+            });
+            a.appendChild(p);
+        }
+    }
+    function fidAdd(c) { if ((fidMode === 'name' && fidStr.length >= 30) || fidStr.length >= 15) return; fidStr += c; document.getElementById('fidDisplay').value = fidStr.toUpperCase(); }
+    function fidDel() { fidStr = fidStr.slice(0, -1); document.getElementById('fidDisplay').value = fidStr.toUpperCase(); }
+    function fidClear() { fidStr = ""; document.getElementById('fidDisplay').value = ''; }
+    function validateFidelity() {
+        if (fidStr.length < 2) { document.getElementById('fidDisplay').style.borderColor = 'var(--danger)'; setTimeout(() => document.getElementById('fidDisplay').style.borderColor = 'var(--primary)', 1500); return; }
+        isFidelityCardSet = true; fidelityLabel = fidStr.toUpperCase();
+        const d = document.getElementById('fidDisplay'); d.style.borderColor = 'var(--success)'; d.style.color = 'var(--success)'; d.value = '✓ ' + fidelityLabel;
+        document.getElementById('fidIcon').classList.remove('inactive'); document.getElementById('fidIcon').classList.add('active');
+        setTimeout(() => closeAllScreens(), 900);
+    }
+
+    const annalesTree = {
+        "BOULANGERIE": { "Pains classiques": ["BAGUETTE CLASSIQUE","BAGUETTE RÉSEAU","TRADITION","PAIN DE CAMPAGNE","BAGUETTE COMPLÈTE","FLÛTE"], "Pains spéciaux": ["BAGUETTE CÉRÉALES","PAIN AU LEVAIN","PAIN AUX NOIX","PAIN DE MIE","PAIN ÉPONGE"], "Viennoiseries": ["CROISSANT PUR BEURRE","PAIN AU CHOCOLAT","BORDELAIS","ESCOFFIER","PARISIEN","CHOUQUETTES 100G"], "Pâtisserie comptoir": ["TARTE POMMES 6P","TARTE CITRON 6P","ÉCLAIR CHOCOLAT","ÉCLAIR CAFÉ","MOELLEUX CHOCOLAT"] },
+        "CHARCUTERIE TRAITEUR": { "Barquettes comptoir": ["QUICHE LORRAINE","QUICHE SAUMON","QUICHE ÉPINARDS","GRATIN DAUPHINOIS","TABOULÉ","CAROTTES RÂPÉES"], "Volailles rôties": ["POULET RÔTI","POULET BASQUAISE","DINDE RÔTIE"] },
+        "CRÉMERIE": { "Yaourts": ["YAOURT NATURE X4","YAOURT FRUIT X4","YAOURT BRASSÉ X4"], "Desserts lactés": ["CRÈME CARAMEL X4","MOUSSE CHOCOLAT X4","RIZ AU LAIT X4","FLAN X4"] },
+        "PRODUITS LAITIERS": { "Fromages": ["EMMENTAL","COMTÉ","CAMEMBERT","BRIE","ROQUEFORT","CHÈVRE FRAIS"], "Beurre & Crème": ["BEURRE DOUX 250G","BEURRE DEMI-SEL 250G","CRÈME FRAÎCHE 20CL"] },
+        "ÉPICERIE SUCRÉE": { "Pâtes & Riz": ["SPAGHETTI 500G","PENNE 500G","RIZ BASMATI 1KG","COUSCOUS 1KG"], "Biscuits": ["BISCOTTS CHOCOLAT","GALETTES BEURRE","COOKIE ASSORTI","PALETTE GÂTEAU"], "Sucres & Confiserie": ["SUCRE 1KG","CONFITURE FRAISE","MIEL 500G","NUTELLA 400G"] },
+        "ÉPICERIE SALÉE": { "Conserves": ["HARICOTS ROUGES","MAÏS DOUX","TOMATES PELÉES","THON AU NATUREL"], "Condiments": ["HUILE D'OLIVE 75CL","VINAIGRE 75CL","SAUCE SOJA","MOUTARDE 200G"] },
+        "BOISSONS": { "Eaux": ["EAU PLATE 1.5L","EAU GAZEUSE 1.5L","EAU PLATE 50CL"], "Jus & Sodas": ["JUS D'ORANGE 1L","JUS DE POMME 1L","COCA-COLA 1.5L","SPRITE 1.5L"], "Alcool": ["VIN ROUGE 75CL","VIN BLANC 75CL","BIÈRE X6"] },
+        "SURGELÉS": { "Plats préparés": ["PIZZA SURGELÉE","QUICHE SURGELÉE","FRITES 1KG","CROQUETTES POISSON"], "Glace": ["GLACE VANILLE 500ML","GLACE CHOCOLAT 500ML","SORBET CITRON 500ML"] },
+        "HYGIÈNE & BEAUTÉ": { "Soins corps": ["GEL DOUCHE 400ML","SHAMPOING 300ML","SAVON DOUCHE X3"], "Soins visage": ["CRÈME HYDRATANTE","DÉMAQUILLANT","MASQUE VISAGE"] },
+        "ENTRETIEN MÉNAGER": { "Nettoyage": ["NETTOYANT MULTI-USAGE","JAVEL 1L","LIQUIDE VAISSELLE 1L"], "Lavage": ["LESSIVE LIQUIDE 2L","ADOUCISSANT 1L","LESSIVE POUDRE 2KG"] },
+        "BOUCHERIE": { "Boeuf": ["STEAK HACHÉ X2","BOURGUIGNON 500G","ENTRECÔTE","FAUX FILET"], "Volailles": ["BLANC DE POULET","CUISSES DE POULET X4","FILET DE DINDE"], "Porc": ["FILET MIGNON","RÔTI DE PORC","CÔTES DE PORC X4"] },
+        "POISSONNERIE": { "Poissons": ["FILET DE SAUMON","FILET DE CABILLAUD","DORADE ENTIÈRE"], "Crustacés": ["CREVETTES DECORT. 200G","MOULES 1KG"] },
+        "NON ALIMENTAIRE": { "Papeterie": ["CARNET","STYLOS LOT X4","GOMMES"], "Cuisine": ["ESSUIE-TOUT X2","SACHETS CONGÉLATION","FILM ALIMENTAIRE"] },
+        "FRUITS & LÉG. DÉT.": { "Barquettes": ["RAISIN DÉT. 500G","FRAISES DÉT. 250G","MELON DÉT.","ANANAS DÉT."] },
+        "BIO & LOCAL": { "Produits bio": ["OEUFS BIO X6","LAIT BIO 1L","YAOURT BIO X4"], "Produits locaux": ["MIEL LOCAL 250G","CONFITURE LOCALE","PAIN LOCAL"] }
+    };
+    let navigationHistory = [], selectedProduct = null, manualPriceStr = "";
+    let manualPage = 0; const manualPerPage = 12;
+    let manualCtx = { data: null, text: '', isR: false };
+    function resetManualScreen() { navigationHistory = []; selectedProduct = null; manualPriceStr = ""; manualPage = 0; document.getElementById('manualPrice').value = "0,00"; document.getElementById('productSelection').classList.remove('flash-error'); document.getElementById('flashLabel').classList.remove('show'); }
+    function renderGridLevel(d, t, isR) { manualPage = 0; manualCtx = { data: d, text: t, isR }; renderManualPage(); }
+    function renderManualPage() {
+        const { data: d, text: t, isR: isR } = manualCtx;
+        const g = document.getElementById('productGrid'); const b = document.getElementById('breadcrumb'); const pag = document.getElementById('manualPagination');
+        g.innerHTML = ''; b.innerHTML = t;
+        if (!isR) { const bk = document.createElement('button'); bk.className = 'grid-btn back-btn'; bk.innerText = '< RETOUR'; bk.onclick = goBackNavigation; g.appendChild(bk); }
+        else { const sk = document.createElement('button'); sk.className = 'grid-btn skip-btn'; sk.innerText = 'NON RECONNU'; sk.onclick = () => { selectedProduct = "VENTE DIRECTE"; document.querySelectorAll('.grid-btn').forEach(x => x.classList.remove('selected')); sk.classList.add('selected'); }; g.appendChild(sk); }
+        let items = [];
+        Object.keys(d).forEach(k => { const v = d[k]; if (typeof v === 'object' && !Array.isArray(v)) items.push({ type: 'cat', key: k, val: v }); else if (Array.isArray(v)) v.forEach(p => items.push({ type: 'prod', name: p })); });
+        const tp = Math.max(1, Math.ceil(items.length / manualPerPage));
+        if (manualPage >= tp) manualPage = tp - 1; if (manualPage < 0) manualPage = 0;
+        pag.classList.toggle('hidden', items.length <= manualPerPage);
+        items.slice(manualPage * manualPerPage, manualPage * manualPerPage + manualPerPage).forEach(item => {
+            const btn = document.createElement('button'); btn.className = 'grid-btn';
+            if (item.type === 'cat') { btn.innerText = item.key; btn.onclick = () => { navigationHistory.push({ data: d, text: t }); renderGridLevel(item.val, t + ' > <span>' + item.key + '</span>', false); }; }
+            else { btn.innerText = item.name; btn.onclick = () => { selectedProduct = item.name; document.querySelectorAll('.grid-btn').forEach(x => x.classList.remove('selected')); btn.classList.add('selected'); }; }
+            g.appendChild(btn);
+        });
+        document.getElementById('manualPrevBtn').disabled = (manualPage <= 0);
+        document.getElementById('manualNextBtn').disabled = (manualPage >= tp - 1);
+        document.getElementById('manualPageInfo').innerText = (manualPage + 1) + ' / ' + tp;
+    }
+    function manualPrevPage() { if (manualPage > 0) { manualPage--; renderManualPage(); } }
+    function manualNextPage() { manualPage++; renderManualPage(); }
+    function goBackNavigation() { if (navigationHistory.length > 0) { const p = navigationHistory.pop(); renderGridLevel(p.data, p.text, navigationHistory.length === 0); selectedProduct = null; } }
+    function numpadPress(v) { if (v === '.' && manualPriceStr.includes('.')) return; if (manualPriceStr.includes('.') && manualPriceStr.split('.')[1].length >= 2) return; manualPriceStr += v; document.getElementById('manualPrice').value = manualPriceStr.replace('.', ',') || "0,00"; }
+    function numpadDelete() { manualPriceStr = manualPriceStr.slice(0, -1); document.getElementById('manualPrice').value = manualPriceStr.replace('.', ',') || "0,00"; }
+    function numpadClear() { manualPriceStr = ""; document.getElementById('manualPrice').value = "0,00"; }
+    function addManualItem() {
+        const p = parseFloat(manualPriceStr.replace(',', '.'));
+        if (!selectedProduct) {
+            const sel = document.getElementById('productSelection');
+            const lbl = document.getElementById('flashLabel');
+            sel.classList.add('flash-error');
+            lbl.classList.add('show');
+            setTimeout(() => { sel.classList.remove('flash-error'); lbl.classList.remove('show'); }, 1800);
+            return;
+        }
+        if (isNaN(p) || p <= 0) { document.getElementById('manualPrice').style.borderColor = 'var(--danger)'; setTimeout(() => document.getElementById('manualPrice').style.borderColor = 'var(--success)', 1500); return; }
+        addItemToReceipt('<span class="qty unit-qty">x1</span> ' + selectedProduct, p); closeAllScreens();
+    }
+
+    function getRemainingTotal() { return getCurrentTotal() - paidAmount; }
+    function resetPayments() { payments = []; paidAmount = 0; renderPaymentSummary(); }
+    function addPayment(method, amount) { payments.push({ method, amount }); paidAmount += amount; renderPaymentSummary(); updatePayDisplay(); }
+    function deactivatePayInputs() { document.querySelectorAll('.pay-info-zone .sub-input-area').forEach(el => el.classList.remove('active')); document.querySelectorAll('.numpad-slot').forEach(el => el.classList.remove('active')); document.getElementById('payNoSelection').classList.remove('hidden'); }
+    function renderPaymentSummary() {
+        const cont = document.getElementById('paymentSummary'); const remEl = document.getElementById('payHistoryRemaining');
+        if (!payments.length) { cont.innerHTML = '<div class="pay-history-empty">Aucun paiement</div>'; }
+        else { cont.innerHTML = payments.map(p => '<div class="pay-history-entry"><span class="phe-method">' + p.method + '</span><span class="phe-amount">' + p.amount.toFixed(2).replace('.', ',') + ' €</span></div>').join(''); cont.scrollTop = cont.scrollHeight; }
+        const rem = getRemainingTotal();
+        remEl.innerText = 'RESTE : ' + rem.toFixed(2).replace('.', ',') + ' €';
+        remEl.style.color = rem <= 0.005 ? 'var(--success)' : 'var(--warning)';
+    }
+    function updatePayDisplay() { const rem = getRemainingTotal(); const el = document.getElementById('payTotal'); el.innerText = rem.toFixed(2).replace('.', ',') + ' €'; el.style.color = rem <= 0.005 ? 'var(--success)' : ''; }
+
+    function payByMethod(method) { const rem = getRemainingTotal(); if (rem <= 0.005) return; addPayment(method, rem); finalizeTransaction(); }
+
+    function toggleCashInput() { if (getRemainingTotal() <= 0.005) return; deactivatePayInputs(); document.getElementById('payNoSelection').classList.add('hidden'); document.getElementById('cashInfo').classList.add('active'); document.getElementById('cashNpGrid').classList.add('active'); cashNp.reset(); calculateChange(); }
+    function toggleTRInput() { if (getRemainingTotal() <= 0.005) return; deactivatePayInputs(); document.getElementById('payNoSelection').classList.add('hidden'); document.getElementById('trInfo').classList.add('active'); document.getElementById('trNpGrid').classList.add('active'); trNp.reset(); updateTRRemaining(); }
+    function toggleFidDeduct() {
+        if (getRemainingTotal() <= 0.005) return;
+        deactivatePayInputs(); document.getElementById('payNoSelection').classList.add('hidden');
+        document.getElementById('fidDeductModeLabel').textContent = 'CAGNOTTE — ' + fidelityLabel;
+        document.getElementById('fidInfo').classList.add('active'); document.getElementById('fidDeductNpGrid').classList.add('active');
+        if (fidDeductNp) { fidDeductNp.reset(); updateFidRemaining(); }
+    }
+
+    function calculateChange() {
+        const t = getRemainingTotal(); const g = cashNp.getValue(); const d = document.getElementById('changeDisplay');
+        if (g >= t && t > 0.005) { d.innerText = 'Rendu : ' + (g - t).toFixed(2).replace('.', ',') + ' €'; d.style.color = 'var(--success)'; }
+        else if (t <= 0.005) { d.innerText = 'Rendu : 0,00 €'; d.style.color = 'var(--success)'; }
+        else { d.innerText = 'Manquant : ' + Math.abs(g - t).toFixed(2).replace('.', ',') + ' €'; d.style.color = 'var(--danger)'; }
+    }
+    function finalizeCash() {
+        const cashAmt = cashNp.getValue(); const rem = getRemainingTotal();
+        if (cashAmt < rem - 0.005) { const d = document.getElementById('changeDisplay'); d.innerText = 'MONTANT INSUFFISANT'; d.style.color = 'var(--danger)'; setTimeout(calculateChange, 1500); return; }
+        const change = Math.max(0, cashAmt - rem);
+        addPayment('ESPÈCES' + (change > 0.005 ? ' (rendu ' + change.toFixed(2).replace('.', ',') + ' €)' : ''), rem);
+        deactivatePayInputs(); finalizeTransaction();
+    }
+    function updateTRRemaining() { const trAmt = trNp.getValue(); const rem = getRemainingTotal(); const d = document.getElementById('trRemaining'); const left = rem - trAmt; if (left > 0.01) { d.innerText = 'Reste : ' + left.toFixed(2).replace('.', ',') + ' €'; d.style.color = 'var(--warning)'; } else { d.innerText = 'Solde couvert'; d.style.color = 'var(--success)'; } }
+    function validateTR() { const trAmt = trNp.getValue(); const rem = getRemainingTotal(); if (trAmt <= 0 || trAmt > rem + 0.005) { document.getElementById('trDisp').style.borderColor = 'var(--danger)'; setTimeout(() => document.getElementById('trDisp').style.borderColor = 'var(--success)', 1000); return; } addPayment('TICKET RESTO', trAmt); trNp.reset(); deactivatePayInputs(); if (getRemainingTotal() < 0.01) finalizeTransaction(); }
+    function updateFidRemaining() { const amt = fidDeductNp.getValue(); const rem = getRemainingTotal(); const d = document.getElementById('fidRemaining'); const left = rem - amt; if (left > 0.01) { d.innerText = 'Reste : ' + left.toFixed(2).replace('.', ',') + ' €'; d.style.color = 'var(--warning)'; } else { d.innerText = 'Solde couvert'; d.style.color = 'var(--success)'; } }
+    function validateFidDeduct() { const amt = fidDeductNp.getValue(); const rem = getRemainingTotal(); if (amt <= 0 || amt > rem + 0.005) { document.getElementById('fidDeductDisp').style.borderColor = 'var(--danger)'; setTimeout(() => document.getElementById('fidDeductDisp').style.borderColor = 'var(--success)', 1000); return; } addPayment('CAGNOTTE (' + fidelityLabel + ')', amt); fidDeductNp.reset(); deactivatePayInputs(); if (getRemainingTotal() < 0.01) finalizeTransaction(); }
+
+    function cancelPaymentProcess() { resetPayments(); closeAllScreens(); }
+
+    function finalizeTransaction() {
+        if (!payments.length) return;
+        closeAllScreens();
+        const nbVignettes = payments.length;
+        const total = getCurrentTotal();
+        document.getElementById('confirmPayments').innerHTML = payments.map(p => '<div class="confirm-entry"><span class="ce-method">' + p.method + '</span><span class="ce-amount">' + p.amount.toFixed(2).replace('.', ',') + ' €</span></div>').join('') + '<div class="confirm-entry" style="border-top:2px solid #555;margin-top:4px;padding-top:8px;"><span class="ce-method" style="font-weight:bold;color:white;">TOTAL</span><span class="ce-amount" style="font-size:1.1rem;">' + total.toFixed(2).replace('.', ',') + ' €</span></div>';
+        document.getElementById('confirmLabels').innerHTML = '⬇ VIGNETTES À DONNER : ' + nbVignettes + ' ⬇';
+        document.getElementById('confirmModal').classList.add('active');
+    }
+    function closeConfirm() { document.getElementById('confirmModal').classList.remove('active'); cancelTicket(); }
+
+    function updateTotal() {
+        let t = 0; document.querySelectorAll('#receiptList .receipt-item').forEach(el => { t += parseFloat(el.dataset.price); });
+        document.getElementById('mainTotal').innerText = t.toFixed(2).replace('.', ',') + ' €';
+        const isZero = t <= 0.005;
+        document.querySelectorAll('.total-amount').forEach(el => { if (isZero) el.classList.add('zero'); else el.classList.remove('zero'); });
+        document.getElementById('btnEncaisser').disabled = isZero;
+        if (document.getElementById('payScreen').classList.contains('active')) updatePayDisplay();
+    }
+    function addItemToReceipt(html, price, neg) {
+        const r = document.getElementById('receiptList'); const e = r.querySelector('.receipt-empty'); if (e) e.remove();
+        const n = document.createElement('div'); n.className = neg ? 'receipt-item negative' : 'receipt-item'; n.dataset.price = price.toFixed(2);
+        n.innerHTML = '<div class="item-details">' + html + '</div><span class="price">' + price.toFixed(2).replace('.', ',') + ' €</span>';
+        r.appendChild(n); r.scrollTop = r.scrollHeight; updateTotal();
+    }
+    function addDepositReturn() { addItemToReceipt('<span class="qty unit-qty">x1</span> DÉCONSIGNATION', -1.00, true); }
+    function cancelLine() { const r = document.getElementById('receiptList'); if (r.children.length > 0 && !r.querySelector('.receipt-empty')) { r.removeChild(r.lastElementChild); updateTotal(); } }
+    function cancelTicket() { resetPayments(); isFidelityCardSet = false; fidelityLabel = ''; document.getElementById('receiptList').innerHTML = '<div class="receipt-empty">EN ATTENTE D\'ARTICLES...</div>'; updateTotal(); closeAllScreens(); resetFidelityIcon(); }
+    function getCurrentTotal() { let t = 0; document.querySelectorAll('#receiptList .receipt-item').forEach(el => { t += parseFloat(el.dataset.price); }); return t; }
+    function resetFidelityIcon() { document.getElementById('fidIcon').classList.remove('active'); document.getElementById('fidIcon').classList.add('inactive'); }
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    window.onload = () => { updateTotal(); renderFidKeyboard(); initPluCodeNumpad(); };
+</script>
+</body>
+</html>

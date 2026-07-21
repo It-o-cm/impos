@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Retour Client - Recherche</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid #444; border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+    }
+
+    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
+    .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+
+    .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
+
+    .list-panel { display: flex; flex-direction: column; border-right: 1px solid var(--border-color); min-height: 0; position: relative; }
+
+    .search-ticket-bar {
+      padding: 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color);
+      display: flex; gap: 10px; flex-shrink: 0; align-items: center; height: 50px;
+    }
+    .search-info { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; }
+
+    .content-area { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
+
+    .search-results-list { flex: 1; padding: 5px 10px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+    .search-result-item {
+      background: var(--bg-panel); padding: 0 15px; height: 48px;
+      border-radius: 4px; border: 1px solid #333; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit;
+    }
+    .search-result-item:hover { background: #252525; border-color: #444; }
+    .ticket-id { font-weight: bold; font-size: 1.1rem; color: var(--text-main); }
+    .ticket-date { font-size: 0.85rem; color: var(--text-muted); }
+
+    .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; }
+
+    #searchKeyboardZone { display: flex; flex-direction: column; height: 100%; }
+
+    .search-display {
+      font-size: 1.8rem; text-align: center; color: var(--text-main); font-weight: bold;
+      background: #000; border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px;
+      margin-bottom: 10px; min-height: 50px;
+      width: 100%; outline: none; cursor: default; display: block;
+    }
+
+    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
+    .btn-back { background: #222; color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid #444; }
+
+  </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+  <div class="top-bar">
+    <span class="store-name">INTERMARCHÉ</span>
+    <span id="screenTitle">RETOUR CLIENT</span>
+    <span id="clock">--:--:--</span>
+  </div>
+
+  <div class="main-area">
+    <div class="list-panel">
+      <div class="search-ticket-bar">
+        <div class="search-info">Saisissez le N° de ticket</div>
+      </div>
+
+      <div class="content-area">
+        <div class="search-results-list">
+          {#if state.refund.foundTickets.isEmpty}
+            {#if state.refund.searchPattern.length >= 3}
+              <div style="text-align:center; padding:20px; color:var(--danger);">Aucun ticket trouvé</div>
+            {#else}
+              <div style="text-align:center; padding:20px; color:var(--text-muted);">Saisir au moins 3 caractères</div>
+            {/if}
+          {#else}
+            {#for t in state.refund.foundTickets}
+              <a href="/return/select/{t.id}" class="search-result-item">
+                <span class="ticket-id">{t.ticketNumber}</span>
+                <span class="ticket-date">{t.creationDate.format('dd/MM/yyyy')}</span>
+              </a>
+            {/for}
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <div class="action-panel">
+      <div id="searchKeyboardZone">
+        <form action="/return/search" method="POST" id="searchForm">
+          <input type="hidden" name="rawValue" id="searchHidden" value="">
+          <input type="text" id="searchDisplay" class="search-display" readonly>
+          <div id="searchPadContainer"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <a href="/" class="btn-back">Retour</a>
+  </div>
+</div>
+
+  {#include keyboard-lib /}
+
+<script>
+  setInterval(function() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+  var prevLen = 0;
+
+  document.addEventListener('DOMContentLoaded', function() {
+    PosInput.setup({
+      containerId: 'searchPadContainer',
+      displayId: 'searchDisplay',
+      hiddenId: 'searchHidden',
+      keyboardType: 'search',
+      mode: 'text',
+      placeholder: '',
+      onChange: function(val) {
+        var len = val.length;
+        var boundary = 3;
+
+        var validSearch = (len >= boundary);
+        var clearingSearch = (len < boundary && prevLen >= boundary);
+
+        if (validSearch || clearingSearch) {
+          document.getElementById('searchHidden').value = val;
+          document.getElementById('searchForm').submit();
+        }
+
+        prevLen = len;
+      }
+    });
+
+    var serverPattern = '{state.refund.searchPattern}';
+    if (serverPattern && serverPattern.length > 0) {
+      PosInput.buffer = serverPattern;
+      prevLen = serverPattern.length;
+      PosInput.updateDisplay();
+    }
+  });
+</script>
+
+</body>
+</html>

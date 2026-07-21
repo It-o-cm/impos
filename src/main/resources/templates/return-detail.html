@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Retour Client - Détail</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid #444; border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+    }
+
+    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
+    .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+
+    .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
+
+    .list-panel { display: flex; flex-direction: column; border-right: 1px solid var(--border-color); min-height: 0; position: relative; }
+
+    .search-ticket-bar {
+      padding: 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color);
+      display: flex; gap: 10px; flex-shrink: 0; align-items: center; height: 50px;
+    }
+    .search-info { display: none; }
+
+    .active-ticket-display { display: flex; align-items: center; gap: 15px; flex: 1; padding-left: 10px; }
+    .ticket-name-label { color: var(--text-main); font-weight: bold; font-size: 1rem; }
+
+    .content-area { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
+
+    #ticketMode { display: flex; flex-direction: column; height: 100%; }
+    .receipt-area { flex: 1; padding: 10px 20px; background: var(--bg-dark); display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; overflow: hidden; min-height: 0; }
+
+    .receipt-line {
+      background: var(--bg-panel); border-radius: 4px;
+      padding: 10px 12px;
+      cursor: pointer;
+      border: 1px solid transparent; transition: all 0.15s;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .receipt-line.has-return { border-left: 4px solid var(--primary); background: rgba(0, 85, 255, 0.1); }
+    .receipt-line.selected { background: #252525; border: 1px solid var(--primary); z-index: 2; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+
+    .line-content { display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit; }
+    .item-qty-info { font-weight: bold; margin-right: 8px; font-size: 0.9rem; color: var(--warning); }
+    .qty-r { color: var(--danger); }
+    .qty-slash { color: var(--danger); }
+    .item-label { color: var(--text-main); flex: 1; font-size: 1rem; }
+    .item-price { color: var(--success); font-weight: bold; font-size: 1rem; min-width: 60px; text-align: right; }
+
+    .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid #444; align-items: center; justify-content: center; gap: 10px; }
+    .receipt-line.selected .qty-controls { display: flex; }
+
+    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid #555; color: white; font-size: 1.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+    .btn-qty:active { background: #444; }
+    .btn-qty.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+    .qty-input-display { font-size: 1.2rem; font-weight: bold; color: var(--warning); background: #000; border: 1px solid #444; width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
+
+    .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+    .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: #111; }
+
+    .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #333; padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 50px; z-index: 5; }
+    .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: 0.8rem; }
+    .nav-info { color: var(--text-muted); font-size: 0.85rem; }
+
+    .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; }
+
+    #ticketActionsZone { display: flex; flex-direction: column; height: 100%; }
+    .overlay-title { font-size: 1.4rem; margin-bottom: 10px; text-align: center; }
+    .total-zone { text-align: center; margin-bottom: 10px; }
+    .sub-display { font-size: 2rem; text-align: center; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; text-decoration: none; display: block;}
+    .sub-display.manual { border-color: var(--warning); color: var(--warning); }
+
+    #numpadContainer { width: 100%; margin-bottom: 8px; flex-shrink: 0; min-height: 0; }
+
+    .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
+
+    .btn { height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 12px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; text-align: center; }
+    .btn:active { transform: translateY(4px); box-shadow: none; }
+    .btn-primary { background-color: var(--primary); }
+    .btn-success { background-color: var(--success); }
+    .btn-warning { background-color: var(--warning); color: black; }
+    .btn-muted { background-color: #555; }
+
+    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
+    .btn-back { background: #222; color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid #444; }
+
+  </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+  <div class="top-bar">
+    <span class="store-name">INTERMARCHÉ</span>
+    <span id="screenTitle">RETOUR CLIENT</span>
+    <span id="clock">--:--:--</span>
+  </div>
+
+  <div class="main-area">
+    <div class="list-panel">
+      <div class="search-ticket-bar">
+        <div class="search-info" id="searchInfo">Saisissez le N° de ticket</div>
+        <div class="active-ticket-display" id="activeTicketDisplay">
+          <a href="/return" class="btn btn-primary" style="padding:6px 12px; font-size:0.8rem; box-shadow:none;">CHERCHER</a>
+          <span class="ticket-name-label" id="currentTicketName">{state.refund.selectedTicket.ticketNumber}</span>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div id="ticketMode">
+          <div class="receipt-area" id="receiptContainer">
+
+            {#for line in state.refund.visibleLines}
+            {#let returnQty = state.refund.getReturnQty(line.id)}
+            {#let hasReturn = state.refund.hasReturnQty(line.id)}
+            {#let maxQty = line.quantity}
+            {#let isSelected = state.refund.isLineSelected(line.id)}
+
+            <div class="receipt-line {hasReturn ? 'has-return' : ''} {isSelected ? 'selected' : ''}">
+              <a href="/return/select-line/{line.id}" class="line-content">
+                        <span class="item-label">
+                            {#if hasReturn}
+                              <span class="item-qty-info">x<span class="qty-r">{returnQty.stripTrailingZeros().toPlainString()}</span><span class="qty-slash">/</span>{maxQty.stripTrailingZeros().toPlainString()}</span>
+                            {#else}
+                              <span class="item-qty-info">x{maxQty.stripTrailingZeros().toPlainString()}</span>
+                            {/if}
+                          {line.productLabel}
+                        </span>
+                <span class="item-price">{line.totalFormatted} €</span>
+              </a>
+
+              <div class="qty-controls">
+                <a href="/return/line/{line.id}/sub" class="btn-qty {returnQty <= 0 ? 'disabled' : ''}">-</a>
+                <input type="text" class="qty-input-display" id="lineInput-{line.id}" value="{returnQty.stripTrailingZeros().toPlainString()}" readonly>
+                <a href="/return/line/{line.id}/add" class="btn-qty {returnQty >= maxQty ? 'disabled' : ''}">+</a>
+                <a href="/return/select-line/{line.id}" class="btn-validate-line">✓</a>
+              </div>
+            </div>
+            {/let}
+            {/for}
+
+          </div>
+
+          <div class="ticket-nav" id="ticketNav">
+            {#if state.refund.hasDetailPrev}
+            <a href="/return/page/{state.refund.detailPage - 1}" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+            {#else}
+            <button class="btn btn-muted nav-btn" disabled>PRÉCÉDENT</button>
+            {/if}
+
+            <span class="nav-info">Page {state.refund.detailPageDisplay}</span>
+
+            {#if state.refund.hasDetailNext}
+            <a href="/return/page/{state.refund.detailPage + 1}" class="btn btn-muted nav-btn">SUIVANT</a>
+            {#else}
+            <button class="btn btn-muted nav-btn" disabled>SUIVANT</button>
+            {/if}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-panel">
+      <div id="ticketActionsZone">
+        <div class="overlay-title">Montant Retour</div>
+        <div class="total-zone">
+
+          {#if state.refund.selectedLineId}
+          <form action="/return/submit-line" method="POST" id="activeForm">
+            <input type="hidden" name="lineId" value="{state.refund.selectedLineId}">
+            <input type="hidden" name="rawValue" id="hiddenValue" value="0">
+          </form>
+          <a href="/return/edit-amount" class="sub-display">{state.refund.totalRefundFormatted} €</a>
+
+          {#else}
+          <form action="/return/submit-amount" method="POST" id="activeForm">
+            <input type="hidden" name="rawValue" id="hiddenValue" value="0">
+            <input type="text" class="sub-display {state.refund.isEditingAmount ? 'manual' : ''}" id="mainInput" value="{state.refund.totalRefundFormatted}" readonly>
+          </form>
+          {/if}
+
+          <div style="color:var(--text-muted); font-size:0.8rem; height:1.2em;" id="helperText">&nbsp;</div>
+        </div>
+
+        <div id="numpadContainer"></div>
+
+        <div class="payment-grid">
+          <a href="/return/pay/cash" class="btn btn-success" onclick="return submitAction(this);">ESPÈCES</a>
+          <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">CARTE BANCAIRE</a>
+          <a href="/return/pay/voucher" class="btn btn-muted" onclick="return submitAction(this);">BON D'ACHAT</a>
+          <a href="/return/pay/loyalty" class="btn btn-warning" onclick="return submitAction(this);">CAGNOTTE</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <a href="/" class="btn-back">Retour</a>
+  </div>
+</div>
+
+{#include keyboard-lib /}
+
+<script>
+  setInterval(function() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+  function submitAction(link) {
+    var form = document.getElementById('activeForm');
+    if(form) {
+      form.submit();
+      return false;
+    }
+    return true;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var selectedId = '{state.refund.selectedLineId}';
+
+    var displayId = 'mainInput';
+    var kbdType = 'payment';
+    var mode = 'decimal';
+    var initialValue = "0";
+
+    var mainInputEl = document.getElementById('mainInput');
+    if(mainInputEl && mainInputEl.value) {
+      initialValue = mainInputEl.value;
+    }
+
+    if (selectedId && selectedId !== 'null' && selectedId !== '') {
+      var lineInputEl = document.getElementById('lineInput-' + selectedId);
+      if(lineInputEl) {
+        displayId = 'lineInput-' + selectedId;
+        kbdType = 'numpad';
+        mode = 'integer';
+        initialValue = lineInputEl.value || "0";
+      }
+    }
+
+    PosInput.setup({
+      containerId: 'numpadContainer',
+      displayId: displayId,
+      hiddenId: 'hiddenValue',
+      keyboardType: kbdType,
+      mode: mode,
+      placeholder: '',
+      initialValue: initialValue.replace(',', '.')
+    });
+  });
+</script>
+
+</body>
+</html>
+

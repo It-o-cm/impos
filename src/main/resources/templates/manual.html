@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saisie Directe</title>
+    <style>
+        :root {
+            --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+            --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+            --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px;
+            display: grid; grid-template-rows: 1fr;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+        }
+
+        .overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.97);
+            display: flex; flex-direction: column;
+            z-index: 10; border-radius: 10px; padding: 20px;
+        }
+        .overlay-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 10px;
+            flex-shrink: 0;
+        }
+        .overlay-title { font-size: 1.5rem; }
+        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; text-decoration: none; line-height: 1; }
+        .manual-form { display: flex; gap: 20px; flex: 1; min-height: 0; }
+
+        .product-selection {
+            flex: 1; display: flex; flex-direction: column; min-height: 0;
+            overflow: hidden; border-radius: 4px; position: relative;
+        }
+        .product-selection.flash-error { box-shadow: inset 0 0 0 5px var(--danger), inset 0 0 40px rgba(211, 47, 47, 0.35); }
+
+        .flash-label {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: var(--danger); color: white; font-weight: bold; font-size: 1.4rem;
+            padding: 12px 28px; border-radius: 8px; pointer-events: none; z-index: 5;
+            text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 0 20px rgba(211,47,47,0.6);
+            display: none;
+        }
+        .flash-label.show { display: block; }
+
+        .breadcrumb {
+            font-size: 1.1rem; color: var(--text-muted); margin-bottom: 10px;
+            background: #181818; padding: 10px 15px; border-radius: 4px;
+            border-left: 4px solid var(--primary); flex-shrink: 0;
+        }
+
+        .product-grid {
+            flex: 1; display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+            gap: 8px;
+            min-height: 0;
+            height: 100%;
+        }
+
+        .grid-btn {
+            background: #222; border: 2px solid #333; color: #ddd; font-size: 0.85rem;
+            font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center;
+            text-transform: uppercase; transition: 0.2s; display: flex;
+            align-items: center; justify-content: center; padding: 6px 5px;
+            overflow: hidden; line-height: 1.15; text-decoration: none;
+        }
+        .grid-btn:active { background: #444; transform: scale(0.98); }
+        .grid-btn.back-btn { border-color: var(--warning); color: var(--warning); background: rgba(255,152,0,0.1); }
+        .grid-btn.skip-btn { border-color: var(--danger); color: var(--danger); background: rgba(211,47,47,0.1); }
+        .grid-btn.selected { background: rgba(0,85,255,0.2); border-color: var(--primary); color: var(--primary); }
+
+        .price-section {
+            width: 260px; display: flex; flex-direction: column; gap: 8px;
+            background: #181818; padding: 12px; border-radius: 5px;
+            border-left: 1px solid #333; flex-shrink: 0; position: relative;
+        }
+
+        .price-display {
+            font-size: 2.2rem; text-align: right; color: var(--success);
+            font-weight: bold; background: #000; border: 2px solid var(--success);
+            border-radius: 4px; padding: 8px; flex-shrink: 0;
+        }
+
+        .numpad-dynamic-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+        .btn {
+            padding: 15px; font-size: 1.2rem; font-weight: bold; border: none;
+            border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none;
+        }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn-success { background-color: var(--success); }
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+    <div class="overlay active">
+        <div class="overlay-header">
+            <div class="overlay-title">SAISIE DIRECTE</div>
+            <a href="/" class="close-btn">&times;</a>
+        </div>
+
+        <div class="manual-form">
+            <div class="product-selection" id="productSelection">
+                <div class="flash-label" id="flashLabel">⚠ SÉLECTIONNEZ UN PRODUIT</div>
+                <div class="breadcrumb" id="breadcrumb">{breadcrumb}</div>
+
+                <div class="product-grid" id="productGrid">
+                    {#if isRoot}
+                        <button type="button" class="grid-btn skip-btn" onclick="selectProduct(this, 'PRODUIT NON RECONNU', '')">NON RECONNU</button>
+                    {#else}
+                        <a href="{parentUrl}" class="grid-btn back-btn">< RETOUR</a>
+                    {/if}
+
+                    {#for item in items}
+                        {#if item.isCategory}
+                            <a href="{item.url}" class="grid-btn">{item.label}</a>
+                        {#else}
+                            <button type="button" class="grid-btn" onclick="selectProduct(this, '{item.label}', '{item.ean ?: ''}')">{item.label}</button>
+                        {/if}
+                    {/for}
+                </div>
+            </div>
+
+            <div class="price-section">
+                <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:1.05rem;">SAISIE QUANTITÉ</div>
+                <input type="text" id="displayValue" class="price-display" value="" placeholder="1" readonly>
+
+                <form action="/action/manual-add-known" method="POST" id="formKnown" style="display:none;">
+                    <input type="hidden" name="ean" id="inputEan" value="">
+                    <input type="hidden" name="quantity" id="inputQuantity" value="1">
+                </form>
+                <form action="/action/manual-add-unknown" method="POST" id="formUnknown" style="display:none;">
+                    <input type="hidden" name="label" id="inputLabel" value="">
+                    <input type="hidden" name="price" id="inputPrice" value="0">
+                </form>
+
+                <div class="numpad-dynamic-area" id="keyboardArea"></div>
+
+                <button type="button" class="btn btn-success" style="width:100%;margin-top:8px;" onclick="submitForm()">VALIDER</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+    {#include keyboard-lib /}
+<script>
+    let isUnknownMode = false;
+
+    function selectProduct(btn, label, ean) {
+        document.querySelectorAll('.grid-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        document.getElementById('flashLabel').classList.remove('show');
+        document.getElementById('productSelection').classList.remove('flash-error');
+
+        const display = document.getElementById('displayValue');
+        const title = document.getElementById('inputTitle');
+
+        if (ean === null || ean === '') {
+            isUnknownMode = true;
+            title.innerText = "SAISIE PRIX";
+            title.style.color = "var(--warning)";
+            display.style.borderColor = "var(--warning)";
+            display.style.color = "var(--warning)";
+            display.style.placeholder = "0,00";
+
+            document.getElementById('formKnown').style.display = 'none';
+            document.getElementById('formUnknown').style.display = 'block';
+            document.getElementById('inputLabel').value = label;
+
+            PosInput.setup({
+                displayId: 'displayValue',
+                hiddenId: 'inputPrice',
+                containerId: 'keyboardArea',
+                keyboardType: 'price',
+                mode: 'decimal',
+                placeholder: "0,00"
+            });
+
+        } else {
+            isUnknownMode = false;
+            title.innerText = "SAISIE QUANTITÉ";
+            title.style.color = "var(--primary)";
+            display.style.borderColor = "var(--success)";
+            display.style.color = "var(--success)";
+            display.style.placeholder = "1";
+
+            document.getElementById('formKnown').style.display = 'block';
+            document.getElementById('formUnknown').style.display = 'none';
+            document.getElementById('inputEan').value = ean;
+
+            PosInput.setup({
+                displayId: 'displayValue',
+                hiddenId: 'inputQuantity',
+                containerId: 'keyboardArea',
+                keyboardType: 'numpad',
+                mode: 'integer',
+                placeholder: "1"
+            });
+        }
+        PosInput.clear();
+    }
+
+    function submitForm() {
+        if (isUnknownMode) {
+            const p = parseFloat(document.getElementById('inputPrice').value);
+            if(isNaN(p) || p <= 0) {
+                const disp = document.getElementById('displayValue');
+                disp.style.borderColor = "var(--danger)";
+                setTimeout(() => { disp.style.borderColor = "var(--warning)"; }, 1000);
+                return;
+            }
+            document.getElementById('formUnknown').submit();
+        } else {
+            if(document.getElementById('inputEan').value === "") {
+                document.getElementById('productSelection').classList.add('flash-error');
+                document.getElementById('flashLabel').classList.add('show');
+                return;
+            }
+            document.getElementById('formKnown').submit();
+        }
+    }
+</script>
+
+</body>
+</html>

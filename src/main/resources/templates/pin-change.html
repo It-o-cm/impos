@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Changer le code PIN</title>
+    <style>
+        :root {
+            --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+            --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+            --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+        }
+        .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: flex; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 10px; flex-shrink: 0; }
+        .overlay-title { font-size: 1.5rem; }
+        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; text-decoration: none; }
+        .pin-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 760px; margin: 0 auto; padding-top: 10px; }
+        .pin-fields { display: flex; flex-direction: column; gap: 14px; justify-content: center; }
+        .pin-field-label { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .pin-display { width: 100%; font-size: 2rem; text-align: center; color: var(--text-main); font-weight: bold; background: #000; border: 3px solid var(--border-color); border-radius: 8px; padding: 10px; letter-spacing: 8px; cursor: pointer; transition: border-color 0.2s; }
+        .pin-display.active { border-color: var(--primary); }
+        .pin-keyboard-area { min-height: 220px; display: flex; flex-direction: column; }
+        .pin-actions { grid-column: 1 / -1; display: flex; gap: 15px; justify-content: center; margin-top: 10px; }
+        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; text-align: center; }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn-primary { background-color: var(--primary); }
+        .btn-muted { background-color: #555; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+        .btn:disabled:active { transform: none; }
+        .error-box { grid-column: 1 / -1; background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; font-size: 1rem; border-radius: 6px; text-align: center; }
+        .success-box { grid-column: 1 / -1; background: rgba(0, 200, 83, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; font-size: 1rem; border-radius: 6px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+    <div class="top-bar">
+        <span class="store-name">INTERMARCHÉ</span>
+        <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+        <span id="clock">--:--:--</span>
+    </div>
+    <div class="main-area"></div>
+    <div class="bottom-nav"></div>
+
+    <div class="overlay" id="pinScreen">
+        <div class="overlay-header">
+            <div class="overlay-title">CHANGER MON CODE PIN</div>
+            <a href="/" class="close-btn">&times;</a>
+        </div>
+
+        <form action="/action/pin-change" method="POST" id="pinForm" class="pin-body">
+            {#if error??}
+                <div class="error-box">{error}</div>
+            {/if}
+            {#if success??}
+                <div class="success-box">{success}</div>
+            {/if}
+
+            <div class="pin-fields">
+                <div>
+                    <div class="pin-field-label">Code PIN actuel</div>
+                    <input type="text" id="dispCurrent" class="pin-display active" value="" readonly onclick="activateField('current')">
+                    <input type="hidden" name="currentPin" id="valCurrent" value="">
+                </div>
+                <div>
+                    <div class="pin-field-label">Nouveau code PIN</div>
+                    <input type="text" id="dispNew" class="pin-display" value="" readonly onclick="activateField('new')">
+                    <input type="hidden" name="newPin" id="valNew" value="">
+                </div>
+                <div>
+                    <div class="pin-field-label">Confirmer le nouveau code</div>
+                    <input type="text" id="dispConfirm" class="pin-display" value="" readonly onclick="activateField('confirm')">
+                    <input type="hidden" name="confirmPin" id="valConfirm" value="">
+                </div>
+            </div>
+
+            <div class="pin-keyboard-area" id="pinKeyboardArea"></div>
+
+            <div class="pin-actions">
+                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:220px;" disabled>VALIDER</button>
+                <a href="/" id="btnSecondary" class="btn btn-muted" style="width:220px;">RETOUR</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+    {#include keyboard-lib /}
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    // Champ actif courant et association display/hidden
+    const FIELDS = {
+        current: { display: 'dispCurrent', hidden: 'valCurrent' },
+        new:     { display: 'dispNew',     hidden: 'valNew' },
+        confirm: { display: 'dispConfirm', hidden: 'valConfirm' }
+    };
+
+    function activateField(name) {
+        Object.values(FIELDS).forEach(f => document.getElementById(f.display).classList.remove('active'));
+        const field = FIELDS[name];
+        document.getElementById(field.display).classList.add('active');
+
+        // On rebranche le pavé sur le champ choisi, en restaurant sa valeur déjà saisie.
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'pinKeyboardArea',
+            keyboardType: 'numpad',
+            mode: 'pin',
+            maxLength: 4,
+            initialValue: document.getElementById(field.hidden).value,
+            onChange: refreshButtons
+        });
+        refreshButtons();
+    }
+
+    // Active VALIDER seulement si les 3 champs sont saisis ;
+    // libellé du bouton secondaire : RETOUR si rien n'est saisi, sinon ANNULER.
+    function refreshButtons() {
+        const cur = document.getElementById('valCurrent').value;
+        const neu = document.getElementById('valNew').value;
+        const conf = document.getElementById('valConfirm').value;
+
+        const allFilled = cur.length > 0 && neu.length > 0 && conf.length > 0;
+        document.getElementById('btnValidate').disabled = !allFilled;
+
+        const anyTyped = cur.length > 0 || neu.length > 0 || conf.length > 0;
+        document.getElementById('btnSecondary').textContent = anyTyped ? 'ANNULER' : 'RETOUR';
+    }
+
+    // Démarre sur le champ "PIN actuel"
+    activateField('current');
+</script>
+
+</body>
+</html>

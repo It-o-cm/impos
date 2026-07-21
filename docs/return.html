@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Retour Client - Search Limit</title>
+  <style>
+    /* --- VARIABLES & BASE --- */
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid #444; border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+    }
+
+    /* --- HEADER --- */
+    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
+    .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+
+    /* --- MAIN LAYOUT --- */
+    .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
+
+    /* ==========================================
+       COLONNE GAUCHE
+       ========================================== */
+    .list-panel { display: flex; flex-direction: column; border-right: 1px solid var(--border-color); min-height: 0; position: relative; }
+
+    .search-ticket-bar {
+      padding: 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color);
+      display: flex; gap: 10px; flex-shrink: 0; align-items: center; height: 50px;
+    }
+    .search-info { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; }
+
+    .active-ticket-display { display: none; align-items: center; gap: 15px; flex: 1; padding-left: 10px; }
+    .ticket-name-label { color: var(--text-main); font-weight: bold; font-size: 1rem; }
+
+    .content-area { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
+
+    /* --- MODE RECHERCHE (8 LIGNES) --- */
+    #searchMode { display: none; flex-direction: column; height: 100%; }
+    .search-results-list { flex: 1; padding: 5px 10px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+
+    .search-result-item {
+      background: var(--bg-panel); padding: 0 15px; height: 48px;
+      border-radius: 4px; border: 1px solid #333; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .search-result-item:hover { background: #252525; border-color: #444; }
+    .ticket-id { font-weight: bold; font-size: 1.1rem; color: var(--text-main); }
+    .ticket-date { font-size: 0.85rem; color: var(--text-muted); }
+
+    /* --- MODE TICKET (6 LIGNES) --- */
+    #ticketMode { display: none; flex-direction: column; height: 100%; }
+    .receipt-area { flex: 1; padding: 10px 20px; background: var(--bg-dark); display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; overflow: hidden; min-height: 0; }
+
+    .receipt-line {
+      background: var(--bg-panel); border-radius: 4px;
+      padding: 10px 12px;
+      cursor: pointer;
+      border: 1px solid transparent; transition: all 0.15s;
+      display: flex; flex-direction: column; flex-shrink: 0; display: none;
+    }
+    .receipt-line.visible { display: flex; }
+    .receipt-line.has-return { border-left: 4px solid var(--primary); background: rgba(0, 85, 255, 0.1); }
+    .receipt-line.selected { background: #252525; border: 1px solid var(--primary); z-index: 2; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+    .line-content { display: flex; justify-content: space-between; align-items: center; }
+    .item-qty-info { font-weight: bold; margin-right: 8px; font-size: 0.9rem; color: var(--warning); }
+    .qty-r { color: var(--danger); }
+    .qty-slash { color: var(--danger); }
+    .item-label { color: var(--text-main); flex: 1; font-size: 1rem; }
+    .item-price { color: var(--success); font-weight: bold; font-size: 1rem; min-width: 60px; text-align: right; }
+
+    /* Contrôles */
+    .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid #444; align-items: center; justify-content: center; gap: 10px; }
+    .receipt-line.selected .qty-controls { display: flex; }
+
+    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid #555; color: white; font-size: 1.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .btn-qty:active { background: #444; }
+    .btn-qty.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+    .qty-input-display { font-size: 1.2rem; font-weight: bold; color: var(--warning); background: #000; border: 1px solid #444; width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
+
+    .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: #111; }
+
+    /* Pagination */
+    .ticket-nav { display: none; justify-content: space-between; align-items: center; border-top: 1px solid #333; padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 50px; z-index: 5; }
+    .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: 0.8rem; }
+    .nav-info { color: var(--text-muted); font-size: 0.85rem; }
+
+    /* ==========================================
+       COLONNE DROITE
+       ========================================== */
+    .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; }
+
+    /* --- MODE RECHERCHE --- */
+    #searchKeyboardZone { display: none; flex-direction: column; height: 100%; }
+    .search-display { font-size: 1.8rem; text-align: center; color: var(--text-main); font-weight: bold; background: #000; border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px; margin-bottom: 10px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
+
+    /* --- MODE TICKET --- */
+    #ticketActionsZone { display: none; flex-direction: column; height: 100%; }
+    .overlay-title { font-size: 1.4rem; margin-bottom: 10px; text-align: center; }
+    .total-zone { text-align: center; margin-bottom: 10px; }
+    .sub-display { font-size: 2rem; text-align: center; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; }
+    .sub-display.manual { border-color: var(--warning); color: var(--warning); }
+
+    #numpadContainer { width: 100%; margin-bottom: 10px; }
+    .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
+
+    .btn { padding: 12px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; text-align: center; display: block; }
+    .btn:active { transform: translateY(4px); box-shadow: none; }
+    .btn-primary { background-color: var(--primary); }
+    .btn-success { background-color: var(--success); }
+    .btn-warning { background-color: var(--warning); color: black; }
+    .btn-muted { background-color: #555; }
+
+    /* FOOTER */
+    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
+    .btn-back { background: #222; color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid #444; }
+
+  </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+  <!-- HEADER -->
+  <div class="top-bar">
+    <span class="store-name">INTERMARCHÉ</span>
+    <span id="screenTitle">RETOUR CLIENT</span>
+    <span id="clock">--:--:--</span>
+  </div>
+
+  <div class="main-area">
+    <!-- GAUCHE -->
+    <div class="list-panel">
+      <div class="search-ticket-bar">
+        <div class="search-info" id="searchInfo">Saisissez le N° de ticket</div>
+        <div class="active-ticket-display" id="activeTicketDisplay">
+          <button class="btn btn-primary" style="padding:6px 12px; font-size:0.8rem; box-shadow:none;">CHERCHER</button>
+          <span class="ticket-name-label" id="currentTicketName"></span>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div id="searchMode"><div class="search-results-list" id="searchResults"></div></div>
+        <div id="ticketMode">
+          <div class="receipt-area" id="receiptContainer"></div>
+          <div class="ticket-nav" id="ticketNav">
+            <button id="btnPrev" class="btn btn-muted nav-btn" onclick="changePage(-1)">PRÉCÉDENT</button>
+            <span class="nav-info" id="pageInfo">Page 1 / 4</span>
+            <button id="btnNext" class="btn btn-muted nav-btn" onclick="changePage(1)">SUIVANT</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DROITE -->
+    <div class="action-panel">
+      <div id="searchKeyboardZone">
+        <div class="search-display" id="searchPatternDisplay"></div>
+        <div id="searchPadContainer"></div>
+      </div>
+      <div id="ticketActionsZone">
+        <div class="overlay-title">Montant Retour</div>
+        <div class="total-zone">
+          <input type="text" id="globalAmountDisplay" class="sub-display" value="0,00 €" readonly onclick="switchToGlobalMode()">
+          <div style="color:var(--text-muted); font-size:0.8rem; height:1.2em;" id="helperText">Cliquez sur le montant pour saisie manuelle</div>
+        </div>
+        <div id="numpadContainer"></div>
+        <div class="payment-grid">
+          <a href="#" class="btn btn-success">ESPÈCES</a>
+          <a href="#" class="btn btn-primary">CARTE BANCAIRE</a>
+          <a href="#" class="btn btn-muted">BON D'ACHAT</a>
+          <a href="#" class="btn btn-warning">CAGNOTTE</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <a href="#" class="btn-back">Retour</a>
+  </div>
+</div>
+
+<script>
+  window.PosKeyboards = {
+    renderSearchPad: function(container, onKey) {
+      if (!container) return;
+      container.innerHTML = '';
+      const pad = document.createElement('div');
+      pad.style.display = 'grid';
+      pad.style.gridTemplateColumns = 'repeat(3, 1fr)';
+      pad.style.gap = '6px';
+      pad.style.width = '100%';
+      const keys = ['1','2','3','4','5','6','7','8','9','-','0','⌫','C'];
+      keys.forEach(k => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.innerText = k;
+        btn.style.cssText = 'padding: 10px; font-size: 1.2rem; font-weight: bold; border-radius: 4px; border: 1px solid #555; cursor: pointer; color: white;';
+        if (k === 'C') btn.style.background = '#D32F2F';
+        else if (k === '⌫' || k === '-') btn.style.background = '#222';
+        else btn.style.background = '#333';
+        btn.onclick = () => onKey(k);
+        pad.appendChild(btn);
+      });
+      container.appendChild(pad);
+    },
+
+    renderPaymentNumpad: function(container, onKey) {
+      if (!container) return;
+      container.innerHTML = '';
+      const pad = document.createElement('div');
+      pad.style.display = 'grid';
+      pad.style.gridTemplateColumns = 'repeat(4, 1fr)';
+      pad.style.gap = '5px';
+      pad.style.width = '100%';
+
+      const styles = {
+        base: 'padding: 10px; font-size: 1.2rem; font-weight: bold; border-radius: 5px; border: 1px solid #555; cursor: pointer; color: white; background: #333;',
+        action: 'background: #222; color: #AAAAAA;',
+        danger: 'background: #D32F2F; color: white;',
+        success: 'background: #00C853; color: white;'
+      };
+      const keys = [
+        ['7', 'base', 1], ['8', 'base', 1], ['9', 'base', 1], ['⌫', 'action', 1],
+        ['4', 'base', 1], ['5', 'base', 1], ['6', 'base', 1], ['C', 'danger', 1],
+        ['1', 'base', 1], ['2', 'base', 1], ['3', 'base', 1], ['OK', 'success', 1],
+        ['0', 'base', 2], [',', 'base', 1], ['00', 'base', 1]
+      ];
+      keys.forEach(def => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.innerText = def[0];
+        btn.style.cssText = styles[def[1]] || styles.base;
+        if (def[2] === 2) btn.style.gridColumn = 'span 2';
+        btn.onclick = () => onKey(def[0]);
+        pad.appendChild(btn);
+      });
+      container.appendChild(pad);
+    }
+  };
+
+  window.PosInput = {
+    buffer: "", config: {},
+    setup: function(cfg) {
+      this.config = cfg;
+      this.buffer = "";
+      const container = document.getElementById(cfg.containerId);
+      if (!container) return;
+      const renderer = cfg.type === 'search' ? PosKeyboards.renderSearchPad : PosKeyboards.renderPaymentNumpad;
+      renderer(container, (k) => this.handleKey(k));
+      this.updateDisplay();
+    },
+    handleKey: function(k) {
+      const cfg = this.config;
+      if (k === 'DEL' || k === '⌫') { this.buffer = this.buffer.slice(0, -1); }
+      else if (k === 'C') { this.buffer = ""; }
+      else if (k === 'OK') { if (cfg.onEnter) cfg.onEnter(this.buffer); return; }
+      else {
+        if (this.buffer.length >= (cfg.maxLength || 20)) return;
+        if (cfg.type === 'search') { this.buffer += k; }
+        else if (cfg.mode === 'integer') { if (k === '.' || k === ',' || k === '00') return; this.buffer += k; }
+        else {
+          if (k === ',') k = '.';
+          if (k === '.') { if (this.buffer.includes('.')) return; this.buffer += '.'; }
+          else if (k === '00') { if (this.buffer.includes('.') && this.buffer.split('.')[1].length >= 2) return; this.buffer += '00'; }
+          else { if (this.buffer.includes('.') && this.buffer.split('.')[1].length >= 2) return; this.buffer += k; }
+        }
+      }
+      this.updateDisplay();
+      if (cfg.onChange) cfg.onChange(this.buffer);
+    },
+    updateDisplay: function() {
+      const cfg = this.config;
+      const displayEl = document.getElementById(cfg.displayId);
+      if (!displayEl) return;
+      let visual = this.buffer.replace('.', ',');
+      displayEl.value = visual || (cfg.placeholder || "0");
+      if(cfg.type === 'search') displayEl.textContent = visual || "";
+    },
+    setBuffer: function(val) { this.buffer = val; this.updateDisplay(); },
+    clear: function() { this.buffer = ""; this.updateDisplay(); }
+  };
+</script>
+
+<script>
+  // --- DATA ---
+  const mockTicketDatabase = [
+    {id: "A-2023-1001", date: "12/01"}, {id: "B-2023-1002", date: "12/01"},
+    {id: "C-2023-1003", date: "13/01"}, {id: "D-2023-2001", date: "14/01"},
+    {id: "E-2024-0001", date: "15/01"}, {id: "F-2024-0002", date: "15/01"},
+    {id: "G-2024-1001", date: "20/02"}, {id: "H-2024-5000", date: "22/02"},
+    {id: "OLD-99-123", date: "01/01/23"}
+  ];
+
+  // --- STATE ---
+  let currentMode = "search";
+  let activeLine = null; let activeInput = null; let activeBtnPlus = null; let activeBtnMinus = null;
+  let currentPage = 1;
+  const itemsPerPage = 6;
+  let allItems = [];
+
+  setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initSearchMode();
+    document.getElementById('activeTicketDisplay').onclick = () => { if(currentMode === 'ticket') initSearchMode(); };
+  });
+
+  // --- MODE MANAGEMENT ---
+  function initSearchMode() {
+    currentMode = 'search';
+    document.getElementById('searchMode').style.display = 'flex';
+    document.getElementById('ticketMode').style.display = 'none';
+    document.getElementById('searchKeyboardZone').style.display = 'flex';
+    document.getElementById('ticketActionsZone').style.display = 'none';
+    document.getElementById('ticketNav').style.display = 'none';
+    document.getElementById('searchInfo').style.display = 'flex';
+    document.getElementById('activeTicketDisplay').style.display = 'none';
+
+    PosInput.setup({
+      type: 'search',
+      containerId: 'searchPadContainer',
+      displayId: 'searchPatternDisplay',
+      placeholder: '',
+      maxLength: 20,
+      onChange: (pattern) => performSearch(pattern)
+    });
+    PosInput.clear();
+    document.getElementById('searchResults').innerHTML = '';
+  }
+
+  function initTicketMode(ticketId) {
+    currentMode = 'ticket';
+    document.getElementById('searchMode').style.display = 'none';
+    document.getElementById('ticketMode').style.display = 'flex';
+    document.getElementById('searchKeyboardZone').style.display = 'none';
+    document.getElementById('ticketActionsZone').style.display = 'flex';
+    document.getElementById('ticketNav').style.display = 'flex';
+
+    document.getElementById('searchInfo').style.display = 'none';
+    const activeDisplay = document.getElementById('activeTicketDisplay');
+    activeDisplay.style.display = 'flex';
+    document.getElementById('currentTicketName').textContent = ticketId;
+
+    loadTicketData(ticketId);
+  }
+
+  // --- SEARCH LOGIC ---
+  function performSearch(pattern) {
+    const resultsContainer = document.getElementById('searchResults');
+
+    // MODIFICATION : 3 caractères minimum
+    if(pattern.length < 3) {
+      resultsContainer.innerHTML = '';
+      return;
+    }
+
+    const found = mockTicketDatabase.filter(t => t.id.toLowerCase().includes(pattern.toLowerCase()));
+
+    if(found.length === 0) {
+      resultsContainer.innerHTML = '<div style="text-align:center; padding:20px; color:var(--danger);">Aucun ticket</div>';
+    } else if (found.length > 8) {
+      resultsContainer.innerHTML = `<div style="text-align:center; padding:20px; color:var(--warning);">Trop de résultats (${found.length})</div>`;
+    } else {
+      let html = '';
+      found.forEach(t => {
+        html += `<div class="search-result-item" onclick="selectTicket('${t.id}')">
+                  <span class="ticket-id">${t.id}</span>
+                  <span class="ticket-date">${t.date}</span>
+              </div>`;
+      });
+      resultsContainer.innerHTML = html;
+    }
+  }
+
+  function selectTicket(id) { initTicketMode(id); }
+
+  // --- TICKET LOGIC ---
+  function loadTicketData(ticketId) {
+    const container = document.getElementById('receiptContainer');
+    container.innerHTML = '';
+    allItems = [];
+    const products = ["JAMBON", "BEURRE", "BRIE", "LAIT", "SAVON", "PAIN", "YAOURT", "BANANE", "PDT", "OIGNON", "CAROTTE", "TOMATE", "PATES", "RIZ", "CAFE", "SUCRE", "FARINE", "OEUFS", "POIVRON", "COURGETTE", "PIZZA", "BIERE", "VIN", "CHIPS"];
+
+    products.forEach((p, i) => {
+      const price = (Math.random() * 5 + 1).toFixed(2);
+      const qty = Math.floor(Math.random() * 3) + 1;
+      const line = document.createElement('div');
+      line.className = 'receipt-line';
+      line.setAttribute('data-price', price);
+      line.setAttribute('data-total', qty);
+      line.onclick = () => toggleLine(line);
+
+      let qtyDisplay = `x${qty}`;
+      let htmlContent = '';
+      if(i === 0) {
+        line.classList.add('has-return');
+        qtyDisplay = `x<span class="qty-r">1</span><span class="qty-slash">/</span>${qty}`;
+        htmlContent = `<div class="line-content"><span class="item-label"><span class="item-qty-info">${qtyDisplay}</span>${p}</span><span class="item-price">${price} €</span></div><div class="qty-controls"><button class="btn-qty disabled" onclick="updateQty(this, -1)">-</button><input type="text" class="qty-input-display" value="1" readonly><button class="btn-qty" onclick="updateQty(this, 1)">+</button><button class="btn-validate-line" onclick="validateLine(this)">✓</button></div>`;
+      } else {
+        htmlContent = `<div class="line-content"><span class="item-label"><span class="item-qty-info">${qtyDisplay}</span>${p}</span><span class="item-price">${price} €</span></div><div class="qty-controls"><button class="btn-qty disabled" onclick="updateQty(this, -1)">-</button><input type="text" class="qty-input-display" value="0" readonly><button class="btn-qty" onclick="updateQty(this, 1)">+</button><button class="btn-validate-line" onclick="validateLine(this)">✓</button></div>`;
+      }
+
+      line.innerHTML = htmlContent;
+      container.appendChild(line);
+      allItems.push(line);
+    });
+
+    currentPage = 1;
+    renderPage();
+    initKeyboardGlobal();
+    calculateTotal();
+  }
+
+  // --- PAGINATION ---
+  function renderPage() {
+    const totalPages = Math.ceil(allItems.length / itemsPerPage);
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} / ${totalPages}`;
+    document.getElementById('btnPrev').disabled = (currentPage === 1);
+    document.getElementById('btnNext').disabled = (currentPage === totalPages);
+
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    allItems.forEach((item, index) => {
+      if(index >= start && index < end) {
+        item.classList.add('visible');
+      } else {
+        item.classList.remove('visible');
+      }
+    });
+
+    if(activeLine && !activeLine.classList.contains('visible')) {
+      closeActiveLine();
+      switchToGlobalMode();
+      calculateTotal();
+    }
+  }
+
+  function changePage(delta) {
+    const totalPages = Math.ceil(allItems.length / itemsPerPage);
+    let newPage = currentPage + delta;
+    if(newPage < 1) newPage = 1;
+    if(newPage > totalPages) newPage = totalPages;
+
+    if(newPage !== currentPage) {
+      currentPage = newPage;
+      renderPage();
+    }
+  }
+
+  // --- INTERACTIONS ---
+  function switchToGlobalMode() {
+    if(activeLine) closeActiveLine();
+    initKeyboardGlobal();
+    document.getElementById('globalAmountDisplay').classList.add('manual');
+    document.getElementById('helperText').textContent = "Mode saisie manuelle";
+    PosInput.clear();
+  }
+
+  function initKeyboardGlobal() {
+    PosInput.setup({
+      type: 'payment',
+      containerId: 'numpadContainer',
+      displayId: 'globalAmountDisplay',
+      mode: 'payment', placeholder: '0,00', maxLength: 8,
+      onChange: (val) => {
+        document.getElementById('globalAmountDisplay').classList.remove('manual');
+        document.getElementById('helperText').textContent = "Saisie manuelle active";
+      }
+    });
+    document.getElementById('globalAmountDisplay').classList.remove('manual');
+  }
+
+  function toggleLine(el) {
+    if (el.classList.contains('refunded')) return;
+    if(activeLine === el) { closeActiveLine(); initKeyboardGlobal(); return; }
+    if(activeLine) closeActiveLine();
+    activeLine = el;
+    activeLine.classList.add('selected');
+    activeInput = el.querySelector('.qty-input-display');
+    activeBtnPlus = el.querySelectorAll('.btn-qty')[1];
+    activeBtnMinus = el.querySelectorAll('.btn-qty')[0];
+
+    PosInput.setup({
+      type: 'payment',
+      containerId: 'numpadContainer',
+      displayId: activeInput.id,
+      mode: 'integer', placeholder: '0', maxLength: 2,
+      onChange: (val) => { updateButtonStates(); updateLineVisuals(activeLine); calculateTotal(); }
+    });
+    PosInput.setBuffer(activeInput.value);
+    updateButtonStates();
+    calculateTotal();
+    document.getElementById('helperText').textContent = "Saisie quantité";
+  }
+
+  function closeActiveLine() { if(activeLine) activeLine.classList.remove('selected'); activeLine = null; activeInput = null; }
+
+  function updateQty(btn, delta) {
+    event.stopPropagation();
+    if(!activeInput) return;
+    let val = parseInt(activeInput.value);
+    let max = parseInt(activeLine.getAttribute('data-total'));
+    val += delta;
+    if(val < 0) val = 0; if(val > max) val = max;
+    activeInput.value = val;
+    PosInput.setBuffer(String(val));
+    updateButtonStates(); updateLineVisuals(activeLine); calculateTotal();
+  }
+
+  function updateButtonStates() {
+    if(!activeLine) return;
+    let val = parseInt(activeInput.value);
+    let max = parseInt(activeLine.getAttribute('data-total'));
+    if(val <= 0) activeBtnMinus.classList.add('disabled'); else activeBtnMinus.classList.remove('disabled');
+    if(val >= max) activeBtnPlus.classList.add('disabled'); else activeBtnPlus.classList.remove('disabled');
+  }
+
+  function validateLine(btn) {
+    event.stopPropagation();
+    updateLineVisuals(activeLine);
+    closeActiveLine();
+    initKeyboardGlobal();
+  }
+
+  function updateLineVisuals(line) {
+    if(!line) return;
+    let qty = parseInt(line.querySelector('.qty-input-display').value);
+    let total = parseInt(line.getAttribute('data-total'));
+    let qtyInfo = line.querySelector('.item-qty-info');
+    if(qty > 0) {
+      qtyInfo.innerHTML = `x<span class="qty-r">${qty}</span><span class="qty-slash">/</span>${total}`;
+      line.classList.add('has-return');
+    } else {
+      qtyInfo.innerHTML = `x${total}`;
+      line.classList.remove('has-return');
+    }
+  }
+
+  function calculateTotal() {
+    let total = 0;
+    allItems.forEach(line => {
+      if(line.classList.contains('refunded')) return;
+      let price = parseFloat(line.getAttribute('data-price'));
+      let input = line.querySelector('.qty-input-display');
+      let qty = input ? parseInt(input.value) : 0;
+      total += price * qty;
+    });
+    document.getElementById('globalAmountDisplay').value = total.toFixed(2).replace('.', ',') + ' €';
+    document.getElementById('globalAmountDisplay').classList.remove('manual');
+  }
+
+</script>
+</body>
+</html>

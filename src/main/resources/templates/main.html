@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IHM Caisse Supermarché</title>
+    <style>
+        :root {
+            --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+            --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+            --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+        }
+
+        /* Header */
+        .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+
+        /* Layout Principal */
+        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; overflow: hidden; }
+
+        /* Colonne Ticket */
+        .receipt-area { background-color: var(--bg-dark); padding: 15px; border-right: 1px solid var(--border-color); overflow: hidden; display: flex; flex-direction: column; }
+        .receipt-empty { margin: auto; color: var(--text-muted); font-size: 1.5rem; text-align: center; }
+
+        /* Styles Lignes */
+        .receipt-item-link { text-decoration: none; color: inherit; display: block; }
+        .receipt-item {
+            display: flex; justify-content: space-between; font-size: 1.25rem;
+            border-bottom: 1px dashed #444; padding-top: 12px; padding-bottom: 11px;
+            border-left: 4px solid transparent; padding-left: 5px; margin-left: -5px;
+        }
+        .receipt-item.selected { background-color: rgba(0, 85, 255, 0.2); border-left-color: var(--primary); }
+        .receipt-item .item-details { flex: 1; padding-right: 20px; }
+        .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 80px; }
+        .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: 1.3rem; display: flex; align-items: center; gap: 8px; }
+        .receipt-item.negative .price { color: var(--danger); }
+
+        /* Navigation Ticket */
+        .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #333; padding-top: 10px; margin-top: auto; flex-shrink: 0; }
+        .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+        .nav-info { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* Colonne Action */
+        .action-area { background-color: var(--bg-panel); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+        .total-display { position: relative; text-align: right; }
+        .total-label { font-size: 1.1rem; color: var(--text-muted); }
+        .total-amount { font-size: 3rem; font-weight: bold; color: var(--text-main); }
+        .fid-icon { position: absolute; top: 5px; left: 0; width: 28px; height: 28px; transition: all 0.4s ease; }
+        .fid-icon.inactive { stroke: #333; fill: transparent; }
+        .fid-icon.active { stroke: var(--success); fill: var(--success); filter: drop-shadow(0 0 4px rgba(0,200,83,0.6)); }
+
+        /* Grille Boutons */
+        .grid-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; align-content: end; }
+        .grid-buttons .btn { height: 50px; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; text-decoration: none; padding: 0; }
+        .btn-spacer { background: transparent; border: none; }
+
+        /* Footer */
+        .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+        .bottom-nav .btn { width: 180px; height: 50px; font-size: 0.85rem; padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1.15; text-decoration: none; }
+
+        /* Boutons Communs */
+        .btn { padding: 15px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+        .btn-primary { background-color: var(--primary); } .btn-danger { background-color: var(--danger); } .btn-warning { background-color: var(--warning); } .btn-success { background-color: var(--success); } .btn-muted { background-color: #555; }
+
+        /* Modale Prix */
+        .price-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 90; justify-content: center; align-items: center; }
+        .price-modal.active { display: flex; }
+        .price-panel { background: var(--bg-panel); border: 2px solid var(--primary); border-radius: 12px; padding: 25px; width: 360px; display: flex; flex-direction: column; gap: 15px; }
+        .price-title { font-size: 1.4rem; font-weight: bold; color: var(--primary); text-align: center; }
+        .price-target { color: var(--text-muted); font-size: 0.95rem; text-align: center; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .price-input-display { font-size: 2.2rem; text-align: right; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 6px; padding: 12px; width: 100%; }
+        .price-kb-area { display: flex; flex-direction: column; min-height: 180px; }
+
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal" id="posTerminal">
+    <div class="top-bar">
+        <span class="store-name">INTERMARCHÉ</span>
+        <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+        <span id="clock">--:--:--</span>
+    </div>
+
+    <div class="main-area">
+        <div class="receipt-area" id="ticket-container">
+                {#include ticket /}
+        </div>
+
+        <div class="action-area">
+            <div class="total-display">
+                <svg id="fidIcon" class="fid-icon {state.fidelity.active ? 'active' : 'inactive'}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 12l2 2 4-4"/>
+                </svg>
+                <div class="total-label">TOTAL À PAYER</div>
+                <div class="total-amount {state.ticket.totalAmount <= 0 ? 'zero' : ''}" id="mainTotal">
+                    {state.ticket.getTotalFormatted()} €
+                </div>
+            </div>
+
+            <div class="grid-buttons">
+                {#if state.showSecondaryMenu}
+
+                    <!-- Lien vers la page de réimpression -->
+                    <a href="/reprint" class="btn btn-primary">IMPRIMER TICKET</a>
+                    <!-- NOUVEAU : Lien vers la fonctionnalité Retour -->
+                    <a href="/return" class="btn btn-primary">RETOUR</a>
+
+                    <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
+
+                    <div class="btn-spacer"></div>
+                    <div class="btn-spacer"></div>
+                    <div class="btn-spacer"></div>
+                    <div class="btn-spacer"></div>
+                    <div class="btn-spacer"></div>
+                    <div class="btn-spacer"></div>
+
+                {#else}
+                    <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
+                    <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS & LÉGUMES</a>
+                    <a href="/action/price-mod/remise" class="btn btn-muted">REMISE</a>
+                    <a href="/action/price-mod/discount" class="btn btn-muted">DISCOUNT</a>
+                    <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
+                    <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
+                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
+                    <a href="/action/price-mod/force_price" class="btn btn-muted">FORÇAGE PRIX</a>
+                    <a href="/action/print-last" class="btn btn-muted">RÉIMPRIMER</a>
+
+                    {#if state.ticket.totalAmount > 0}
+                        <a href="/pay" class="btn btn-primary">ENCAISSER</a>
+                    {#else}
+                        <button class="btn btn-primary" disabled>ENCAISSER</button>
+                    {/if}
+                {/if}
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-nav">
+        <a href="/action/cancelTicket" class="btn btn-danger">ANNULER TICKET</a>
+
+        {#if state.showSecondaryMenu}
+            <a href="/action/menu/main" class="btn btn-warning" style="color:black;">PRINCIPAL</a>
+        {#else}
+            <a href="/action/menu/secondary" class="btn btn-muted">AUTRES...</a>
+        {/if}
+
+        <a href="/action/start-cash-count" class="btn btn-success">CAISSE</a>
+        <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
+        <a href="/lock" class="btn btn-muted">DÉCONNEXION</a>
+    </div>
+
+    <!-- MODALE PRIX -->
+    {#if state.priceModState.active}
+        <div class="price-modal active">
+            <div class="price-panel">
+                <div class="price-title">{state.priceModState.typeLabel}</div>
+                <div class="price-target">Article : {state.priceModState.targetLabel}</div>
+                <form action="/action/price-mod/submit" method="POST" id="priceForm">
+                    <input type="hidden" name="type" value="{state.priceModState.type}">
+                    <input type="hidden" name="uid" value="{state.priceModState.targetUid}">
+                    <input type="hidden" name="rawValue" id="priceHidden" value="0">
+                    <input type="text" id="priceDisplay" class="price-input-display" value="0" readonly>
+                    <div class="price-kb-area" id="priceKbArea"></div>
+                    <div style="display:flex; gap:10px; margin-top:15px;">
+                        <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
+                        <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {/if}
+
+        {#include keyboard-lib /}
+        {#include endorsement /}
+
+</div>
+
+<script>
+    setInterval(function() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    let lastKnownVersion = 0;
+
+    function pollServer() {
+        fetch('/ticket-fragment?v=' + lastKnownVersion)
+            .then(function(response) {
+                if (!response.ok) throw new Error("Erreur réseau");
+                return response.json();
+            })
+            .then(function(data) {
+                if (data.changed) {
+                    document.getElementById('ticket-container').innerHTML = data.html;
+                    document.getElementById('mainTotal').innerText = data.total + " €";
+                    var fidIcon = document.getElementById('fidIcon');
+                    if (data.fidelityActive) {
+                        fidIcon.classList.remove('inactive'); fidIcon.classList.add('active');
+                    } else {
+                        fidIcon.classList.remove('active'); fidIcon.classList.add('inactive');
+                    }
+                    lastKnownVersion = data.version;
+                }
+            });
+    }
+
+    setInterval(pollServer, 1000);
+    pollServer();
+
+    var priceModal = document.querySelector('.price-modal.active');
+    if(priceModal) {
+        PosInput.setup({
+            displayId: 'priceDisplay',
+            hiddenId: 'priceHidden',
+            containerId: 'priceKbArea',
+            keyboardType: 'price',
+            mode: 'decimal',
+            placeholder: "0"
+        });
+    }
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fruits & Légumes</title>
+    <style>
+        :root {
+            --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+            --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+            --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+        }
+
+        .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
+
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay.active { display: flex; }
+        .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 10px; flex-shrink: 0; }
+        .overlay-title { font-size: 1.5rem; }
+        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; }
+
+        .plu-toolbar { display: flex; gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
+        .plu-tool-btn { flex: 1; padding: 14px; background: #222; border: 2px solid #444; color: #ddd; font-size: 1.05rem; font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center; text-transform: uppercase; transition: 0.2s; text-decoration: none; }
+        .plu-tool-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+        .plu-container { flex: 1; display: flex; flex-direction: column; background: #111; border: 1px solid #333; border-radius: 5px; overflow: hidden; min-height: 0; }
+        .plu-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; padding: 10px; align-content: start; overflow: hidden; }
+        .plu-btn { background: #222; font-size: 0.9rem; padding: 8px 4px; border: 1px solid #444; color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
+        .plu-btn:hover { background: #444; border-color: var(--primary); }
+        .plu-btn .plu-emoji { font-size: 1.2rem; }
+        .plu-btn .plu-name { margin: 2px 0; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
+        .plu-btn .plu-meta { display: flex; gap: 8px; justify-content: center; }
+        .plu-btn .plu-code { display: block; font-size: 0.7rem; color: var(--warning); font-weight: bold; }
+
+        .plu-pagination { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-top: 1px solid #333; background: #181818; flex-shrink: 0; }
+
+        .plu-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.88); z-index: 5; justify-content: center; align-items: center; }
+        .plu-modal.active { display: flex; }
+        .plu-modal-panel { background: var(--bg-panel); border: 1px solid #555; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.5); overflow: hidden; }
+        .plu-modal-panel.search-panel { width: 874px; height: 520px; }
+        .plu-modal-panel.code-panel { width: 340px; }
+        .plu-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-shrink: 0; }
+        .plu-modal-title { font-size: 1.2rem; font-weight: bold; color: white; }
+        .plu-modal-close { font-size: 1.8rem; background: none; border: none; color: var(--text-muted); cursor: pointer; line-height: 1; }
+
+        .plu-search-input { background: #000; color: white; padding: 12px 14px; font-size: 1.2rem; border-radius: 6px; border: 1px solid var(--primary); width: 100%; margin-bottom: 8px; flex-shrink: 0; }
+        .plu-search-results { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; overflow-y: auto; max-height: 300px; }
+        .plu-search-result { background: #222; border: 1px solid #444; color: white; padding: 14px 16px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; }
+        .plu-search-result:hover { background: #444; border-color: var(--primary); }
+        .plu-search-result .psr-emoji { font-size: 1.26rem; margin-right: 11px; }
+        .plu-search-result .psr-name { flex: 1; }
+        .plu-search-result .psr-code { color: var(--warning); font-weight: bold; font-size: 0.81rem; margin-left: 7px; white-space: nowrap; }
+
+        .plu-code-display { background: #000; color: white; padding: 14px; font-size: 2rem; border-radius: 6px; border: 2px solid var(--warning); text-align: center; letter-spacing: 8px; margin-bottom: 14px; flex-shrink: 0; }
+
+        .plu-kb-area { min-height: 220px; display: flex; flex-direction: column; }
+
+        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; text-align: center; }
+        .btn-muted { background-color: #555; }
+        .btn-muted:disabled { background-color: #333; color: #555; cursor: not-allowed; box-shadow: none; }
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+    <div class="top-bar">
+        <span class="store-name">INTERMARCHÉ</span>
+        <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+        <span id="clock">--:--:--</span>
+    </div>
+    <div class="main-area"></div>
+    <div class="bottom-nav"></div>
+
+    <div class="overlay active" id="pluScreen">
+        <div class="overlay-header">
+            <div class="overlay-title">FRUITS, LÉGUMES & FRAIS</div>
+            <a href="/" class="close-btn">&times;</a>
+        </div>
+        <div class="plu-toolbar">
+            <button class="plu-tool-btn" onclick="openPluSearch()">🔍 Rechercher un produit</button>
+            <button class="plu-tool-btn" onclick="openPluCode()">🔢 Saisir un code PLU</button>
+        </div>
+        <div class="plu-container">
+            <div class="plu-grid" id="pluGrid"></div>
+            <div class="plu-pagination">
+                <button id="btnPrev" class="btn btn-muted" style="padding:10px;font-size:1rem;width:auto;" onclick="changePage(-1)">PRÉCÉDENT</button>
+                <span id="pluPageInfo" style="color:var(--text-muted);font-size:1.1rem;font-weight:bold;">1 / 1</span>
+                <button id="btnNext" class="btn btn-muted" style="padding:10px;font-size:1rem;width:auto;" onclick="changePage(1)">SUIVANT</button>
+            </div>
+        </div>
+
+        <div class="plu-modal" id="pluSearchModal">
+            <div class="plu-modal-panel search-panel">
+                <div class="plu-modal-header">
+                    <span class="plu-modal-title">Rechercher un produit</span>
+                    <button class="plu-modal-close" onclick="closePluSearch()">&times;</button>
+                </div>
+                <input type="text" class="plu-search-input" id="pluSearchDisplay" placeholder="Tapez un nom..." readonly>
+                <div id="pluSearchKb" class="plu-kb-area"></div>
+                <div class="plu-search-results" id="pluSearchResults"><div class="plu-search-empty">Tapez pour rechercher...</div></div>
+            </div>
+        </div>
+
+        <div class="plu-modal" id="pluCodeModal">
+            <div class="plu-modal-panel code-panel">
+                <div class="plu-modal-header">
+                    <span class="plu-modal-title">Code PLU</span>
+                    <button class="plu-modal-close" onclick="closePluCode()">&times;</button>
+                </div>
+                <input type="text" class="plu-code-display" id="pluCodeDisplay" value="" readonly>
+                <div id="pluCodeNumpad" class="plu-kb-area"></div>
+                <a href="#" id="pluCodeValidate" class="btn btn-success" style="width:100%;font-size:1.1rem;text-align:center;">VALIDER</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+    {#include keyboard-lib /}
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    const pluData = [
+        {#for p in products}
+        { name: '{p.name}', code: '{p.plu}', icon: '{p.icon}' },
+        {/for}
+    ];
+
+    let currentPage = 1;
+    const itemsPerPage = 16;
+    const totalPages = Math.ceil(pluData.length / itemsPerPage);
+
+    function renderGrid() {
+        const grid = document.getElementById('pluGrid');
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        const pageItems = pluData.slice(start, end);
+
+        let html = '';
+        for (let i = 0; i < pageItems.length; i++) {
+            const p = pageItems[i];
+            html += '<a href="/action/add/' + p.code + '" class="plu-btn">';
+            html += '<span class="plu-emoji">' + p.icon + '</span>';
+            html += '<span class="plu-name">' + p.name + '</span>';
+            html += '<span class="plu-meta"><span class="plu-code">' + p.code + '</span></span>';
+            html += '</a>';
+        }
+        grid.innerHTML = html;
+
+        document.getElementById('pluPageInfo').textContent = currentPage + ' / ' + totalPages;
+        document.getElementById('btnPrev').disabled = currentPage === 1;
+        document.getElementById('btnNext').disabled = currentPage === totalPages;
+    }
+
+    function changePage(direction) {
+        const newPage = currentPage + direction;
+        if (newPage >= 1 && newPage <= totalPages) {
+            currentPage = newPage;
+            renderGrid();
+        }
+    }
+
+    function openPluCode() {
+        PosInput.setup({
+            displayId: 'pluCodeDisplay',
+            hiddenId: null,
+            containerId: 'pluCodeNumpad',
+            keyboardType: 'numpad',
+            mode: 'integer',
+            placeholder: "",
+            maxLength: 6,
+            onChange: (val) => {
+                document.getElementById('pluCodeValidate').href = "/action/add/" + val;
+            }
+        });
+        document.getElementById('pluCodeModal').classList.add('active');
+    }
+    function closePluCode() { document.getElementById('pluCodeModal').classList.remove('active'); }
+
+    function openPluSearch() {
+        PosInput.setup({
+            displayId: 'pluSearchDisplay',
+            hiddenId: null,
+            containerId: 'pluSearchKb',
+            keyboardType: 'alpha',
+            mode: 'text',
+            placeholder: "",
+            onChange: (val) => {
+                filterPluSearch(val);
+            }
+        });
+        document.getElementById('pluSearchResults').innerHTML = '<div class="plu-search-empty">Tapez pour rechercher...</div>';
+        document.getElementById('pluSearchModal').classList.add('active');
+    }
+    function closePluSearch() { document.getElementById('pluSearchModal').classList.remove('active'); }
+
+    function filterPluSearch(q) {
+        const cont = document.getElementById('pluSearchResults');
+        if (!q) { cont.innerHTML = '<div class="plu-search-empty">Tapez pour rechercher...</div>'; return; }
+
+        const results = pluData.filter(i => i.name.toLowerCase().includes(q.toLowerCase())).slice(0, 10);
+        if (!results.length) { cont.innerHTML = '<div class="plu-search-empty">Aucun résultat</div>'; return; }
+
+        let html = '';
+        for(let i=0; i<results.length; i++) {
+            const item = results[i];
+            html += '<div class="plu-search-result" onclick="window.location.href=\'/action/add/' + item.code + '\'">';
+            html += '<span><span class="psr-emoji">' + item.icon + '</span><span class="psr-name">' + item.name + '</span></span>';
+            html += '<span class="psr-code">' + item.code + '</span>';
+            html += '</div>';
+        }
+        cont.innerHTML = html;
+    }
+
+    renderGrid();
+
+</script>
+
+</body>
+</html>

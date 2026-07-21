@@ -1,0 +1,135 @@
+<!-- CSS Spécifique Modale -->
+<style>
+  .endorse-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 100; justify-content: center; align-items: center; }
+  .endorse-modal.active { display: flex; }
+
+  /* MODIF: Width augmenté à 620px pour élargir le clavier */
+  .endorse-panel { background: var(--bg-panel); border: 2px solid var(--warning); border-radius: 10px; padding: 25px; width: 620px; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
+
+  .endorse-title { color: var(--warning); font-size: 1.5rem; font-weight: bold; text-align: center; }
+  .endorse-hint { color: var(--text-muted); text-align: center; font-size: 1rem; }
+  .endorse-display { background: #000; border: 3px solid var(--warning); border-radius: 6px; padding: 12px; font-size: 1.8rem; text-align: center; color: var(--warning); letter-spacing: 4px; }
+  .endorse-kb-area { min-height: 220px; display: flex; flex-direction: column; }
+  .endorse-error { color: var(--danger); text-align: center; font-weight: bold; background: rgba(211,47,47,0.1); padding: 8px; border-radius: 4px; }
+
+  /* MODIF: Style spécifique pour les boutons du panel afin de forcer le centrage vertical */
+  .endorse-panel .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    height: 50px; /* Hauteur fixe pour bien centrer */
+  }
+</style>
+
+<!-- Structure HTML -->
+<div id="endorseModal" class="endorse-modal">
+  <div class="endorse-panel">
+    <div class="endorse-title">AUTORISATION REQUISE</div>
+    <div id="endorseHint" class="endorse-hint">Identifiant Manager :</div>
+    <input type="text" id="endorseDisplay" class="endorse-display" readonly>
+    <div id="endorseKeyboardArea" class="endorse-kb-area"></div>
+    <div id="endorseError" class="endorse-error" style="display:none;"></div>
+    <div style="display:flex; gap:10px; margin-top:5px;">
+      <a href="/action/endorse-cancel" class="btn btn-muted" style="width:50%;">ANNULER</a>
+      <button class="btn btn-warning" style="width:50%; color:black;" onclick="endorseNext()">SUIVANT</button>
+    </div>
+  </div>
+</div>
+
+<!-- Script Autonome -->
+<script>
+  (function() {
+    let endorseStep = 1;
+    let endorseLogin = "";
+    let endorseStr = "";
+
+    // Démarrage polling
+    setInterval(pollEndorsement, 500);
+
+    function resetEndorseState() {
+      endorseStep = 1; endorseLogin = ""; endorseStr = "";
+      document.getElementById('endorseError').style.display = 'none';
+      document.getElementById('endorseHint').innerText = "Identifiant Manager :";
+      updateEndorseDisplay();
+      renderEndorseKeyboard();
+    }
+
+    function updateEndorseDisplay() {
+      const display = document.getElementById('endorseDisplay');
+      if (!display) return;
+      display.value = (endorseStep === 1) ? endorseStr.toLowerCase() : "*".repeat(endorseStr.length);
+    }
+
+    window.endorseNext = function() {
+      if (endorseStep === 1) {
+        if (endorseStr.length < 2) return;
+        endorseLogin = endorseStr.toLowerCase();
+        endorseStr = ""; endorseStep = 2;
+        document.getElementById('endorseHint').innerText = "Code PIN :";
+        document.getElementById('endorseError').style.display = 'none';
+        updateEndorseDisplay();
+        renderEndorseKeyboard();
+      } else {
+        // Soumission
+        const form = document.createElement('form');
+        form.method = 'POST'; form.action = '/action/endorse-validate';
+        const lInput = document.createElement('input'); lInput.name = 'login'; lInput.value = endorseLogin; form.appendChild(lInput);
+        const pInput = document.createElement('input'); pInput.name = 'password'; pInput.value = endorseStr; form.appendChild(pInput);
+        document.body.appendChild(form);
+        form.submit();
+      }
+    };
+
+    function renderEndorseKeyboard() {
+      const area = document.getElementById('endorseKeyboardArea');
+      if (!area) return;
+      area.innerHTML = '';
+      const wrapper = document.createElement('div');
+      wrapper.style.width = '100%';
+
+      // Utilisation de la librairie partagée PosKeyboards
+      if (endorseStep === 1) {
+        PosKeyboards.renderAlphaKeyboard(wrapper, handleKey);
+      } else {
+        PosKeyboards.renderNumpad(wrapper, handleKey);
+      }
+      area.appendChild(wrapper);
+    }
+
+    function handleKey(k) {
+      if (k === 'DEL' || k === '\u232b') endorseStr = endorseStr.slice(0, -1);
+      else if (k === 'C') endorseStr = "";
+      else if (endorseStr.length < 10) endorseStr += k;
+      updateEndorseDisplay();
+    }
+
+    function pollEndorsement() {
+      fetch('/endorsement-data')
+              .then(r => r.json())
+              .then(data => {
+                const modal = document.getElementById('endorseModal');
+                if (!modal) return;
+                if (data.active) {
+                  modal.classList.add('active');
+                  if (data.scannedBadge && data.scannedBadge !== "") {
+                    endorseLogin = data.scannedBadge; endorseStep = 2; endorseStr = "";
+                    document.getElementById('endorseHint').innerText = "Code PIN :";
+                    updateEndorseDisplay(); renderEndorseKeyboard();
+                  }
+                  if (data.error) {
+                    const errEl = document.getElementById('endorseError');
+                    errEl.innerText = data.error; errEl.style.display = 'block';
+                  }
+                } else {
+                  if (modal.classList.contains('active')) {
+                    modal.classList.remove('active'); resetEndorseState();
+                  }
+                }
+              });
+    }
+
+    renderEndorseKeyboard();
+  })();
+</script>
+

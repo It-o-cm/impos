@@ -1,0 +1,202 @@
+{#if fragment}
+  {#for item in items}
+    <div class="count-item" data-id="{item.id}" data-value="{item.value}" onclick="selectItem(this)">
+      <span class="item-label">{item.label}</span>
+      <span class="item-qty">x 0</span>
+      <span class="item-total">0,00 €</span>
+    </div>
+  {/for}
+{#else}
+  <!DOCTYPE html>
+  <html lang="fr">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comptage Caisse</title>
+    <style>
+      :root {
+        --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+        --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+        --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+      }
+      * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+      body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+      .pos-terminal {
+        width: 1000px; height: 600px; background-color: var(--bg-dark);
+        border: 2px solid #444; border-radius: 10px;
+        display: grid; grid-template-rows: 60px 1fr 80px;
+        overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+      }
+      .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+      .top-bar .store-name { color: var(--success); font-weight: bold; font-size: 1.4rem; }
+      .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+
+      .main-area { display: grid; grid-template-columns: 1fr 320px; overflow: hidden; }
+
+      .count-list-area { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #333; }
+      .tabs-container { display: flex; background: #1a1a1a; border-bottom: 1px solid #333; flex-shrink: 0; }
+      .tab-btn { flex: 1; padding: 15px; background: none; border: none; color: var(--text-muted); font-size: 1rem; font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; text-transform: uppercase; }
+      .tab-btn.active { color: var(--success); border-bottom-color: var(--success); background: #121212; }
+
+      .items-scroll { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+
+      .count-item { display: grid; grid-template-columns: 220px 1fr 120px; align-items: center; background: var(--bg-panel); padding: 12px 15px; border-radius: 6px; border: 1px solid #333; cursor: pointer; transition: 0.1s; }
+      .count-item.selected { background: #0d2818; border-color: var(--success); }
+
+      .item-label { font-size: 1.1rem; font-weight: bold; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .item-qty { text-align: center; font-size: 1.2rem; color: white; }
+      .item-total { text-align: right; font-size: 1.2rem; font-weight: bold; color: var(--success); }
+
+      .action-area { display: flex; flex-direction: column; background: #181818; padding: 15px; gap: 15px; }
+
+      .total-box { background: #000; border: 2px solid var(--success); border-radius: 8px; padding: 15px; text-align: center; }
+      .total-label { font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; }
+      .total-amount { font-size: 2.5rem; font-weight: bold; color: var(--success); }
+
+      .numpad-container { flex: 1; display: flex; flex-direction: column; }
+
+      .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; text-decoration: none; text-align: center; }
+      .btn-success { background-color: var(--success); }
+      .btn-muted { background-color: #555; }
+    </style>
+  </head>
+  <body>
+
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+      <span id="clock">--:--:--</span>
+    </div>
+
+    <div class="main-area">
+      <div class="count-list-area">
+        <div class="tabs-container">
+          <button class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
+          <button class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
+          <button class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+        </div>
+
+        <div class="items-scroll" id="listContainer">
+          {#for item in items}
+            <div class="count-item" data-id="{item.id}" data-value="{item.value}" onclick="selectItem(this)">
+              <span class="item-label">{item.label}</span>
+              <span class="item-qty">x 0</span>
+              <span class="item-total">0,00 €</span>
+            </div>
+          {/for}
+        </div>
+      </div>
+
+      <div class="action-area">
+        <div class="total-box">
+          <div class="total-label">Total Compté</div>
+          <div class="total-amount" id="totalDisplay">0,00 €</div>
+        </div>
+
+        <div class="numpad-container" id="numpadArea"></div>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-success" style="width: 180px;">VALIDER</a>
+      <a href="/" class="btn btn-muted" style="width: 180px;">ANNULER</a>
+    </div>
+  </div>
+
+    {#include keyboard-lib /}
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    window.cashState = window.cashState || {};
+    window.cashValues = window.cashValues || {};
+
+    let selectedElement = null;
+
+    function switchTab(type, btnElement) {
+      selectedElement = null;
+
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btnElement.classList.add('active');
+
+      fetch('/cash-count/fragment/' + type)
+              .then(r => r.text())
+              .then(html => {
+                document.getElementById('listContainer').innerHTML = html;
+                refreshDisplayFromState();
+              });
+    }
+
+    document.getElementById('listContainer').addEventListener('click', function(e) {
+      const item = e.target.closest('.count-item');
+      if (item) selectItem(item);
+    });
+
+    function selectItem(element) {
+      if (selectedElement) selectedElement.classList.remove('selected');
+      selectedElement = element;
+      selectedElement.classList.add('selected');
+
+      const id = element.getAttribute('data-id');
+      const value = parseFloat(element.getAttribute('data-value'));
+      window.cashValues[id] = value;
+
+      PosInput.setup({
+        containerId: 'numpadArea',
+        keyboardType: 'numpad',
+        mode: 'integer',
+        maxLength: 4,
+        placeholder: "0",
+        onChange: (val) => {
+          const qty = parseInt(val) || 0;
+          window.cashState[id] = qty;
+          updateItemDisplay(element, qty, value);
+          updateGrandTotal();
+        }
+      });
+
+      const currentQty = window.cashState[id] || 0;
+      PosInput.buffer = currentQty.toString();
+      PosInput.updateDisplay();
+    }
+
+    function updateItemDisplay(element, qty, value) {
+      const qtySpan = element.querySelector('.item-qty');
+      const totalSpan = element.querySelector('.item-total');
+
+      qtySpan.innerText = 'x ' + qty;
+      const total = qty * value;
+      totalSpan.innerText = total.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
+    }
+
+    function updateGrandTotal() {
+      let grandTotal = 0;
+      for (const [id, qty] of Object.entries(window.cashState)) {
+        const val = window.cashValues[id] || 0;
+        grandTotal += val * qty;
+      }
+      document.getElementById('totalDisplay').innerText = grandTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
+    }
+
+    function refreshDisplayFromState() {
+      document.querySelectorAll('.count-item').forEach(item => {
+        const id = item.getAttribute('data-id');
+        const value = parseFloat(item.getAttribute('data-value'));
+
+        if (!window.cashValues[id]) window.cashValues[id] = value;
+
+        if (window.cashState[id]) {
+          updateItemDisplay(item, window.cashState[id], value);
+        }
+      });
+      updateGrandTotal();
+    }
+
+    refreshDisplayFromState();
+
+  </script>
+  </body>
+  </html>
+{/if}

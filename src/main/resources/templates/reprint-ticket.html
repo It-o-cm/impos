@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Réimpression</title>
+    <style>
+        :root {
+            --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+            --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+            --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 45px 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
+        }
+        .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+
+        .main-area { display: flex; flex-direction: column; overflow: hidden; background-color: var(--bg-dark); }
+
+        .list-header {
+            padding: 15px 20px; font-size: 1.4rem; font-weight: bold;
+            color: var(--text-main);
+            background: var(--bg-panel);
+            border-bottom: 1px solid #444; flex-shrink: 0;
+        }
+
+        .items-scroll { flex: 1; overflow-y: auto; padding: 10px; }
+
+        .receipt-item-link { text-decoration: none; color: inherit; display: block; }
+        .receipt-item {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 1.1rem; border-bottom: 1px dashed #444;
+            padding: 12px 10px; cursor: pointer;
+        }
+        .receipt-item:hover { background-color: rgba(255, 255, 255, 0.05); }
+
+        .item-left { display: flex; align-items: baseline; gap: 15px; }
+
+        .item-datetime { font-size: 1.3rem; font-weight: bold; color: var(--text-main); }
+        .item-number { font-size: 1.1rem; color: var(--text-muted); }
+
+        .item-price { font-weight: bold; color: var(--success); font-size: 1.4rem; }
+
+        .ticket-nav {
+            display: flex; justify-content: space-between; align-items: center;
+            border-top: 1px solid #333; padding-top: 6px; padding-bottom: 6px;
+            margin: 0 10px; flex-shrink: 0;
+        }
+        .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+        .nav-info { color: var(--text-muted); font-size: 0.9rem; }
+
+        .bottom-nav {
+            background-color: #000; border-top: 1px solid var(--border-color);
+            display: flex; justify-content: center; align-items: center; padding: 0 20px;
+        }
+
+        .btn { padding: 15px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+        .btn-muted { background-color: #555; }
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+    <div class="top-bar">
+        <span class="store-name">INTERMARCHÉ</span>
+        <span id="opInfo">RÉIMPRESSION TICKET</span>
+        <span id="clock">--:--:--</span>
+    </div>
+
+    <div class="main-area">
+        <div class="list-header">
+            Sélectionner un ticket
+        </div>
+
+        <div class="items-scroll">
+            {#if state.reprint.tickets.empty}
+                <div style="margin: 50px auto; text-align: center; color:var(--text-muted);">AUCUN TICKET DISPONIBLE</div>
+            {#else}
+                {#for t in state.reprint.visibleTickets}
+                    <a href="/reprint/view/{t.id}" class="receipt-item-link">
+                        <div class="receipt-item">
+                            <div class="item-left">
+                                <span class="item-datetime">{t.creationDate.format('dd/MM HH:mm')}</span>
+                                <span class="item-number">{t.ticketNumber}</span>
+                            </div>
+                            <span class="item-price">{t.totalFormatted} €</span>
+                        </div>
+                    </a>
+                {/for}
+            {/if}
+        </div>
+    </div>
+
+    <div class="ticket-nav">
+        {#if state.reprint.hasListPrev}
+            <a href="/reprint/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+        {#else}
+            <button class="btn btn-muted nav-btn" disabled>PRÉCÉDENT</button>
+        {/if}
+
+        <span class="nav-info">Page {state.reprint.listPageDisplay}</span>
+
+        {#if state.reprint.hasListNext}
+            <a href="/reprint/next" class="btn btn-muted nav-btn">SUIVANT</a>
+        {#else}
+            <button class="btn btn-muted nav-btn" disabled>SUIVANT</button>
+        {/if}
+    </div>
+
+    <div class="bottom-nav">
+        <a href="/" class="btn btn-muted">RETOUR</a>
+    </div>
+</div>
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+</script>
+</body>
+</html>

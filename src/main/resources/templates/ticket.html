@@ -1,0 +1,45 @@
+{#if state.ticket.transientError}
+    <div class="receipt-item error-line">
+        <div class="item-details">
+            <strong>⚠️ {state.ticket.transientError}</strong>
+        </div>
+        <span class="price" style="color:var(--danger);">ERR</span>
+    </div>
+{/if}
+
+{#if state.ticket.items.empty}
+    <div class="receipt-empty">EN ATTENTE D'ARTICLES...</div>
+{#else}
+    {#for item in state.visibleItems}
+        <a href="/action/select/{item_index}" class="receipt-item-link">
+            <div class="receipt-item {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
+                <div class="item-details">
+                    {item.html.raw}
+                </div>
+                <span class="price">
+                    {#if item.modifierLabel}
+                        <span class="price-mod-detail">({item.modifierLabel})</span>
+                    {/if}
+                    {item.priceFormatted} €
+                </span>
+            </div>
+        </a>
+    {/for}
+
+    <!-- Navigation -->
+    <div class="ticket-nav">
+        {#if state.hasPreviousPage}
+            <a href="/action/ticket/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+        {#else}
+            <div></div>
+        {/if}
+
+        <span class="nav-info">Page {state.ticketCurrentPageDisplay} / {state.ticketTotalPages}</span>
+
+        {#if state.hasNextPage}
+            <a href="/action/ticket/next" class="btn btn-muted nav-btn">SUIVANT</a>
+        {#else}
+            <div></div>
+        {/if}
+    </div>
+{/if}

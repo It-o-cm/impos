@@ -1,0 +1,320 @@
+<script>
+    window.PosKeyboards = {
+
+        /**
+         * Injects the shared keyboard stylesheet into the document once.
+         * <p>
+         * All keyboards (numpad, price, payment, search, alpha) rely on these
+         * classes so that sizing, spacing, colors and typography stay identical
+         * across the whole application. Colors are bound to the global CSS
+         * variables defined in each page's :root block.
+         */
+        _injectStyles: function() {
+            if (document.getElementById('pos-keyboard-styles')) return;
+            const style = document.createElement('style');
+            style.id = 'pos-keyboard-styles';
+            style.textContent = [
+                '.pos-keyboard { display: grid; gap: 6px; width: 100%; }',
+                '.pos-keyboard--cols3 { grid-template-columns: repeat(3, 1fr); }',
+                '.pos-keyboard--cols4 { grid-template-columns: repeat(4, 1fr); }',
+                '.pos-keyboard--alpha { grid-template-columns: repeat(10, 1fr); }',
+                '.pos-key {',
+                '  padding: 15px;',
+                '  font-size: 1.5rem;',
+                '  font-weight: bold;',
+                '  border-radius: 6px;',
+                '  border: 1px solid var(--border-color, #333333);',
+                '  cursor: pointer;',
+                '  text-align: center;',
+                '  color: var(--text-main, #FFFFFF);',
+                '  background: var(--bg-panel, #1E1E1E);',
+                '}',
+                '.pos-key:active { filter: brightness(1.3); }',
+                '.pos-key--digit { background: var(--bg-panel, #1E1E1E); color: var(--text-main, #FFFFFF); }',
+                '.pos-key--danger { background: var(--danger, #D32F2F); color: var(--text-main, #FFFFFF); }',
+                '.pos-key--success { background: var(--success, #00C853); color: var(--text-main, #FFFFFF); }',
+                '.pos-key--action { background: #000; color: var(--warning, #FF9800); }',
+                '.pos-key--alpha { font-size: 1.5rem; text-transform: uppercase; }',
+                '.pos-key--wide { grid-column: span 2; }',
+                '.pos-key--wide5 { grid-column: span 5; }'
+            ].join('\n');
+            document.head.appendChild(style);
+        },
+
+        /**
+         * Returns the semantic style class for a given key label.
+         * <p>
+         * This centralizes the single color convention used everywhere:
+         * danger (red) for clear, success (green) for validate, action (orange)
+         * for edit/separator keys, and digit for every standard key.
+         *
+         * @param k the key label
+         * @return the CSS class name to apply on top of the base "pos-key" class
+         */
+        _keyClass: function(k) {
+            if (k === 'C') return 'pos-key--danger';
+            if (k === 'OK') return 'pos-key--success';
+            if (k === '\u232b' || k === ',' || k === '.' || k === '-') return 'pos-key--action';
+            return 'pos-key--digit';
+        },
+
+        /**
+         * Builds a single keyboard button with the harmonized styling.
+         *
+         * @param label the visible text of the key
+         * @param onKey the callback invoked with the key label on click
+         * @param extraClass an optional extra CSS class (e.g. layout span)
+         * @return the configured button element
+         */
+        _makeKey: function(label, onKey, extraClass) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.innerText = label;
+            btn.className = 'pos-key ' + this._keyClass(label) + (extraClass ? ' ' + extraClass : '');
+            btn.onclick = () => onKey(label);
+            return btn;
+        },
+
+        /**
+         * Creates the grid container shared by every numeric keyboard.
+         *
+         * @param colsClass the column-count modifier class
+         * @return the configured grid div element
+         */
+        _makeGrid: function(colsClass) {
+            const pad = document.createElement('div');
+            pad.className = 'pos-keyboard ' + colsClass;
+            return pad;
+        },
+
+        /**
+         * Renders the standard 3-column integer numpad.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderNumpad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols3');
+            const keys = ['7','8','9','4','5','6','1','2','3','C','0','\u232b'];
+            keys.forEach(k => pad.appendChild(this._makeKey(k, onKey)));
+            container.appendChild(pad);
+        },
+
+        /**
+         * Renders the 3-column decimal numpad (comma as decimal separator).
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderPriceNumpad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols3');
+            const keys = ['7','8','9','4','5','6','1','2','3','C','0',','];
+            keys.forEach(k => pad.appendChild(this._makeKey(k, onKey)));
+            container.appendChild(pad);
+        },
+
+        /**
+         * Renders the 4-column payment numpad with validate/clear keys.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderPaymentNumpad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols4');
+            const keys = [
+                ['7', null], ['8', null], ['9', null], ['\u232b', null],
+                ['4', null], ['5', null], ['6', null], ['C', null],
+                ['1', null], ['2', null], ['3', null], ['OK', null],
+                ['0', 'pos-key--wide'], ['.', null], ['00', null]
+            ];
+            keys.forEach(def => pad.appendChild(this._makeKey(def[0], onKey, def[1])));
+            container.appendChild(pad);
+        },
+
+        /**
+         * Renders the 3-column search numpad (with dash key).
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderSearchPad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols3');
+            const keys = ['1','2','3','4','5','6','7','8','9','-','0','\u232b','C'];
+            keys.forEach(k => pad.appendChild(this._makeKey(k, onKey)));
+            container.appendChild(pad);
+        },
+
+        /**
+         * Renders the AZERTY alphabetic keyboard with space and erase keys.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderAlphaKeyboard: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const kb = this._makeGrid('pos-keyboard--alpha');
+
+            const rows = ['AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN'];
+            rows.forEach(row => {
+                row.split('').forEach(l => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.innerText = l;
+                    b.className = 'pos-key pos-key--digit pos-key--alpha';
+                    b.onclick = () => onKey(l.toLowerCase());
+                    kb.appendChild(b);
+                });
+            });
+
+            const sp = document.createElement('button');
+            sp.type = 'button';
+            sp.innerText = 'ESPACE';
+            sp.className = 'pos-key pos-key--action pos-key--wide5';
+            sp.onclick = () => onKey(' ');
+            kb.appendChild(sp);
+
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.innerText = 'EFFACER';
+            del.className = 'pos-key pos-key--danger pos-key--wide5';
+            del.onclick = () => onKey('DEL');
+            kb.appendChild(del);
+
+            container.appendChild(kb);
+        }
+    };
+
+    window.PosInput = {
+        buffer: "",
+        config: {},
+
+        setup: function(cfg) {
+            this.config = cfg;
+
+            if(cfg.initialValue !== undefined) {
+                this.buffer = cfg.initialValue;
+            } else {
+                this.buffer = "";
+            }
+
+            const container = document.getElementById(cfg.containerId);
+            if (!container) return;
+
+            const handler = (k) => this.handleKey(k);
+
+            switch(cfg.keyboardType) {
+                case 'alpha': PosKeyboards.renderAlphaKeyboard(container, handler); break;
+                case 'price': PosKeyboards.renderPriceNumpad(container, handler); break;
+                case 'payment': PosKeyboards.renderPaymentNumpad(container, handler); break;
+                case 'search': PosKeyboards.renderSearchPad(container, handler); break;
+                default: PosKeyboards.renderNumpad(container, handler); break;
+            }
+
+            this.updateDisplay();
+        },
+
+        handleKey: function(k) {
+            const cfg = this.config;
+            const maxLen = cfg.maxLength || 20;
+
+            if (k === 'DEL' || k === '\u232b') {
+                this.buffer = this.buffer.slice(0, -1);
+            }
+            else if (k === 'C') {
+                this.buffer = "";
+            }
+            else if (k === 'OK') {
+                if (cfg.onEnter) cfg.onEnter(this.buffer);
+                return;
+            }
+            else if (k === 'ESPACE' || k === ' ') {
+                if (this.buffer.length < maxLen) this.buffer += ' ';
+            }
+            else {
+                if (this.buffer.length >= maxLen) return;
+
+                var isZeroState = (this.buffer === "0" || this.buffer === "0.00" || this.buffer === "0,00");
+                var isDigit = (k >= '0' && k <= '9');
+
+                if (isZeroState && isDigit) {
+                    this.buffer = "";
+                }
+
+                if (cfg.mode === 'integer') {
+                    if (k === '.' || k === ',') return;
+                    if (k === '00') this.buffer += '00';
+                    else this.buffer += k;
+                }
+                else if (cfg.mode === 'decimal' || cfg.mode === 'payment') {
+                    if (k === ',') k = '.';
+                    if (k === '.') {
+                        if (this.buffer.includes('.')) return;
+                        this.buffer += '.';
+                    } else if (k === '00') {
+                        if (this.buffer.includes('.') && this.buffer.split('.')[1].length >= 2) return;
+                        this.buffer += '00';
+                    } else {
+                        if (this.buffer.includes('.') && this.buffer.split('.')[1].length >= 2) return;
+                        this.buffer += k;
+                    }
+                }
+                else if (cfg.mode === 'pin') {
+                    if (!isNaN(parseInt(k))) this.buffer += k;
+                }
+                else if (cfg.mode === 'text') {
+                    this.buffer += (cfg.uppercase ? k.toUpperCase() : k);
+                }
+                else {
+                    this.buffer += k;
+                }
+            }
+
+            this.updateDisplay();
+
+            if (cfg.onChange) cfg.onChange(this.buffer);
+        },
+
+        updateDisplay: function() {
+            const cfg = this.config;
+            const displayEl = document.getElementById(cfg.displayId);
+            const hiddenEl = document.getElementById(cfg.hiddenId);
+            if (!displayEl) return;
+
+            let visual = this.buffer;
+            let value = this.buffer;
+
+            if (cfg.mode === 'pin') {
+                visual = "*".repeat(this.buffer.length);
+            } else if (cfg.mode === 'decimal' || cfg.mode === 'payment') {
+                visual = this.buffer.replace('.', ',');
+                value = this.buffer;
+            } else if (cfg.uppercase) {
+                visual = this.buffer.toUpperCase();
+            }
+
+            displayEl.value = visual;
+            if (hiddenEl) hiddenEl.value = value;
+        },
+
+        clear: function() {
+            this.buffer = "";
+            this.updateDisplay();
+        }
+    };
+
+</script>
+

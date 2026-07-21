@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paiement</title>
+    <style>
+        :root { --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF; --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853; --danger: #D32F2F; --warning: #FF9800; --border-color: #333333; }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+        .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark); border: 2px solid #444; border-radius: 10px; display: grid; grid-template-rows: 60px 1fr 80px; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative; }
+
+        /* Header & Footer */
+        .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+
+        /* Main Layout */
+        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; background-color: var(--bg-dark); }
+
+        /* Overlay Paiement */
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay.active { display: flex; }
+
+        /* Contenu Paiement */
+        .pay-content { flex: 1; display: flex; flex-direction: column; width: 96%; margin: 0 auto; min-height: 0; }
+        .pay-top-row { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .overlay-title { font-size: 1.5rem; }
+        .total-display { position: relative; text-align: right; }
+        .total-label { font-size: 0.85rem; color: var(--text-muted); }
+        .total-amount { font-size: 1.8rem; font-weight: bold; color: var(--text-main); }
+
+        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; text-align: center; }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none; box-shadow: none; }
+        .btn-primary { background-color: var(--primary); } .btn-danger { background-color: var(--danger); } .btn-warning { background-color: var(--warning); color: black; } .btn-success { background-color: var(--success); } .btn-muted { background-color: #555; }
+
+        /* Corps : zone principale (gauche) + colonne moyens de paiement (droite) */
+        .pay-body { flex: 1; display: grid; grid-template-columns: 1fr 190px; gap: 14px; min-height: 0; }
+
+        /* Colonne verticale des moyens de paiement */
+        .pay-methods { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+        .pay-methods .btn { padding: 0 10px; height: 100%; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; line-height: 1.1; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+
+        /* Zone principale : historique agrandi + saisie/numpad */
+        .pay-main { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; }
+
+        /* Historique */
+        .pay-history { display: flex; flex-direction: column; background: #0d0d0d; border: 1px solid #333; border-radius: 8px; overflow: hidden; min-height: 0; }
+        .pay-history-title { padding: 10px 14px; font-weight: bold; font-size: 0.85rem; color: var(--text-muted); border-bottom: 1px solid #333; background: #161616; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+        .pay-history-list { flex: 1; padding: 4px 0; min-height: 0; }
+        .pay-history-empty { color: #444; text-align: center; padding: 30px 10px; font-size: 1rem; }
+        /* Mode liste pleine (clavier fermé) : on affiche la page courante. */
+        .pay-history-entry { display: none; }
+        .pay-history-entry.on-page { display: flex; }
+        /* Mode clavier ouvert : seulement les 2 derniers paiements, pas de navigation. */
+        .pay-history.keypad-open .pay-history-entry { display: none; }
+        .pay-history.keypad-open .pay-history-entry.recent-two { display: flex; }
+        .pay-history.keypad-open .pay-history-nav { display: none; }
+        .pay-history-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid #333; background: #141414; }
+        .pay-history-nav .nav-btn { padding: 8px 14px; font-size: 0.85rem; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+        .pay-history-nav .nav-info { color: var(--text-muted); font-size: 0.85rem; font-weight: bold; }
+
+        .pay-history-entry { justify-content: space-between; padding: 12px 16px; font-size: 1.2rem; border-bottom: 1px solid #1a1a1a; }
+
+        .phe-method { color: var(--text-muted); }
+        .phe-sub { font-size: 0.8rem; color: #666; margin-left: 8px; }
+        .phe-amount { color: var(--success); font-weight: bold; }
+        .pay-history-remaining { padding: 12px 16px; border-top: 1px solid #333; background: #161616; font-weight: bold; font-size: 1.1rem; flex-shrink: 0; text-align: center; }
+
+        /* Bons d'achat */
+        .btn-voucher { background-color: #7B1FA2; }
+        .voucher-panel { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+        .voucher-types { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+        .voucher-types > form { display: contents; }
+        .voucher-type-btn { width: 100%; padding: 10px 14px; background-color: #7B1FA2; font-size: 0.95rem; text-align: left; line-height: 1.2; }
+        .voucher-type-btn .vt-sub { display: block; font-size: 0.75rem; font-weight: normal; text-transform: none; opacity: 0.8; margin-top: 2px; }
+        .voucher-error { color: var(--danger); font-size: 0.9rem; font-weight: bold; background: rgba(211,47,47,0.12); border-radius: 6px; padding: 6px 10px; text-align: center; }
+        .sub-display.voucher { color: #CE93D8; border-color: #CE93D8; letter-spacing: 2px; }
+
+        /* Ligne Saisie + Numpad */
+        .pay-action-row { display: grid; grid-template-columns: 1fr 260px; gap: 12px; align-items: end; }
+
+        /* Zone Info / Saisie */
+        .pay-info-zone { display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
+
+        .pay-no-selection {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-align: center;
+            line-height: 1.4;
+            padding-bottom: 20px;
+        }
+
+        /* Formulaires de saisie */
+        .sub-input-area { display: none; flex-direction: column; gap: 6px; width: 100%; }
+        .sub-input-area.active { display: flex; }
+        .pay-mode-label { font-size: 1.0rem; font-weight: bold; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .sub-info { color: var(--text-muted); font-size: 0.95rem; }
+        .sub-display { font-size: 1.5rem; text-align: center; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 6px; padding: 8px; width: 100%; }
+
+        /* Zone Numpad */
+        .pay-numpad-zone { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
+
+        /* --- MODALE DE VALIDATION --- */
+        .confirm-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 55; justify-content: center; align-items: center; }
+        .confirm-modal.active { display: flex; }
+
+        .confirm-panel {
+            background: var(--bg-panel); border: 2px solid var(--success); border-radius: 16px;
+            width: 480px; display: flex; flex-direction: column;
+            box-shadow: 0 0 40px rgba(0,200,83,0.2); overflow: hidden;
+        }
+
+        .confirm-header {
+            background: var(--success); color: white;
+            padding: 20px; text-align: center;
+            display: flex; align-items: center; justify-content: center; gap: 15px;
+        }
+        .confirm-header-icon { font-size: 2.5rem; }
+        .confirm-header-text { font-size: 1.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+
+        .confirm-body { padding: 25px; display: flex; flex-direction: column; gap: 20px; }
+
+        .change-section {
+            background: #000; border: 2px solid var(--warning); border-radius: 10px;
+            padding: 15px; text-align: center;
+        }
+        .change-label { color: var(--warning); font-size: 1.1rem; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; }
+        .change-amount { color: var(--warning); font-size: 3rem; font-weight: bold; }
+
+        .confirm-footer { padding: 0 25px 25px 25px; display: flex; flex-direction: column; gap: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="pos-terminal">
+    <div class="top-bar">
+        <span class="store-name">INTERMARCHÉ</span>
+        <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+        <span id="clock">--:--:--</span>
+    </div>
+
+    <div class="main-area"></div>
+    <div class="bottom-nav"></div>
+
+    <!-- Overlay Principal Paiement -->
+    <div class="overlay active" id="payScreen">
+        <div class="pay-content">
+
+            <div class="pay-top-row">
+                <div class="overlay-title">Mode de paiement</div>
+                <div class="total-display">
+                    <div class="total-label">RESTANT DU</div>
+                    <div class="total-amount">{state.remainingFormatted} €</div>
+                </div>
+            </div>
+
+            <div class="pay-body">
+                <div class="pay-main">
+                    <div class="pay-history" id="payHistory">
+                        <div class="pay-history-title">PAIEMENTS EFFECTUÉS</div>
+                        <div class="pay-history-list" id="payHistoryList">
+                            {#if state.payment.payments.empty}
+                                <div class="pay-history-empty">Aucun paiement</div>
+                            {#else}
+                                {#for p in state.payment.payments}
+                                    <div class="pay-history-entry{#if state.payment.isOnCurrentPage(p_index)} on-page{/if}{#if state.payment.isAmongLastTwo(p_index)} recent-two{/if}">
+                                        <span class="phe-method">{p.method}{#if p.voucher && p.voucherNumber}<span class="phe-sub">N° {p.voucherNumber}</span>{/if}</span>
+                                        <span class="phe-amount">{p.formattedAmount} €</span>
+                                    </div>
+                                {/for}
+                            {/if}
+                        </div>
+                        {#if !state.payment.payments.empty}
+                            <div class="pay-history-nav" id="payHistoryNav">
+                                {#if state.payment.hasPreviousPage}
+                                    <a href="/action/payments/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+                                {#else}
+                                    <div></div>
+                                {/if}
+                                <span class="nav-info">Page {state.payment.currentPageDisplay} / {state.payment.totalPages}</span>
+                                {#if state.payment.hasNextPage}
+                                    <a href="/action/payments/next" class="btn btn-muted nav-btn">SUIVANT</a>
+                                {#else}
+                                    <div></div>
+                                {/if}
+                            </div>
+                        {/if}
+                        <div class="pay-history-remaining">RESTE : {state.remainingFormatted} €</div>
+                    </div>
+
+                    <div class="pay-action-row">
+                        <div class="pay-info-zone">
+                            <div class="pay-no-selection" id="payNoSelection">Choisissez un moyen<br>de paiement</div>
+
+                            <!-- Panneau de saisie d'un bon piloté par le serveur (numéro / montant) -->
+                            {#if state.payment.voucherPanelOpen}
+                                <div class="voucher-panel" id="voucherServerPanel">
+                                    {#if state.payment.pendingVoucherNeedsAmount}
+                                        <!-- Saisie du montant (Catalina ou bon générique) -->
+                                        <div class="pay-mode-label">{state.payment.pendingVoucherLabel} — saisir le montant</div>
+                                        {#if state.payment.pendingVoucherNumber}
+                                            <div class="sub-info">N° : {state.payment.pendingVoucherNumber}</div>
+                                        {#else}
+                                            <div class="sub-info">Coupon sans numéro</div>
+                                        {/if}
+                                        <form action="/action/voucher-amount" method="POST" id="voucherAmountForm">
+                                            <input type="text" id="voucherAmountDisplay" class="sub-display voucher" value="0,00" readonly style="color:var(--success);border-color:var(--success);letter-spacing:0;">
+                                            <input type="hidden" name="amount" id="voucherAmountValue" value="0">
+                                            <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">VALIDER LE BON</button>
+                                        </form>
+                                    {#else if state.payment.pendingVoucherTypeCode}
+                                        <!-- Saisie du numéro -->
+                                        <div class="pay-mode-label">{state.payment.pendingVoucherLabel} — n° du bon</div>
+                                        <div class="sub-info">Tapez le numéro inscrit sur le bon</div>
+                                        {#if state.payment.voucherError}
+                                            <div class="voucher-error">{state.payment.voucherError}</div>
+                                        {/if}
+                                        <form action="/action/voucher-number" method="POST" id="voucherNumberForm">
+                                            <input type="text" id="voucherNumberDisplay" class="sub-display voucher" value="" readonly>
+                                            <input type="hidden" name="number" id="voucherNumberValue" value="">
+                                            <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">VALIDER LE N°</button>
+                                        </form>
+                                    {/if}
+                                </div>
+                            {/if}
+
+                            <!-- Choix du type de bon (ouvert côté client par BONS D'ACHAT) -->
+                            <div class="voucher-types" id="voucherTypePanel" style="display:none;">
+                                {#for ct in couponTypes}
+                                    <form action="/action/voucher-select" method="POST">
+                                        <input type="hidden" name="code" value="{ct.code}">
+                                        <button type="submit" class="btn voucher-type-btn">{ct.label}
+                                            {#if ct.requiresManualAmount}<span class="vt-sub">{#if ct.hasNumber}numéro + montant{#else}montant seul{/if}</span>{#else}<span class="vt-sub">numéro requis</span>{/if}
+                                        </button>
+                                    </form>
+                                {/for}
+                                <button type="button" class="btn btn-danger" onclick="closeVoucher()">ANNULER</button>
+                            </div>
+
+                            <!-- Formulaire Carte Bancaire -->
+                            <form action="/action/pay-card" method="POST" class="sub-input-area" id="cardForm">
+                                <div class="pay-mode-label">CARTE BANCAIRE</div>
+                                <div class="sub-info">Montant à débiter :</div>
+                                <input type="text" id="cardDisplay" class="sub-display" value="0,00" readonly>
+                                <input type="hidden" name="amount" id="cardValue" value="0">
+                                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">VALIDER</button>
+                            </form>
+
+                            <!-- Formulaire Espèces -->
+                            <form action="/action/pay-cash" method="POST" class="sub-input-area" id="cashForm">
+                                <div class="pay-mode-label">ESPÈCES</div>
+                                <div class="sub-info">Montant donné par le client :</div>
+                                <input type="text" id="cashDisplay" class="sub-display" value="0,00" readonly>
+                                <input type="hidden" name="given" id="cashValue" value="0">
+                                <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">VALIDER ESPÈCES</button>
+                            </form>
+
+                            <!-- Formulaire Ticket Resto -->
+                            <form action="/action/pay-tr" method="POST" class="sub-input-area" id="trForm">
+                                <div class="pay-mode-label">TICKET RESTO</div>
+                                <div class="sub-info">Montant du ticket :</div>
+                                <input type="text" id="trDisplay" class="sub-display" value="0,00" readonly>
+                                <input type="hidden" name="amount" id="trValue" value="0">
+                                <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">VALIDER</button>
+                            </form>
+
+                            <!-- Formulaire Chèque -->
+                            <form action="/action/pay-cheque" method="POST" class="sub-input-area" id="chequeForm">
+                                <div class="pay-mode-label">CHÈQUE</div>
+                                <div class="sub-info">Montant du chèque :</div>
+                                <input type="text" id="chequeDisplay" class="sub-display" value="0,00" readonly>
+                                <input type="hidden" name="amount" id="chequeValue" value="0">
+                                <button type="submit" class="btn btn-muted" style="width:100%;margin-top:8px;">VALIDER</button>
+                            </form>
+
+                            <!-- Formulaire Fidélité -->
+                            <form action="/action/pay-fid" method="POST" class="sub-input-area" id="fidForm">
+                                <div class="pay-mode-label">CAGNOTTE</div>
+                                <div class="sub-info">Montant à utiliser :</div>
+                                <input type="text" id="fidDisplay" class="sub-display" value="0,00" readonly>
+                                <input type="hidden" name="amount" id="fidValue" value="0">
+                                <button type="submit" class="btn btn-warning" style="width:100%;margin-top:8px;color:black;">UTILISER</button>
+                            </form>
+                        </div>
+
+                        <!-- Zone Numpad -->
+                        <div class="pay-numpad-zone" id="payNumpadZone"></div>
+                    </div>
+                </div>
+
+                <!-- Colonne moyens de paiement -->
+                <div class="pay-methods">
+                    <button class="btn btn-primary" onclick="openInput('card')">CARTE BANCAIRE</button>
+                    <button class="btn btn-success" onclick="openInput('cash')">ESPÈCES</button>
+                    <button class="btn btn-muted" onclick="openInput('tr')">TICKET RESTO</button>
+                    <button class="btn btn-muted" onclick="openInput('cheque')">CHÈQUE</button>
+                    <button class="btn btn-voucher" onclick="openVoucher()">BONS D'ACHAT</button>
+                    <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
+                    <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE VALIDATION (Nettoyée) -->
+    <div class="confirm-modal {#if state.payment.transactionComplete}active{/if}" id="confirmModal">
+        <div class="confirm-panel">
+            <div class="confirm-header">
+                <span class="confirm-header-icon">✓</span>
+                <span class="confirm-header-text">TRANSACTION TERMINÉE</span>
+            </div>
+            <div class="confirm-body">
+                {#if state.payment.lastChangeAmount != null && state.payment.lastChangeAmount > 0}
+                    <div class="change-section">
+                        <div class="change-label">Rendu Client</div>
+                        <div class="change-amount">{state.payment.lastChangeAmount} €</div>
+                    </div>
+                {/if}
+                <!-- Section détail supprimée -->
+            </div>
+            <div class="confirm-footer">
+                <a href="/action/finish" class="btn btn-primary" style="width:100%;font-size:1.2rem;">NOUVELLE VENTE</a>
+                <form action="/action/print" method="POST" style="width:100%;">
+                    <button type="submit" class="btn btn-muted" style="width:100%;">🖨️ IMPRIMER TICKET</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+    {#include keyboard-lib /}
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    // Rafraîchit la page de paiement quand l'état serveur change (ex. bon scanné).
+    let lastKnownVersion = {state.version};
+    function pollPaymentState() {
+        fetch('/ticket-fragment?v=' + lastKnownVersion)
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(data => {
+                if (data.changed && data.version !== lastKnownVersion) {
+                    window.location.reload();
+                }
+            })
+            .catch(() => {});
+    }
+    setInterval(pollPaymentState, 1000);
+
+    const remainingDefault = "{state.remainingNumpad}";
+
+    function openInput(mode) {
+        const noSelectionDiv = document.getElementById('payNoSelection');
+        noSelectionDiv.style.display = 'none';
+
+        const hist = document.getElementById('payHistory');
+        if (hist) hist.classList.add('keypad-open');
+
+        const typePanel = document.getElementById('voucherTypePanel');
+        if (typePanel) typePanel.style.display = 'none';
+        const serverPanel = document.getElementById('voucherServerPanel');
+        if (serverPanel) serverPanel.style.display = 'none';
+
+        document.querySelectorAll('.sub-input-area').forEach(e => e.classList.remove('active'));
+        const form = document.getElementById(mode + 'Form');
+        form.classList.add('active');
+
+        PosInput.setup({
+            displayId: mode + 'Display',
+            hiddenId: mode + 'Value',
+            containerId: 'payNumpadZone',
+            keyboardType: 'payment',
+            mode: 'payment',
+            placeholder: "0,00",
+            maxLength: 10,
+            onEnter: () => { form.submit(); }
+        });
+
+        if (mode === 'card' || mode === 'cheque' || mode === 'fid') {
+            PosInput.buffer = remainingDefault;
+            PosInput.updateDisplay();
+        } else {
+            PosInput.clear();
+        }
+    }
+
+    // --- Bons d'achat : ouverture du choix de type (zone centrale) ---
+    function openVoucher() {
+        document.querySelectorAll('.sub-input-area').forEach(e => e.classList.remove('active'));
+        const hist = document.getElementById('payHistory');
+        if (hist) hist.classList.remove('keypad-open');
+        const noSelection = document.getElementById('payNoSelection');
+        if (noSelection) noSelection.style.display = 'none';
+        const serverPanel = document.getElementById('voucherServerPanel');
+        if (serverPanel) serverPanel.style.display = 'none';
+        const typePanel = document.getElementById('voucherTypePanel');
+        if (typePanel) typePanel.style.display = 'grid';
+    }
+
+    function closeVoucher() {
+        const typePanel = document.getElementById('voucherTypePanel');
+        if (typePanel) typePanel.style.display = 'none';
+        const hist = document.getElementById('payHistory');
+        if (hist) hist.classList.remove('keypad-open');
+        const noSelection = document.getElementById('payNoSelection');
+        if (noSelection) noSelection.style.display = '';
+    }
+
+    // --- Saisie d'un bon (numéro ou montant) ---
+    (function initVoucherInput() {
+        const numberForm = document.getElementById('voucherNumberForm');
+        const amountForm = document.getElementById('voucherAmountForm');
+        const noSelection = document.getElementById('payNoSelection');
+        const hist = document.getElementById('payHistory');
+
+        if (numberForm) {
+            if (noSelection) noSelection.style.display = 'none';
+            if (hist) hist.classList.add('keypad-open');
+            PosInput.setup({
+                displayId: 'voucherNumberDisplay',
+                hiddenId: 'voucherNumberValue',
+                containerId: 'payNumpadZone',
+                keyboardType: 'numpad',
+                mode: 'integer',
+                placeholder: "",
+                maxLength: 30,
+                onEnter: () => { numberForm.submit(); }
+            });
+            PosInput.clear();
+        } else if (amountForm) {
+            if (noSelection) noSelection.style.display = 'none';
+            if (hist) hist.classList.add('keypad-open');
+            PosInput.setup({
+                displayId: 'voucherAmountDisplay',
+                hiddenId: 'voucherAmountValue',
+                containerId: 'payNumpadZone',
+                keyboardType: 'payment',
+                mode: 'payment',
+                placeholder: "0,00",
+                maxLength: 10,
+                onEnter: () => { amountForm.submit(); }
+            });
+            PosInput.clear();
+        }
+    })();
+</script>
+
+</body>
+</html>
+
