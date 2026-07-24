@@ -11,7 +11,27 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 
 /**
- * Abstract base class for all entities in the valuation domain.
+ * Abstract base class for the business entities of the POS domain.
+ * <p>
+ * Semantic contract accumulated over the phases:
+ * <ul>
+ *   <li>Pure technical tables deliberately bypass it and extend
+ *       {@code PanacheEntity} directly: {@code TicketCounter},
+ *       {@code TechnicalEvent}, {@code SyncOutbox}, {@code RefState} — no
+ *       audit noise on counters, journals and plumbing.</li>
+ *   <li>The checksum is CHANGE DETECTION, not tamper-proofing: it is
+ *       recomputed on every write from {@code getChecksum()}, so its value
+ *       only means something if the subclass hashes its salient business
+ *       fields (a constant implementation silently defeats it — the
+ *       RefundLine lesson). Fiscal tamper-evidence is the phase 1 signature
+ *       chain, not this field.</li>
+ *   <li>The referential fingerprints of phase 6 do NOT use it: they hash the
+ *       canonical DTO stream instead, so the two mechanisms stay
+ *       independent.</li>
+ *   <li>Audit timestamps go through {@code DateTimeProvider} (freezable in
+ *       tests); business document dates do not — see the provider's own
+ *       documentation for the trap.</li>
+ * </ul>
  * <p>
  * Extends {@link io.quarkus.hibernate.orm.panache.PanacheEntity} to provide
  * the 'id' field automatically and the Active Record pattern capabilities.

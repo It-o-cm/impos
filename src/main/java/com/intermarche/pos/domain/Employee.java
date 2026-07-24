@@ -7,14 +7,30 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.mindrot.jbcrypt.BCrypt;
 
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Set;
 
 /**
  * Entity representing an employee working in a store.
  * <p>
- * This class handles authentication (badge ID/PIN) and authorization (role)
+ * This class handles authentication (badge ID/PIN) and authorization (role).
  * <p>
+ * Semantic contract:
+ * <ul>
+ *   <li>Authentication: badge scan resolves the account, the 4-digit PIN is
+ *       verified against the bcrypt hash stored in {@code password}. The
+ *       same PIN check guards login and manager endorsements, and shares
+ *       one lockout: {@code failedAttempts} / {@code lockedUntil}
+ *       (pos.auth.max-attempts, pos.auth.lockout-minutes).</li>
+ *   <li>The lockout pair is LOCAL operational state: the centralized
+ *       referential pull upserts every business field (hash included — any
+ *       cashier can badge on any register) but never touches these two, so
+ *       a lock on one register neither spreads nor resets.</li>
+ *   <li>Roles: MANAGER and ADMIN validate endorsements; deactivation, not
+ *       deletion, removes an employee (historical documents reference
+ *       them).</li>
+ * </ul>
  */
 @Entity
 @Table(name = "employees",
@@ -127,6 +143,33 @@ public class Employee extends BaseEntity {
      */
     @Column(name = "is_active", nullable = false)
     public boolean active = true;
+
+    // --------------------------------------------------
+    // PIN lockout (phase 2)
+    // --------------------------------------------------
+
+    /**
+     * The number of consecutive failed PIN attempts since the last success.
+     */
+    @Column(name = "failed_attempts", nullable = false)
+    public int failedAttempts = 0;
+
+    /**
+     * The timestamp until which the account is locked after repeated PIN
+     * failures, or null when not locked.
+     */
+    @Column(name = "locked_until")
+    public LocalDateTime lockedUntil;
+
+    /**
+     * Indicates whether the account is currently locked out after repeated
+     * PIN failures.
+     *
+     * @return true if a lockout is active at this moment
+     */
+    public boolean isCurrentlyLocked() {
+        return lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now());
+    }
 
     // --------------------------------------------------
     // Implementation of Account Interface

@@ -13,6 +13,7 @@
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
         body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
+        .training-banner { position: absolute; top: 0; left: 0; right: 0; z-index: 50; background: var(--warning); color: #000; text-align: center; font-weight: bold; font-size: 0.95rem; padding: 3px; letter-spacing: 2px; }
         .pos-terminal {
             width: 1000px; height: 600px; background-color: var(--bg-dark);
             border: 2px solid #444; border-radius: 10px;
@@ -87,6 +88,7 @@
 <body>
 
 <div class="pos-terminal" id="posTerminal">
+    {#if state.trainingMode}<div class="training-banner">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
@@ -113,30 +115,29 @@
             <div class="grid-buttons">
                 {#if state.showSecondaryMenu}
 
-                    <!-- Lien vers la page de réimpression -->
+                    <!-- Exceptions de prix (avenant) et saisies de secours -->
+                    <a href="/action/price-mod/discount" class="btn btn-muted">DISCOUNT</a>
+                    <a href="/action/price-mod/force_price" class="btn btn-muted">FORÇAGE PRIX</a>
+                    <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
+                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
+
+                    <!-- Cycle de vie des tickets -->
+                    <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
+                    <a href="/parked" class="btn btn-warning" style="color:black;">REPRENDRE TICKET</a>
+                    <a href="/action/print-last" class="btn btn-muted">RÉIMPRIMER</a>
                     <a href="/reprint" class="btn btn-primary">IMPRIMER TICKET</a>
-                    <!-- NOUVEAU : Lien vers la fonctionnalité Retour -->
                     <a href="/return" class="btn btn-primary">RETOUR</a>
 
                     <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
-
-                    <div class="btn-spacer"></div>
-                    <div class="btn-spacer"></div>
-                    <div class="btn-spacer"></div>
-                    <div class="btn-spacer"></div>
-                    <div class="btn-spacer"></div>
-                    <div class="btn-spacer"></div>
+                    <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
 
                 {#else}
                     <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
+                    <a href="/action/price-mod/quantity" class="btn btn-muted">QUANTITÉ</a>
                     <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS & LÉGUMES</a>
                     <a href="/action/price-mod/remise" class="btn btn-muted">REMISE</a>
-                    <a href="/action/price-mod/discount" class="btn btn-muted">DISCOUNT</a>
-                    <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
                     <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
-                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
-                    <a href="/action/price-mod/force_price" class="btn btn-muted">FORÇAGE PRIX</a>
-                    <a href="/action/print-last" class="btn btn-muted">RÉIMPRIMER</a>
+                    <a href="/search" class="btn btn-muted">RECHERCHE</a>
 
                     {#if state.ticket.totalAmount > 0}
                         <a href="/pay" class="btn btn-primary">ENCAISSER</a>
@@ -157,7 +158,7 @@
             <a href="/action/menu/secondary" class="btn btn-muted">AUTRES...</a>
         {/if}
 
-        <a href="/action/start-cash-count" class="btn btn-success">CAISSE</a>
+        <a href="/session" class="btn btn-success">CAISSE</a>
         <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
         <a href="/lock" class="btn btn-muted">DÉCONNEXION</a>
     </div>
@@ -213,6 +214,7 @@
                 }
             });
     }
+
 
     setInterval(pollServer, 1000);
     pollServer();

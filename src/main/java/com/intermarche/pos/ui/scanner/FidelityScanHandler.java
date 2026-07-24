@@ -1,6 +1,5 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityService;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;

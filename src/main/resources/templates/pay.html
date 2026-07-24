@@ -138,6 +138,7 @@
 <body>
 
 <div class="pos-terminal">
+    {#if state.trainingMode}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 50; background: var(--warning); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 2px;">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
@@ -301,6 +302,7 @@
                     <button class="btn btn-muted" onclick="openInput('cheque')">CHÈQUE</button>
                     <button class="btn btn-voucher" onclick="openVoucher()">BONS D'ACHAT</button>
                     <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
+                    <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
                     <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
                 </div>
             </div>
@@ -322,6 +324,11 @@
                     </div>
                 {/if}
                 <!-- Section détail supprimée -->
+                {#if digitalPath??}
+                    <div style="text-align:center; color:var(--text-muted); font-size:0.95rem; margin-top:10px;">
+                        Ticket en ligne : <span style="color:var(--primary); font-weight:bold;">{digitalPath}</span>
+                    </div>
+                {/if}
             </div>
             <div class="confirm-footer">
                 <a href="/action/finish" class="btn btn-primary" style="width:100%;font-size:1.2rem;">NOUVELLE VENTE</a>
@@ -333,6 +340,16 @@
     </div>
 
 </div>
+
+    {#if state.payment.pendingCardAmount??}
+    <!-- VIRTUAL TPE: waiting overlay -->
+    <div style="position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.92); z-index:80; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:20px;">
+        <div style="color:var(--warning); font-size:1.6rem; font-weight:bold; letter-spacing:1px;">PAIEMENT CARTE EN COURS</div>
+        <div style="color:var(--text-main); font-size:2.6rem; font-weight:bold;">{state.payment.pendingCardAmount} €</div>
+        <div style="color:var(--text-muted); font-size:1rem;">Suivez les instructions du terminal de paiement</div>
+        <a href="/action/card-cancel" class="btn btn-danger" style="width:260px;">ANNULER</a>
+    </div>
+    {/if}
 
     {#include keyboard-lib /}
 <script>

@@ -8,7 +8,18 @@ import jakarta.persistence.Entity;
 import java.math.BigDecimal;
 
 /**
- * A payment made with a voucher (gift voucher, loyalty cheque, Catalina, generic coupon).
+ * A payment made with a voucher (gift voucher, loyalty cheque, Catalina,
+ * generic coupon).
+ * <p>
+ * Semantic contract: only coupon types NOT flagged {@code depositLine} can
+ * pay (deposit-return vouchers become negative ticket lines at scan time,
+ * never payments). A scan is treated as a payment voucher only while a
+ * payment is in progress — the explicit {@code paymentInProgress} flag, not
+ * the draft id, which exists from the first article. Store vouchers printed
+ * by voucher refunds close the loop: their number matches the STORE_VOUCHER
+ * pattern and comes back through this entity when scanned on a later ticket.
+ * {@link #voucherLabel} and {@link #voucherNumber} travel in the sync
+ * payloads so the store node rebuilds the exact voucher identity.
  */
 @Entity
 @DiscriminatorValue("VOUCHER")

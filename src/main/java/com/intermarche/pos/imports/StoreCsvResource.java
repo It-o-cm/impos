@@ -25,6 +25,18 @@ import java.util.*;
  * <p>
  * Expected CSV format (7+ columns, last 2 optional):
  * Code|Name|StreetLine1|StreetLine2|PostalCode|City|Country|Latitude|Longitude
+ * <p>
+ * Place in the POS architecture since the phase 6 centralized referentials:
+ * these CSV endpoints exist on every node, but their proper home is the
+ * STORE node — an import performed on a register is transient (the next
+ * fingerprint pull overwrites or deactivates it), while an import on the
+ * store node changes the domain fingerprint by construction and propagates
+ * to every register within {@code pos.referential.pull-seconds}, with no
+ * bump hook needed anywhere in this hierarchy.
+ * <p>
+ * Store itself sits OUTSIDE the centralized referential pull (one static
+ * row per node): unlike the other imports, a store import propagates
+ * nowhere and each node's row is maintained on that node.
  */
 @Path("/stores/import")
 @ApplicationScoped

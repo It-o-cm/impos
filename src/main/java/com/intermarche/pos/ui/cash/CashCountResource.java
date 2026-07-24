@@ -22,7 +22,8 @@ public class CashCountResource {
     @Inject @Location("cash-count") Template cashCount;
     @Inject HardwareService hardwareService;
     @Inject CashCountService cashCountService;
-    @Inject PosState state;
+    @Inject
+    PosState state;
 
     @GET
     @Path("/action/start-cash-count")

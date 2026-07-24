@@ -9,10 +9,29 @@ import java.util.Objects;
  * <p>
  * Encapsulates {@link LocalDateTime#now()} to allow deterministic time
  * for testing purposes.
+ * <p>
+ * Semantic contract — who honors the fixed clock:
+ * <ul>
+ *   <li>{@code BaseEntity} audit timestamps (creation/update) go through this
+ *       provider, so a fixed time freezes every audited row.</li>
+ *   <li>{@code Price} validity resolution ({@code findCurrentPrice}) goes
+ *       through it, so tests can pin "now" inside or outside a price
+ *       window.</li>
+ *   <li>Business document dates do NOT: {@code Ticket.creationDate} /
+ *       {@code closingDate} (set by the draft persistence) and
+ *       {@code Refund.creationDate} call {@code LocalDateTime.now()}
+ *       directly. Fixing the clock therefore does not freeze document
+ *       dates — a test asserting on them must tolerate real time.</li>
+ * </ul>
+ * The fixed time is a plain static field: process-wide, not thread-safe,
+ * strictly a test facility — production code must never call
+ * {@link #setFixedDateTime(LocalDateTime)}.
  */
 public final class DateTimeProvider {
 
-    // Private constructor to prevent instantiation of the utility class
+    /**
+     * Private constructor preventing instantiation of the utility class.
+     */
     private DateTimeProvider() {
         throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
     }

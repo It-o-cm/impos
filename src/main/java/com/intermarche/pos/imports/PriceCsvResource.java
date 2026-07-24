@@ -28,11 +28,22 @@ import java.util.Set;
  * REST Endpoint for bulk importing or updating Prices from a CSV file stream.
  * <p>
  * This class extends {@link ImporterCsvResource} to handle specific logic for {@link Price} entities.
- * It manages the composite key matching (Product + Usage + Dates) and leverages
- * the base class for the staged transaction management (1000 -> 100 -> 10 -> 1).
+ * It manages the composite key matching (EAN + StartDateTime + Priority) and
+ * leverages the base class for the staged transaction management
+ * (1000 -> 100 -> 10 -> 1).
  * <p>
- * Expected CSV format (9 columns):
- * EAN|PriceExcludingTax|PriceIncludingTax|VatRate|PriceUsage|Priority|StartDateTime|EndDateTime
+ * Expected CSV format (7 columns):
+ * EAN|PriceExcludingTax|PriceIncludingTax|VatRate|Priority|StartDateTime|EndDateTime
+ * (historical mentions of a "PriceUsage" column and of store-scoped prices
+ * date from a previous model and no longer exist).
+ * <p>
+ * Place in the POS architecture since the phase 6 centralized referentials:
+ * these CSV endpoints exist on every node, but their proper home is the
+ * STORE node — an import performed on a register is transient (the next
+ * fingerprint pull overwrites or deactivates it), while an import on the
+ * store node changes the domain fingerprint by construction and propagates
+ * to every register within {@code pos.referential.pull-seconds}, with no
+ * bump hook needed anywhere in this hierarchy.
  */
 @Path("/prices/import")
 @ApplicationScoped
@@ -83,7 +94,7 @@ public class PriceCsvResource extends ImporterCsvResource {
         // Bulk Fetch Products
         Map<String, Product> productMap = getProductMap(targetCodes);
         contextMap.put(CTX_PRODUCTS, productMap);
-        // Bulk Fetch Existing Prices (Composite Key: EAN|Usage|Start|Priority)
+        // Bulk Fetch Existing Prices (Composite Key: EAN|Start|Priority)
         Map<String, Price> priceMap = getPriceMap(targetCodes);
         contextMap.put(CTX_PRICES, priceMap);
         // 5. Return Context Map to trigger Generic Staged Fallback
@@ -188,7 +199,7 @@ public class PriceCsvResource extends ImporterCsvResource {
     /**
      * Core logic to create or update a Price entity.
      * <p>
-     * It checks if a price with the same composite key (Product + Store + Usage + Date + Priority) already exists.
+     * It checks if a price with the same composite key (EAN + StartDateTime + Priority) already exists.
      * If it exists and the data has changed (checksum), it updates the fields. Otherwise, it creates a new one.
      *
      * @param data         The parsed CSV line data.

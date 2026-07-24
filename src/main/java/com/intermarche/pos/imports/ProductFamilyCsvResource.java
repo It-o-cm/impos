@@ -27,6 +27,21 @@ import java.util.*;
  * code|description|flags|product_eans|family_codes
  * <p>
  * Note: product_eans and family_codes can contain multiple values separated by commas.
+ * <p>
+ * Place in the POS architecture since the phase 6 centralized referentials:
+ * these CSV endpoints exist on every node, but their proper home is the
+ * STORE node — an import performed on a register is transient (the next
+ * fingerprint pull overwrites or deactivates it), while an import on the
+ * store node changes the domain fingerprint by construction and propagates
+ * to every register within {@code pos.referential.pull-seconds}, with no
+ * bump hook needed anywhere in this hierarchy.
+ * <p>
+ * Link semantics: the CSV file is AUTHORITATIVE for the graph — product and
+ * sub-family links of an imported row are cleared and rebuilt from the
+ * file, so an omitted link is a removed link. A referenced product or
+ * sub-family missing from the database fails the line (rollback, fallback,
+ * then an error entry), which makes import ORDER matter: products before
+ * families, parent families after their children.
  */
 @Path("/product-families/import")
 @ApplicationScoped

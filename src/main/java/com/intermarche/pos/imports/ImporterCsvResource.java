@@ -37,6 +37,23 @@ import java.util.stream.Collectors;
  * and handling entity creation/updates via abstract methods.
  * <p>
  * This class is designed to run on Virtual Threads via {@link RunOnVirtualThread}.
+ * <p>
+ * Place in the POS architecture since the phase 6 centralized referentials:
+ * these CSV endpoints exist on every node, but their proper home is the
+ * STORE node — an import performed on a register is transient (the next
+ * fingerprint pull overwrites or deactivates it), while an import on the
+ * store node changes the domain fingerprint by construction and propagates
+ * to every register within {@code pos.referential.pull-seconds}, with no
+ * bump hook needed anywhere in this hierarchy.
+ * <p>
+ * Format contract shared by every subclass: pipe-separated columns, first
+ * line skipped as header, column 0 is the natural key of the row (EAN,
+ * family code, store code) and drives both the bulk pre-fetch and the
+ * 1-by-1 fallback lookup. The staged fallback isolates poison lines: a
+ * failed 1000-chunk transaction is retried in 100s, then 10s, then line by
+ * line in individual transactions — one bad row costs its own error entry,
+ * never the batch. The per-line checksum comparison makes re-importing the
+ * same file a no-op (updatedCount counts real changes only).
  */
 @RunOnVirtualThread
 public abstract class ImporterCsvResource {

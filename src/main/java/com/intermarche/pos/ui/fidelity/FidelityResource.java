@@ -1,6 +1,5 @@
 package com.intermarche.pos.ui.fidelity;
 
-import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
@@ -17,7 +16,8 @@ public class FidelityResource {
     @Inject Template main;
     @Inject Template lock;
     @Inject FidelityService fidelityService;
-    @Inject PosState state;
+    @Inject
+    PosState state;
 
     private TemplateInstance home() {
         return state.isLocked() ? lock.data("state", state) : main.data("state", state);

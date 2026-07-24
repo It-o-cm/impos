@@ -1,48 +1,103 @@
 package com.intermarche.pos.ui.payment;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * In-memory state of the payment in progress for the current ticket.
+ * <p>
+ * All monetary amounts are {@link BigDecimal} (phase 0).
+ */
 public class PaymentState implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    // Nombre de lignes de paiement affichables sans ascenseur (liste pleine).
+    /** Number of payment lines displayable without a scrollbar (full list). */
     private static final int PAGE_SIZE = 5;
 
+    /** The payments registered so far. */
     public List<PaymentEntry> payments = new ArrayList<>();
-    public double paidAmount = 0.0;
+
+    /** The sum of registered payment amounts. */
+    public BigDecimal paidAmount = BigDecimal.ZERO;
+
+    /** True once the remaining due reaches zero. */
     public boolean transactionComplete = false;
+
+    /** The database id of the draft ticket, or null before creation. */
     public Long ticketDbId = null;
 
-    // Pagination de l'historique des paiements (précédent / suivant)
+    /**
+     * Amount awaiting the virtual payment terminal's decision, or null when
+     * no card request is pending (phase 6: the simulator accepts or refuses).
+     */
+    public BigDecimal pendingCardAmount = null;
+
+    /**
+     * True while the payment screen drives the transaction. Needed since the
+     * early draft (phase 0 lot 2): {@link #ticketDbId} is set from the first
+     * article, so it no longer indicates an active payment.
+     */
+    public boolean paymentInProgress = false;
+
+    /** Current page of the payment history (previous / next). */
     public int currentPage = 0;
 
-    // Champs pour l'affichage UI
-    public Double lastChangeAmount = null; // Rendu monnaie
+    /** Change given back on the last cash payment, or null. Kept for the end-of-transaction modal. */
+    public BigDecimal lastChangeAmount = null;
+
+    /** Current input mode of the payment numpad, or null. */
     public String inputMode = null;
+
+    /** Current content of the payment numpad display. */
     public String temporaryInput = "0,00";
 
-    // Saisie d'un bon en cours (mode manuel, ou Catalina reconnu au scan)
+    /** True while the voucher panel is open (manual entry, or Catalina recognized at scan). */
     public boolean voucherPanelOpen = false;
+
+    /** The technical code of the selected coupon type, or null. */
     public String pendingVoucherTypeCode = null;
+
+    /** The display label of the selected coupon type, or null. */
     public String pendingVoucherLabel = null;
+
+    /** The voucher number being entered, or null. */
     public String pendingVoucherNumber = null;
+
+    /** True when the cashier must type the voucher amount. */
     public boolean pendingVoucherNeedsAmount = false;
+
+    /** The current voucher entry error, or null. */
     public String voucherError = null;
 
-    public void addPayment(String method, double amount) {
+    /**
+     * Registers a plain payment (card, cheque, meal ticket, fidelity...).
+     *
+     * @param method the payment method key
+     * @param amount the paid amount
+     */
+    public void addPayment(String method, BigDecimal amount) {
         payments.add(new PaymentEntry(method, amount));
-        paidAmount += amount;
+        paidAmount = paidAmount.add(amount);
         goToLastPage();
         clearTemporaryInputs();
     }
 
-    public void addCashPayment(double amount, double tenderedAmount) {
+    /**
+     * Registers a cash payment with the tendered amount.
+     * <p>
+     * Important: {@link #lastChangeAmount} is NOT cleared here, it is needed
+     * by the end-of-transaction modal.
+     *
+     * @param amount the amount applied to the ticket
+     * @param tenderedAmount the amount handed over by the customer
+     */
+    public void addCashPayment(BigDecimal amount, BigDecimal tenderedAmount) {
         payments.add(new PaymentEntry("CASH", amount, tenderedAmount));
-        paidAmount += amount;
-        // IMPORTANT : On ne nettoie PAS lastChangeAmount ici, car on en a besoin pour la modale de fin
+        paidAmount = paidAmount.add(amount);
         goToLastPage();
         clearTemporaryInputs();
     }
@@ -54,25 +109,33 @@ public class PaymentState implements Serializable {
      * @param number the voucher number, or null when there is none
      * @param amount the paid amount
      */
-    public void addVoucherPayment(String label, String number, double amount) {
+    public void addVoucherPayment(String label, String number, BigDecimal amount) {
         payments.add(new PaymentEntry(label, amount, number, true));
-        paidAmount += amount;
+        paidAmount = paidAmount.add(amount);
         goToLastPage();
         clearTemporaryInputs();
     }
 
+    /**
+     * Clears the registered payments and resets the history pagination.
+     */
     public void clearPayments() {
         payments.clear();
-        paidAmount = 0.0;
+        paidAmount = BigDecimal.ZERO;
         currentPage = 0;
         clearTemporaryInputs();
     }
 
+    /**
+     * Resets the whole payment state for a new transaction.
+     */
     public void reset() {
         clearPayments();
         transactionComplete = false;
         ticketDbId = null;
-        lastChangeAmount = null; // On le nettoie seulement ici (nouvelle transaction complète)
+        paymentInProgress = false;
+        pendingCardAmount = null;
+        lastChangeAmount = null; // Cleared only here (full new transaction)
         clearPendingVoucher();
     }
 
@@ -88,13 +151,16 @@ public class PaymentState implements Serializable {
         voucherError = null;
     }
 
+    /**
+     * Resets the payment numpad input mode and display.
+     */
     private void clearTemporaryInputs() {
         this.inputMode = null;
         this.temporaryInput = "0,00";
     }
 
     // --------------------------------------------------
-    // Pagination de l'historique des paiements
+    // Payment history pagination
     // --------------------------------------------------
 
     /**
@@ -202,22 +268,47 @@ public class PaymentState implements Serializable {
         if (isHasPreviousPage()) currentPage--;
     }
 
-    // Classe interne PaymentEntry
+    /**
+     * A single registered payment.
+     */
     public static class PaymentEntry implements Serializable {
         private static final long serialVersionUID = 1L;
+
+        /** The payment method key, or the voucher type label for voucher entries. */
         public String method;
-        public double amount;
-        public Double tenderedAmount;
+
+        /** The amount applied to the ticket. */
+        public BigDecimal amount;
+
+        /** The tendered amount for cash payments, or null. */
+        public BigDecimal tenderedAmount;
+
+        /** The voucher number, or null. */
         public String voucherNumber;
+
+        /** True when this entry is a voucher payment. */
         public boolean voucher;
 
-        public PaymentEntry(String method, double amount) {
+        /**
+         * Creates a plain payment entry.
+         *
+         * @param method the payment method key
+         * @param amount the paid amount
+         */
+        public PaymentEntry(String method, BigDecimal amount) {
             this.method = method;
             this.amount = amount;
             this.tenderedAmount = null;
         }
 
-        public PaymentEntry(String method, double amount, double tenderedAmount) {
+        /**
+         * Creates a cash payment entry with the tendered amount.
+         *
+         * @param method the payment method key (CASH)
+         * @param amount the amount applied to the ticket
+         * @param tenderedAmount the amount handed over by the customer
+         */
+        public PaymentEntry(String method, BigDecimal amount, BigDecimal tenderedAmount) {
             this.method = method;
             this.amount = amount;
             this.tenderedAmount = tenderedAmount;
@@ -231,7 +322,7 @@ public class PaymentState implements Serializable {
          * @param voucherNumber the voucher number, or null when there is none
          * @param voucher always true; marks the entry as a voucher payment
          */
-        public PaymentEntry(String method, double amount, String voucherNumber, boolean voucher) {
+        public PaymentEntry(String method, BigDecimal amount, String voucherNumber, boolean voucher) {
             this.method = method;
             this.amount = amount;
             this.tenderedAmount = null;
@@ -239,13 +330,23 @@ public class PaymentState implements Serializable {
             this.voucher = voucher;
         }
 
+        /**
+         * Returns the paid amount formatted for display (2 decimals, French comma).
+         *
+         * @return the formatted amount
+         */
         public String getFormattedAmount() {
-            return String.format("%.2f", amount).replace(".", ",");
+            return String.format("%.2f", amount.setScale(2, RoundingMode.HALF_UP)).replace(".", ",");
         }
 
+        /**
+         * Returns the tendered amount formatted for display, or "-" when absent.
+         *
+         * @return the formatted tendered amount
+         */
         public String getFormattedTendered() {
             if (tenderedAmount == null) return "-";
-            return String.format("%.2f", tenderedAmount).replace(".", ",");
+            return String.format("%.2f", tenderedAmount.setScale(2, RoundingMode.HALF_UP)).replace(".", ",");
         }
 
         /**

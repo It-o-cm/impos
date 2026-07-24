@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recherche Produit</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid #444; border-radius: 10px;
+      display: grid; grid-template-rows: 52px 1fr auto;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .top-bar .title { color: var(--primary); font-weight: bold; font-size: 1.2rem; text-transform: uppercase; }
+    .close-btn { color: var(--danger); font-size: 1.8rem; text-decoration: none; font-weight: bold; }
+
+    .results-area { padding: 10px 15px; overflow-y: auto; }
+    .results-empty { color: var(--text-muted); text-align: center; margin-top: 30px; font-size: 1.05rem; }
+    .results-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-content: start; }
+    .hit-btn {
+      background: #222; border: 2px solid #333; color: #ddd; border-radius: 8px;
+      cursor: pointer; text-align: center; text-transform: uppercase;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; padding: 8px 6px; min-height: 62px; text-decoration: none;
+      font-size: 0.82rem; font-weight: bold; line-height: 1.15; overflow: hidden;
+    }
+    .hit-btn:active { background: #444; transform: scale(0.98); }
+    .hit-price { color: var(--success); font-size: 0.9rem; }
+
+    .input-zone { background: #181818; border-top: 1px solid #333; padding: 10px 15px; display: flex; flex-direction: column; gap: 8px; }
+    .input-row { display: flex; gap: 10px; }
+    .search-display {
+      flex: 1; font-size: 1.4rem; color: var(--primary); font-weight: bold;
+      background: #000; border: 2px solid var(--primary); border-radius: 4px;
+      padding: 8px 12px; text-transform: uppercase;
+    }
+    .btn-search { width: 220px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; background-color: var(--primary); }
+
+    .kb-row { display: grid; grid-template-columns: 1fr 235px; gap: 12px; }
+    /* Compact keys so both pads fit the 600px terminal with room for results */
+    .kb-row .pos-key { padding: 9px 4px !important; font-size: 1.15rem !important; }
+  </style>
+</head>
+<body>
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="title">Recherche produit — nom, EAN ou code article</span>
+      <a href="/" class="close-btn">&times;</a>
+    </div>
+
+    <div class="results-area">
+      {#if hits.isEmpty}
+        {#if q.length >= 2}
+          <div class="results-empty">AUCUN PRODUIT POUR « {q} »</div>
+        {#else}
+          <div class="results-empty">TAPEZ UN NOM, UN EAN OU UN CODE ARTICLE PUIS RECHERCHER</div>
+        {/if}
+      {#else}
+        <div class="results-grid">
+          {#for hit in hits}
+            <a href="/action/search/add/{hit.ean}" class="hit-btn">
+              <span>{hit.label}</span>
+              <span class="hit-price">{hit.priceFormatted}</span>
+            </a>
+          {/for}
+        </div>
+      {/if}
+    </div>
+
+    <div class="input-zone">
+      <form action="/search" method="GET" id="searchForm">
+        <div class="input-row">
+          <input type="text" id="searchDisplay" class="search-display" value="{q}" readonly>
+          <input type="hidden" name="q" id="searchHidden" value="{q}">
+          <button type="submit" class="btn-search">RECHERCHER</button>
+        </div>
+      </form>
+      <div class="kb-row">
+        <div id="alphaKbArea"></div>
+        <div id="numKbArea"></div>
+      </div>
+    </div>
+  </div>
+
+  {#include keyboard-lib /}
+
+  <script>
+    /* Alpha keyboard bound through PosInput (buffer, display, hidden field) */
+    PosInput.setup({
+      displayId: 'searchDisplay',
+      hiddenId: 'searchHidden',
+      containerId: 'alphaKbArea',
+      keyboardType: 'alpha',
+      mode: 'text',
+      maxLength: 30,
+      initialValue: document.getElementById('searchHidden').value || ""
+    });
+    /* Numeric pad (EAN / article code) feeding the same buffer */
+    PosKeyboards.renderSearchPad(document.getElementById('numKbArea'), k => PosInput.handleKey(k));
+  </script>
+</body>
+</html>

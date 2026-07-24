@@ -13,6 +13,8 @@ import java.util.List;
 /**
  * Handles voucher payments: resolving a voucher number to its {@link CouponType}
  * and registering the resulting payment in the current payment state.
+ * <p>
+ * All monetary amounts are {@link BigDecimal} end to end (phase 0).
  */
 @ApplicationScoped
 public class VoucherService {
@@ -23,7 +25,9 @@ public class VoucherService {
     PaymentService paymentService;
 
     /**
-     * Resolves a voucher number to the first active type whose pattern matches it.
+     * Resolves a voucher number to the first active payment type whose
+     * pattern matches it (deposit-return types are handled at scan time as
+     * negative ticket lines, never as payments).
      *
      * @param number the voucher number, scanned or typed
      * @return the matching type, or null if no active type recognizes the number
@@ -32,7 +36,7 @@ public class VoucherService {
         if (number == null || number.isBlank()) {
             return null;
         }
-        List<CouponType> types = CouponType.listActiveByPriority();
+        List<CouponType> types = CouponType.listActivePaymentTypes();
         for (CouponType type : types) {
             if (type.matches(number)) {
                 return type;
@@ -58,7 +62,7 @@ public class VoucherService {
             LOG.warnf("Montant non extractible pour le bon %s (type %s)", number, type.code);
             return false;
         }
-        registerPayment(state, type, number, amount.doubleValue());
+        registerPayment(state, type, number, amount);
         return true;
     }
 
@@ -70,8 +74,8 @@ public class VoucherService {
      * @param number the voucher number, or null for a numberless voucher
      * @param amount the amount entered by the cashier
      */
-    public void applyManualVoucher(PosState state, CouponType type, String number, double amount) {
-        if (amount <= 0) {
+    public void applyManualVoucher(PosState state, CouponType type, String number, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
             return;
         }
         registerPayment(state, type, number, amount);
@@ -85,11 +89,10 @@ public class VoucherService {
      * @param number the voucher number, or null when there is none
      * @param amount the requested voucher amount
      */
-    private void registerPayment(PosState state, CouponType type, String number, double amount) {
-        double remaining = state.getRemaining();
-        double amountToPay = Math.min(amount, remaining);
-        amountToPay = BigDecimal.valueOf(amountToPay).setScale(2, RoundingMode.HALF_UP).doubleValue();
-        if (amountToPay <= 0) {
+    private void registerPayment(PosState state, CouponType type, String number, BigDecimal amount) {
+        BigDecimal remaining = state.getRemaining();
+        BigDecimal amountToPay = amount.min(remaining).setScale(2, RoundingMode.HALF_UP);
+        if (amountToPay.signum() <= 0) {
             return;
         }
         String label = (type != null) ? type.label : "Bon d'achat";

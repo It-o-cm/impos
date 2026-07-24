@@ -195,6 +195,9 @@
         <div id="numpadContainer"></div>
 
         <div class="payment-grid">
+          {#if state.refund.errorMessage??}
+            <div style="grid-column: 1 / -1; background: rgba(211,47,47,0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; font-size: 0.85rem; text-align: center; border-radius: 6px;">{state.refund.errorMessage}</div>
+          {/if}
           <a href="/return/pay/cash" class="btn btn-success" onclick="return submitAction(this);">ESPÈCES</a>
           <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">CARTE BANCAIRE</a>
           <a href="/return/pay/voucher" class="btn btn-muted" onclick="return submitAction(this);">BON D'ACHAT</a>
@@ -210,6 +213,7 @@
 </div>
 
 {#include keyboard-lib /}
+{#include endorsement /}
 
 <script>
   setInterval(function() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);

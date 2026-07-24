@@ -8,7 +8,11 @@ import java.util.stream.Collectors;
 /**
  * Entity representing a logical grouping of Products (ProductFamily).
  * <p>
- * Plays a role similar to {@link com.intermarche.valuation.domain.StoreGroup} but for Products.
+ * (Historical note: modeled after the valuation engine's store grouping —
+ * the stale cross-project link is gone, the two projects are separate.)
+ * In this POS, families primarily drive the FRUITS &amp; LÉGUMES weighing
+ * screen; {@code code} is the referential-sync upsert key and {@code flags}
+ * carries display hints.
  * Supports a hierarchical (or graph) structure where a ProductFamily can contain:
  * <ul>
  *   <li>A list of {@link Product} entities (Leaves).</li>

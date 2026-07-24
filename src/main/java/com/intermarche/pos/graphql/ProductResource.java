@@ -21,6 +21,21 @@ import java.util.NoSuchElementException;
  * <p>
  * Implements {@link GraphQLTrait} to centralize exception handling and transaction wrapping
  * via the {@code execute} template method.
+ * <p>
+ * Place in the POS architecture: this GraphQL layer is the ADMINISTRATION
+ * and exploration surface of the referentials — no POS screen and no
+ * synchronization flow uses it. Since the phase 6 centralized referentials,
+ * the node matters: a mutation performed on a REGISTER is transient (the
+ * next fingerprint pull from the store node overwrites or deactivates it);
+ * mutations belong on the STORE node, where they change the domain
+ * fingerprint and propagate to every register within
+ * {@code pos.referential.pull-seconds}.
+ * <p>
+ * Deletion vs the POS doctrine: sold products are referenced by ticket
+ * lines, so {@code deleteProduct} on one raises a foreign-key violation at
+ * commit (surfaced as "Database error" by the trait) — the doctrine is
+ * deactivation ({@code active = false}), and physical deletion only works
+ * for a never-sold product.
  */
 @GraphQLApi
 @ApplicationScoped

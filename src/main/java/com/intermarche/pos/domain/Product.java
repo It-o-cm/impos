@@ -13,6 +13,20 @@ import java.util.Objects;
  * This class focuses strictly on the product's identity and intrinsic attributes.
  * It does NOT contain references to categories, as categorization depends on the Store.
  * <p>
+ * Semantic contract:
+ * <ul>
+ *   <li>{@code active} and {@code forbiddenToSale} are different axes:
+ *       inactive means "gone from the referential" (hidden from search,
+ *       deactivated — never deleted — by the referential pull, because
+ *       ticket lines hold product foreign keys); forbidden means "present
+ *       but blocked", refused at scan time with a cashier error.</li>
+ *   <li>{@code ean} is the portable identity everywhere: catalog upserts,
+ *       sync payloads, search-to-cart addition. {@code plu} (unique,
+ *       nullable) is the weighed-sale identity: 2x scale labels and the
+ *       fruits screen resolve through it, and a typed PLU behaves like a
+ *       quantity-1 sale.</li>
+ * </ul>
+ * <p>
  * This class extends {@link BaseEntity} to inherit ID, versioning,
  * and audit fields.
  * <p>

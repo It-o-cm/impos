@@ -8,6 +8,7 @@ import java.util.Objects;
  * <p>
  * This is NOT an Entity (@Entity), but an Embeddable object.
  * It allows the address fields to be mapped directly into the parent entity's table.
+ * Embedded by {@code Store}; the ticket header prints from these fields.
  * <p>
  * Uses public fields to comply with the project's Panache/Entity conventions.
  */

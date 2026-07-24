@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ticket Intermarché</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background: #EEE; display: flex; justify-content: center; padding: 16px; }
+    .receipt { background: #FFF; width: 100%; max-width: 420px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); padding: 22px; }
+    .brand { text-align: center; color: #D32F2F; font-weight: bold; font-size: 1.5rem; letter-spacing: 1px; }
+    .store { text-align: center; color: #555; font-size: 0.95rem; margin-top: 2px; }
+    hr { border: none; border-top: 1px dashed #BBB; margin: 14px 0; }
+    .meta { font-size: 0.85rem; color: #555; line-height: 1.5; }
+    .line { display: flex; justify-content: space-between; font-size: 0.95rem; padding: 3px 0; }
+    .line .qty { color: #777; margin-right: 8px; white-space: nowrap; }
+    .line .lbl { flex: 1; }
+    .line .amt { font-weight: bold; white-space: nowrap; }
+    .total { display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: bold; margin-top: 6px; }
+    .vat { font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; }
+    .pay { font-size: 0.9rem; color: #333; display: flex; justify-content: space-between; }
+    .foot { text-align: center; color: #777; font-size: 0.85rem; margin-top: 10px; }
+    .email-box { margin-top: 16px; background: #FAFAFA; border: 1px solid #DDD; border-radius: 6px; padding: 12px; }
+    .email-box label { font-size: 0.85rem; color: #555; display: block; margin-bottom: 6px; }
+    .email-box input { width: 100%; padding: 10px; font-size: 1rem; border: 1px solid #CCC; border-radius: 4px; }
+    .email-box button { width: 100%; margin-top: 8px; padding: 12px; font-size: 1rem; font-weight: bold; color: #FFF; background: #D32F2F; border: none; border-radius: 4px; cursor: pointer; }
+    .sent { margin-top: 10px; background: #E8F5E9; color: #2E7D32; border: 1px solid #A5D6A7; border-radius: 4px; padding: 10px; font-size: 0.9rem; text-align: center; font-weight: bold; }
+    .unavailable { text-align: center; color: #555; padding: 40px 10px; font-size: 1.05rem; }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    <div class="brand">INTERMARCHÉ</div>
+
+    {#if ticket??}
+      <div class="store">{ticket.store.name}</div>
+      <hr>
+      <div class="meta">
+        Ticket : <strong>{ticket.ticketNumber}</strong><br>
+        Le {ticket.creationDate.format('dd/MM/yyyy HH:mm')}
+      </div>
+      <hr>
+      {#for line in ticket.lines}
+        <div class="line">
+          <span class="qty">{line.formattedQuantity}</span>
+          <span class="lbl">{line.productLabel}</span>
+          <span class="amt">{line.getTotalFormatted()} €</span>
+        </div>
+      {/for}
+      <hr>
+      <div class="total"><span>TOTAL TTC</span><span>{ticket.getTotalFormatted()} €</span></div>
+      {#for bucket in buckets}
+        <div class="vat">
+          <span>TVA {bucket.rateFormatted}</span>
+          <span>HT {bucket.totalExcludingTax} — TVA {bucket.vatAmount}</span>
+        </div>
+      {/for}
+      <hr>
+      {#for payment in ticket.payments}
+        <div class="pay"><span>{payment.methodKey}</span><span>{payment.amount} €</span></div>
+      {/for}
+      <hr>
+
+      {#if sent}
+        <div class="sent">✓ Ticket envoyé à {ticket.customerEmail}</div>
+      {#else}
+        <div class="email-box">
+          <form action="{path}/email" method="POST">
+            <label for="email">Recevoir ce ticket par email :</label>
+            <input type="email" id="email" name="email" placeholder="votre@email.fr" required>
+            <button type="submit">ENVOYER</button>
+          </form>
+        </div>
+      {/if}
+
+      <div class="foot">Merci de votre visite, à bientôt !</div>
+    {#else}
+      <div class="unavailable">
+        Ce ticket n'est pas (encore) disponible.<br>
+        Vérifiez le lien imprimé sur votre ticket de caisse.
+      </div>
+    {/if}
+  </div>
+</body>
+</html>

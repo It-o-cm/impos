@@ -17,6 +17,20 @@ import java.util.NoSuchElementException;
  * <p>
  * Implements {@link GraphQLTrait} for centralized error handling.
  * Includes pre-validation checks for Code and Name uniqueness.
+ * <p>
+ * Place in the POS architecture: this GraphQL layer is the ADMINISTRATION
+ * and exploration surface of the referentials — no POS screen and no
+ * synchronization flow uses it. Since the phase 6 centralized referentials,
+ * the node matters: a mutation performed on a REGISTER is transient (the
+ * next fingerprint pull from the store node overwrites or deactivates it);
+ * mutations belong on the STORE node, where they change the domain
+ * fingerprint and propagate to every register within
+ * {@code pos.referential.pull-seconds}.
+ * <p>
+ * Note that Store sits OUTSIDE the centralized referential pull (one static
+ * row per node whose {@code code} keys the sync payloads): a store mutation
+ * does not propagate anywhere, and deleting the row a node's tickets
+ * reference raises a foreign-key violation (surfaced as "Database error").
  */
 @GraphQLApi
 @ApplicationScoped

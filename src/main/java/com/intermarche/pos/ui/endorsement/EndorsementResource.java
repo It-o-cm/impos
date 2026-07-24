@@ -1,21 +1,39 @@
 package com.intermarche.pos.ui.endorsement;
 
+import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
+
+import java.math.BigDecimal;
 import java.util.Map;
 
+/**
+ * JAX-RS resource driving the manager-endorsement modal: polling endpoint,
+ * validation of the endorsed action and cancellation.
+ * <p>
+ * Phase 0: the pending price-modification value flows as {@link BigDecimal}.
+ */
 @Path("/")
 public class EndorsementResource {
+
     @Inject EndorsementService endorsementService;
     @Inject TicketService ticketService;
+    @Inject RefundService refundService;
+    @Inject com.intermarche.pos.ui.home.HomeService homeService;
 
     @Inject PosState state;
 
+    /**
+     * Returns the endorsement modal state for the UI polling.
+     *
+     * @return a JSON map with the modal state (active, action, scanned badge, error)
+     */
     @GET
     @Path("/endorsement-data")
     @Produces("application/json")
@@ -30,6 +48,14 @@ public class EndorsementResource {
         );
     }
 
+    /**
+     * Validates the pending endorsement with the presented credentials and,
+     * on success, executes the endorsed action.
+     *
+     * @param login the badge id or login name presented for the endorsement
+     * @param password the raw PIN presented for the endorsement
+     * @return the main (or lock) page
+     */
     @POST
     @Path("/action/endorse-validate")
     @Consumes("application/x-www-form-urlencoded")
@@ -41,7 +67,7 @@ public class EndorsementResource {
             return mainView(state);
         }
 
-        if (endorsementService.isManager(login, password)) {
+        if (endorsementService.authorize(login, password, actionToExecute)) {
             if (actionToExecute.equals("CANCEL_TICKET")) {
                 ticketService.cancelTicket(state);
             } else if (actionToExecute.startsWith("CANCEL_LINE_")) {
@@ -51,7 +77,7 @@ public class EndorsementResource {
             else if (actionToExecute.equals("PRICE_MODIFICATION")) {
                 String type = state.endorsement.pendingPriceType;
                 String uid = state.endorsement.pendingTargetUid;
-                double val = state.endorsement.pendingValue;
+                BigDecimal val = state.endorsement.pendingValue;
 
                 TicketState.TicketItem item = state.ticket.items.stream()
                         .filter(i -> i.uid.equals(uid))
@@ -59,12 +85,27 @@ public class EndorsementResource {
                         .orElse(null);
 
                 if (item != null) {
-                    // Correspondance des types
+                    // Type dispatch
                     if ("REMISE".equals(type)) ticketService.applyRemise(item, val);
                     else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, val);
                     else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, val);
 
                     ticketService.recalculateTotal(state);
+                }
+            }
+            else if (actionToExecute.equals("TRAINING_TOGGLE")) {
+                homeService.performTrainingToggle();
+            }
+            else if (actionToExecute.startsWith("REFUND_")) {
+                // Format: REFUND_<METHOD>_<ticketId>
+                String[] parts = actionToExecute.split("_");
+                try {
+                    Refund.RefundMethod method = Refund.RefundMethod.valueOf(parts[1]);
+                    refundService.performRefund(state, method);
+                } catch (IllegalArgumentException | ArrayIndexOutOfBoundsException e) {
+                    state.endorsement.error = "ACTION DE REMBOURSEMENT INCONNUE";
+                } catch (IllegalStateException e) {
+                    // Guard refusal: the message is already on the refund screen
                 }
             }
 
@@ -78,6 +119,11 @@ public class EndorsementResource {
         }
     }
 
+    /**
+     * Cancels the pending endorsement request.
+     *
+     * @return the main (or lock) page
+     */
     @GET
     @Path("/action/endorse-cancel")
     public TemplateInstance cancelEndorsement() {
@@ -88,6 +134,13 @@ public class EndorsementResource {
 
     @Inject Template main;
     @Inject Template lock;
+
+    /**
+     * Returns the main page, or the lock page when no operator is logged in.
+     *
+     * @param state the current POS state
+     * @return the appropriate template instance
+     */
     private TemplateInstance mainView(PosState state) {
         return state.isLocked() ? lock.data("state", state) : main.data("state", state);
     }

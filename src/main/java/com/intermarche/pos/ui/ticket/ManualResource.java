@@ -1,6 +1,5 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
@@ -16,7 +15,8 @@ public class ManualResource {
     @Inject Template lock;
     @Inject ManualService manualService;
 
-    @Inject PosState state;
+    @Inject
+    PosState state;
 
     @GET
     @Path("/manual")

@@ -71,19 +71,14 @@
             <a href="/" class="close-btn">&times;</a>
         </div>
 
-        <div class="supervisor-content">
-            <!-- Icône SVG exacte du design original -->
-            <svg class="supervisor-icon" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-
-            <div class="overlay-title" style="color:var(--warning); margin-bottom:20px;">APPEL SUPERVISEUR</div>
-
-            <div style="color:var(--text-muted); font-size:1.2rem;">
-                Un superviseur a été prévenu.<br>Veuillez patienter.
+        <div class="content-area" style="display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px;">
+            <div style="color:var(--text-muted); font-size:1.2rem; text-transform:uppercase;">Motif de l'appel</div>
+            <div style="display:grid; grid-template-columns:repeat(2, 300px); gap:14px;">
+                <a href="/action/supervisor/annulation" class="btn btn-warning" style="color:black; height:80px; line-height:50px;">ANNULATION</a>
+                <a href="/action/supervisor/prix-etiquette" class="btn btn-warning" style="color:black; height:80px; line-height:50px;">PRIX / ÉTIQUETTE</a>
+                <a href="/action/supervisor/retour-client" class="btn btn-warning" style="color:black; height:80px; line-height:50px;">RETOUR CLIENT</a>
+                <a href="/action/supervisor/autre" class="btn btn-warning" style="color:black; height:80px; line-height:50px;">AUTRE</a>
             </div>
-
             <a href="/" class="btn btn-muted" style="width:250px; height:70px; margin-top:20px;">
                 ANNULER L'APPEL
             </a>

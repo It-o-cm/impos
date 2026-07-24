@@ -67,6 +67,18 @@ public class CouponType extends PanacheEntity {
     public boolean active = true;
 
     /**
+     * Distinguishes deposit-return vouchers from payment vouchers.
+     * <p>
+     * When true, a scanned voucher of this type adds a negative line to the
+     * ticket (déconsigne) instead of registering a payment; such a type must
+     * carry its amount encoded ({@link AmountSource#ENCODED}). The two
+     * families never mix: payment resolution and the payment panel only see
+     * non-deposit types, the deposit scan handler only sees deposit types.
+     */
+    @Column(name = "deposit_line", nullable = false)
+    public boolean depositLine = false;
+
+    /**
      * The order in which types are tested against a number; lower runs first.
      */
     @Column(name = "priority", nullable = false)
@@ -129,12 +141,33 @@ public class CouponType extends PanacheEntity {
     }
 
     /**
-     * Returns the active coupon types ordered by ascending priority.
+     * Returns the active coupon types ordered by ascending priority,
+     * regardless of their kind.
      *
      * @return the ordered list of active types
      */
     public static List<CouponType> listActiveByPriority() {
         return list("active = true order by priority");
+    }
+
+    /**
+     * Returns the active payment voucher types (deposit-return types excluded)
+     * ordered by ascending priority.
+     *
+     * @return the ordered list of active payment types
+     */
+    public static List<CouponType> listActivePaymentTypes() {
+        return list("active = true and depositLine = false order by priority");
+    }
+
+    /**
+     * Returns the active deposit-return voucher types ordered by ascending
+     * priority.
+     *
+     * @return the ordered list of active deposit-return types
+     */
+    public static List<CouponType> listActiveDepositTypes() {
+        return list("active = true and depositLine = true order by priority");
     }
 
     /**

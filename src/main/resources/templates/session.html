@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session de Caisse</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid #444; border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
+    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: 1.4rem; }
+    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 560px; }
+    .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
+    .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: 1.1rem; }
+    .info-row .label { color: var(--text-muted); }
+    .info-row .value { font-weight: bold; }
+    .status-open { color: var(--success); }
+    .form-row { display: flex; align-items: center; gap: 15px; margin: 25px 0; justify-content: center; }
+    .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
+    .form-row input { width: 160px; padding: 14px; font-size: 1.4rem; font-weight: bold; text-align: right; background: #000; color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
+
+    .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; text-decoration: none; text-align: center; display: block; }
+    .btn-primary { background-color: var(--primary); }
+    .btn-success { background-color: var(--success); }
+    .btn-danger { background-color: var(--danger); }
+    .btn-muted { background-color: #424242; }
+
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>SESSION DE CAISSE</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel">
+        {#if error??}
+          <div class="error-box">{error}</div>
+        {/if}
+
+        {#if current??}
+          <h2>Session en cours</h2>
+          <div class="info-row"><span class="label">Numéro</span><span class="value">{current.sessionNumber}</span></div>
+          <div class="info-row"><span class="label">Statut</span><span class="value status-open">OUVERTE</span></div>
+          <div class="info-row"><span class="label">Ouverte le</span><span class="value">{current.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
+          <div class="info-row"><span class="label">Fond de caisse</span><span class="value">{current.openingFloatFormatted} €</span></div>
+          <div class="actions">
+            <a href="/action/session/x-report" class="btn btn-primary">RAPPORT X (LECTURE)</a>
+            <a href="/action/session/close-start" class="btn btn-danger">CLÔTURE DE CAISSE (Z)</a>
+          </div>
+        {#else}
+          <h2>Aucune session ouverte</h2>
+          <form method="post" action="/action/session/open">
+            <div class="form-row">
+              <label for="openingFloat">Fond de caisse €</label>
+              <input type="text" id="openingFloat" name="openingFloat" value="150,00" inputmode="decimal" autocomplete="off">
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn btn-success">OUVRIR LA SESSION</button>
+            </div>
+          </form>
+        {/if}
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+    </div>
+  </div>
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

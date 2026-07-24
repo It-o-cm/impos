@@ -8,10 +8,22 @@ package com.intermarche.pos.graphql;
  */
 public class AlreadyExistsException extends RuntimeException {
 
+    /**
+     * Creates the exception with a business message (the violated unique
+     * key: EAN, code or name depending on the resource).
+     *
+     * @param message the business conflict message shown to the API caller
+     */
     public AlreadyExistsException(String message) {
         super(message);
     }
 
+    /**
+     * Creates the exception with a business message and its cause.
+     *
+     * @param message the business conflict message shown to the API caller
+     * @param cause the underlying cause
+     */
     public AlreadyExistsException(String message, Throwable cause) {
         super(message, cause);
     }

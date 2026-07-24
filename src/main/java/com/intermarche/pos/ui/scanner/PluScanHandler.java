@@ -4,10 +4,24 @@ import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.annotation.Priority;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import java.math.BigDecimal;
+
+/**
+ * Scan handler adding a product to the ticket from a scanned short PLU code.
+ * <p>
+ * Phase 0: the price is handed to the ticket as {@link BigDecimal} without any
+ * double round-trip. Phase 1: the real VAT rate of the Price is captured on
+ * the line (default rate when no price is found).
+ */
 @ApplicationScoped
 @Priority(3)
 public class PluScanHandler implements ScanContext.ScanHandler {
+
+    /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
+    @ConfigProperty(name = "pos.vat.default-rate", defaultValue = "0.20")
+    BigDecimal defaultVatRate;
 
     /**
      * Handles a scanned short PLU code by adding the matching product to the ticket.
@@ -30,8 +44,9 @@ public class PluScanHandler implements ScanContext.ScanHandler {
                 }
 
                 Price price = Price.findCurrentPrice(p.id);
-                double finalPrice = (price != null) ? price.priceIncludingTax.doubleValue() : 0.0;
-                ctx.state.ticket.addItem(null, ctx.code, p.name.toUpperCase(), finalPrice, 1);
+                BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
+                BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+                ctx.state.ticket.addItem(null, ctx.code, p.name.toUpperCase(), finalPrice, BigDecimal.ONE, vatRate);
                 ctx.handled = true;
             }
         }

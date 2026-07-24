@@ -15,7 +15,10 @@ import java.util.Objects;
 /**
  * Entity representing a physical Store (Supermarket/Hypermarket).
  * <p>
- * A Store owns its Categories.
+ * One row per node in practice: each register (and the store node) carries
+ * its own copy, seeded or imported, and {@code code} is the storeCode
+ * travelling in the sync payloads — the ingestion resolves tickets against
+ * it. Deliberately outside the centralized referential pull (static row).
  * <p>
  * This class extends {@link BaseEntity} to inherit ID, versioning,
  * and audit fields.

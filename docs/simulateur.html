@@ -242,6 +242,36 @@
         </div>
 
         <div class="module">
+            <h3>💳 TPE Virtuel</h3>
+            <div id="tpeAmount" style="font-size: 1.4em; font-weight: bold; text-align: center; padding: 8px; background: #f0f0f0; border-radius: 6px;">Aucune demande</div>
+            <button class="btn-plu" id="tpeAccept" onclick="tpeDecide('accept')" disabled>Accepter</button>
+            <button class="btn-danger" id="tpeRefuse" onclick="tpeDecide('refuse')" disabled>Refuser</button>
+            <div id="tpeStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>🏷️ Étiquette Balance (EAN 2x)</h3>
+            <label for="scalePlu">Article balance :</label>
+            <select id="scalePlu">
+                <option value="">-- Sélectionner --</option>
+                <option value="4011">4011 - Banane</option>
+                <option value="4020">4020 - Pomme Golden</option>
+                <option value="4060">4060 - Tomate Ronde</option>
+                <option value="4064">4064 - Courgette</option>
+                <option value="4068">4068 - Carotte</option>
+            </select>
+            <label for="scaleMode">Type d'étiquette :</label>
+            <select id="scaleMode">
+                <option value="21">Prix embarqué (préfixe 21, valeur en €)</option>
+                <option value="23">Poids embarqué (préfixe 23, valeur en kg)</option>
+            </select>
+            <label for="scaleValue">Valeur (€ ou kg) :</label>
+            <input type="text" id="scaleValue" placeholder="Ex: 3.42 ou 1.250">
+            <button class="btn-plu" onclick="sendScaleLabel()">Scanner l'étiquette</button>
+            <div id="scaleLabelStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
             <h3>barcode EAN-13 (Codes Longs)</h3>
             <label for="eanList">Produits scannables :</label>
             <select id="eanList">
@@ -280,6 +310,11 @@
                 </optgroup>
                 <optgroup label="Catalina (montant à saisir en caisse)">
                     <option value="04829115308821">Catalina (sans montant)</option>
+                </optgroup>
+                <optgroup label="Bon de consigne (ligne négative, hors paiement)">
+                    <option value="2980000010150">Bon de consigne 1,50 €</option>
+                    <option value="2980000020045">Bon de consigne 0,45 €</option>
+                    <option value="2980000030620">Bon de consigne 6,20 €</option>
                 </optgroup>
             </select>
             <button class="btn-voucher" onclick="sendVoucher()">Scanner ce bon</button>
@@ -423,7 +458,66 @@
         }
     }
 
+    /* Polls the register's virtual payment terminal for a pending request. */
+    function pollTpe() {
+        fetch('http://localhost:8080/api/hardware/tpe')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('tpeAmount').innerText = data.pending ? `DEMANDE : ${data.amount} €` : 'Aucune demande';
+                document.getElementById('tpeAccept').disabled = !data.pending;
+                document.getElementById('tpeRefuse').disabled = !data.pending;
+            })
+            .catch(() => {});
+    }
+    setInterval(pollTpe, 1000);
+
+    /* Sends the terminal decision (accept or refuse) on the pending request. */
+    function tpeDecide(decision) {
+        const status = document.getElementById('tpeStatus');
+        fetch(`http://localhost:8080/api/hardware/tpe/${decision}`, { method: 'POST' })
+            .then(r => {
+                status.innerText = r.ok ? (decision === 'accept' ? 'Paiement accepté' : 'Paiement refusé') : 'Aucune demande en attente';
+                status.className = r.ok ? 'status success' : 'status error';
+                pollTpe();
+            })
+            .catch(() => { status.innerText = 'Caisse injoignable'; status.className = 'status error'; });
+    }
+
     function sendPlu() { postPosAction('scan', document.getElementById('pluList').value, document.getElementById('pluStatus')); }
+
+    /* Computes the EAN13 check digit of a 12-digit body. */
+    function ean13Checksum(body12) {
+        let sum = 0;
+        for (let i = 0; i < 12; i++) {
+            const d = body12.charCodeAt(i) - 48;
+            sum += (i % 2 === 0) ? d : d * 3;
+        }
+        return String((10 - (sum % 10)) % 10);
+    }
+
+    /* Builds and scans an in-store 2x label: prefix + 5-digit article code
+       + 5-digit value (cents for price labels, grams for weight labels)
+       + valid EAN13 check digit. */
+    function sendScaleLabel() {
+        const status = document.getElementById('scaleLabelStatus');
+        const plu = document.getElementById('scalePlu').value;
+        const mode = document.getElementById('scaleMode').value;
+        const raw = document.getElementById('scaleValue').value.replace(',', '.');
+        const value = parseFloat(raw);
+        if (!plu || isNaN(value) || value <= 0) {
+            status.innerText = "Article et valeur requis";
+            status.className = "status error";
+            return;
+        }
+        const units = Math.round(value * (mode === '21' ? 100 : 1000));
+        if (units > 99999) {
+            status.innerText = "Valeur trop grande (5 chiffres max)";
+            status.className = "status error";
+            return;
+        }
+        const body = mode + plu.padStart(5, '0') + String(units).padStart(5, '0');
+        postPosAction('scan', body + ean13Checksum(body), status);
+    }
     function sendEan() { postPosAction('scan', document.getElementById('eanList').value, document.getElementById('eanStatus')); }
     function sendManualScan() { postPosAction('scan', document.getElementById('scanCode').value, document.getElementById('scanStatus')); }
 

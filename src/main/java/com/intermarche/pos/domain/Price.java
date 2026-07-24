@@ -16,6 +16,17 @@ import java.util.Objects;
  * Both start and end dates can be null, representing the beginning and end of time respectively.
  * A priority indicator is used to resolve overlaps: a higher priority overrides a lower one.
  * <p>
+ * Resolution semantics ({@code findCurrentPrice}): candidate rows are those
+ * whose window contains "now" (null bounds meaning ±infinity), ordered by
+ * priority descending, first one wins — a promotion is therefore a
+ * higher-priority row overlaying the base price for its window, no deletion
+ * involved. "Now" comes from {@code DateTimeProvider}, so tests can pin the
+ * resolution inside or outside a window. Amounts are scale 4; the VAT rate
+ * is a fraction (0.0550), captured on the ticket line at scan time — a later
+ * price change never rewrites sold lines. Centralized referentials replace
+ * the whole price table on change (nothing references price rows: lines
+ * snapshot their values).
+ * <p>
  * This class extends {@link BaseEntity} to inherit ID, versioning,
  * and audit fields.
  * <p>

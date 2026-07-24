@@ -20,7 +20,8 @@ import java.net.URI;
 public class ReprintResource {
 
     @Inject Template lock;
-    @Inject PosState state;
+    @Inject
+    PosState state;
     @Inject ReprintService reprintService;
 
     @Inject @Location("reprint-ticket") Template reprintTicketPage;

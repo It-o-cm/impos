@@ -10,10 +10,13 @@ import jakarta.inject.Inject;
 /**
  * Recognizes a scanned voucher during an active payment.
  * <p>
- * A scan is only treated as a voucher when a payment is in progress (the payment
- * screen is the current screen). If the voucher amount is encoded in the number,
- * the payment is registered automatically; otherwise (Catalina) the amount must be
- * entered, so the UI is switched to amount entry.
+ * A scan is only treated as a payment voucher when a payment is in progress —
+ * detected by the explicit {@code paymentInProgress} flag (the previous
+ * {@code ticketDbId} test broke when the draft started being created at the
+ * first article: a Catalina scanned mid-cart would have registered a payment).
+ * If the voucher amount is encoded in the number, the payment is registered
+ * automatically; otherwise (Catalina) the amount must be entered, so the UI
+ * is switched to amount entry.
  */
 @ApplicationScoped
 @Priority(2)
@@ -23,7 +26,7 @@ public class VoucherScanHandler implements ScanContext.ScanHandler {
     VoucherService voucherService;
 
     /**
-     * Handles a scan by attempting to recognize and apply a voucher.
+     * Handles a scan by attempting to recognize and apply a payment voucher.
      *
      * @param ctx the scan context carrying the scanned code and POS state
      */
@@ -34,8 +37,8 @@ public class VoucherScanHandler implements ScanContext.ScanHandler {
         PosState state = ctx.state;
         if (state.isLocked()) return;
 
-        // Un scan n'est traité comme un bon que si un paiement est en cours.
-        if (state.payment.ticketDbId == null) return;
+        // A scan is treated as a payment voucher only while a payment is in progress.
+        if (!state.payment.paymentInProgress) return;
 
         CouponType type = voucherService.resolveType(ctx.code);
         if (type == null) return;

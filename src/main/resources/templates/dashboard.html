@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supervision Magasin</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background: #000; color: var(--text-main); min-height: 100vh; padding: 18px; }
+
+    .header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+    .header .title { color: var(--danger); font-size: 1.6rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
+    .header .clock { color: var(--text-muted); font-size: 1.1rem; }
+
+    .calls { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .call-banner {
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(211,47,47,0.18); border: 2px solid var(--danger); border-radius: 8px;
+      padding: 12px 18px; font-size: 1.15rem; font-weight: bold;
+      animation: pulse 1.2s infinite alternate;
+    }
+    @keyframes pulse { from { border-color: var(--danger); } to { border-color: #FF7043; } }
+    .call-banner .who { color: var(--danger); }
+    .call-banner .ack { background: var(--danger); color: #FFF; border: none; border-radius: 6px; padding: 10px 18px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+
+    .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+    .kpi { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; text-align: center; }
+    .kpi .label { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
+    .kpi .value { font-size: 1.7rem; font-weight: bold; margin-top: 4px; }
+    .kpi .value.green { color: var(--success); }
+    .kpi .value.orange { color: var(--warning); }
+
+    .columns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; }
+    .panel h2 { color: var(--text-muted); font-size: 0.95rem; text-transform: uppercase; margin-bottom: 10px; }
+    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #262626; font-size: 1rem; }
+    .row .amount { color: var(--success); font-weight: bold; }
+    .row .muted { color: var(--text-muted); font-size: 0.9rem; }
+    .empty { color: var(--text-muted); font-size: 0.9rem; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="title">Supervision magasin</span>
+    <span class="clock" id="clock"></span>
+  </div>
+
+  <div class="calls" id="callsZone"></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">CA du jour</div><div class="value green" id="kpiRevenue">—</div></div>
+    <div class="kpi"><div class="label">Tickets</div><div class="value" id="kpiTickets">—</div></div>
+    <div class="kpi"><div class="label">Panier moyen</div><div class="value" id="kpiBasket">—</div></div>
+    <div class="kpi"><div class="label">Annulation</div><div class="value orange" id="kpiCancel">—</div></div>
+    <div class="kpi"><div class="label">Remboursements</div><div class="value orange" id="kpiRefunds">—</div></div>
+  </div>
+
+  <div class="columns">
+    <div class="panel">
+      <h2>CA par caisse</h2>
+      <div id="perRegisterZone"><div class="empty">Aucune vente aujourd'hui</div></div>
+    </div>
+    <div class="panel">
+      <h2>Sessions actives</h2>
+      <div id="sessionsZone"><div class="empty">Aucune session ouverte</div></div>
+    </div>
+    <div class="panel">
+      <h2>Top ventes du jour</h2>
+      <div id="topSalesZone"><div class="empty">Aucune vente aujourd'hui</div></div>
+    </div>
+  </div>
+
+  <script>
+    /* Renders one label/value row list into a panel zone. */
+    function renderRows(zoneId, rows, emptyText) {
+      const zone = document.getElementById(zoneId);
+      zone.innerHTML = '';
+      if (!rows.length) {
+        zone.innerHTML = '<div class="empty">' + emptyText + '</div>';
+        return;
+      }
+      rows.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'row';
+        div.innerHTML = r;
+        zone.appendChild(div);
+      });
+    }
+
+    /* Applies a fresh data payload to the page. */
+    function apply(data) {
+      document.getElementById('kpiRevenue').textContent = data.revenue + ' €';
+      document.getElementById('kpiTickets').textContent = data.ticketCount;
+      document.getElementById('kpiBasket').textContent = data.averageBasket + ' €';
+      document.getElementById('kpiCancel').textContent = data.cancellationRate + ' %';
+      document.getElementById('kpiRefunds').textContent = data.refundTotal + ' € (' + data.refundCount + ')';
+
+      renderRows('perRegisterZone', data.perRegister.map(r =>
+        '<span>' + r.terminal + ' <span class="muted">(' + r.tickets + ' tickets)</span></span>'
+        + '<span class="amount">' + r.revenue + ' €</span>'), "Aucune vente aujourd'hui");
+
+      renderRows('sessionsZone', data.sessions.map(s =>
+        '<span>' + s.terminal + ' — ' + s.operator + '</span>'
+        + '<span class="muted">' + s.number + ' · depuis ' + s.since + '</span>'), 'Aucune session ouverte');
+
+      renderRows('topSalesZone', data.topSales.map(t =>
+        '<span>' + t.label + '</span><span class="amount">×' + t.quantity + '</span>'), "Aucune vente aujourd'hui");
+
+      const calls = document.getElementById('callsZone');
+      calls.innerHTML = '';
+      data.calls.forEach(c => {
+        const banner = document.createElement('div');
+        banner.className = 'call-banner';
+        banner.innerHTML = '<span class="who">⚠ ' + c.terminal + ' demande un superviseur — '
+            + c.reason + ' <span style="color:var(--text-muted); font-weight:normal;">(' + c.operator + ', ' + c.time + ')</span></span>';
+        const ack = document.createElement('button');
+        ack.className = 'ack';
+        ack.textContent = 'ACQUITTER';
+        ack.onclick = () => fetch('/dashboard/ack/' + c.id).then(poll);
+        banner.appendChild(ack);
+        calls.appendChild(banner);
+      });
+    }
+
+    /* Polls the dashboard data. */
+    function poll() {
+      fetch('/dashboard-data')
+        .then(r => r.json())
+        .then(apply)
+        .catch(() => { /* transient error: keep the current view */ });
+    }
+
+    setInterval(poll, 5000);
+    poll();
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

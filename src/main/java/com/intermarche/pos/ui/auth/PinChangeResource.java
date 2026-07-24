@@ -9,6 +9,12 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 
+/**
+ * JAX-RS resource of the PIN change page for the logged-in operator: same
+ * page on success (confirmation) and on failure (typed error, retry). The
+ * current-PIN verification is direct — it does not increment the shared
+ * lockout counter (see {@code AuthService}).
+ */
 @Path("/")
 public class PinChangeResource {
 
@@ -18,7 +24,8 @@ public class PinChangeResource {
 
     @Inject Template lock;
     @Inject AuthService authService;
-    @Inject PosState state;
+    @Inject
+    PosState state;
 
     /**
      * Displays the PIN change page for the logged-in operator.

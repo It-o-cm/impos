@@ -12,10 +12,19 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+
+import java.math.BigDecimal;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * JAX-RS resource driving the home screen: drawer-error handling, main pages,
+ * navigation, line selection/cancellation, price-modification modal and item
+ * addition actions.
+ * <p>
+ * Phase 0: monetary form values are parsed straight into {@link BigDecimal}.
+ */
 @Path("/")
 @DrawerMustBeClosed
 public class HomeResource {
@@ -32,8 +41,13 @@ public class HomeResource {
     @Inject HardwareService hardwareService;
     @Inject PosState state;
 
-    // --- Gestion Erreur Tiroir ---
+    // --- Drawer error handling ---
 
+    /**
+     * Shows the drawer-open error page.
+     *
+     * @return the drawer-error page
+     */
     @GET
     @Path("/drawer-error")
     @Produces(MediaType.TEXT_HTML)
@@ -42,6 +56,11 @@ public class HomeResource {
         return drawerError.data("state", state);
     }
 
+    /**
+     * Resumes navigation after the drawer has been closed (manual fallback).
+     *
+     * @return a redirect to the stored return URL, or the home page
+     */
     @GET
     @Path("/action/resume-after-drawer")
     @DrawerMayBeOpen
@@ -52,6 +71,12 @@ public class HomeResource {
         return Response.seeOther(URI.create(target)).build();
     }
 
+    /**
+     * Polling endpoint reporting the drawer status and the redirect target
+     * once it is closed.
+     *
+     * @return a JSON map with the drawer state and redirect URL
+     */
     @GET
     @Path("/api/drawer-status")
     @Produces(MediaType.APPLICATION_JSON)
@@ -66,8 +91,13 @@ public class HomeResource {
         return Map.of("open", true, "redirect", "");
     }
 
-    // --- Pages Principales ---
+    // --- Main pages ---
 
+    /**
+     * Shows the home page, or the lock page when no operator is logged in.
+     *
+     * @return the home or lock page
+     */
     @GET
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance home() {
@@ -75,6 +105,12 @@ public class HomeResource {
         return main.data("state", state);
     }
 
+    /**
+     * Polling endpoint returning the ticket fragment when the state version changed.
+     *
+     * @param clientVersion the version known by the client, or null
+     * @return a JSON map with the change flag and, when changed, the fragment data
+     */
     @GET
     @Path("/ticket-fragment")
     @Produces(MediaType.APPLICATION_JSON)
@@ -94,6 +130,11 @@ public class HomeResource {
         return result;
     }
 
+    /**
+     * Shows the supervisor-call page.
+     *
+     * @return the supervisor or lock page
+     */
     @GET
     @Path("/supervisor")
     @DrawerMayBeOpen
@@ -102,8 +143,41 @@ public class HomeResource {
         return supervisor.data("state", state);
     }
 
-    // --- Navigation Menus ---
+    /**
+     * Sends a supervisor call with the chosen reason and returns to the home
+     * page (the outcome is shown in the message zone).
+     *
+     * @param reason the reason chosen on the supervisor page
+     * @return a redirect to the home page
+     */
+    @GET
+    @Path("/action/supervisor/{reason}")
+    public Response callSupervisor(@PathParam("reason") String reason) {
+        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
+        homeService.callSupervisor(reason.toUpperCase().replace('-', ' '));
+        return Response.seeOther(URI.create("/")).build();
+    }
 
+    /**
+     * Requests the endorsed training-mode toggle.
+     *
+     * @return a redirect to the home page (the endorsement modal opens)
+     */
+    @GET
+    @Path("/action/training")
+    public Response toggleTraining() {
+        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
+        homeService.requestTrainingToggle();
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    // --- Menu navigation ---
+
+    /**
+     * Shows the secondary menu.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/menu/secondary")
     public TemplateInstance showSecondaryMenu() {
@@ -111,6 +185,11 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Shows the main menu.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/menu/main")
     public TemplateInstance showMainMenu() {
@@ -118,8 +197,13 @@ public class HomeResource {
         return home();
     }
 
-    // --- Navigation Ticket ---
+    // --- Ticket navigation ---
 
+    /**
+     * Moves the ticket display to the previous page.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/ticket/prev")
     public TemplateInstance ticketPrev() {
@@ -127,6 +211,11 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Moves the ticket display to the next page.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/ticket/next")
     public TemplateInstance ticketNext() {
@@ -134,8 +223,14 @@ public class HomeResource {
         return home();
     }
 
-    // --- Sélection & Annulation ---
+    // --- Selection & cancellation ---
 
+    /**
+     * Toggles the selection of a ticket line.
+     *
+     * @param index the index of the line in the full ticket
+     * @return the home or lock page
+     */
     @GET
     @Path("/action/select/{index}")
     public TemplateInstance selectLine(@PathParam("index") int index) {
@@ -144,6 +239,11 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Cancels the targeted line (directly or via endorsement).
+     *
+     * @return the home or lock page
+     */
     @GET
     @Path("/action/cancelLine")
     public TemplateInstance cancelLine() {
@@ -152,8 +252,14 @@ public class HomeResource {
         return home();
     }
 
-    // --- Gestion Modale Prix ---
+    // --- Price-modification modal ---
 
+    /**
+     * Opens the price-modification modal for the targeted line.
+     *
+     * @param type the modification type (remise, discount, force_price)
+     * @return the home or lock page
+     */
     @GET
     @Path("/action/price-mod/{type}")
     public TemplateInstance openPriceMod(@PathParam("type") String type) {
@@ -162,6 +268,11 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Closes the price-modification modal without applying anything.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/price-mod/cancel")
     public TemplateInstance cancelPriceMod() {
@@ -169,6 +280,14 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Submits the price-modification value typed in the modal.
+     *
+     * @param type the modification type (REMISE, DISCOUNT, FORCE_PRICE)
+     * @param uid the uid of the targeted ticket line
+     * @param rawValue the raw typed value (French comma tolerated)
+     * @return the home or lock page
+     */
     @POST
     @Path("/action/price-mod/submit")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -179,10 +298,10 @@ public class HomeResource {
 
         if (state.isLocked()) return lock.data("state", state);
 
-        double value = 0.0;
+        BigDecimal value;
         try {
             if (rawValue == null || rawValue.isEmpty()) rawValue = "0";
-            value = Double.parseDouble(rawValue.replace(",", "."));
+            value = new BigDecimal(rawValue.replace(",", "."));
         } catch (NumberFormatException e) {
             state.ticket.setError("VALEUR INVALIDE");
             state.priceModState.clear();
@@ -194,8 +313,14 @@ public class HomeResource {
         return home();
     }
 
-    // --- Autres Actions ---
+    // --- Other actions ---
 
+    /**
+     * Adds a weighed product by its PLU code.
+     *
+     * @param code the PLU code
+     * @return the home or lock page
+     */
     @GET
     @Path("/action/add/{code}")
     public TemplateInstance addPlu(@PathParam("code") String code) {
@@ -204,6 +329,13 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Adds a known product by its EAN with a typed quantity.
+     *
+     * @param ean the EAN code
+     * @param quantityStr the typed quantity (defaults to 1)
+     * @return the home or lock page
+     */
     @POST
     @Path("/action/manual-add-known")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -212,10 +344,17 @@ public class HomeResource {
         int qty = 1;
         try { if(quantityStr != null && !quantityStr.isEmpty()) qty = Integer.parseInt(quantityStr); } catch(Exception e) {}
         if(qty <= 0) qty = 1;
-        ticketService.addItemByEan(state, ean, qty);
+        ticketService.addItemByEan(state, ean, BigDecimal.valueOf(qty));
         return home();
     }
 
+    /**
+     * Adds an unknown (unlisted) item with a typed label and price.
+     *
+     * @param label the label typed by the cashier
+     * @param priceStr the price typed by the cashier
+     * @return the home or lock page
+     */
     @POST
     @Path("/action/manual-add-unknown")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -225,6 +364,11 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Adds a deposit-return line to the ticket.
+     *
+     * @return the home or lock page
+     */
     @GET
     @Path("/action/deposit")
     public TemplateInstance addDepositReturn() {
@@ -233,6 +377,11 @@ public class HomeResource {
         return home();
     }
 
+    /**
+     * Requests a manager endorsement to cancel the whole ticket.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/cancelTicket")
     public TemplateInstance cancelTicket() {
@@ -240,12 +389,11 @@ public class HomeResource {
         return home();
     }
 
-    @GET
-    @Path("/action/cancel")
-    public TemplateInstance cancel() {
-        return cancelTicket();
-    }
-
+    /**
+     * Reprints the last closed ticket.
+     *
+     * @return the home page
+     */
     @GET
     @Path("/action/print-last")
     public TemplateInstance printLast() {

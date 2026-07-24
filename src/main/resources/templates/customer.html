@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Écran Client</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background: #000; color: var(--text-main); height: 100vh; overflow: hidden; }
+
+    .screen { height: 100vh; display: none; }
+    .screen.active { display: flex; }
+
+    /* Welcome / thank-you full screens */
+    .center-screen { flex-direction: column; justify-content: center; align-items: center; gap: 24px; text-align: center; }
+    .brand-big { color: var(--danger); font-size: 4.5rem; font-weight: bold; letter-spacing: 3px; }
+    .subtitle { color: var(--text-muted); font-size: 1.6rem; }
+    .change-big { color: var(--success); font-size: 2.2rem; font-weight: bold; }
+    .digital-hint { color: var(--text-muted); font-size: 1.2rem; }
+    .qr-img { width: 180px; height: 180px; border-radius: 8px; }
+    .digital-hint .path { color: var(--primary); font-weight: bold; font-size: 1.4rem; }
+
+    /* Cart screen */
+    .cart-screen { flex-direction: column; }
+    .cart-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 30px; border-bottom: 1px solid var(--border-color); }
+    .cart-header .brand { color: var(--danger); font-size: 1.8rem; font-weight: bold; letter-spacing: 2px; }
+    .cart-lines { flex: 1; overflow-y: auto; padding: 14px 30px; }
+    .cart-line { display: grid; grid-template-columns: 110px 1fr 140px; gap: 14px; padding: 10px 0; border-bottom: 1px solid #222; font-size: 1.35rem; }
+    .cart-line .qty { color: var(--text-muted); }
+    .cart-line .amt { text-align: right; font-weight: bold; }
+    .cart-footer { border-top: 2px solid var(--border-color); padding: 18px 30px; display: flex; justify-content: space-between; align-items: baseline; }
+    .cart-footer .label { color: var(--text-muted); font-size: 1.4rem; text-transform: uppercase; }
+    .cart-footer .total { color: var(--success); font-size: 3.2rem; font-weight: bold; }
+    .cart-footer .remaining { color: var(--warning); font-size: 1.5rem; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="trainingBanner" style="display:none; position:fixed; top:0; left:0; right:0; background:var(--warning); color:#000; text-align:center; font-weight:bold; padding:6px; letter-spacing:2px; z-index:10;">MODE FORMATION</div>
+
+  <!-- Welcome -->
+  <div class="screen center-screen active" id="welcomeScreen">
+    <div class="brand-big">INTERMARCHÉ</div>
+    <div class="subtitle">Bienvenue</div>
+  </div>
+
+  <!-- Running cart -->
+  <div class="screen cart-screen" id="cartScreen">
+    <div class="cart-header">
+      <span class="brand">INTERMARCHÉ</span>
+      <span class="subtitle" id="payingHint"></span>
+    </div>
+    <div class="cart-lines" id="cartLines"></div>
+    <div class="cart-footer">
+      <span class="remaining" id="remainingZone"></span>
+      <span><span class="label">Total&nbsp;</span><span class="total" id="totalZone">0,00 €</span></span>
+    </div>
+  </div>
+
+  <!-- Thank you -->
+  <div class="screen center-screen" id="thanksScreen">
+    <div class="brand-big">MERCI !</div>
+    <div class="change-big" id="changeZone"></div>
+    <img class="qr-img" id="qrImg" alt="" style="display:none;">
+    <div class="digital-hint" id="digitalZone"></div>
+    <div class="subtitle">À bientôt</div>
+  </div>
+
+  <script>
+    let lastKnownVersion = null;
+
+    /* Shows exactly one of the three screens. */
+    function show(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    /* Applies a fresh state payload to the display. */
+    function apply(data) {
+      document.getElementById('trainingBanner').style.display = data.training ? 'block' : 'none';
+      if (data.complete) {
+        document.getElementById('changeZone').textContent =
+            data.change ? 'Rendu : ' + data.change + ' €' : '';
+        const digitalZone = document.getElementById('digitalZone');
+        digitalZone.innerHTML = data.digitalPath
+            ? 'Votre ticket en ligne&nbsp;: <span class="path">' + data.digitalPath + '</span>'
+            : '';
+        const qrImg = document.getElementById('qrImg');
+        if (data.digitalPath) {
+            qrImg.src = data.digitalPath + '/qr.svg';
+            qrImg.style.display = 'block';
+        } else {
+            qrImg.style.display = 'none';
+        }
+        show('thanksScreen');
+        return;
+      }
+      if (data.locked || data.empty) {
+        show('welcomeScreen');
+        return;
+      }
+      const lines = document.getElementById('cartLines');
+      lines.innerHTML = '';
+      data.items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'cart-line';
+        row.innerHTML = '<span class="qty">' + item.qty + '</span>'
+            + '<span>' + item.label + '</span>'
+            + '<span class="amt">' + item.amount + ' €</span>';
+        lines.appendChild(row);
+      });
+      lines.scrollTop = lines.scrollHeight;
+      document.getElementById('totalZone').textContent = data.total + ' €';
+      document.getElementById('payingHint').textContent = data.paying ? 'PAIEMENT EN COURS' : '';
+      document.getElementById('remainingZone').textContent =
+          data.paying ? 'Reste à payer : ' + data.remaining + ' €' : '';
+      show('cartScreen');
+    }
+
+    /* Version-gated polling, same mechanism as the main screen. */
+    function poll() {
+      const url = lastKnownVersion === null ? '/customer-data' : '/customer-data?v=' + lastKnownVersion;
+      fetch(url)
+        .then(r => r.json())
+        .then(data => {
+          if (data.changed) {
+            lastKnownVersion = data.version;
+            apply(data);
+          }
+        })
+        .catch(() => { /* transient polling error: keep the current screen */ });
+    }
+
+    setInterval(poll, 500);
+    poll();
+  </script>
+</body>
+</html>

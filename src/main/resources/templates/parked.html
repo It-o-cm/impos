@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tickets en Attente</title>
+  <style>
+    :root {
+      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
+      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
+      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid #444; border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
+    .top-bar .title { color: var(--warning); font-weight: bold; font-size: 1.3rem; text-transform: uppercase; }
+    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+
+    .list-area { padding: 20px; overflow-y: auto; }
+    .list-empty { color: var(--text-muted); text-align: center; margin-top: 60px; font-size: 1.3rem; }
+    .parked-row {
+      display: grid; grid-template-columns: 220px 120px 1fr 150px;
+      align-items: center; gap: 15px;
+      background: var(--bg-panel); border: 1px solid var(--border-color);
+      border-radius: 8px; padding: 16px 20px; margin-bottom: 10px;
+      text-decoration: none; color: var(--text-main); font-size: 1.1rem;
+    }
+    .parked-row:active { background: #2a2a2a; }
+    .parked-number { font-weight: bold; color: var(--warning); }
+    .parked-time { color: var(--text-muted); }
+    .parked-count { color: var(--text-muted); }
+    .parked-total { font-weight: bold; color: var(--success); text-align: right; font-size: 1.3rem; }
+
+    .btn { padding: 15px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; text-decoration: none; text-align: center; }
+    .btn-muted { background-color: #424242; }
+  </style>
+</head>
+<body>
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="title">Tickets en attente</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="list-area">
+      {#if tickets.isEmpty}
+        <div class="list-empty">AUCUN TICKET EN ATTENTE SUR CETTE CAISSE</div>
+      {#else}
+        {#for ticket in tickets}
+          <a href="/action/parked/resume/{ticket.id}" class="parked-row">
+            <span class="parked-number">{ticket.ticketNumber}</span>
+            <span class="parked-time">{ticket.creationDate.format('HH:mm')}</span>
+            <span class="parked-count">{ticket.itemCount} article(s)</span>
+            <span class="parked-total">{ticket.getTotalFormatted()} €</span>
+          </a>
+        {/for}
+      {/if}
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+    </div>
+  </div>
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

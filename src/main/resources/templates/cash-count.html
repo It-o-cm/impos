@@ -100,8 +100,15 @@
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-success" style="width: 180px;">VALIDER</a>
-      <a href="/" class="btn btn-muted" style="width: 180px;">ANNULER</a>
+      <form id="closeForm" method="post" action="/action/session/close" onsubmit="return prepareClose();" style="display:flex; gap:15px; align-items:center;">
+        <label for="withdrawn" style="color: var(--text-muted); font-weight: bold;">PRÉLÈVEMENT €</label>
+        <input type="text" id="withdrawn" name="withdrawn" value="0" inputmode="decimal" autocomplete="off"
+               style="width:110px; padding:12px; font-size:1.2rem; font-weight:bold; text-align:right; background:#000; color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
+        <input type="hidden" id="counted" name="counted" value="0">
+        <input type="hidden" id="detail" name="detail" value="">
+        <button type="submit" class="btn btn-success" style="width: 180px;">CLÔTURER (Z)</button>
+      </form>
+      <a href="/session" class="btn btn-muted" style="width: 180px;">ANNULER</a>
     </div>
   </div>
 
@@ -192,6 +199,18 @@
         }
       });
       updateGrandTotal();
+    }
+
+    /* Fills the hidden fields (counted total, denominations detail) before
+       posting the Z closure. */
+    function prepareClose() {
+      let grandTotal = 0;
+      for (const [id, qty] of Object.entries(window.cashState)) {
+        grandTotal += (window.cashValues[id] || 0) * qty;
+      }
+      document.getElementById('counted').value = grandTotal.toFixed(2);
+      document.getElementById('detail').value = JSON.stringify(window.cashState);
+      return true;
     }
 
     refreshDisplayFromState();

@@ -21,6 +21,15 @@ import java.util.NoSuchElementException;
  * and a list of other ProductFamilies (Sub-families).
  * <p>
  * Input for children uses Business Codes (Strings) instead of Database IDs (Longs).
+ * <p>
+ * Place in the POS architecture: this GraphQL layer is the ADMINISTRATION
+ * and exploration surface of the referentials — no POS screen and no
+ * synchronization flow uses it. Since the phase 6 centralized referentials,
+ * the node matters: a mutation performed on a REGISTER is transient (the
+ * next fingerprint pull from the store node overwrites or deactivates it);
+ * mutations belong on the STORE node, where they change the domain
+ * fingerprint and propagate to every register within
+ * {@code pos.referential.pull-seconds}.
  */
 @GraphQLApi
 @ApplicationScoped

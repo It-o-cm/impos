@@ -1,7 +1,5 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
@@ -9,69 +7,132 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
 
+/**
+ * Payment orchestration: draft ticket creation, registration of the various
+ * payment methods, hardware display and transaction finalization.
+ * <p>
+ * All monetary amounts are {@link BigDecimal} (phase 0). Completion is reached
+ * when the remaining due, rounded to 2 decimals, is zero or below — this
+ * replaces the previous double epsilon comparison.
+ */
 @ApplicationScoped
 public class PaymentService {
 
     private static final Logger LOG = Logger.getLogger(PaymentService.class);
 
+    /** True when card payments go through the virtual terminal of the simulator. */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "pos.tpe.virtual", defaultValue = "true")
+    boolean virtualTpe;
+
     @Inject
     HardwareService hardwareService;
 
     @Inject
-    com.intermarche.pos.service.TicketPersistenceService ticketPersistenceService;
+    TicketPersistenceService ticketPersistenceService;
 
+    /** French display format for amounts on the customer display. */
     private final DecimalFormat df = new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
 
     // --------------------------------------------------
-    // 1. INITIALISATION
+    // 1. INITIALIZATION
     // --------------------------------------------------
 
+    /**
+     * Initializes the payment screen: shows the total on the customer display
+     * and runs a final draft synchronization. The draft normally exists since
+     * the first article (lot 2); this sync picks up any late change (fidelity
+     * card scanned after the last article) and recreates the draft defensively
+     * if it is missing.
+     *
+     * @param state the current POS state
+     */
     public void initPayment(PosState state) {
         hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+        state.payment.paymentInProgress = true;
 
-        // Le ticket Draft n'est créé qu'une fois, à l'entrée en paiement.
-        // Les rendus suivants de /pay (redirections, rafraîchissements) ne doivent pas en recréer.
-        if (state.payment.ticketDbId != null) {
-            return;
+        Long ticketId = ticketPersistenceService.syncDraft(state);
+        if (ticketId == null) {
+            LOG.error("Impossible de créer/synchroniser le ticket (panier vide ou Store/Cashier manquant)");
         }
+    }
 
-        Long cashierId = state.auth.operatorId;
-        Store store = Store.findAll().firstResult();
-        Employee cashier = Employee.findById(cashierId);
+    /**
+     * Toggles the solidarity round-up: adds a zero-VAT donation line raising
+     * the ticket total to the next whole euro, or removes it when already
+     * present. Ignored on a completed transaction or an already-whole total.
+     *
+     * @param state the current POS state
+     */
+    public void toggleDonationRoundup(PosState state) {
+        if (state.payment.transactionComplete) return;
 
-        if (store != null && cashier != null) {
-            Long ticketId = ticketPersistenceService.createDraftTicket(state, store, cashier);
-            state.payment.ticketDbId = ticketId;
-            LOG.info("Ticket créé en BDD (Draft) ID: " + ticketId);
+        if (state.donationLineUid != null) {
+            state.ticket.removeItemById(state.donationLineUid);
+            state.donationLineUid = null;
         } else {
-            LOG.error("Impossible de créer le ticket (Store ou Cashier manquant)");
+            BigDecimal total = state.ticket.totalAmount;
+            BigDecimal roundedUp = total.setScale(0, RoundingMode.CEILING);
+            BigDecimal difference = roundedUp.subtract(total);
+            if (difference.signum() <= 0) return;
+            // Collected on behalf of the charity: out of VAT scope
+            state.ticket.addItem(null, null, "ARRONDI SOLIDAIRE", difference, BigDecimal.ONE, BigDecimal.ZERO);
+            state.donationLineUid = state.lastEnteredItemId;
+        }
+        ticketPersistenceService.syncDraft(state);
+        hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+        state.touch();
+    }
+
+    /**
+     * Cancels the registered payments coherently: clears the in-memory list
+     * and removes the persisted payments from the draft, so a later restart
+     * recovery cannot resurrect them.
+     *
+     * @param state the current POS state
+     */
+    public void cancelPayments(PosState state) {
+        Long ticketId = state.payment.ticketDbId;
+        state.payment.paymentInProgress = false;
+        state.payment.pendingCardAmount = null;
+        state.clearPayments();
+        if (ticketId != null) {
+            ticketPersistenceService.removePaymentsFromTicket(ticketId);
         }
     }
 
     // --------------------------------------------------
-    // 2. METHODE PRIVEE COMMUNE
+    // 2. COMMON PRIVATE METHOD
     // --------------------------------------------------
 
-    private void handlePaymentWithChange(PosState state, String methodKey, String displayName, double tendered) {
-        if (tendered <= 0) return;
+    /**
+     * Registers a payment with change handling: caps the applied amount at the
+     * remaining due, computes the change, updates the UI state, persists the
+     * payment and drives the customer display.
+     *
+     * @param state the current POS state
+     * @param methodKey the payment method key (CASH, CARD, TR, CHEQUE...)
+     * @param displayName the label shown on the customer display
+     * @param tendered the amount handed over by the customer
+     */
+    private void handlePaymentWithChange(PosState state, String methodKey, String displayName, BigDecimal tendered) {
+        if (tendered == null || tendered.signum() <= 0) return;
 
         state.payment.clearPendingVoucher();
 
-        double remaining = state.getRemaining();
-        double amountToPay = Math.min(tendered, remaining);
-        double change = tendered - amountToPay;
+        BigDecimal remaining = state.getRemaining();
+        BigDecimal amountToPay = tendered.min(remaining);
+        BigDecimal change = tendered.subtract(amountToPay).setScale(2, RoundingMode.HALF_UP);
 
-        // Arrondi métier
-        change = Math.round(change * 100.0) / 100.0;
+        // UI state update
+        state.payment.lastChangeAmount = (change.signum() > 0) ? change : BigDecimal.ZERO;
 
-        // Mise à jour état UI
-        state.payment.lastChangeAmount = (change > 0.001) ? change : 0.0;
-
-        // Mise à jour mémoire
+        // In-memory update
         if ("CASH".equals(methodKey)) {
             state.payment.addCashPayment(amountToPay, tendered);
         } else {
@@ -79,11 +140,11 @@ public class PaymentService {
         }
         state.touch();
 
-        // Sauvegarde BDD
+        // Database persistence
         savePayment(state, methodKey);
 
-        // Affichage Matériel
-        if (change > 0.001) {
+        // Hardware display
+        if (change.signum() > 0) {
             hardwareService.displayMessage(String.format("DONNE %s RENDU %s", df.format(tendered), df.format(change)));
         } else {
             hardwareService.displayMessage(String.format("%-10s%s E", displayName, df.format(amountToPay)));
@@ -93,61 +154,138 @@ public class PaymentService {
     }
 
     // --------------------------------------------------
-    // 3. ACTIONS PUBLIQUES
+    // 3. PUBLIC ACTIONS
     // --------------------------------------------------
 
-    public void processCash(PosState state, double tendered) {
-        if (tendered <= 0) return;
+    /**
+     * Registers a cash payment; the drawer always opens (deposit and change).
+     *
+     * @param state the current POS state
+     * @param tendered the cash amount handed over
+     */
+    public void processCash(PosState state, BigDecimal tendered) {
+        if (tendered == null || tendered.signum() <= 0) return;
 
         handlePaymentWithChange(state, "CASH", "ESPECES", tendered);
 
-        // Règle : Espèces = Ouverture systématique (dépot + rendu)
-        hardwareService.openDrawer();
+        // Rule: cash = systematic drawer opening (deposit + change)
+        if (!state.trainingMode) hardwareService.openDrawer(); // drawer stays shut in training
     }
 
-    public void processCard(PosState state, double amount) {
-        if (amount <= 0) amount = state.getRemaining();
-        if (amount <= 0) return;
+    /**
+     * Registers a card payment; the amount defaults to the remaining due.
+     *
+     * @param state the current POS state
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processCard(PosState state, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) return;
+
+        if (virtualTpe) {
+            // Phase 6: the amount goes to the virtual terminal; the payment is
+            // registered only on its accept decision (simulator buttons).
+            if (state.payment.pendingCardAmount != null) return; // one request at a time
+            state.payment.pendingCardAmount = amount.setScale(2, RoundingMode.HALF_UP);
+            hardwareService.displayMessage(String.format("CARTE   %s E", df.format(state.payment.pendingCardAmount)));
+            state.touch();
+            return;
+        }
 
         handlePaymentWithChange(state, "CARD", "CARTE", amount);
 
-        // Règle : Carte = Pas d'ouverture (sauf si rendu géré dans handlePayment, ce qui est rare)
-        // Ici, on n'appelle pas openDrawer() explicitement.
+        // Rule: card = no drawer opening
     }
 
-    public void processTicketResto(PosState state, double amount) {
-        if (amount <= 0) amount = state.getRemaining();
-        if (amount <= 0) return;
+    /**
+     * Registers the pending card payment on the terminal's accept decision.
+     *
+     * @param state the current POS state
+     */
+    public void confirmPendingCard(PosState state) {
+        BigDecimal amount = state.payment.pendingCardAmount;
+        if (amount == null) return;
+        state.payment.pendingCardAmount = null;
+        handlePaymentWithChange(state, "CARD", "CARTE", amount);
+        state.touch();
+    }
+
+    /**
+     * Drops the pending card payment on the terminal's refuse decision.
+     *
+     * @param state the current POS state
+     */
+    public void refusePendingCard(PosState state) {
+        if (state.payment.pendingCardAmount == null) return;
+        state.payment.pendingCardAmount = null;
+        state.ticket.setError("PAIEMENT REFUSÉ PAR LE TPE");
+        hardwareService.displayMessage("PAIEMENT REFUSE");
+        state.touch();
+    }
+
+    /**
+     * Cancels the pending card payment from the register side.
+     *
+     * @param state the current POS state
+     */
+    public void cancelPendingCard(PosState state) {
+        if (state.payment.pendingCardAmount == null) return;
+        state.payment.pendingCardAmount = null;
+        hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+        state.touch();
+    }
+
+    /**
+     * Registers a meal-ticket payment; the drawer opens to store the tickets.
+     *
+     * @param state the current POS state
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processTicketResto(PosState state, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) return;
 
         handlePaymentWithChange(state, "TR", "TICKET", amount);
 
-        // Règle : Tickets = Ouverture systématique (pour déposer les tickets)
-        hardwareService.openDrawer();
+        // Rule: meal tickets = systematic drawer opening (to store the tickets)
+        if (!state.trainingMode) hardwareService.openDrawer(); // drawer stays shut in training
     }
 
-    public void processCheque(PosState state, double amount) {
-        if (amount <= 0) amount = state.getRemaining();
-        if (amount <= 0) return;
+    /**
+     * Registers a cheque payment; the drawer opens to store the cheque.
+     *
+     * @param state the current POS state
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processCheque(PosState state, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) return;
 
         handlePaymentWithChange(state, "CHEQUE", "CHEQUE", amount);
 
-        // Règle : Chèque = Ouverture systématique (pour déposer le chèque)
-        hardwareService.openDrawer();
+        // Rule: cheque = systematic drawer opening (to store the cheque)
+        if (!state.trainingMode) hardwareService.openDrawer(); // drawer stays shut in training
     }
 
-    public void processFidelity(PosState state, double amount) {
-        if (amount <= 0) amount = state.getRemaining();
-        if (amount <= 0) return;
+    /**
+     * Registers a fidelity (virtual) payment capped at the remaining due.
+     *
+     * @param state the current POS state
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processFidelity(PosState state, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) return;
 
         state.payment.clearPendingVoucher();
 
-        double amountToPay = Math.min(amount, state.getRemaining());
+        BigDecimal amountToPay = amount.min(state.getRemaining());
         state.payment.addPayment("FIDELITY", amountToPay);
         state.touch();
         savePayment(state, "FIDELITY");
         hardwareService.displayMessage(String.format("FIDELITE  %s E", df.format(amountToPay)));
 
-        // Règle : Fidélité = Pas d'ouverture (virtuel)
+        // Rule: fidelity = no drawer opening (virtual)
 
         checkCompletion(state);
     }
@@ -162,23 +300,29 @@ public class PaymentService {
      * @param number the voucher number, or null when there is none
      * @param amount the paid amount
      */
-    public void processVoucher(PosState state, String label, String number, double amount) {
-        if (amount <= 0) return;
+    public void processVoucher(PosState state, String label, String number, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) return;
 
         state.payment.addVoucherPayment(label, number, amount);
         state.touch();
         saveVoucherPayment(state);
         hardwareService.displayMessage(String.format("%-10s%s E", "BON", df.format(amount)));
 
-        // Règle : Bon d'achat = Pas d'ouverture (virtuel)
+        // Rule: voucher = no drawer opening (virtual)
 
         checkCompletion(state);
     }
 
     // --------------------------------------------------
-    // 4. FINALISATION
+    // 4. FINALIZATION
     // --------------------------------------------------
 
+    /**
+     * Closes the transaction: validates the ticket in database, remembers it
+     * as the last closed ticket and clears the in-memory state.
+     *
+     * @param state the current POS state
+     */
     public void finalizeTransaction(PosState state) {
         Long ticketId = state.payment.ticketDbId;
 
@@ -193,10 +337,17 @@ public class PaymentService {
     }
 
     // --------------------------------------------------
-    // Privés
+    // Private helpers
     // --------------------------------------------------
 
+    /**
+     * Persists the last registered payment entry on the draft ticket.
+     *
+     * @param state the current POS state
+     * @param methodKey the payment method key (for logging context)
+     */
     private void savePayment(PosState state, String methodKey) {
+        if (state.trainingMode) return; // nothing persisted in training
         if (state.payment.ticketDbId == null) {
             LOG.error("Impossible de sauvegarder le paiement : aucun Ticket ID");
             return;
@@ -211,6 +362,7 @@ public class PaymentService {
      * @param state the current POS state
      */
     private void saveVoucherPayment(PosState state) {
+        if (state.trainingMode) return; // nothing persisted in training
         if (state.payment.ticketDbId == null) {
             LOG.error("Impossible de sauvegarder le bon : aucun Ticket ID");
             return;
@@ -219,8 +371,14 @@ public class PaymentService {
         ticketPersistenceService.addPaymentToTicket(state.payment.ticketDbId, lastEntry);
     }
 
+    /**
+     * Marks the transaction complete when the remaining due (rounded to
+     * 2 decimals) is zero or below.
+     *
+     * @param state the current POS state
+     */
     private void checkCompletion(PosState state) {
-        if (state.getRemaining() <= 0.001) {
+        if (state.getRemaining().signum() <= 0) {
             state.payment.transactionComplete = true;
             state.touch();
         }

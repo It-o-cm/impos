@@ -29,6 +29,18 @@ import java.util.Set;
  * business logic for creating/updating products.
  * <p>
  * It leverages the parent's Staged Fallback algorithm (1000 -> 100 -> 10 -> 1).
+ * <p>
+ * Place in the POS architecture since the phase 6 centralized referentials:
+ * these CSV endpoints exist on every node, but their proper home is the
+ * STORE node — an import performed on a register is transient (the next
+ * fingerprint pull overwrites or deactivates it), while an import on the
+ * store node changes the domain fingerprint by construction and propagates
+ * to every register within {@code pos.referential.pull-seconds}, with no
+ * bump hook needed anywhere in this hierarchy.
+ * <p>
+ * Note that this import has no notion of {@code forbiddenToSale}: the CSV
+ * only carries {@code active}, and the forbidden flag is managed elsewhere
+ * (seed or administration) — an import never clears it.
  */
 @Path("/products/import")
 @ApplicationScoped

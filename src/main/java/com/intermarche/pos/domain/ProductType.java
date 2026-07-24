@@ -4,6 +4,12 @@ package com.intermarche.pos.domain;
  * Enumeration representing how a product is quantified and sold.
  * Distinguishing between weighted items and unit items is critical
  * for supermarket Point of Sale (POS) systems.
+ * <p>
+ * Sale-flow consequences: UNIT lines display "x n", can merge (when
+ * unmodified, same price) and accept the line-quantity edition; WEIGHT
+ * lines price per kilogram, display "n,nnn kg", never merge (one weighing =
+ * one line) and refuse the quantity edition — their quantity IS the weight,
+ * set by the scale, the fruits screen or an embedded-weight 2x label.
  */
 public enum ProductType {
 
