@@ -1,3 +1,10 @@
+{!
+ ! THE polled fragment: rendered by /ticket-fragment for main.html's swap —
+ ! lines with selection anchors, totals, and the message zone. NAMING WART:
+ ! the "error" zone is really the MESSAGE zone (confirmations like
+ ! SUPERVISEUR PRÉVENU ride it too). Keep this fragment self-contained: it is
+ ! replaced wholesale on every version change.
+!}
 {#if state.ticket.transientError}
     <div class="receipt-item error-line">
         <div class="item-details">

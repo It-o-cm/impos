@@ -27,6 +27,14 @@ import java.util.Optional;
  * supervisor calls), the call acknowledgement, and the inbound call endpoint
  * the registers POST to — the latter gated like the sync ingestion (store
  * role, optional shared token).
+ * <p>
+ * Security posture, explicit: the dashboard pages and their data carry NO
+ * authentication — a back-office screen on the store LAN, accepted as such.
+ * Only the machine-facing inbound call endpoint is gated (role + token),
+ * because a register pushes to it across the network. Exposing the
+ * dashboard beyond the back office would require adding an operator gate
+ * first. The page itself works on any node (it reads the local database);
+ * it only becomes the STORE dashboard by running on the consolidated node.
  */
 @Path("/")
 public class DashboardResource {

@@ -24,6 +24,17 @@ import java.util.Map;
  * addition actions.
  * <p>
  * Phase 0: monetary form values are parsed straight into {@link BigDecimal}.
+ * <p>
+ * This resource also owns the REACTIVE BACKBONE of the register: the
+ * versioned fragment poll. Every mutation ends in {@code state.touch()}
+ * (the invalidation signal), and {@code /ticket-fragment?v=} answers 204
+ * when the client's version is current or the fresh fragment plus the new
+ * version otherwise — the main screen, the payment page and the customer
+ * display all live on this one contract, which is why a forgotten
+ * {@code touch()} shows up as "the screen does not react" and nothing else.
+ * The message zone rendered by the fragment is shared by errors AND
+ * confirmations (SUPERVISEUR PRÉVENU rides the same channel as the
+ * refusals) — a naming wart worth knowing, not a bug.
  */
 @Path("/")
 @DrawerMustBeClosed

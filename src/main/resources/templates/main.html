@@ -1,3 +1,17 @@
+{!
+ ! The sale screen — the register's center of gravity, served by HomeResource.
+ ! LAYOUT TRAP: .pos-terminal rows (60px topbar / 1fr / 80px bottom nav) are
+ ! POSITIONAL — any new full-width element must be an absolute overlay (like
+ ! the training banner), never a new grid child, or every row shifts.
+ ! REACTIVE CONTRACT: JS polls /ticket-fragment?v={version} every second and
+ ! swaps the fragment on change (server answers 204 when current) — the whole
+ ! screen reacts through PosState.touch(), nothing else.
+ ! MENUS: primary block = pure sale flow (cancel line, quantity, weighing,
+ ! remise, direct entry, search, pay); secondary (AUTRES) = price exceptions,
+ ! manual fallbacks, ticket lifecycle, PIN. PRICE MODAL: server-rendered from
+ ! state.priceModState (REMISE/DISCOUNT/FORCE_PRICE endorsed, QUANTITY direct);
+ ! the page JS binds PosInput onto it only when .price-modal.active exists.
+!}
 <!DOCTYPE html>
 <html lang="fr">
 <head>

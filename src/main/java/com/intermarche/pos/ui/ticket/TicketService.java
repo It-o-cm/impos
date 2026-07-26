@@ -31,6 +31,14 @@ import java.util.stream.StreamSupport;
  * Phase 0 lot 2: every cart mutation is followed by a draft synchronization
  * ({@link TicketPersistenceService#syncDraft}), so the sale survives a
  * register restart from the first article on.
+ * <p>
+ * {@code processScan} is the UNIFORM ENTRY of everything that names a
+ * product or a code: scanner gun, simulator, manual typing, search-result
+ * taps — one gate, one session guard (bypassed in training), one handler
+ * chain assembled here from CDI in {@code @Priority} order (missing
+ * annotation = 100). Uniformity is the guarantee that no path can invent
+ * its own semantics: whatever adds to the cart went through the same
+ * chain.
  */
 @ApplicationScoped
 public class TicketService {

@@ -15,6 +15,13 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
 
+/**
+ * JAX-RS resource of the reprint screen, under its own {@code /reprint}
+ * prefix: history list, paged navigation, ticket detail and the duplicata
+ * print action. Review is free (reading persisted tickets mutates
+ * nothing); only the print action carries fiscal weight — it bumps the
+ * duplicata counter and is blocked in training by the service.
+ */
 @Path("/reprint")
 @DrawerMustBeClosed
 public class ReprintResource {
@@ -29,6 +36,11 @@ public class ReprintResource {
 
     @GET
     @Produces(MediaType.TEXT_HTML)
+    /**
+     * Shows the reprint screen with a fresh closed-ticket history.
+     *
+     * @return the reprint page, or the lock page when locked
+     */
     public TemplateInstance showReprintPage() {
         if (state.isLocked()) return lock.data("state", state);
         reprintService.loadHistory();
@@ -37,6 +49,11 @@ public class ReprintResource {
 
     @GET
     @Path("/prev")
+    /**
+     * Pages the history back.
+     *
+     * @return the reprint page
+     */
     public TemplateInstance reprintPrevPage() {
         if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.isHasListPrev()) state.reprint.listPage--;
@@ -46,6 +63,11 @@ public class ReprintResource {
 
     @GET
     @Path("/next")
+    /**
+     * Pages the history forward.
+     *
+     * @return the reprint page
+     */
     public TemplateInstance reprintNextPage() {
         if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.isHasListNext()) state.reprint.listPage++;
@@ -55,6 +77,12 @@ public class ReprintResource {
 
     @GET
     @Path("/view/{id}")
+    /**
+     * Opens a ticket in the detail view.
+     *
+     * @param id the database id of the ticket
+     * @return the reprint page on its detail view
+     */
     public TemplateInstance showReprintDetail(@PathParam("id") Long id) {
         if (state.isLocked()) return lock.data("state", state);
         Ticket t = Ticket.findById(id);
@@ -67,6 +95,12 @@ public class ReprintResource {
 
     @GET
     @Path("/view/{id}/prev")
+    /**
+     * Pages the detail back.
+     *
+     * @param id the database id of the viewed ticket
+     * @return the reprint page on its detail view
+     */
     public TemplateInstance detailPrevPage(@PathParam("id") Long id) {
         if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
@@ -79,6 +113,12 @@ public class ReprintResource {
 
     @GET
     @Path("/view/{id}/next")
+    /**
+     * Pages the detail forward.
+     *
+     * @param id the database id of the viewed ticket
+     * @return the reprint page on its detail view
+     */
     public TemplateInstance detailNextPage(@PathParam("id") Long id) {
         if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
@@ -90,6 +130,13 @@ public class ReprintResource {
     }
 
     @GET
+    /**
+     * Prints a numbered duplicata of a ticket (refused in training by the
+     * service) and stays on the detail view.
+     *
+     * @param id the database id of the ticket to reprint
+     * @return the reprint page
+     */
     @Path("/print/{id}")
     public Response doReprint(@PathParam("id") Long id) {
         reprintService.print(id);

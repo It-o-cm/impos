@@ -8,6 +8,12 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 
+/**
+ * JAX-RS resource of the manual fidelity-card entry page — the fallback
+ * when the card does not scan (the scan handler is the primary path). Class
+ * is {@code @DrawerMustBeClosed} like the other sale screens: attaching a
+ * card is a sale gesture, not a drawer one.
+ */
 @Path("/")
 @DrawerMustBeClosed
 public class FidelityResource {
@@ -19,11 +25,22 @@ public class FidelityResource {
     @Inject
     PosState state;
 
+    /**
+     * Returns the home page, or the lock page when no operator is logged in.
+     *
+     * @return the main or lock page
+     */
     private TemplateInstance home() {
         return state.isLocked() ? lock.data("state", state) : main.data("state", state);
     }
 
     // --- Vue ---
+
+    /**
+     * Shows the manual card-entry page.
+     *
+     * @return the fidelity page, or the lock page when locked
+     */
     @GET
     @Path("/fidelity") // Chemin complet
     public TemplateInstance fidelityPage() {
@@ -32,6 +49,13 @@ public class FidelityResource {
     }
 
     // --- Action ---
+
+    /**
+     * Attaches the typed card and returns to the home page.
+     *
+     * @param card the typed card number
+     * @return the main page, or the lock page when locked
+     */
     @POST
     @Path("/action/fidelity") // Chemin complet
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)

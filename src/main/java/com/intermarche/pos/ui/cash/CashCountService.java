@@ -4,9 +4,23 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Provides the denomination lists of the drawer-count page (Z closing).
+ * <p>
+ * The lists encode a till convention: banknotes stop at 50 € (larger notes
+ * are not kept in the drawer), and coin rolls carry the value of the WHOLE
+ * roll (a 2 € roll counts 50 €) so the cashier counts unopened fond-de-
+ * caisse rolls in one tap. Denomination ids are the keys of the
+ * {@code countDetail} JSON persisted on the closed session.
+ */
 @ApplicationScoped
 public class CashCountService {
 
+    /**
+     * Returns the banknote denominations, largest first.
+     *
+     * @return the banknote entries
+     */
     public List<CashItem> getBills() {
         List<CashItem> items = new ArrayList<>();
         items.add(new CashItem("b50", "Billet 50 €", 50.0));
@@ -16,6 +30,11 @@ public class CashCountService {
         return items;
     }
 
+    /**
+     * Returns the coin denominations, largest first.
+     *
+     * @return the coin entries
+     */
     public List<CashItem> getCoins() {
         List<CashItem> items = new ArrayList<>();
         items.add(new CashItem("c2",   "Pièce 2 €",    2.0));
@@ -29,6 +48,11 @@ public class CashCountService {
         return items;
     }
 
+    /**
+     * Returns the coin-roll denominations, each valued at the whole roll.
+     *
+     * @return the roll entries
+     */
     public List<CashItem> getRolls() {
         List<CashItem> items = new ArrayList<>();
         items.add(new CashItem("r2",   "Rouleau 2€ (50€)",  50.0));

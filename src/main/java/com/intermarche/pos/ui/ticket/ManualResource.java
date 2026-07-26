@@ -7,6 +7,10 @@ import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 
+/**
+ * JAX-RS resource of the SAISIE DIRECTE drill-down: root level and category
+ * levels. Adding the chosen product goes through the ticket actions.
+ */
 @Path("/")
 @DrawerMustBeClosed
 public class ManualResource {
@@ -20,6 +24,11 @@ public class ManualResource {
 
     @GET
     @Path("/manual")
+    /**
+     * Shows the root level of the drill-down.
+     *
+     * @return the manual page, or the lock page when locked
+     */
     public TemplateInstance manualPage() {
         if (state.isLocked()) return lock.data("state", state);
         ManualService.ManualViewData viewData = manualService.getManualRootData();
@@ -31,6 +40,12 @@ public class ManualResource {
 
     @GET
     @Path("/manual/cat/{code}")
+    /**
+     * Shows one category level of the drill-down.
+     *
+     * @param code the family code
+     * @return the manual page, or the lock page when locked
+     */
     public TemplateInstance manualCategoryPage(@PathParam("code") String code) {
         if (state.isLocked()) return lock.data("state", state);
         ManualService.ManualViewData viewData = manualService.getManualCategoryData(code);

@@ -16,6 +16,17 @@ import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.util.List;
 
+/**
+ * JAX-RS resource of the drawer-count page, the middle step of the Z
+ * closing: {@code /action/session/close-start} routes here after its
+ * checks, {@code /action/start-cash-count} opens the drawer, the page's
+ * client-side calculator sums the typed denomination counts, and the
+ * validated total (with its per-denomination JSON) is posted to
+ * {@code /action/session/close}. Every display route is
+ * {@code @DrawerMayBeOpen} — counting happens with the drawer open by
+ * definition, while the rest of the register stays behind the drawer
+ * guard.
+ */
 @Path("/")
 public class CashCountResource {
 
@@ -25,6 +36,11 @@ public class CashCountResource {
     @Inject
     PosState state;
 
+    /**
+     * Opens the drawer and routes to the counting page.
+     *
+     * @return a redirect to the counting page
+     */
     @GET
     @Path("/action/start-cash-count")
     public Object startCashCount() {
@@ -32,6 +48,11 @@ public class CashCountResource {
         return Response.seeOther(URI.create("/cash-count")).build();
     }
 
+    /**
+     * Shows the counting page, banknotes tab first.
+     *
+     * @return the counting page
+     */
     @GET
     @Path("/cash-count")
     @Produces(MediaType.TEXT_HTML)
@@ -44,6 +65,12 @@ public class CashCountResource {
             .data("fragment", false);
     }
 
+    /**
+     * Returns the denomination-list fragment of one tab (AJAX swap).
+     *
+     * @param type the tab: "coins", "rolls", anything else = banknotes
+     * @return the list fragment
+     */
     @GET
     @Path("/cash-count/fragment/{type}")
     @Produces(MediaType.TEXT_HTML)

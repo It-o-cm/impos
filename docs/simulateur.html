@@ -1,3 +1,15 @@
+<!--
+  Hardware simulator — STATIC dev tool opened directly in a browser (not
+  served by Qute: HTML comments are fine here, Qute {! !} would not be
+  stripped). Talks to the register at hardcoded http://localhost:8080.
+  Modules and their endpoints: scanner → POST /api/pos/scan ; scale →
+  POST /weight ; 2x label builder (price/weight prefixes + checksum) ;
+  virtual TPE (phase 6) → polls GET /api/hardware/tpe every 1s, decides via
+  POST /api/hardware/tpe/{accept|refuse} (409 when no pending request) ;
+  line display / drawer / printer mirrors → poll the /api/hardware/*
+  state endpoints. The simulator is one implementation of the HTTP hardware
+  boundary — a real bridge replaces it by serving the same paths.
+-->
 <!DOCTYPE html>
 <html lang="fr">
 <head>

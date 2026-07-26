@@ -23,6 +23,15 @@ import java.util.UUID;
  * ticket total is the sum of the line totals rounded to the cent — the same
  * rule the fiscal persistence applies, so the displayed, charged and persisted
  * amounts are identical.
+ * <p>
+ * The item uid minted here is the FIRST LIFE of the line identity: it
+ * becomes the persisted lineUid, the sync key and the future valuation
+ * lineId — same string end to end. Merge policy lives at addItem: only an
+ * unmodified unit EAN line at the same price absorbs a new scan; anything
+ * weighed, negative, price-modified or code-less starts its own line. The
+ * transient scanned-sticker set (anti double-scan of price-embedded 2x
+ * labels) is deliberately in-memory only: a restart forgets it, an
+ * accepted limit.
  */
 public class TicketState implements Serializable {
     private static final long serialVersionUID = 1L;

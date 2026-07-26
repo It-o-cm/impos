@@ -14,6 +14,14 @@ import java.util.*;
  * <p>
  * Phase 3 lot 4: carries the refusal message of the double-refund and
  * ticket-cap guards.
+ * <p>
+ * Everything here is PRE-DECISION staging: searched tickets, the selected
+ * one, the per-line quantities the cashier dials and the manual amount are
+ * all inert until a refund method is endorsed — the parked-gesture pattern
+ * again, with the staging on this state instead of an action string. The
+ * per-line quantities key on the ORIGINAL line ids (register-local), which
+ * is fine here precisely because refunds run on the ticket's own register
+ * (mono-register decision of phase 3).
  */
 public class RefundState implements Serializable {
     private static final long serialVersionUID = 1L;

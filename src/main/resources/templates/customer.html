@@ -1,3 +1,10 @@
+{!
+ ! Customer-facing display: a SECOND BROWSER WINDOW polling /customer-data —
+ ! derived screen, never commanded, strictly READ-ONLY (it bypasses the
+ ! operator lock by design; adding any control here would breach it). Phases:
+ ! welcome (locked/empty) → running cart → payment → thank-you (change,
+ ! digital-receipt link + QR) ; orange banner when data.training.
+!}
 <!DOCTYPE html>
 <html lang="fr">
 <head>

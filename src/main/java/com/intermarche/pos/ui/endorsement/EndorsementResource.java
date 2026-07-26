@@ -18,6 +18,14 @@ import java.util.Map;
  * validation of the endorsed action and cancellation.
  * <p>
  * Phase 0: the pending price-modification value flows as {@link BigDecimal}.
+ * <p>
+ * The dispatch switch below is the REGISTRY of every guarded gesture of the
+ * register: ticket and line cancellations, the three price modifications,
+ * the refund methods (REFUND_&lt;METHOD&gt;_&lt;ticketId&gt;) and the
+ * training toggle. Adding a guarded gesture is exactly two touches — one
+ * request call parking the action string, one branch here executing it —
+ * and the execution ALWAYS happens after the PIN validation, never before:
+ * the parked string is inert until a manager credential passes.
  */
 @Path("/")
 public class EndorsementResource {

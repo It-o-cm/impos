@@ -21,6 +21,18 @@ import java.util.List;
  * One executable serves exactly one register (one process = one terminal),
  * therefore a {@link Singleton} scope is legitimate here.
  * All monetary computations are {@link BigDecimal} (phase 0).
+ * <p>
+ * This singleton is the COMPOSITION ROOT of every in-memory state: ticket,
+ * payment, fidelity, auth, endorsement, price-mod modal, reprint and refund
+ * screens all hang off it, and cross-cutting flags (training mode, drawer
+ * return URL, selection, donation line) live directly on it. Two contracts
+ * every contributor must know: {@code version}/{@code touch()} is the
+ * reactive heartbeat — a mutation without a touch is invisible to every
+ * polling screen; and {@code clearTicket()} is the END-OF-SALE broom — it
+ * resets the whole transactional sub-state (ticket, fidelity, payment,
+ * selection, modal) and any new per-sale field MUST be added to it, or it
+ * will leak into the next customer's sale. Memory only: the durable truth
+ * is the draft, this object is rebuilt from it at recovery.
  */
 @Singleton
 public class PosState implements Serializable {

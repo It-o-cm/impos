@@ -19,6 +19,16 @@ import java.math.BigDecimal;
  * the price-modification modal lifecycle.
  * <p>
  * Phase 0: price-modification values flow as {@link BigDecimal}.
+ * <p>
+ * Orchestrator of the main screen's gestures, and the place where the
+ * line-modification family SPLITS: {@code submitPriceMod} routes the three
+ * price types through the manager endorsement (parked gesture), while
+ * QUANTITY applies directly — multiplying a scanned line is a normal sale
+ * action, not an exception. The training toggle keeps the same two-step
+ * shape as every guarded gesture (request parks, endorsed dispatch
+ * performs), and the supervisor call is the register's only REAL-TIME
+ * outbound HTTP (3-second timeout, outcome dropped into the message zone):
+ * a call is a signal, not a document, hence no outbox.
  */
 @ApplicationScoped
 public class HomeService {

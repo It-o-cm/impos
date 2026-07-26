@@ -17,6 +17,15 @@ import java.math.BigDecimal;
  * Phase 2: the check verifies the MANAGER or ADMIN role (any active employee
  * used to pass), goes through the shared lockout-aware credential check, and
  * every granted or refused endorsement is journaled with its action code.
+ * <p>
+ * Consequences of sharing the credential check with the register unlock:
+ * ONE failure counter per account (a manager burning attempts on an
+ * endorsement locks their own login too — deliberate, one credential = one
+ * lockout), and the endorsing manager does NOT need to be the logged-in
+ * operator: a cashier stays logged in while a manager validates over their
+ * shoulder, which is exactly the four-eyes gesture the pattern models. The
+ * journal entry carries the ACTION CODE, so the audit trail says what was
+ * endorsed, by whom, granted or refused.
  */
 @ApplicationScoped
 public class EndorsementService {

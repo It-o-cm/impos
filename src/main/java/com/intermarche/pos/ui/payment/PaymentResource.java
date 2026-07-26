@@ -22,6 +22,14 @@ import jakarta.ws.rs.core.Response;
  * entry flow, payment history pagination, finalization and printing.
  * <p>
  * Phase 0: form amounts are parsed straight into {@link BigDecimal}.
+ * <p>
+ * The completion modal's two buttons are a CONTRACT with a deliberate
+ * order: IMPRIMER prints the still-OPEN draft by id (the original print,
+ * before any duplicata counting), TERMINER triggers the fiscal moment
+ * (validation, chaining, number) and clears the screen — printing after
+ * TERMINER goes through the reprint flow with its numbered duplicatas. In
+ * training the print branch swaps to the in-memory training receipt, since
+ * no draft exists to print.
  */
 @Path("/")
 @DrawerMustBeClosed

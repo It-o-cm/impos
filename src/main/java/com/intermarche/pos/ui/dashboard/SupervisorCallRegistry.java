@@ -14,6 +14,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * as a banner until a manager acknowledges. Ephemeral by design: a call is
  * a real-time signal, not a document — a store-node restart drops the
  * pending list (the register-side journal keeps the trace).
+ * <p>
+ * No deduplication on purpose: the same register calling twice shows two
+ * banners — two calls are two needs, and collapsing them would hide an
+ * escalation. The list is unbounded but self-limiting in practice (every
+ * banner begs to be acknowledged); it never touches the database.
  */
 @ApplicationScoped
 public class SupervisorCallRegistry {

@@ -14,6 +14,12 @@ import java.math.BigDecimal;
  * Phase 0: the price is handed to the ticket as {@link BigDecimal} without any
  * double round-trip. Phase 1: the real VAT rate of the Price is captured on
  * the line (default rate when no price is found).
+ * <p>
+ * This is THE SNAPSHOT MOMENT of a sale line: price and VAT are resolved
+ * here (current-price window + priority) and frozen onto the line — a later
+ * price change never rewrites what was sold. Forbidden-to-sale products are
+ * refused here with the cashier error, and the resulting unit line is the
+ * only line kind eligible for merging and quantity edition.
  */
 @ApplicationScoped
 @Priority(2)

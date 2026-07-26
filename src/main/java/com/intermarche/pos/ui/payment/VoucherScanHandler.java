@@ -17,6 +17,13 @@ import jakarta.inject.Inject;
  * If the voucher amount is encoded in the number, the payment is registered
  * automatically; otherwise (Catalina) the amount must be entered, so the UI
  * is switched to amount entry.
+ * <p>
+ * Note the split with the DEPOSIT side: this handler only ever sees
+ * non-deposit coupon types (a deposit voucher becomes a negative ticket
+ * line in the cart phase, through its own handler) — the {@code depositLine}
+ * flag on {@code CouponType} is what keeps the two families apart, and the
+ * refund store vouchers close the loop by coming back through HERE as
+ * STORE_VOUCHER payments.
  */
 @ApplicationScoped
 @Priority(2)

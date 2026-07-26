@@ -36,6 +36,14 @@ import java.util.List;
  * VAT of the refunded lines is restituted; the refund is attached to the
  * current cash session (cash refunds lower the theoretical drawer amount);
  * every method choice goes through a journaled manager endorsement.
+ * <p>
+ * The guards run TWICE on purpose: once at staging (fast feedback on the
+ * screen) and again INSIDE the creation transaction (the authoritative
+ * check — a stale screen cannot oversell a cap). Failing the
+ * in-transaction check rolls everything back with the message surfaced on
+ * the refund screen. Phase 6: creation is blocked in training (a refund is
+ * a real document); phase 7 will replace the loyalty journal note with a
+ * real balance credit.
  */
 @ApplicationScoped
 public class RefundService {

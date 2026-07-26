@@ -8,6 +8,14 @@ import java.math.BigDecimal;
  * price modification).
  * <p>
  * Phase 0: the pending price-modification value is a {@link BigDecimal}.
+ * <p>
+ * This is the PARKED-GESTURE half of the endorsement pattern: the guarded
+ * action is encoded as a string ({@code requestedAction}) or as the
+ * price-mod triple, the modal opens, and NOTHING has happened yet — the
+ * gesture only executes when the dispatch validates a manager PIN. One
+ * pending request at a time by construction (a new request overwrites the
+ * previous one); {@code scannedBadge} mirrors the lock-page mailbox so a
+ * manager can badge instead of typing their login on the modal.
  */
 public class EndorsementState implements Serializable {
     private static final long serialVersionUID = 1L;

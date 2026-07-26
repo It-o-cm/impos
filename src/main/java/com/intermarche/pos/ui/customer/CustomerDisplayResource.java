@@ -25,6 +25,15 @@ import java.util.Map;
  * main screen. Shows the running cart, the totals, the payment progress and,
  * once complete, the change and the digital receipt link. No lock applies —
  * it is a display, not a control surface.
+ * <p>
+ * The screen is DERIVED, never commanded: {@code /customer-data} projects
+ * the register's {@code PosState} into a display phase (welcome when locked
+ * or empty, running cart, payment in progress, thank-you with change and
+ * digital link, orange banner in training) and the page's versioned poll
+ * redraws on change — the register never pushes anything to the display,
+ * which is what lets it be a plain second browser window with zero setup.
+ * Because it reads shared state without a lock gate, it must stay
+ * READ-ONLY: any control added here would bypass the operator lock.
  */
 @Path("/")
 public class CustomerDisplayResource {

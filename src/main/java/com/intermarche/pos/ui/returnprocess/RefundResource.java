@@ -16,6 +16,12 @@ import jakarta.ws.rs.*;
  * carrying the method; the refund itself is executed by the endorsement
  * dispatch on grant (the previously unguarded direct execution routes and
  * the dead validate route are gone).
+ * <p>
+ * The action string REFUND_&lt;METHOD&gt;_&lt;ticketId&gt; carries the
+ * ticket id ON PURPOSE: the endorsement dispatch re-resolves the ticket
+ * from the string rather than trusting the screen state, so the endorsed
+ * gesture and the staged screen cannot drift apart between the request and
+ * the manager's PIN.
  */
 @Path("/return")
 public class RefundResource {

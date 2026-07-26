@@ -20,6 +20,17 @@ import java.util.Locale;
  * All monetary amounts are {@link BigDecimal} (phase 0). Completion is reached
  * when the remaining due, rounded to 2 decimals, is zero or below — this
  * replaces the previous double epsilon comparison.
+ * <p>
+ * One money path for everything: every method funnels into
+ * {@code handlePaymentWithChange} (cap at the remaining due where the
+ * method demands it, change on overpayment for cash-like methods,
+ * persistence of the entry on the draft, completion check) — a new payment
+ * method is a factory subclass plus a thin wrapper here, never new money
+ * math. Per-method drawer rules are deliberate: cash, cheque and meal
+ * vouchers open it (something physical goes in), card and loyalty never do,
+ * and training keeps it shut everywhere. The virtual-terminal branch of
+ * {@code processCard} (phase 6) parks the amount instead of registering it:
+ * the CardPayment entity only exists after the terminal's accept.
  */
 @ApplicationScoped
 public class PaymentService {

@@ -15,6 +15,14 @@ import java.util.List;
  * and registering the resulting payment in the current payment state.
  * <p>
  * All monetary amounts are {@link BigDecimal} end to end (phase 0).
+ * <p>
+ * Resolution walks the ACTIVE non-deposit coupon types by ascending
+ * priority and the first matching pattern wins — priorities are therefore
+ * the disambiguation order of overlapping formats, not decoration. ENCODED
+ * types extract their amount from the number (first regex group = cents);
+ * MANUAL types (Catalina) take the typed amount; the numberless GENERIC
+ * type is the catch-all last resort. An overpaying voucher is capped at the
+ * remaining due: vouchers never render change by store rule.
  */
 @ApplicationScoped
 public class VoucherService {

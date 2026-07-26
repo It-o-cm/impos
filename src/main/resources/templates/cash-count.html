@@ -1,3 +1,11 @@
+{!
+ ! The drawer-count page — middle step of the Z closing (CashCountResource).
+ ! CLIENT-SIDE CALCULATOR ONLY: the per-denomination counts and their doubles
+ ! never leave the page as money; the validated TOTAL travels as a string
+ ! (parsed BigDecimal server-side) with the per-denomination JSON detail
+ ! (countDetail) posted to /action/session/close. Tabs (bills/coins/rolls)
+ ! swap via /cash-count/fragment/{type}. Rolls count the WHOLE roll's value.
+!}
 {#if fragment}
   {#for item in items}
     <div class="count-item" data-id="{item.id}" data-value="{item.value}" onclick="selectItem(this)">

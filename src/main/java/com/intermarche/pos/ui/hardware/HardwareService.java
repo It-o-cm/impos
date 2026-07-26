@@ -5,6 +5,16 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 
+/**
+ * Facade over the hardware REST client, and the place where the register's
+ * DEGRADED-MODE PHILOSOPHY lives: every peripheral call swallows its
+ * exceptions — a dead scale, display, drawer or printer is logged and never
+ * blocks a sale. The consequences are deliberate and worth knowing:
+ * {@link #requestWeighing()} answers 0.0 on failure (callers treat it as
+ * "no weight"), and {@link #isDrawerOpen()} answers FALSE on failure so a
+ * broken drawer sensor cannot trap the register behind the drawer guard —
+ * availability wins over the guard when the sensor itself is the failure.
+ */
 @ApplicationScoped
 public class HardwareService {
 
@@ -15,8 +25,10 @@ public class HardwareService {
     HardwareClient hardwareClient;
 
     /**
-     * Demande une pesée au matériel.
-     * @return le poids en kg, ou 0.0 si erreur.
+     * Requests a weighing from the scale, tolerating the French decimal
+     * comma.
+     *
+     * @return the weight in kilograms, or 0.0 on any failure
      */
     public double requestWeighing() {
         try {
@@ -29,7 +41,9 @@ public class HardwareService {
     }
 
     /**
-     * Affiche un message personnalisé sur l'écran client.
+     * Shows a message on the customer line display.
+     *
+     * @param message the message to display
      */
     public void displayMessage(String message) {
         try {
@@ -40,7 +54,7 @@ public class HardwareService {
     }
 
     /**
-     * Envoie l'ordre d'ouverture du tiroir caisse.
+     * Fires the drawer-opening pulse.
      */
     public void openDrawer() {
         try {
@@ -52,8 +66,10 @@ public class HardwareService {
     }
 
     /**
-     * Interroge le matériel pour savoir si le tiroir est ouvert.
-     * Utilisé par le filtre de sécurité.
+     * Reads the physical drawer state for the drawer guard filter.
+     *
+     * @return true when the drawer answers OPEN; false otherwise, including
+     *         on failure — a dead sensor never locks the register
      */
     public boolean isDrawerOpen() {
         try {
@@ -66,7 +82,9 @@ public class HardwareService {
     }
 
     /**
-     * Envoie le texte formaté à l'imprimante.
+     * Sends a formatted receipt to the printer.
+     *
+     * @param content the 42-column formatted text
      */
     public void printReceipt(String content) {
         try {
@@ -78,7 +96,7 @@ public class HardwareService {
     }
 
     /**
-     * Coupe le papier.
+     * Cuts the printer paper.
      */
     public void cutPaper() {
         try {

@@ -18,7 +18,11 @@ import java.util.List;
  * Layout: {@code PP AAAAA VVVVV K} — 2-digit prefix, 5-digit article code
  * (matched against the product PLU, leading zeros stripped), 5-digit embedded
  * value, EAN13 check digit (verified; an invalid checksum lets the code fall
- * through to the next handlers).
+ * through to the next handlers — falling through, not erroring, is what
+ * lets a regular 2-prefixed retail EAN still reach the catalog handler).
+ * A price-embedded sticker names one PHYSICAL object, so scanning the same
+ * sticker twice is refused through the transient scanned-codes set (cleared
+ * by a restart — accepted limit).
  * <ul>
  *   <li>Price-embedded prefixes ({@code pos.scan.embedded-price-prefixes}):
  *       the value is the line total in cents; the line is created with

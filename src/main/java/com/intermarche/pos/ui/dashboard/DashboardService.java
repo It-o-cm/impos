@@ -22,6 +22,16 @@ import java.util.Map;
  * store node. Everything is "today": revenue, ticket count and average
  * basket, per-register revenue, active sessions, top sales, cancellation
  * rate and refunds.
+ * <p>
+ * Semantics worth knowing: "today" is the node's calendar day (midnight
+ * boundary); revenue counts by CLOSING date while the cancellation rate
+ * counts cancelled drafts by CREATION date — a deliberate approximation
+ * (cancelled drafts have no closing date), so the rate can marginally mix
+ * days around midnight. Aggregations use JPQL through the EntityManager
+ * (grouping and coalesced sums are beyond Panache finders), amounts leave
+ * pre-formatted (French comma) so the dashboard page stays a dumb renderer,
+ * and real shrinkage (démarque) has no data source — the cancellation rate
+ * is its only proxy until a loss-entry module exists.
  */
 @ApplicationScoped
 public class DashboardService {

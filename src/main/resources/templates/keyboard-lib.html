@@ -1,3 +1,14 @@
+{!
+ ! THE shared input include: PosKeyboards renderers (price pad, search pad
+ ! with digits, ALPHA keyboard — a FIXED 10-column grid needing ~554px
+ ! minimum width) and the PosInput SINGLETON. CONTRACTS: PosInput.setup wires
+ ! ONE input at a time (a second setup steals the buffer — one active binding
+ ! per page); updateDisplay writes displayEl.value, so the display MUST be an
+ ! <input> (a div silently shows nothing); external pads can feed the same
+ ! buffer through PosInput.handleKey(k); initialValue is the supported
+ ! prefill (never poke .buffer directly). defaultValue quirks and modes:
+ ! 'integer'/'decimal'/'text' govern what keys append.
+!}
 <script>
     window.PosKeyboards = {
 

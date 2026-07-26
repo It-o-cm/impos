@@ -11,6 +11,17 @@ import java.util.List;
  * In-memory state of the payment in progress for the current ticket.
  * <p>
  * All monetary amounts are {@link BigDecimal} (phase 0).
+ * <p>
+ * {@code paymentInProgress} is THE payment-context discriminator of the
+ * whole register — the voucher scan handler routes on it, parking refuses
+ * on it, the training toggle refuses on it. It exists precisely because
+ * {@code ticketDbId} stopped meaning "payment started" the day the draft
+ * became early (first article): the id now lives for the whole sale, the
+ * flag marks the payment phase alone. Payment entries keep their 1-based
+ * registration order; restart recovery and the completion modal rebuild
+ * from them, and {@code transactionComplete} + {@code lastChangeAmount}
+ * are what the completion modal and the customer thank-you screen read —
+ * both survive a restart through the recovery path.
  */
 public class PaymentState implements Serializable {
     private static final long serialVersionUID = 1L;

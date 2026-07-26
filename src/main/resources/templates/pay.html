@@ -1,3 +1,13 @@
+{!
+ ! The payment page, served by PaymentResource. Same 1-second versioned
+ ! reload poll as main.html — which is what refreshes the screen when the
+ ! VIRTUAL TPE decides (phase 6): while state.payment.pendingCardAmount is
+ ! set, an absolute overlay covers the page (amount + ANNULER →
+ ! /action/card-cancel). COMPLETION MODAL CONTRACT: IMPRIMER prints the
+ ! still-OPEN draft (original print), TERMINER triggers the fiscal moment —
+ ! order matters, see PaymentResource. Training banner = absolute overlay
+ ! (positional grid rows, same trap as main).
+!}
 <!DOCTYPE html>
 <html lang="fr">
 <head>

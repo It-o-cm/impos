@@ -14,6 +14,13 @@ import java.math.BigDecimal;
  * Phase 0: the price is handed to the ticket as {@link BigDecimal} without any
  * double round-trip. Phase 1: the real VAT rate of the Price is captured on
  * the line (default rate when no price is found).
+ * <p>
+ * A typed PLU sells QUANTITY 1 AT THE CURRENT PRICE — even for a weighed
+ * product, whose per-kilogram price then applies to one unit: the real
+ * weighing lives in the FRUITS screen and the 2x labels, this handler is
+ * the service-counter shortcut. Search-result taps route through the same
+ * chain, so tapping a PLU-only product behaves exactly like typing its
+ * code.
  */
 @ApplicationScoped
 @Priority(3)

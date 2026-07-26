@@ -1,3 +1,10 @@
+{!
+ ! The lock screen — owns the register while auth.isLocked. Polls /lock-data
+ ! (1s): consumes the one-shot badge mailbox (prefills the login) and shows
+ ! the lockout message of a locked account. PosInput drives login+PIN entry;
+ ! unlock posts /action/unlock. Server-side, every route here is
+ ! @DrawerMayBeOpen: the lock screen must stay reachable drawer open.
+!}
 <!DOCTYPE html>
 <html lang="fr">
 <head>

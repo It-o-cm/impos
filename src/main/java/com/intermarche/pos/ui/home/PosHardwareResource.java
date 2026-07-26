@@ -16,6 +16,16 @@ import java.util.Map;
  * Inbound endpoints of the simulated hardware: scanner, scale and, since
  * phase 6, the virtual payment terminal — the simulator polls the pending
  * card request and answers with an accept or refuse decision.
+ * <p>
+ * This is the INBOUND HALF of the peripheral bus, the mirror of
+ * {@code HardwareClient}: the client drives devices (register → hardware),
+ * this resource receives device events (hardware → register). The two
+ * together are the whole hardware story, and both speak plain HTTP for the
+ * same reason — simulator and real bridge are interchangeable behind the
+ * contract. Security posture, explicit: no authentication here (LAN till
+ * assumption, same posture as the dashboard) — any LAN client can inject a
+ * scan or a TPE decision; fronting these endpoints with a filter is the
+ * first step if a register ever leaves its closed network.
  */
 @Path("/")
 public class PosHardwareResource {

@@ -23,6 +23,16 @@ import java.net.URI;
  * JAX-RS resource driving the cash-session screen: session status page,
  * opening with an initial float, X report printing, and the Z closing flow
  * that runs through the cash-count page.
+ * <p>
+ * Closing is a TWO-STEP flow by design: {@code /action/session/close-start}
+ * only checks that a session exists and hands over to the drawer-count page
+ * ({@code CashCountResource}), and the actual closing happens when the
+ * counted total comes back on {@code /action/session/close} with its
+ * per-denomination JSON and the optional withdrawal — the Z is therefore
+ * always backed by a physical count, never typed blind. The X report is
+ * printable at any time and mutates nothing. Phase 6: the three mutating
+ * routes (open, close-start, close) are blocked in training mode with a
+ * redirect message; the status page and the X stay reachable.
  */
 @Path("/")
 public class CashSessionResource {

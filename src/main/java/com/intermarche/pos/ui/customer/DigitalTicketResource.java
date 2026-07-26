@@ -25,6 +25,17 @@ import org.jboss.logging.Logger;
  * The email capture lives on this page (the customer's device has a real
  * keyboard); the actual SMTP delivery is mocked in the log until a mailer is
  * configured, and journaled either way.
+ * <p>
+ * Security model: the URL is a CAPABILITY — possession of the link is the
+ * whole authorization (it is printed on the customer's own paper ticket),
+ * there is no session and no account, which is exactly right for a receipt
+ * handed to an anonymous customer. The 16-hex key is generated at draft
+ * creation so the link exists before the closing signature does, and the
+ * CLOSED-only rule is what keeps the capability harmless: a guessed or
+ * leaked id/key pair can never expose a live cart or a cancelled draft.
+ * The QR endpoint sits under the SAME key so the QR is no wider a door
+ * than the link it encodes. {@code pos.digital.base-url} only widens the
+ * printed/encoded prefix (absent = relative paths, LAN demo mode).
  */
 @Path("/t")
 public class DigitalTicketResource {

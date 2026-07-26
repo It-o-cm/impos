@@ -1,3 +1,13 @@
+{!
+ ! Full-width product search (ProductSearchResource). LAYOUT LESSON: the
+ ! alpha keyboard is a FIXED 10-column grid needing ~554px minimum — hence
+ ! results on top, input zone full-width below, and compact keys via local
+ ! CSS override. Alpha keyboard AND numeric search pad feed the SAME PosInput
+ ! buffer (renderSearchPad routed through PosInput.handleKey), so names, EANs
+ ! and PLUs mix freely. A hit tap routes /action/search/add/{code} through
+ ! processScan: tapping = scanning, same chain, same guards. The display MUST
+ ! be an <input> (PosInput writes .value — a div shows nothing).
+!}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -67,7 +77,7 @@
       {#else}
         <div class="results-grid">
           {#for hit in hits}
-            <a href="/action/search/add/{hit.ean}" class="hit-btn">
+            <a href="/action/search/add/{hit.code}" class="hit-btn">
               <span>{hit.label}</span>
               <span class="hit-price">{hit.priceFormatted}</span>
             </a>

@@ -17,6 +17,12 @@ import java.math.BigDecimal;
  * amount must be encoded in the number. Runs before the payment-voucher and
  * EAN handlers; ignored during an active payment (a deposit is a sale line,
  * not a payment).
+ * <p>
+ * Mirror of {@code VoucherScanHandler}: the {@code depositLine} flag on
+ * {@code CouponType} splits the voucher world in two, this handler owning
+ * the CART phase (negative line, VAT 0, never merged) and the other the
+ * PAYMENT phase — one voucher family can never cross into the other's
+ * territory whatever the moment of the scan.
  */
 @ApplicationScoped
 @Priority(1)
