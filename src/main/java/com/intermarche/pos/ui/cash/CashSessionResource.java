@@ -33,6 +33,11 @@ import java.net.URI;
  * printable at any time and mutates nothing. Phase 6: the three mutating
  * routes (open, close-start, close) are blocked in training mode with a
  * redirect message; the status page and the X stay reachable.
+ * <p>
+ * Navigation contract: a successful OPENING lands on the SALE screen (the
+ * take-over flow reads badge, PIN, float, sale — see AuthResource); this
+ * page is where the cashier comes back DELIBERATELY, via the menu, for the
+ * mid-day X and the evening Z.
  */
 @Path("/")
 public class CashSessionResource {
@@ -88,7 +93,11 @@ public class CashSessionResource {
         if (opened == null) {
             return Response.seeOther(URI.create("/session?error=open-failed")).build();
         }
-        return Response.seeOther(URI.create("/session")).build();
+        // A successful opening flows straight into the sale: the status page
+        // (X report, Z closing) is a MENU destination, not a post-opening
+        // stop — right after opening, its only visible actions would be
+        // reading and CLOSING, which is absurd at that point of the day.
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

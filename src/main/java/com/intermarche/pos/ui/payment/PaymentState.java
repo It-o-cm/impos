@@ -48,6 +48,52 @@ public class PaymentState implements Serializable {
     public BigDecimal pendingCardAmount = null;
 
     /**
+     * Outcome of the remote valuation at payment entry (phase 7): LOCAL
+     * (engine not configured), ENGINE (valued), DEGRADED (engine failed,
+     * catalog prices apply). Null before payment entry.
+     */
+    public String valuationStatus = null;
+
+    /**
+     * Raw JSON of the engine's valuation when {@code valuationStatus} is
+     * ENGINE — held for the lot 2 reconciliation, null otherwise.
+     */
+    public String valuationJson = null;
+
+    /**
+     * The engine's own total including tax, kept for log comparison against
+     * the register's authoritative total. Null unless valued.
+     */
+    public BigDecimal valuationEngineTotal = null;
+
+    /**
+     * Total adjustment applied by the reconciliation (valued minus local
+     * over the covered lines, advantages allocated), tax included. Negative
+     * when the engine grants advantages; null before payment entry, zero
+     * when valued without effect.
+     */
+    public BigDecimal valuationAdjustment = null;
+
+    /**
+     * Remaining meal-voucher eligible base (tax included) from the engine's
+     * MEAL_VOUCHER advantage, decremented by each registered meal-ticket
+     * payment. Null when the engine emitted none (no cap applies).
+     */
+    public BigDecimal valuationMealEligible = null;
+
+    /**
+     * Meal-voucher threshold (legal cap per payment context) from the
+     * engine, or null.
+     */
+    public BigDecimal valuationMealThreshold = null;
+
+    /**
+     * Upsell suggestions of the engine, ready to display (product labels
+     * resolved). Never null, empty when none.
+     */
+    public java.util.ArrayList<String> valuationUpsells = new java.util.ArrayList<>();
+
+    /**
      * True while the payment screen drives the transaction. Needed since the
      * early draft (phase 0 lot 2): {@link #ticketDbId} is set from the first
      * article, so it no longer indicates an active payment.
@@ -146,6 +192,13 @@ public class PaymentState implements Serializable {
         ticketDbId = null;
         paymentInProgress = false;
         pendingCardAmount = null;
+        valuationStatus = null;
+        valuationJson = null;
+        valuationEngineTotal = null;
+        valuationAdjustment = null;
+        valuationMealEligible = null;
+        valuationMealThreshold = null;
+        valuationUpsells = new java.util.ArrayList<>();
         lastChangeAmount = null; // Cleared only here (full new transaction)
         clearPendingVoucher();
     }

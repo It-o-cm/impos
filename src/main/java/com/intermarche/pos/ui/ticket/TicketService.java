@@ -57,6 +57,23 @@ public class TicketService {
     TicketPersistenceService ticketPersistenceService;
 
     @Inject
+    com.intermarche.pos.service.valuation.ValuationService valuationService;
+
+    /**
+     * The single post-mutation funnel (phase 7 lot 4): persists the draft,
+     * then revalues the cart against the engine — every cart mutation of
+     * this service ends here, so pricing follows the cart in real time
+     * (synchronous local call; training, payment phase and open circuit
+     * are guarded inside {@code revalue}).
+     *
+     * @param state the current POS state
+     */
+    private void syncAndRevalue(PosState state) {
+        ticketPersistenceService.syncDraft(state);
+        valuationService.revalue(state);
+    }
+
+    @Inject
     CashSessionService cashSessionService;
 
     @Inject
@@ -93,7 +110,7 @@ public class TicketService {
         // handlers, fidelity card, vouchers). No-op cost only when locked or
         // before the first article.
         if (!state.isLocked() && (!state.ticket.items.isEmpty() || state.payment.ticketDbId != null)) {
-            ticketPersistenceService.syncDraft(state);
+            syncAndRevalue(state);
         }
     }
 
@@ -193,6 +210,8 @@ public class TicketService {
             item.unitPrice = newTotal;
         }
         item.modifierLabel = String.format("Remise -%.2f€", amount);
+        item.modifierType = "REMISE";
+        item.modifierValue = amount;
         displayItem(item);
     }
 
@@ -212,6 +231,8 @@ public class TicketService {
                 .divide(BigDecimal.valueOf(100), PRICE_SCALE, RoundingMode.HALF_UP);
         item.unitPrice = item.unitPrice.subtract(reduction);
         item.modifierLabel = String.format("Discount -%.2f%%", percent);
+        item.modifierType = "DISCOUNT";
+        item.modifierValue = percent;
         displayItem(item);
     }
 
@@ -233,6 +254,8 @@ public class TicketService {
             item.unitPrice = newTotalPrice;
         }
         item.modifierLabel = String.format("Prix initial: %.2f€", oldTotalPrice);
+        item.modifierType = "FORCE_PRICE";
+        item.modifierValue = newTotalPrice;
         displayItem(item);
     }
 
@@ -246,7 +269,7 @@ public class TicketService {
     public void recalculateTotal(PosState state) {
         state.ticket.recomputeTotal();
         state.ticket.onChange();
-        ticketPersistenceService.syncDraft(state);
+        syncAndRevalue(state);
     }
 
     // --- STANDARD ACTIONS ---
@@ -275,7 +298,7 @@ public class TicketService {
             // PLU is null: unit sale
             state.ticket.addItem(ean, null, p.name.toUpperCase(), finalPrice, quantity, vatRate);
             displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
-            ticketPersistenceService.syncDraft(state);
+            syncAndRevalue(state);
         } else {
             state.ticket.setError("PRODUIT INTROUVABLE");
         }
@@ -308,10 +331,10 @@ public class TicketService {
             BigDecimal quantityKg = BigDecimal.valueOf(weight).setScale(3, RoundingMode.HALF_UP);
 
             // Real PLU code carried by the line; EAN left null
-            state.ticket.addItem(null, pluCode, p.name.toUpperCase(), unitPrice, quantityKg, vatRate);
+            state.ticket.addItem(p.ean, pluCode, p.name.toUpperCase(), unitPrice, quantityKg, vatRate);
 
             displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
-            ticketPersistenceService.syncDraft(state);
+            syncAndRevalue(state);
         } else {
             state.ticket.setError("PLU INTROUVABLE");
         }
@@ -333,7 +356,7 @@ public class TicketService {
             if (price.signum() >= 0 && label != null && !label.isEmpty()) {
                 state.ticket.addItem(null, null, label.toUpperCase(), price, BigDecimal.ONE, defaultVatRate);
                 displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
-                ticketPersistenceService.syncDraft(state);
+                syncAndRevalue(state);
             }
         } catch (Exception e) {
             state.ticket.setError("ERREUR PRIX SAISI");
@@ -350,7 +373,7 @@ public class TicketService {
         state.selectedTicketIndex = -1;
         state.ticket.addItem(null, null, "DECONSIGNATION", new BigDecimal("-1.00"), BigDecimal.ONE, BigDecimal.ZERO);
         displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
-        ticketPersistenceService.syncDraft(state);
+        syncAndRevalue(state);
     }
 
     /**

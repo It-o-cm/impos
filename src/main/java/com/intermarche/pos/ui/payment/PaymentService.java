@@ -1,6 +1,8 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
+import com.intermarche.pos.service.valuation.ValuationReconciler;
+import com.intermarche.pos.service.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -47,6 +49,12 @@ public class PaymentService {
     @Inject
     TicketPersistenceService ticketPersistenceService;
 
+    @Inject
+    ValuationService valuationService;
+
+    @Inject
+    ValuationReconciler valuationReconciler;
+
     /** French display format for amounts on the customer display. */
     private final DecimalFormat df = new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
 
@@ -68,8 +76,19 @@ public class PaymentService {
         state.payment.paymentInProgress = true;
 
         Long ticketId = ticketPersistenceService.syncDraft(state);
-        if (ticketId == null) {
+        if (ticketId == null && !state.trainingMode) {
             LOG.error("Impossible de créer/synchroniser le ticket (panier vide ou Store/Cashier manquant)");
+        }
+
+        // Phase 7 lot 4: final revaluation at payment entry — the cart was
+        // already revalued after each mutation, this fixes the figure the
+        // customer pays (fresh call, circuit permitting) and refreshes the
+        // meal-voucher base and upsell hints.
+        if (!state.trainingMode) {
+            valuationService.revalueForPayment(state);
+            hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+        } else {
+            state.payment.valuationStatus = "LOCAL";
         }
     }
 
@@ -111,7 +130,23 @@ public class PaymentService {
         Long ticketId = state.payment.ticketDbId;
         state.payment.paymentInProgress = false;
         state.payment.pendingCardAmount = null;
+        // Phase 7: leaving the payment reverts the valuation — the cart goes
+        // back to local totals and will be revalued at the next entry
+        if (state.payment.valuationAdjustment != null || "ENGINE".equals(state.payment.valuationStatus)) {
+            valuationReconciler.revert(state.ticket, ticketId);
+            state.ticket.recomputeTotal();
+        }
+        state.payment.valuationStatus = null;
+        state.payment.valuationJson = null;
+        state.payment.valuationEngineTotal = null;
+        state.payment.valuationAdjustment = null;
+        state.payment.valuationMealEligible = null;
+        state.payment.valuationMealThreshold = null;
+        state.payment.valuationUpsells = new java.util.ArrayList<>();
         state.clearPayments();
+        // Back to the cart: revalue immediately so the screen shows engine
+        // totals again without waiting for the next mutation
+        valuationService.revalue(state);
         if (ticketId != null) {
             ticketPersistenceService.removePaymentsFromTicket(ticketId);
         }
@@ -255,6 +290,30 @@ public class PaymentService {
     public void processTicketResto(PosState state, BigDecimal amount) {
         if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
         if (amount.signum() <= 0) return;
+
+        // Phase 7 lot 3: the engine's MEAL_VOUCHER advantage caps meal tickets
+        // at min(eligible base, threshold, requested); the base shrinks with
+        // each registered meal-ticket payment. No advantage emitted = no cap
+        // (local behavior unchanged).
+        if ("ENGINE".equals(state.payment.valuationStatus) && state.payment.valuationMealEligible != null) {
+            BigDecimal allowed = state.payment.valuationMealEligible;
+            if (state.payment.valuationMealThreshold != null) {
+                allowed = allowed.min(state.payment.valuationMealThreshold);
+            }
+            if (allowed.signum() <= 0) {
+                hardwareService.displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
+                LOG.infof("Paiement TR refusé: assiette éligible épuisée");
+                return;
+            }
+            if (amount.compareTo(allowed) > 0) {
+                amount = allowed;
+                hardwareService.displayMessage(String.format("TR PLAFONNE  %s E", df.format(allowed)));
+                LOG.infof("Paiement TR plafonné à %s (assiette moteur)", allowed);
+            }
+            BigDecimal applied = amount.min(state.getRemaining());
+            state.payment.valuationMealEligible =
+                    state.payment.valuationMealEligible.subtract(applied).max(BigDecimal.ZERO);
+        }
 
         handlePaymentWithChange(state, "TR", "TICKET", amount);
 

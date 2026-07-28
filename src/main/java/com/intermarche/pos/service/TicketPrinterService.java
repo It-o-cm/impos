@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.domain.ticket.RefundLine;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.ticket.TicketLineValuation;
 import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.domain.ticket.TicketPayment;
 import com.intermarche.pos.domain.ticket.VatBreakdown;
@@ -84,6 +85,12 @@ public class TicketPrinterService {
         sb.append(String.format("Vendeur: %s%n", ticket.cashier.getFullName()));
         sb.append("-".repeat(WIDTH)).append("\n");
         // Lines
+        // Phase 7: per-line valuation traces (engine advantages), printed as
+        // deltas under their article — loaded once, keyed by lineUid
+        java.util.Map<String, TicketLineValuation> valuations = new java.util.HashMap<>();
+        for (TicketLineValuation v : TicketLineValuation.<TicketLineValuation>list("ticket.id", ticket.id)) {
+            valuations.put(v.lineUid, v);
+        }
         for (TicketLine line : ticket.lines) {
             // Product label (possibly truncated)
             String label = line.productLabel.length() > 20 ? line.productLabel.substring(0, 20) : line.productLabel;
@@ -94,6 +101,15 @@ public class TicketPrinterService {
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
+            // Engine advantage on this line: printed as a signed delta
+            TicketLineValuation valuation = valuations.get(line.lineUid);
+            if (valuation != null && valuation.valuedTotal.compareTo(valuation.localTotal) != 0) {
+                java.math.BigDecimal delta = valuation.valuedTotal.subtract(valuation.localTotal);
+                String advLabel = valuation.advantageLabel != null ? valuation.advantageLabel
+                        : (valuation.offerLabel != null ? valuation.offerLabel : "AVANTAGE");
+                if (advLabel.length() > 26) advLabel = advLabel.substring(0, 26);
+                sb.append(formatLine("  " + advLabel, DF.format(delta) + " E"));
+            }
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Totals

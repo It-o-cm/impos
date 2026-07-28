@@ -262,6 +262,8 @@ public class SyncOutboxService {
             lineDto.unitPrice = line.unitPrice;
             lineDto.vatRate = line.vatRate;
             lineDto.modifierLabel = line.modifierLabel;
+            lineDto.modifierType = line.modifierType;
+            lineDto.modifierValue = line.modifierValue;
             lineDto.originalUnitPrice = line.originalUnitPrice;
             lineDto.totalPrice = line.totalPrice;
             lineDto.deposit = line.deposit;

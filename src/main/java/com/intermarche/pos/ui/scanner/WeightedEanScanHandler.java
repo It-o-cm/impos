@@ -100,7 +100,10 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             ctx.state.ticket.addItem(null, null, product.name.toUpperCase(),
                     total, BigDecimal.ONE, vatRate);
         } else {
-            // Embedded weight in grams: catalog price per kilogram.
+            // Embedded weight in grams: catalog price per kilogram. The line
+            // carries the product EAN: its price IS the catalog price, so the
+            // valuation engine resolves the same base and the line is
+            // eligible (unlike price-embedded stickers, which stay local).
             BigDecimal quantityKg = BigDecimal.valueOf(embeddedValue, 3).setScale(3, RoundingMode.HALF_UP);
             if (quantityKg.signum() <= 0) {
                 ctx.state.ticket.setError("POIDS INVALIDE");
@@ -108,7 +111,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
                 return;
             }
             BigDecimal unitPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-            ctx.state.ticket.addItem(null, articleCode, product.name.toUpperCase(),
+            ctx.state.ticket.addItem(product.ean, articleCode, product.name.toUpperCase(),
                     unitPrice, quantityKg, vatRate);
         }
         ctx.handled = true;

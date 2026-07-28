@@ -148,6 +148,9 @@
 <body>
 
 <div class="pos-terminal">
+    {#if !state.payment.valuationUpsells.isEmpty()}<div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 47; background: var(--accent); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px;">SUGGESTION : {state.payment.valuationUpsells.get(0)}</div>{/if}
+    {#if state.payment.valuationAdjustment??}{#if state.payment.valuationAdjustment.signum() < 0}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 48; background: var(--success); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px;">AVANTAGES APPLIQUÉS : {state.payment.valuationAdjustment.abs()} €</div>{/if}{/if}
+    {#if state.payment.valuationStatus == 'DEGRADED'}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 49; background: var(--danger); color: #FFF; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px;">VALORISATION INDISPONIBLE — PRIX CATALOGUE APPLIQUÉS</div>{/if}
     {#if state.trainingMode}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 50; background: var(--warning); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 2px;">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>

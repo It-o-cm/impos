@@ -58,16 +58,26 @@ public class ManualService {
     // Méthode getPluProducts déplacée vers FruitService
 
     /**
-     * Builds the root level: the families that lead to at least one
-     * EAN-only product.
+     * Builds the root level: the TOP families of the tree (those that are
+     * not a sub-family of any other) leading to at least one EAN-only
+     * product. Filtering the children out here is what makes the drill-down
+     * a tree walk — before this filter every qualified family, child or
+     * not, showed at the root, which duplicated whole branches once the
+     * referential carried a real hierarchy.
      *
      * @return the root level
      */
     public ManualViewData getManualRootData() {
         List<ProductFamily> allFamilies = ProductFamily.listAll();
+        java.util.Set<Long> childIds = new java.util.HashSet<>();
+        for (ProductFamily f : allFamilies) {
+            for (ProductFamily child : f.productFamilies) {
+                childIds.add(child.id);
+            }
+        }
         List<ManualItem> items = new ArrayList<>();
         for (ProductFamily f : allFamilies) {
-            if (hasManualProducts(f)) {
+            if (!childIds.contains(f.id) && hasManualProducts(f)) {
                 items.add(new ManualItem(f.description, true, "/manual/cat/" + f.code, null));
             }
         }

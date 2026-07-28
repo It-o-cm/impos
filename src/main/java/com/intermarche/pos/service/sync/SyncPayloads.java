@@ -127,6 +127,10 @@ public final class SyncPayloads {
         public BigDecimal vatRate;
         /** The price-modification label, or null. */
         public String modifierLabel;
+        /** Structured gesture type (REMISE, DISCOUNT, FORCE_PRICE), or null. */
+        public String modifierType;
+        /** Structured gesture value as typed, or null. */
+        public BigDecimal modifierValue;
         /** The catalog unit price before modification, or null. */
         public BigDecimal originalUnitPrice;
         /** The line total including tax. */

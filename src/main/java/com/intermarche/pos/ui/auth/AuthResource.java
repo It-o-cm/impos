@@ -27,7 +27,12 @@ import java.util.Map;
  * drawer guard blocks the rest of the register, otherwise a cashier who
  * locked with the drawer open could never come back. A successful unlock
  * opens the drawer once — the historical gesture for a cashier taking over
- * the till.
+ * the till — and, when no cash session is open on this register, lands on
+ * the SESSION SCREEN instead of the sale screen: the drawer is out
+ * precisely to install the float, so the morning flow reads badge, PIN,
+ * float, sale — the cashier never meets the "no session" refusal. A
+ * mid-day relock (session already open) returns straight to the sale, and
+ * training mode skips the detour (no session needed there).
  */
 @Path("/")
 public class AuthResource {
@@ -36,6 +41,7 @@ public class AuthResource {
     @Inject Template lock;
     @Inject AuthService authService;
     @Inject HardwareService hardwareService;
+    @Inject com.intermarche.pos.service.CashSessionService cashSessionService;
 
     @Inject
     PosState state;
@@ -96,6 +102,13 @@ public class AuthResource {
         AuthService.LoginResult result = authService.login(state, login, password);
         if (result == AuthService.LoginResult.SUCCESS) {
             hardwareService.openDrawer();
+            // Prise de poste: the drawer just opened to install the float —
+            // when no session is open yet, land straight on the session
+            // screen so the cashier opens it while the drawer is out
+            // (training needs no session and goes straight to the sale).
+            if (!state.trainingMode && cashSessionService.getOpenSession() == null) {
+                return Response.seeOther(URI.create("/session")).build();
+            }
             return Response.seeOther(URI.create("/")).build();
         }
         String error = (result == AuthService.LoginResult.LOCKED) ? "locked" : "true";

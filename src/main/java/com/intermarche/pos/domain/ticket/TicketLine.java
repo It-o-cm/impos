@@ -84,6 +84,14 @@ public class TicketLine extends BaseEntity {
     @Column(name = "modifier_label", length = 50)
     public String modifierLabel;
 
+    /** Structured type of the applied manual gesture (REMISE, DISCOUNT, FORCE_PRICE), or null. */
+    @Column(name = "modifier_type", length = 20)
+    public String modifierType;
+
+    /** Structured value of the gesture as typed (line euros, percent, or new line total), or null. */
+    @Column(name = "modifier_value", precision = 19, scale = 4)
+    public java.math.BigDecimal modifierValue;
+
     /** The catalog unit price before modification, or null when untouched. */
     @Column(name = "original_unit_price", precision = 19, scale = 4)
     public BigDecimal originalUnitPrice;

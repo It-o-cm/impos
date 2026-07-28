@@ -139,6 +139,8 @@ public class TicketRecoveryService {
             // original price (endorsed once, never re-asked)
             if (line.modifierLabel != null) {
                 item.modifierLabel = line.modifierLabel;
+                item.modifierType = line.modifierType;
+                item.modifierValue = line.modifierValue;
                 if (line.originalUnitPrice != null) {
                     item.originalUnitPrice = line.originalUnitPrice;
                 }

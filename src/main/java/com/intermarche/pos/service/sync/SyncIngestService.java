@@ -144,6 +144,8 @@ public class SyncIngestService {
             line.unitPrice = lineDto.unitPrice;
             line.vatRate = lineDto.vatRate;
             line.modifierLabel = lineDto.modifierLabel;
+            line.modifierType = lineDto.modifierType;
+            line.modifierValue = lineDto.modifierValue;
             line.originalUnitPrice = lineDto.originalUnitPrice;
             line.totalPrice = lineDto.totalPrice;
             line.deposit = lineDto.deposit;

@@ -273,6 +273,22 @@ public class TicketState implements Serializable {
         public String modifierLabel = null;
 
         /**
+         * Structured type of the applied manual gesture (REMISE, DISCOUNT,
+         * FORCE_PRICE), or null. Captured at application time so the
+         * valuation request can carry the gesture as data
+         * (manualDiscountAmount / manualDiscountPercent / manualForcedPrice)
+         * instead of a pre-baked price — phase 7.
+         */
+        public String modifierType = null;
+
+        /**
+         * Structured value of the applied manual gesture, as typed by the
+         * cashier: euros off the LINE total for REMISE, percentage for
+         * DISCOUNT, new LINE total for FORCE_PRICE. Null when no gesture.
+         */
+        public BigDecimal modifierValue = null;
+
+        /**
          * Creates a ticket line.
          *
          * @param ean the EAN code, or null
@@ -303,7 +319,32 @@ public class TicketState implements Serializable {
          *
          * @return the line total including tax
          */
-        public BigDecimal getTotalPrice() { return unitPrice.multiply(quantity); }
+        /**
+         * Engine-valued line total (tax included), or null when the line is
+         * locally priced. THE single override point of phase 7: when set,
+         * every consumer of {@link #getTotalPrice()} — screen totals, draft
+         * lines, VAT ventilation, printing — follows the engine's figure
+         * with no further wiring. Cleared when the payments are cancelled.
+         */
+        public BigDecimal valuedTotal = null;
+
+        /**
+         * Returns the line total: the engine-valued amount when present,
+         * the local unit-price math otherwise.
+         *
+         * @return the effective line total, tax included
+         */
+        public BigDecimal getTotalPrice() {
+            return valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
+        }
+
+        /**
+         * Returns the register-local line total, ignoring any valuation —
+         * the "before" figure of the printed advantage delta.
+         *
+         * @return the local line total, tax included
+         */
+        public BigDecimal getLocalTotalPrice() { return unitPrice.multiply(quantity); }
 
         /**
          * Returns the HTML fragment displaying the quantity and label of the line.

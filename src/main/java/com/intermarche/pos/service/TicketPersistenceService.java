@@ -232,9 +232,13 @@ public class TicketPersistenceService {
                 line.unitPrice = item.unitPrice;
         line.modifierLabel = item.modifierLabel;
         line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
+        line.modifierType = item.modifierType;
+        line.modifierValue = item.modifierValue;
                 line.vatRate = item.vatRate;
                 line.modifierLabel = item.modifierLabel;
                 line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
+                line.modifierType = item.modifierType;
+                line.modifierValue = item.modifierValue;
                 line.totalPrice = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
             }
             lineNumber++;
