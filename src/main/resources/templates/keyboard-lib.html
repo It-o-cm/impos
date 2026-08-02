@@ -18,9 +18,14 @@
          * All keyboards (numpad, price, payment, search, alpha) rely on these
          * classes so that sizing, spacing, colors and typography stay identical
          * across the whole application. Colors are bound to the global CSS
-         * variables defined in each page's :root block.
+         * variables defined by the shared theme include (theme.html); the var() fallbacks keep the library working standalone.
          */
         _injectStyles: function() {
+            // Standalone fallback only: theme.html carries the CANONICAL copy
+            // of these rules (always present on themed screens); this
+            // injection keeps the library usable on an unthemed page and
+            // must stay value-identical with the theme — same philosophy as
+            // the var() fallbacks below.
             if (document.getElementById('pos-keyboard-styles')) return;
             const style = document.createElement('style');
             style.id = 'pos-keyboard-styles';

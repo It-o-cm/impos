@@ -143,7 +143,7 @@ public class RefExportService {
         }
         if (row instanceof RefPayloads.EmployeeDto e) {
             return String.join("|", n(e.loginName), n(e.firstName), n(e.lastName), n(e.password),
-                    n(e.email), n(e.role), n(e.badgeId), String.valueOf(e.active));
+                    n(e.email), n(e.role), n(e.badgeId), n(e.theme), String.valueOf(e.active));
         }
         if (row instanceof RefPayloads.CouponTypeDto c) {
             return String.join("|", n(c.code), n(c.label), n(c.matchPattern), n(c.amountSource),
@@ -237,6 +237,7 @@ public class RefExportService {
         dto.email = employee.email;
         dto.role = employee.role.name();
         dto.badgeId = employee.badgeId;
+        dto.theme = employee.theme;
         dto.active = employee.active;
         return dto;
     }

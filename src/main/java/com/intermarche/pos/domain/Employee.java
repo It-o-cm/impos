@@ -132,6 +132,14 @@ public class Employee extends BaseEntity {
     @NotBlank(message = "Badge ID is mandatory")
     public String badgeId;
 
+    /**
+     * Personal display theme of this employee (data-theme value), or null to
+     * follow the store's theme. Referential data: travels in the phase 6
+     * pull like the other employee fields.
+     */
+    @jakarta.persistence.Column(name = "theme", length = 20)
+    public String theme;
+
     // --------------------------------------------------
     // Status
     // --------------------------------------------------

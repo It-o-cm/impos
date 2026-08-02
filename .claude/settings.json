@@ -5,7 +5,11 @@
       "Bash(cat *)",
       "Bash(grep *)",
       "Bash(ls *)",
-      "Bash(find *)"
+      "Bash(find *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Edit(src/test/**)",
+      "Write(src/test/**)"
     ]
   }
 }

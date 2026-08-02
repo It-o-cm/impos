@@ -99,6 +99,8 @@ public final class RefPayloads {
         public String role;
         /** The badge id, or null. */
         public String badgeId;
+        /** The personal display theme, or null (follows the store). */
+        public String theme;
         /** Whether the employee is active. */
         public boolean active;
     }

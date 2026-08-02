@@ -15,8 +15,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Paiement</title>
     <style>
-        :root { --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF; --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853; --danger: #D32F2F; --warning: #FF9800; --border-color: #333333; }
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        {#include theme /}
         body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
         .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark); border: 2px solid #444; border-radius: 10px; display: grid; grid-template-rows: 60px 1fr 80px; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative; }
@@ -148,10 +147,10 @@
 <body>
 
 <div class="pos-terminal">
-    {#if !state.payment.valuationUpsells.isEmpty()}<div style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 47; background: var(--accent); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px;">SUGGESTION : {state.payment.valuationUpsells.get(0)}</div>{/if}
-    {#if state.payment.valuationAdjustment??}{#if state.payment.valuationAdjustment.signum() < 0}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 48; background: var(--success); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px;">AVANTAGES APPLIQUÉS : {state.payment.valuationAdjustment.abs()} €</div>{/if}{/if}
-    {#if state.payment.valuationStatus == 'DEGRADED'}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 49; background: var(--danger); color: #FFF; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px;">VALORISATION INDISPONIBLE — PRIX CATALOGUE APPLIQUÉS</div>{/if}
-    {#if state.trainingMode}<div style="position: absolute; top: 0; left: 0; right: 0; z-index: 50; background: var(--warning); color: #000; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 2px;">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
+    {#if !state.payment.valuationUpsells.isEmpty()}<div class="overlay-banner overlay-suggestion">SUGGESTION : {state.payment.valuationUpsells.get(0)}</div>{/if}
+    {#if state.payment.valuationAdjustment??}{#if state.payment.valuationAdjustment.signum() < 0}<div class="overlay-banner overlay-advantage">AVANTAGES APPLIQUÉS : {state.payment.valuationAdjustment.abs()} €</div>{/if}{/if}
+    {#if state.payment.valuationStatus == 'DEGRADED'}<div class="overlay-banner overlay-degraded">VALORISATION INDISPONIBLE — PRIX CATALOGUE APPLIQUÉS</div>{/if}
+    {#if state.trainingMode}<div class="overlay-banner overlay-training">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>

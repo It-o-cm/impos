@@ -1,8 +1,9 @@
 {!
  ! Full-width product search (ProductSearchResource). LAYOUT LESSON: the
- ! alpha keyboard is a FIXED 10-column grid needing ~554px minimum — hence
- ! results on top, input zone full-width below, and compact keys via local
- ! CSS override. Alpha keyboard AND numeric search pad feed the SAME PosInput
+ ! alpha keyboard is a FIXED 10-column grid needing ~604px minimum — hence
+ ! results on top and the input zone full-width below, which fits the keys
+ ! at their STANDARD size (the historical compact override is gone: keys
+ ! render identically on every screen, theme.html owns the metrics). Alpha keyboard AND numeric search pad feed the SAME PosInput
  ! buffer (renderSearchPad routed through PosInput.handleKey), so names, EANs
  ! and PLUs mix freely. A hit tap routes /action/search/add/{code} through
  ! processScan: tapping = scanning, same chain, same guards. The display MUST
@@ -15,12 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Recherche Produit</title>
   <style>
-    :root {
-      --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
-      --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
-      --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
-    }
-    * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+    {#include theme /}
     body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
     .pos-terminal {
@@ -57,7 +53,6 @@
 
     .kb-row { display: grid; grid-template-columns: 1fr 235px; gap: 12px; }
     /* Compact keys so both pads fit the 600px terminal with room for results */
-    .kb-row .pos-key { padding: 9px 4px !important; font-size: 1.15rem !important; }
   </style>
 </head>
 <body>

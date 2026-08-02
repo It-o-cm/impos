@@ -1,0 +1,48 @@
+{!
+ ! The cashier's theme chooser, served by ThemeResource: one big touch
+ ! button per available theme plus the "store default" choice (posts an
+ ! empty value — the service clears the preference). The current resolution
+ ! is highlighted. The page is itself themed, so the cashier previews the
+ ! change on the very next screen after choosing.
+ !}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Thème d'affichage</title>
+    <style>
+        {#include theme /}
+        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .panel {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid #444; border-radius: 10px; position: relative;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px;
+        }
+        h1 { font-size: 1.4rem; letter-spacing: 2px; color: var(--text-muted); }
+        .choices { display: flex; gap: 20px; }
+        .choice { min-width: 220px; padding: 40px 20px; font-size: 1.3rem; font-weight: bold;
+                  border-radius: 10px; border: 2px solid var(--border-color);
+                  background: var(--bg-panel); color: var(--text-main); cursor: pointer; }
+        .choice.current { border-color: var(--primary); }
+        .back { position: absolute; top: 15px; left: 15px; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+    <div class="panel">
+        <a href="/" class="btn btn-muted back">&larr; RETOUR</a>
+        <h1>THÈME D'AFFICHAGE</h1>
+        <div class="choices">
+            {#for t in themes}
+            <form method="post" action="/action/theme">
+                <input type="hidden" name="theme" value="{t}">
+                <button type="submit" class="choice {#if t == current}current{/if}">{t.toUpperCase()}</button>
+            </form>
+            {/for}
+            <form method="post" action="/action/theme">
+                <input type="hidden" name="theme" value="">
+                <button type="submit" class="choice">DÉFAUT MAGASIN</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
