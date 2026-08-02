@@ -8,8 +8,7 @@
       "Bash(find *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Edit(src/test/**)",
-      "Write(src/test/**)"
+      "Edit(src/test/**)"
     ]
   }
 }
