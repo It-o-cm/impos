@@ -28,7 +28,10 @@ import java.time.LocalDateTime;
  * layers (EANs ...001, ...002 and ...020 carry a priority-1 price both
  * sides). PLUs and icons are REGISTER-LOCAL concepts added on top (the EAN
  * is the shared key); meal-voucher eligibility and family flags live in the
- * ENGINE only. The two forbidden test products keep non-engine EANs on
+ * ENGINE only. PLU numbering follows trade practice: real IFPS codes for
+ * produce (4020 Golden apples, 4062 cucumber, 4796 cherry tomatoes) and
+ * plausible internal counter series for the rest (2xx cut/deli counters,
+ * 5xx bulk) — no public standard exists outside produce. The two forbidden test products keep non-engine EANs on
  * purpose: they can never reach a basket.
  */
 @ApplicationScoped
@@ -63,6 +66,10 @@ public class DataInitializer {
     private void loadEmployees() {
         // Format : createEmployee(BadgeID 8chiffres, PIN 4chiffres, Prénom, Nom, Rôle)
         createEmployee("11111111", "mcurie", "1111", "Marie", "Curie", Employee.EmployeeRole.MANAGER);
+        // Theme demo: Marie prefers the light theme (cashier preference
+        // overrides the store default — see ThemeService)
+        Employee marie = Employee.find("loginName", "mcurie").firstResult();
+        marie.theme = "clair";
         createEmployee("22222222", "aeinstein", "2222", "Albert", "Einstein", Employee.EmployeeRole.PICKER);
         createEmployee("00000000", "manager", "0000", "Le", "Manager", Employee.EmployeeRole.ADMIN);
         createEmployee("12341234",  "jdupont","1234", "Jean", "Dupont", Employee.EmployeeRole.CASHIER);
@@ -96,15 +103,15 @@ public class DataInitializer {
         alimentaire.productFamilies.add(boissons);
 
         // --- Engine catalog (ProductImporterClient mirror; PLU/icon = register-local) ---
-        Product p01 = createProduct(pommes, "Pommes Golden", "Pommes fraîches bio", "Brand A", "4001", "3300000000001", "🍎", "1.000", "2.500", ProductType.WEIGHT, "kg");
+        Product p01 = createProduct(pommes, "Pommes Golden", "Pommes fraîches bio", "Brand A", "4020", "3300000000001", "🍎", "1.000", "2.500", ProductType.WEIGHT, "kg");
         Product p02 = createProduct(epicerie, "Lait UHT 1L", "Lait demi-écrémé", "Brand B", null, "3300000000002", "🥛", "1.000", "1.000", ProductType.UNIT, "L");
         Product p03 = createProduct(epicerie, "Baguette Tradition", "Pain de tradition", "Brand C", null, "3300000000003", "🥖", "0.250", "0.600", ProductType.UNIT, "kg");
         Product p04 = createProduct(pommes, "Café Grains 500g", "Café moulu arabica", "Brand D", null, "3300000000004", "☕", "0.500", "1.250", ProductType.UNIT, "kg");
-        Product p05 = createProduct(epicerie, "Pâtes Penne 500g", "Pâtes alimentaires", "Brand E", "4005", "3300000000005", "🍝", "0.500", "1.250", ProductType.WEIGHT, "kg");
+        Product p05 = createProduct(epicerie, "Pâtes Penne 500g", "Pâtes alimentaires", "Brand E", "501", "3300000000005", "🍝", "0.500", "1.250", ProductType.WEIGHT, "kg");
         Product p06 = createProduct(epicerie, "Huile d'Olive 1L", "Huile vierge extra", "Brand F", null, "3300000000006", "🫒", "1.000", "1.000", ProductType.UNIT, "L");
         Product p07 = createProduct(eaux, "Eau Minérale 1.5L", "Eau de source", "Brand G", null, "3300000000007", "💧", "1.500", "1.500", ProductType.UNIT, "L");
-        Product p08 = createProduct(epicerie, "Jambon Blanc 100g", "Tranches de jambon", "Brand H", "4008", "3300000000008", "🥓", "0.100", "0.250", ProductType.WEIGHT, "kg");
-        Product p09 = createProduct(epicerie, "Beurre Doux 250g", "Motte de beurre", "Brand I", "4009", "3300000000009", "🧈", "0.250", "0.600", ProductType.WEIGHT, "kg");
+        Product p08 = createProduct(epicerie, "Jambon Blanc 100g", "Tranches de jambon", "Brand H", "210", "3300000000008", "🥓", "0.100", "0.250", ProductType.WEIGHT, "kg");
+        Product p09 = createProduct(epicerie, "Beurre Doux 250g", "Motte de beurre", "Brand I", "220", "3300000000009", "🧈", "0.250", "0.600", ProductType.WEIGHT, "kg");
         Product p10 = createProduct(epicerie, "Yaourt Nature 4x125g", "Pots de yaourt", "Brand J", null, "3300000000010", "🥛", "0.500", "1.250", ProductType.UNIT, "kg");
         Product p11 = createProduct(sodas, "Coca-Cola 1.5L", "Boisson gazeuse", "Brand K", null, "3300000000011", "🥤", "1.500", "1.500", ProductType.UNIT, "L");
         Product p12 = createProduct(sodas, "Orangina 1.25L", "Boisson aux agrumes", "Brand L", null, "3300000000012", "🥤", "1.250", "1.250", ProductType.UNIT, "L");
@@ -112,11 +119,11 @@ public class DataInitializer {
         Product p14 = createProduct(epicerie, "Chips Classiques 150g", "Chips de pomme de terre", "Brand N", null, "3300000000014", "🍟", "0.150", "0.400", ProductType.UNIT, "kg");
         Product p15 = createProduct(epicerie, "Sauce Tomate 500g", "Sauce bolognaise", "Brand O", null, "3300000000015", "🍅", "0.500", "1.250", ProductType.UNIT, "kg");
         Product p16 = createProduct(epicerie, "Purée de Pomme de Terre 500g", "Purée instantanée", "Brand P", null, "3300000000016", "🥔", "0.500", "1.250", ProductType.UNIT, "kg");
-        Product p17 = createProduct(racines, "Concombre", "Légume frais", "Brand Q", "4017", "3300000000017", "🥒", "0.300", "0.750", ProductType.WEIGHT, "kg");
-        Product p18 = createProduct(racines, "Tomates Cerises 500g", "Tomates rondes", "Brand R", "4018", "3300000000018", "🍅", "0.500", "1.250", ProductType.WEIGHT, "kg");
+        Product p17 = createProduct(racines, "Concombre", "Légume frais", "Brand Q", "4062", "3300000000017", "🥒", "0.300", "0.750", ProductType.WEIGHT, "kg");
+        Product p18 = createProduct(racines, "Tomates Cerises 500g", "Tomates rondes", "Brand R", "4796", "3300000000018", "🍅", "0.500", "1.250", ProductType.WEIGHT, "kg");
         Product p19 = createProduct(epicerie, "Oeufs Bio 6 unités", "Oeufs frais gros", "Brand S", null, "3300000000019", "🥚", "0.360", "0.900", ProductType.UNIT, "kg");
-        Product p20 = createProduct(epicerie, "Poulet Rôti 1.2kg", "Poulet fermier", "Brand T", "4020", "3300000000020", "🍗", "1.200", "3.000", ProductType.WEIGHT, "kg");
-        Product p21 = createProduct(epicerie, "Saumon Fume 200g", "Tranches de saumon", "Brand U", "4021", "3300000000021", "🐟", "0.200", "0.500", ProductType.WEIGHT, "kg");
+        Product p20 = createProduct(epicerie, "Poulet Rôti 1.2kg", "Poulet fermier", "Brand T", "230", "3300000000020", "🍗", "1.200", "3.000", ProductType.WEIGHT, "kg");
+        Product p21 = createProduct(epicerie, "Saumon Fume 200g", "Tranches de saumon", "Brand U", "240", "3300000000021", "🐟", "0.200", "0.500", ProductType.WEIGHT, "kg");
         Product p22 = createProduct(epicerie, "Riz Basmati 1kg", "Riz long grain", "Brand V", null, "3300000000022", "🍚", "1.000", "2.500", ProductType.UNIT, "kg");
         Product p23 = createProduct(epicerie, "Lentilles Vertes 500g", "Légumes secs", "Brand W", null, "3300000000023", "🫘", "0.500", "1.250", ProductType.UNIT, "kg");
         Product p24 = createProduct(epicerie, "Miel d'Acacia 500g", "Pot de miel", "Brand X", null, "3300000000024", "🍯", "0.500", "1.250", ProductType.UNIT, "kg");

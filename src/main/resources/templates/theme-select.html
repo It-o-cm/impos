@@ -12,10 +12,10 @@
     <title>Thème d'affichage</title>
     <style>
         {#include theme /}
-        body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
         .panel {
             width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid #444; border-radius: 10px; position: relative;
+            border: 2px solid var(--border-strong); border-radius: 10px; position: relative;
             display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px;
         }
         h1 { font-size: 1.4rem; letter-spacing: 2px; color: var(--text-muted); }

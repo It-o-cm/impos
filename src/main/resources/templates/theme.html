@@ -14,7 +14,27 @@
             --bg-dark: #121212; --bg-panel: #1E1E1E; --text-main: #FFFFFF;
             --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
             --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
-            --accent: #FFC400;
+            --accent: #FFC400; --muted: #555555;
+            /* Structural tokens (historical hardcoded values, tokenized for
+               theming): page letterbox, inset wells/rows, strong borders. */
+            --bg-page: #000000; --bg-inset: #181818; --bg-row: #222222;
+            --border-strong: #444444;
+        }
+
+        /* THEMES: a theme is a token block keyed by the body's data-theme
+           attribute — resolved cashier -> store -> default by ThemeService
+           and rendered as <body data-theme="{posTheme}">. The default dark
+           theme ("sombre") is :root itself: no attribute block needed.
+           Adding a theme = adding a block here + a value in a Store or
+           Employee row. Semantic colors (danger/success/warning/accent)
+           deliberately keep their meaning across themes. */
+        [data-theme="clair"] {
+            --bg-dark: #F2F2F2; --bg-panel: #FFFFFF; --text-main: #1A1A1A;
+            --text-muted: #666666; --primary: #0044CC; --success: #00933F;
+            --danger: #C62828; --warning: #E65100; --border-color: #CCCCCC;
+            --accent: #F9A825; --muted: #DDDDDD;
+            --bg-page: #E4E4E4; --bg-inset: #F7F7F7; --bg-row: #ECECEC;
+            --border-strong: #BBBBBB;
         }
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
 
@@ -55,3 +75,18 @@
         .pos-key--action { background: #000; color: var(--warning); }
         .pos-key--alpha { font-size: 1.5rem; text-transform: uppercase; }
         .pos-key--wide { grid-column: span 2; }
+
+        /* Button colors: SEMANTIC and central. The strong variants keep
+           their meaning across themes (a danger button is red everywhere —
+           deliberate touch-screen safety); muted follows the theme through
+           --muted with theme-side text. Screens keep their LOCAL .btn base
+           blocks for per-screen sizing — metrics local, colors central. */
+        .btn-primary { background-color: var(--primary); }
+        .btn-danger { background-color: var(--danger); }
+        .btn-success { background-color: var(--success); }
+        /* Compound selectors on purpose: the screens' local .btn base blocks
+           set "color: white" AFTER this include, and at equal specificity
+           the later rule would win — .btn.btn-x outranks .btn regardless of
+           source order, so the themed text colors hold. */
+        .btn.btn-warning { background-color: var(--warning); color: #000; }
+        .btn.btn-muted { background-color: var(--muted); color: var(--text-main); }

@@ -12,17 +12,17 @@
   <style>
     /* --- VARIABLES & BASE --- */
     {#include theme /}
-    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
     .pos-terminal {
       width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid #444; border-radius: 10px;
+      border: 2px solid var(--border-strong); border-radius: 10px;
       display: grid; grid-template-rows: 60px 1fr 80px;
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
     }
 
     /* --- HEADER --- */
-    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
     .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
 
     /* --- MAIN LAYOUT --- */
@@ -50,7 +50,7 @@
 
     .search-result-item {
       background: var(--bg-panel); padding: 0 15px; height: 48px;
-      border-radius: 4px; border: 1px solid #333; cursor: pointer;
+      border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer;
       display: flex; justify-content: space-between; align-items: center;
     }
     .search-result-item:hover { background: #252525; border-color: #444; }
@@ -79,20 +79,20 @@
     .item-price { color: var(--success); font-weight: bold; font-size: 1rem; min-width: 60px; text-align: right; }
 
     /* Contrôles */
-    .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid #444; align-items: center; justify-content: center; gap: 10px; }
+    .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-strong); align-items: center; justify-content: center; gap: 10px; }
     .receipt-line.selected .qty-controls { display: flex; }
 
-    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid #555; color: white; font-size: 1.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid var(--border-strong); color: white; font-size: 1.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .btn-qty:active { background: #444; }
     .btn-qty.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
-    .qty-input-display { font-size: 1.2rem; font-weight: bold; color: var(--warning); background: #000; border: 1px solid #444; width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
+    .qty-input-display { font-size: 1.2rem; font-weight: bold; color: var(--warning); background: var(--bg-page); border: 1px solid var(--border-strong); width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
 
     .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: #111; }
 
     /* Pagination */
-    .ticket-nav { display: none; justify-content: space-between; align-items: center; border-top: 1px solid #333; padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 50px; z-index: 5; }
+    .ticket-nav { display: none; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 50px; z-index: 5; }
     .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: 0.8rem; }
     .nav-info { color: var(--text-muted); font-size: 0.85rem; }
 
@@ -103,13 +103,13 @@
 
     /* --- MODE RECHERCHE --- */
     #searchKeyboardZone { display: none; flex-direction: column; height: 100%; }
-    .search-display { font-size: 1.8rem; text-align: center; color: var(--text-main); font-weight: bold; background: #000; border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px; margin-bottom: 10px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
+    .search-display { font-size: 1.8rem; text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px; margin-bottom: 10px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
 
     /* --- MODE TICKET --- */
     #ticketActionsZone { display: none; flex-direction: column; height: 100%; }
     .overlay-title { font-size: 1.4rem; margin-bottom: 10px; text-align: center; }
     .total-zone { text-align: center; margin-bottom: 10px; }
-    .sub-display { font-size: 2rem; text-align: center; color: var(--success); font-weight: bold; background: #000; border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; }
+    .sub-display { font-size: 2rem; text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; }
     .sub-display.manual { border-color: var(--warning); color: var(--warning); }
 
     #numpadContainer { width: 100%; margin-bottom: 10px; }
@@ -117,18 +117,14 @@
 
     .btn { padding: 12px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; text-align: center; display: block; }
     .btn:active { transform: translateY(4px); box-shadow: none; }
-    .btn-primary { background-color: var(--primary); }
-    .btn-success { background-color: var(--success); }
-    .btn-warning { background-color: var(--warning); color: black; }
-    .btn-muted { background-color: #555; }
 
     /* FOOTER */
-    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
-    .btn-back { background: #222; color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid #444; }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
+    .btn-back { background: var(--bg-row); color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
 
   </style>
 </head>
-<body>
+<body data-theme="{posTheme}">
 
 <div class="pos-terminal">
   <!-- HEADER -->
@@ -205,9 +201,9 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.innerText = k;
-        btn.style.cssText = 'padding: 10px; font-size: 1.2rem; font-weight: bold; border-radius: 4px; border: 1px solid #555; cursor: pointer; color: white;';
+        btn.style.cssText = 'padding: 10px; font-size: 1.2rem; font-weight: bold; border-radius: 4px; border: 1px solid var(--border-strong); cursor: pointer; color: white;';
         if (k === 'C') btn.style.background = '#D32F2F';
-        else if (k === '⌫' || k === '-') btn.style.background = '#222';
+        else if (k === '⌫' || k === '-') btn.style.background = 'var(--bg-row)';
         else btn.style.background = '#333';
         btn.onclick = () => onKey(k);
         pad.appendChild(btn);
@@ -225,8 +221,8 @@
       pad.style.width = '100%';
 
       const styles = {
-        base: 'padding: 10px; font-size: 1.2rem; font-weight: bold; border-radius: 5px; border: 1px solid #555; cursor: pointer; color: white; background: #333;',
-        action: 'background: #222; color: #AAAAAA;',
+        base: 'padding: 10px; font-size: 1.2rem; font-weight: bold; border-radius: 5px; border: 1px solid var(--border-strong); cursor: pointer; color: white; background: #333;',
+        action: 'background: var(--bg-row); color: #AAAAAA;',
         danger: 'background: #D32F2F; color: white;',
         success: 'background: #00C853; color: white;'
       };

@@ -39,8 +39,13 @@ public class ProductSearchResource {
     public static class SearchHit {
         /** The product display label. */
         public String label;
-        /** The product EAN used for the addition. */
-        public String ean;
+        /**
+         * The scannable code used for the addition: the EAN when the product
+         * has one, its PLU otherwise — a tap routes it through
+         * {@code processScan}, so a PLU-only product (weighed catalog) is
+         * addable from the search exactly like a typed PLU.
+         */
+        public String code;
         /** The current price formatted for display, or a dash when absent. */
         public String priceFormatted;
 
@@ -48,12 +53,12 @@ public class ProductSearchResource {
          * Creates a search result.
          *
          * @param label the product display label
-         * @param ean the product EAN
+         * @param code the scannable code (EAN, or PLU when EAN-less)
          * @param priceFormatted the formatted current price
          */
-        public SearchHit(String label, String ean, String priceFormatted) {
+        public SearchHit(String label, String code, String priceFormatted) {
             this.label = label;
-            this.ean = ean;
+            this.code = code;
             this.priceFormatted = priceFormatted;
         }
     }
@@ -86,7 +91,8 @@ public class ProductSearchResource {
                 String priceFormatted = (price != null)
                         ? String.format("%.2f €", price.priceIncludingTax.setScale(2, RoundingMode.HALF_UP)).replace(".", ",")
                         : "—";
-                hits.add(new SearchHit(product.name.toUpperCase(), product.ean, priceFormatted));
+                String code = (product.ean != null && !product.ean.isEmpty()) ? product.ean : product.plu;
+                hits.add(new SearchHit(product.name.toUpperCase(), code, priceFormatted));
             }
         }
         return search

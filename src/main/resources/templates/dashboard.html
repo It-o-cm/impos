@@ -13,7 +13,7 @@
   <title>Supervision Magasin</title>
   <style>
     {#include theme /}
-    body { background: #000; color: var(--text-main); min-height: 100vh; padding: 18px; }
+    body { background: var(--bg-page); color: var(--text-main); min-height: 100vh; padding: 18px; }
 
     .header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
     .header .title { color: var(--danger); font-size: 1.6rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
@@ -46,7 +46,7 @@
     .empty { color: var(--text-muted); font-size: 0.9rem; padding: 8px 0; }
   </style>
 </head>
-<body>
+<body data-theme="{posTheme}">
   <div class="header">
     <span class="title">Supervision magasin</span>
     <span class="clock" id="clock"></span>

@@ -6,19 +6,19 @@
   <title>Erreur Tiroir</title>
   <style>
     {#include theme /}
-    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
     .pos-terminal {
       width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid #444; border-radius: 10px;
+      border: 2px solid var(--border-strong); border-radius: 10px;
       display: grid; grid-template-rows: 60px 1fr 80px;
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
     }
 
     /* Header & Footer Layout */
-    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
     .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
-    .bottom-nav { background-color: #000; border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
     .main-area { display: grid; grid-template-columns: 1.5fr 1fr; background-color: var(--bg-dark); }
 
     /* Error Screen Overlay */
@@ -41,7 +41,6 @@
       font-weight: bold; border: none; cursor: pointer; text-transform: uppercase;
       text-decoration: none; display: inline-block;
     }
-    .btn-warning { background-color: var(--warning); color: black; box-shadow: 0 4px 0 #cc7a00; transition: transform 0.1s; }
     .btn-warning:active { transform: translateY(4px); box-shadow: none; }
 
     @keyframes pulse {
@@ -51,7 +50,7 @@
     }
   </style>
 </head>
-<body>
+<body data-theme="{posTheme}">
 
 <div class="pos-terminal">
   <div class="top-bar">

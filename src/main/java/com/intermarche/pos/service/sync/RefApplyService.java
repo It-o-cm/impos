@@ -146,6 +146,13 @@ public class RefApplyService {
             employee.email = dto.email;
             employee.role = Employee.EmployeeRole.valueOf(dto.role);
             employee.badgeId = dto.badgeId;
+            // A theme chosen AT THE REGISTER wins over the pulled one: the
+            // register-side selector must not be mysteriously undone by the
+            // next referential pull. The store's value only seeds employees
+            // who never chose.
+            if (employee.theme == null) {
+                employee.theme = dto.theme;
+            }
             employee.active = dto.active;
             // failedAttempts / lockedUntil are local state: untouched
             employee.persist();

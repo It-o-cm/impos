@@ -70,6 +70,14 @@ public class Store extends BaseEntity {
     })
     public Address address;
 
+    /**
+     * Default display theme of this node's screens (data-theme value), or
+     * null for the built-in dark theme. Overridden per cashier by
+     * {@code Employee.theme}. Node-local like the rest of the Store row.
+     */
+    @jakarta.persistence.Column(name = "theme", length = 20)
+    public String theme;
+
     // --------------------------------------------------
     // Panache Active Record Queries
     // --------------------------------------------------

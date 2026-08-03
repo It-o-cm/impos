@@ -3,6 +3,8 @@ package com.intermarche.pos.ui;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Store;
 import io.quarkus.arc.Arc;
+import io.quarkus.arc.InstanceHandle;
+import io.quarkus.arc.Unremovable;
 import io.quarkus.qute.TemplateGlobal;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -24,10 +26,20 @@ import jakarta.inject.Inject;
  * the other cross-screen concerns.
  */
 @ApplicationScoped
+@Unremovable // Nothing injects this bean (the Qute global reaches it through
+             // Arc programmatically), so without this annotation ArC's
+             // unused-bean elimination removes it at build time and the
+             // first themed rendering dies on an empty instance handle.
 public class ThemeService {
 
     /** The built-in default theme name (the historical dark look). */
     public static final String DEFAULT_THEME = "sombre";
+
+    /**
+     * The selectable theme names, in display order — every entry must have
+     * its token block in theme.html (the default needs none: it is :root).
+     */
+    public static final java.util.List<String> AVAILABLE_THEMES = java.util.List.of("sombre", "clair");
 
     @Inject
     PosState state;
@@ -52,6 +64,26 @@ public class ThemeService {
     }
 
     /**
+     * Persists the logged cashier's theme preference. A blank or unknown
+     * value clears the preference (back to the store's default) — the
+     * selector's "store default" choice posts an empty value on purpose.
+     *
+     * @param themeName the chosen theme, or blank to follow the store
+     */
+    @jakarta.transaction.Transactional
+    public void setThemeForOperator(String themeName) {
+        if (state.auth == null || state.auth.operatorId == null) {
+            return;
+        }
+        Employee operator = Employee.findById(state.auth.operatorId);
+        if (operator == null) {
+            return;
+        }
+        operator.theme = (themeName != null && AVAILABLE_THEMES.contains(themeName)) ? themeName : null;
+        state.touch();
+    }
+
+    /**
      * Qute globals of the theming system.
      */
     @TemplateGlobal
@@ -64,7 +96,14 @@ public class ThemeService {
          * @return the data-theme value to render
          */
         public static String posTheme() {
-            return Arc.container().instance(ThemeService.class).get().currentTheme();
+            // Theming must never break a rendering: any resolution trouble
+            // falls back to the default theme.
+            try {
+                InstanceHandle<ThemeService> handle = Arc.container().instance(ThemeService.class);
+                return handle.isAvailable() ? handle.get().currentTheme() : DEFAULT_THEME;
+            } catch (Exception e) {
+                return DEFAULT_THEME;
+            }
         }
     }
 }

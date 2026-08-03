@@ -230,10 +230,6 @@ public class TicketPersistenceService {
                 line.productLabel = item.label;
                 line.quantity = item.quantity;
                 line.unitPrice = item.unitPrice;
-        line.modifierLabel = item.modifierLabel;
-        line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
-        line.modifierType = item.modifierType;
-        line.modifierValue = item.modifierValue;
                 line.vatRate = item.vatRate;
                 line.modifierLabel = item.modifierLabel;
                 line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;

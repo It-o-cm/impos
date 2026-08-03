@@ -17,15 +17,15 @@
   <title>Recherche Produit</title>
   <style>
     {#include theme /}
-    body { background-color: #000; color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
     .pos-terminal {
       width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid #444; border-radius: 10px;
+      border: 2px solid var(--border-strong); border-radius: 10px;
       display: grid; grid-template-rows: 52px 1fr auto;
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
     }
-    .top-bar { background-color: #000; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
     .top-bar .title { color: var(--primary); font-weight: bold; font-size: 1.2rem; text-transform: uppercase; }
     .close-btn { color: var(--danger); font-size: 1.8rem; text-decoration: none; font-weight: bold; }
 
@@ -33,7 +33,7 @@
     .results-empty { color: var(--text-muted); text-align: center; margin-top: 30px; font-size: 1.05rem; }
     .results-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-content: start; }
     .hit-btn {
-      background: #222; border: 2px solid #333; color: #ddd; border-radius: 8px;
+      background: var(--bg-row); border: 2px solid var(--border-color); color: #ddd; border-radius: 8px;
       cursor: pointer; text-align: center; text-transform: uppercase;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 4px; padding: 8px 6px; min-height: 62px; text-decoration: none;
@@ -42,11 +42,11 @@
     .hit-btn:active { background: #444; transform: scale(0.98); }
     .hit-price { color: var(--success); font-size: 0.9rem; }
 
-    .input-zone { background: #181818; border-top: 1px solid #333; padding: 10px 15px; display: flex; flex-direction: column; gap: 8px; }
+    .input-zone { background: var(--bg-inset); border-top: 1px solid var(--border-color); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px; }
     .input-row { display: flex; gap: 10px; }
     .search-display {
       flex: 1; font-size: 1.4rem; color: var(--primary); font-weight: bold;
-      background: #000; border: 2px solid var(--primary); border-radius: 4px;
+      background: var(--bg-page); border: 2px solid var(--primary); border-radius: 4px;
       padding: 8px 12px; text-transform: uppercase;
     }
     .btn-search { width: 220px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; background-color: var(--primary); }
@@ -55,7 +55,7 @@
     /* Compact keys so both pads fit the 600px terminal with room for results */
   </style>
 </head>
-<body>
+<body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
       <span class="title">Recherche produit — nom, EAN ou code article</span>

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(javap -p -classpath target/classes com.intermarche.pos.domain.ticket.TicketCounter)",
+      "Bash(mvn -q -Dtest=TicketNumberServiceTest test)",
+      "Bash(mvn -Dtest=TicketNumberServiceTest test)",
+      "Bash(mvn -q -Dtest=TicketNumberServiceTest -DfailIfNoTests=false verify)",
+      "Bash(mvn -Dtest=TicketNumberServiceTest -DfailIfNoTests=false verify)",
+      "Bash(python3 -)",
+      "Bash(python3 *)",
+      "Bash(java -cp /private/tmp/claude-501/-Users-henridarmet-Documents-Workspaces-impos/06345de4-6b92-44a9-8ca0-4cb7e0fc66b6/scratchpad RunOne)",
+      "Bash(git diff *)",
+      "Read(//tmp/**)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(chmod +x run-tests-campaign.sh)"
+    ]
+  }
+}
