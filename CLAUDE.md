@@ -134,3 +134,27 @@
   QuarkusTransaction.requiringNew().call(...).
 - Screen names in the catalog are logical names, not displayed texts:
   assert the texts the catalog quotes verbatim, never the screen titles.
+- Lessons from group A (apply to every group):
+  - page.close() at the end of EVERY test. The one-shot badge mailbox
+    is shared server state: a lingering /lock page keeps polling
+    /lock-data and STEALS the next scenario's badge. Close every page
+    opened (both pages when a scenario opens two).
+  - Client-invisible states are asserted server-side via @Inject
+    PosState. Some handlers set a message WITHOUT touch() (e.g. the
+    unknown-code fallback), so it never reaches the poll: assert the
+    outcome on the injected state (operatorId, ticket.items,
+    transientError), not on the rendered screen.
+  - Session-already-open journeys cross /drawer-error: the unlock pulse
+    opens the drawer, the redirect hits the guarded screen, and only the
+    physical drawer close (POST /api/hardware/drawer/close) carries the
+    drawer-status poll back onto the guarded screen. Reaching it (not the
+    session heading) is itself the proof of direct-to-sale routing.
+  - Expiry waits are AGED in the database via QuarkusTransaction, never
+    slept (a five-minute lockout cannot be waited): push lockedUntil (or
+    any timestamp) into the past. This DB aging is the ONLY scaffolding
+    allowed outside the HTTP surface.
+  - Isolation: @TestMethodOrder(MethodOrderer.MethodName.class), ONE
+    session per class opened by the first scenario on the fresh
+    drop-and-create DB, and each scenario RESTORES whatever it alters
+    (e.g. restore the seed PIN after a change, end unlocked after a
+    lockout).
