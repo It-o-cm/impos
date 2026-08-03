@@ -13,7 +13,24 @@
       "Read(//tmp/**)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(chmod +x run-tests-campaign.sh)"
+      "Bash(chmod +x run-tests-campaign.sh)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(chmod +x run-e2e-campaign.sh)",
+      "Read(//dev/**)",
+      "Bash(curl -s \"https://repo1.maven.org/maven2/io/quarkiverse/playwright/quarkus-playwright/maven-metadata.xml\")",
+      "Bash(curl -s \"https://repo1.maven.org/maven2/io/quarkiverse/playwright/quarkus-playwright-parent/2.3.8/quarkus-playwright-parent-2.3.8.pom\")",
+      "Bash(curl -s \"https://repo1.maven.org/maven2/io/quarkiverse/playwright/quarkus-playwright/2.3.8/quarkus-playwright-2.3.8.pom\")",
+      "Bash(curl -s -o qp.jar \"https://repo1.maven.org/maven2/io/quarkiverse/playwright/quarkus-playwright/2.3.8/quarkus-playwright-2.3.8.jar\")",
+      "Bash(unzip -l qp.jar)",
+      "Bash(unzip -o -q qp.jar -d qp_extracted)",
+      "Bash(javap -p qp_extracted/io/quarkiverse/playwright/WithPlaywright.class)",
+      "Bash(javap -p qp_extracted/io/quarkiverse/playwright/InjectPlaywright.class)",
+      "Bash(javap -c -p qp_extracted/io/quarkiverse/playwright/WithPlaywright.class)",
+      "Bash(javap -p 'qp_extracted/io/quarkiverse/playwright/WithPlaywright$Browser.class')",
+      "Bash(javap -p qp_extracted/io/quarkiverse/playwright/QuarkusPlaywrightManager.class)",
+      "Bash(curl -s \"https://repo1.maven.org/maven2/org/codehaus/mojo/build-helper-maven-plugin/maven-metadata.xml\")",
+      "Bash(sed -n '/Login is performed on the lock screen/,/quarkus.rest-client.hardware-api.url at/p' CLAUDE.md)",
+      "Bash(sed -n '/Because the drawer is now REAL/,/drawer-error/p' CLAUDE.md)"
     ]
   }
 }
