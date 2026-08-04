@@ -23,6 +23,10 @@ public class MockHardwareResource {
     private final AtomicReference<String> printerBuffer = new AtomicReference<>(""); // Contenu du ticket
     private final AtomicBoolean paperPresent = new AtomicBoolean(true); // Y a-t-il du papier ?
 
+    // --- Pannes matérielles injectables (capteur tiroir / afficheur) ---
+    private final AtomicBoolean drawerSensorAlive = new AtomicBoolean(true); // Le capteur tiroir répond-il ?
+    private final AtomicBoolean displayAlive = new AtomicBoolean(true); // L'afficheur client répond-il ?
+
     // --- POIDS (BALANCE) ---
 
     @POST
@@ -59,8 +63,26 @@ public class MockHardwareResource {
     @Path("/display")
     @Consumes(MediaType.TEXT_PLAIN)
     public Response setDisplay(String text) {
+        if (!displayAlive.get()) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity("DISPLAY_ERROR: OFFLINE")
+                    .build();
+        }
         currentDisplayText.set(text);
         return Response.ok().build();
+    }
+
+    /**
+     * Simule la coupure / le rétablissement de l'afficheur client (panne
+     * matérielle). Tant qu'il est coupé, {@code POST /display} répond 503 :
+     * côté caisse, {@code HardwareService.displayMessage} avale l'erreur en
+     * silence et la vente continue.
+     */
+    @POST
+    @Path("/display/toggle")
+    public Response toggleDisplay() {
+        displayAlive.set(!displayAlive.get());
+        return Response.ok("Display status: " + (displayAlive.get() ? "ALIVE" : "OFFLINE")).build();
     }
 
     @GET
@@ -90,7 +112,25 @@ public class MockHardwareResource {
     @Path("/drawer/status")
     @Produces(MediaType.TEXT_PLAIN)
     public Response getDrawerStatus() {
+        if (!drawerSensorAlive.get()) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity("DRAWER_SENSOR_ERROR: OFFLINE")
+                    .build();
+        }
         return Response.ok(isDrawerOpen.get() ? "OPEN" : "CLOSED").build();
+    }
+
+    /**
+     * Simule la mort / le rétablissement du capteur de tiroir (panne
+     * matérielle). Tant qu'il est mort, {@code GET /drawer/status} répond 503 :
+     * côté caisse, {@code HardwareService.isDrawerOpen} répond FALSE (sécurité),
+     * la garde tiroir est donc désactivée et n'enferme pas la caisse.
+     */
+    @POST
+    @Path("/drawer/toggle-sensor")
+    public Response toggleDrawerSensor() {
+        drawerSensorAlive.set(!drawerSensorAlive.get());
+        return Response.ok("Drawer sensor: " + (drawerSensorAlive.get() ? "ALIVE" : "OFFLINE")).build();
     }
 
     // --- IMPRIMANTE TICKET ---
