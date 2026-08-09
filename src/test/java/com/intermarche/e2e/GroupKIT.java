@@ -1,4 +1,4 @@
-package com.intermarche.pos.e2e;
+package com.intermarche.e2e;
 
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.service.TicketRecoveryService;

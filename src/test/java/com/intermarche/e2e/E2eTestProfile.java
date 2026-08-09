@@ -1,4 +1,4 @@
-package com.intermarche.pos.e2e;
+package com.intermarche.e2e;
 
 import io.quarkus.test.junit.QuarkusTestProfile;
 

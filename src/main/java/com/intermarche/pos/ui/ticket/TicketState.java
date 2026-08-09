@@ -58,6 +58,49 @@ public class TicketState implements Serializable {
     /** Last weight actually used for a weighed line, for duplicate-weighing detection. */
     public double lastRecordedWeight = Double.NaN;
 
+    /**
+     * Highest age threshold ALREADY VERIFIED on this ticket (0 = none): once
+     * the cashier checked an ID for 18, further 18-restricted scans of the
+     * same sale pass without a second prompt. Deliberately NOT persisted on
+     * the draft — after a crash recovery the check is asked again, the
+     * conservative side of the law.
+     */
+    public int ageVerifiedThreshold = 0;
+
+    /**
+     * Requested ticket-level discount kind: "AMOUNT" (euros) or "PERCENT",
+     * or null when no global discount is set (phase: global ticket
+     * discount). The request is the durable intent; the allocation is
+     * recomputed at every total recomputation.
+     */
+    public String globalDiscountType = null;
+
+    /** Requested ticket-level discount value (euros or percent). */
+    public BigDecimal globalDiscountValue = null;
+
+    /**
+     * The APPLIED global-discount amount of the last recomputation (what the
+     * screen, the printers and the draft show), or null when none.
+     */
+    public BigDecimal globalDiscountApplied = null;
+
+    /**
+     * Sets (or clears, with a null/zero value) the ticket-level discount
+     * request. Allocation happens at the next total recomputation.
+     *
+     * @param kind "AMOUNT" or "PERCENT"
+     * @param value the requested value, or null/zero to clear
+     */
+    public void setGlobalDiscount(String kind, BigDecimal value) {
+        if (value == null || value.signum() <= 0) {
+            globalDiscountType = null;
+            globalDiscountValue = null;
+        } else {
+            globalDiscountType = kind;
+            globalDiscountValue = value;
+        }
+    }
+
     /** Transient error message shown once on the ticket area. */
     public String transientError = null;
 
@@ -165,11 +208,75 @@ public class TicketState implements Serializable {
      * cent — the fiscal aggregation rule shared with the persistence layer.
      */
     public void recomputeTotal() {
+        allocateGlobalDiscount();
         BigDecimal total = BigDecimal.ZERO;
         for (TicketItem item : items) {
             total = total.add(item.getTotalPrice().setScale(2, RoundingMode.HALF_UP));
         }
         this.totalAmount = total;
+    }
+
+    /**
+     * Allocates the ticket-level discount onto the POSITIVE lines, prorata
+     * of their (valued) totals with the cent residue on the largest share —
+     * the reconciler's allocation doctrine reapplied: the fiscal stays 100%
+     * carried by the lines, no floating ticket-level amount ever exists.
+     * Runs at EVERY total recomputation, so the allocation always follows
+     * the current valued totals (the discount applies on what the customer
+     * actually pays, AFTER the engine's offers — the trade's director
+     * gesture). A percent request is converted to an amount on the current
+     * base; an amount request is clamped to the base.
+     */
+    private void allocateGlobalDiscount() {
+        for (TicketItem item : items) {
+            item.globalDiscountShare = null;
+        }
+        globalDiscountApplied = null;
+        if (globalDiscountType == null || items.isEmpty()) {
+            return;
+        }
+        BigDecimal base = BigDecimal.ZERO;
+        for (TicketItem item : items) {
+            if (item.moneyProduct) continue;
+            BigDecimal lineTotal = item.getTotalPrice();
+            if (lineTotal.signum() > 0) {
+                base = base.add(lineTotal);
+            }
+        }
+        if (base.signum() <= 0) {
+            return;
+        }
+        BigDecimal amount = "PERCENT".equals(globalDiscountType)
+                ? base.multiply(globalDiscountValue)
+                        .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP)
+                : globalDiscountValue.min(base).setScale(2, RoundingMode.HALF_UP);
+        if (amount.signum() <= 0) {
+            return;
+        }
+        BigDecimal allocated = BigDecimal.ZERO;
+        TicketItem largest = null;
+        BigDecimal largestTotal = BigDecimal.ZERO;
+        for (TicketItem item : items) {
+            if (item.moneyProduct) continue;
+            // Shares were reset above: getTotalPrice() is the pre-share
+            // (valued) line total here, the allocation base per line.
+            BigDecimal lineTotal = item.getTotalPrice().add(
+                    item.globalDiscountShare != null ? item.globalDiscountShare : BigDecimal.ZERO);
+            if (lineTotal.signum() <= 0) continue;
+            BigDecimal share = amount.multiply(lineTotal)
+                    .divide(base, 2, RoundingMode.HALF_UP);
+            item.globalDiscountShare = share;
+            allocated = allocated.add(share);
+            if (largest == null || lineTotal.compareTo(largestTotal) > 0) {
+                largest = item;
+                largestTotal = lineTotal;
+            }
+        }
+        BigDecimal residue = amount.subtract(allocated);
+        if (residue.signum() != 0 && largest != null) {
+            largest.globalDiscountShare = largest.globalDiscountShare.add(residue);
+        }
+        globalDiscountApplied = amount;
     }
 
     /**
@@ -181,6 +288,10 @@ public class TicketState implements Serializable {
         totalAmount = BigDecimal.ZERO;
         currentWeight = 0.0;
         lastRecordedWeight = Double.NaN;
+        ageVerifiedThreshold = 0;
+        globalDiscountType = null;
+        globalDiscountValue = null;
+        globalDiscountApplied = null;
         transientError = null;
         onChange();
     }
@@ -334,8 +445,29 @@ public class TicketState implements Serializable {
          *
          * @return the effective line total, tax included
          */
+        /**
+         * This line's allocated share of the ticket-level discount, or null
+         * (phase: global ticket discount). Recomputed at every total
+         * recomputation, never persisted per line — the synced line totals
+         * already include it.
+         */
+        public BigDecimal globalDiscountShare = null;
+
+        /**
+         * True when this line sells a MONEY PRODUCT (a gift card): excluded
+         * from the global-discount allocation, from the price gestures, from
+         * the engine valuation and from returns — one does not discount,
+         * promote or refund money (phase: credit notes & gift cards).
+         * Re-derived from the product at draft recovery.
+         */
+        public boolean moneyProduct = false;
+
         public BigDecimal getTotalPrice() {
-            return valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
+            BigDecimal __t = valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
+            if (globalDiscountShare != null) {
+                __t = __t.subtract(globalDiscountShare);
+            }
+            return __t;
         }
 
         /**

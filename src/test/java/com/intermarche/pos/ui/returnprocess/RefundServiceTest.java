@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.returnprocess;
 
 import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.StoredValue;
 import com.intermarche.pos.domain.SyncOutbox;
 import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.domain.ticket.RefundLine;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
@@ -637,17 +639,19 @@ class RefundServiceTest {
         verify(s.syncOutboxService).enqueue(SyncOutbox.EntityType.REFUND, 55L);
         verify(s.hardwareService).openDrawer();
         verify(s.ticketPrinterService).printRefund(55L);
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), eq(true));
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
         assertNull(state.refund.selectedTicket);
     }
 
     /**
-     * {@code performRefund} for a voucher refund whose amount fits the encodable
-     * limit prints a scannable store voucher (VOUCHER switch arm, encodable true
-     * arm).
+     * {@code performRefund} for a voucher refund issues a CREDIT_NOTE in the
+     * stored-value registry (ACTIVE, balance = refund total, linked to the
+     * refund) and prints the voucher with the registry number derived from
+     * the instrument's row id (VOUCHER switch arm — registry doctrine: the
+     * number is a pure identifier).
      */
     @Test
-    void performRefundVoucherEncodable() {
+    void performRefundVoucherIssuesRegistryNote() {
         RefundService s = newService();
         PosState state = new PosState();
         Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
@@ -660,25 +664,35 @@ class RefundServiceTest {
              MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
                  mock.lines = new ArrayList<>();
                  mock.id = 55L;
-             })) {
+             });
+             MockedConstruction<StoredValue> mcNote = mockConstruction(StoredValue.class,
+                     (mock, ctx) -> mock.id = 77L)) {
             panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
             panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
             s.performRefund(state, Refund.RefundMethod.VOUCHER);
             Refund refund = mc.constructed().get(0);
-            verify(s.ticketPrinterService).printRefundVoucher(refund, true);
+            StoredValue note = mcNote.constructed().get(0);
+            assertEquals(StoredValue.Kind.CREDIT_NOTE, note.kind);
+            assertEquals(new BigDecimal("20.00"), note.initialAmount);
+            assertEquals(new BigDecimal("20.00"), note.balance);
+            assertEquals(Long.valueOf(55L), note.issuingRefundId);
+            assertNotNull(note.issuedAt);
+            verify(note).persist();
+            // Number = prefix + the instrument's own row id, zero-padded.
+            verify(s.ticketPrinterService).printRefundVoucher(refund, "297000000000077");
         }
         verify(s.hardwareService, never()).openDrawer();
         verify(s.ticketPrinterService).printRefund(55L);
     }
 
     /**
-     * {@code performRefund} for a voucher refund driven by a manual amount above
-     * the encodable limit prints a non-scannable voucher (encodable false arm)
-     * and skips the VAT restitution (HT/VAT branch: lines present but a manual
-     * amount is set).
+     * {@code performRefund} for a voucher refund driven by a manual amount
+     * skips the VAT restitution (HT/VAT branch: lines present but a manual
+     * amount is set) and still issues the registry note — the historical
+     * 99,99 € encoded cap is gone, any amount gets a scannable number.
      */
     @Test
-    void performRefundVoucherNotEncodableWithManualAmount() {
+    void performRefundVoucherManualAmountSkipsVat() {
         RefundService s = newService();
         PosState state = new PosState();
         Ticket original = ticket(10L, "T-1", "500.00", line(1L, "3", "10.00", "0.20", "MILK"));
@@ -692,7 +706,9 @@ class RefundServiceTest {
              MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
                  mock.lines = new ArrayList<>();
                  mock.id = 55L;
-             })) {
+             });
+             MockedConstruction<StoredValue> mcNote = mockConstruction(StoredValue.class,
+                     (mock, ctx) -> mock.id = 78L)) {
             panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
             panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
             s.performRefund(state, Refund.RefundMethod.VOUCHER);
@@ -700,7 +716,9 @@ class RefundServiceTest {
             assertEquals(new BigDecimal("150.00"), refund.totalAmount);
             assertNull(refund.totalExcludingTax);
             assertNull(refund.totalVat);
-            verify(s.ticketPrinterService).printRefundVoucher(refund, false);
+            StoredValue note = mcNote.constructed().get(0);
+            assertEquals(new BigDecimal("150.00"), note.balance);
+            verify(s.ticketPrinterService).printRefundVoucher(refund, "297000000000078");
         }
         verify(s.ticketPrinterService).printRefund(55L);
     }
@@ -729,7 +747,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.LOYALTY);
         }
         verify(s.hardwareService, never()).openDrawer();
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), any(Boolean.class));
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
         verify(s.ticketPrinterService).printRefund(55L);
     }
 
@@ -757,7 +775,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CARD);
         }
         verify(s.hardwareService, never()).openDrawer();
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), any(Boolean.class));
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
         verify(s.ticketPrinterService).printRefund(55L);
     }
 

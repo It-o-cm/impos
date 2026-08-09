@@ -39,8 +39,11 @@ public class PaymentResource {
     @Inject Template main;
     @Inject PaymentService paymentService;
     @Inject VoucherService voucherService;
-    @Inject TicketPrinterService ticketPrinterService;
+    @Inject
+    TicketPrinterService ticketPrinterService;
     @Inject PosState state;
+    /** Loyalty lease renewal on payment-screen refresh (imfid lot 2). */
+    @Inject com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
 
     /**
      * Shows the payment page, creating the draft ticket on first entry.
@@ -52,6 +55,8 @@ public class PaymentResource {
     @DrawerMayBeOpen
     public TemplateInstance showPaymentPage() {
         paymentService.initPayment(state);
+        // Opportunistic half-life renewal of the fidelity lease (spec §5.1).
+        fidelityService.maybeRenewLease(state);
         state.payment.inputMode = null;
         state.payment.temporaryInput = "0,00";
         return pay.data("state", state)

@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.service.TicketPrinterService;
+import com.intermarche.pos.service.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.scanner.ScanContext;
@@ -57,7 +58,7 @@ public class TicketService {
     TicketPersistenceService ticketPersistenceService;
 
     @Inject
-    com.intermarche.pos.service.valuation.ValuationService valuationService;
+    ValuationService valuationService;
 
     /**
      * The single post-mutation funnel (phase 7 lot 4): persists the draft,
@@ -84,6 +85,113 @@ public class TicketService {
 
     @Inject
     TicketPrinterService ticketPrinterService;
+
+    @Inject
+    com.intermarche.pos.service.TechnicalEventService technicalEventService;
+
+    /**
+     * Applies (or clears, value 0) the ticket-level discount after its
+     * manager endorsement (phase: global ticket discount). The base is what
+     * the customer actually pays — AFTER the engine's offers — and the
+     * amount is ventilated onto the lines at every recomputation (see
+     * TicketState.allocateGlobalDiscount). Refused during an active payment.
+     *
+     * @param state the current POS state
+     * @param type GLOBAL_REMISE (euros) or GLOBAL_DISCOUNT (percent)
+     * @param value the endorsed value
+     */
+    public void applyGlobalDiscount(PosState state, String type, BigDecimal value) {
+        if (state.payment.paymentInProgress) {
+            state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+            return;
+        }
+        if (value == null || value.signum() < 0
+                || ("GLOBAL_DISCOUNT".equals(type) && value.compareTo(new BigDecimal("100")) > 0)) {
+            state.ticket.setError("VALEUR INVALIDE");
+            return;
+        }
+        state.ticket.setGlobalDiscount(
+                "GLOBAL_DISCOUNT".equals(type) ? "PERCENT" : "AMOUNT", value);
+        recalculateTotal(state);
+    }
+
+    /**
+     * Suspends the sale on an age-restricted product: the add is PARKED and
+     * the server-rendered prompt asks the cashier to check the customer's ID
+     * (phase: age control). Returns false — no prompt — when the product is
+     * unrestricted or the ticket already carries a verification at this
+     * threshold or above (one ID check covers the whole sale).
+     *
+     * @param state the current POS state
+     * @param product the resolved product
+     * @param kind the replay kind (SCAN, PLU or EAN_QTY)
+     * @param code the parked code to replay on confirmation
+     * @param quantity the parked quantity (EAN_QTY kind), or null
+     * @return true when the add was suspended behind the prompt
+     */
+    public boolean suspendForAgeCheck(PosState state, Product product, String kind,
+                                      String code, BigDecimal quantity) {
+        if (product.ageRestriction == null
+                || product.ageRestriction <= state.ticket.ageVerifiedThreshold) {
+            return false;
+        }
+        state.ageCheck.active = true;
+        state.ageCheck.productLabel = product.name.toUpperCase();
+        state.ageCheck.threshold = product.ageRestriction;
+        state.ageCheck.kind = kind;
+        state.ageCheck.code = code;
+        state.ageCheck.quantity = quantity;
+        hardwareService.displayMessage("CONTROLE D'AGE EN COURS");
+        state.touch();
+        return true;
+    }
+
+    /**
+     * Confirms the ID check: the verification is remembered for the whole
+     * ticket (highest threshold wins), the decision is journalized, and the
+     * parked add REPLAYS through its original path — the sale resumes as if
+     * the product had just been presented.
+     *
+     * @param state the current POS state
+     */
+    public void confirmAgeCheck(PosState state) {
+        PosState.AgeCheckState pending = state.ageCheck;
+        if (!pending.active) return;
+        state.ticket.ageVerifiedThreshold =
+                Math.max(state.ticket.ageVerifiedThreshold, pending.threshold);
+        technicalEventService.log(
+                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.AGE_CHECK_CONFIRMED,
+                pending.productLabel + " (" + pending.threshold + "+) - ID vérifiée par "
+                        + state.auth.operatorName);
+        String kind = pending.kind;
+        String code = pending.code;
+        BigDecimal quantity = pending.quantity;
+        pending.clear();
+        switch (kind) {
+            case "PLU" -> addItemByPlu(state, code);
+            case "EAN_QTY" -> addItemByEan(state, code, quantity);
+            default -> processScan(code);
+        }
+    }
+
+    /**
+     * Refuses the sale of the restricted product: nothing is added, the
+     * refusal is journalized (the legal trace), and the cashier gets the
+     * transient refusal message.
+     *
+     * @param state the current POS state
+     */
+    public void refuseAgeCheck(PosState state) {
+        PosState.AgeCheckState pending = state.ageCheck;
+        if (!pending.active) return;
+        technicalEventService.log(
+                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.AGE_CHECK_REFUSED,
+                pending.productLabel + " (" + pending.threshold + "+) - vente refusée par "
+                        + state.auth.operatorName);
+        pending.clear();
+        state.ticket.setError("VENTE REFUSÉE - CONTRÔLE D'ÂGE");
+        state.touch();
+    }
 
     /**
      * Processes a scanned code by running it through the ordered scan handler chain.
@@ -198,6 +306,7 @@ public class TicketService {
      */
     public void applyRemise(TicketState.TicketItem item, BigDecimal amount) {
         if (item == null || amount == null || amount.signum() <= 0) return;
+        if (item.moneyProduct) return; // money products are never discounted
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
@@ -222,6 +331,7 @@ public class TicketService {
      * @param percent the discount percentage (0 exclusive to 100 inclusive)
      */
     public void applyDiscount(TicketState.TicketItem item, BigDecimal percent) {
+        if (item != null && item.moneyProduct) return; // money products are never discounted
         if (item == null || percent == null || percent.signum() <= 0
                 || percent.compareTo(BigDecimal.valueOf(100)) > 0) return;
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
@@ -243,6 +353,7 @@ public class TicketService {
      * @param newTotalPrice the new line total (zero or positive)
      */
     public void forcePrice(TicketState.TicketItem item, BigDecimal newTotalPrice) {
+        if (item != null && item.moneyProduct) return; // money products are never discounted
         if (item == null || newTotalPrice == null || newTotalPrice.signum() < 0) return;
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
@@ -292,11 +403,17 @@ public class TicketService {
                 state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
                 return;
             }
+            if (suspendForAgeCheck(state, p, "EAN_QTY", ean, quantity)) {
+                return;
+            }
             Price price = Price.findCurrentPrice(p.id);
             BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
             BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
             // PLU is null: unit sale
             state.ticket.addItem(ean, null, p.name.toUpperCase(), finalPrice, quantity, vatRate);
+            if (p.giftCardAmount != null) {
+                state.ticket.items.get(state.ticket.items.size() - 1).moneyProduct = true;
+            }
             displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
             syncAndRevalue(state);
         } else {
@@ -318,6 +435,11 @@ public class TicketService {
         if (p != null) {
             if (p.forbiddenToSale) {
                 state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+                return;
+            }
+            // Age gate BEFORE weighing: the scale read is consumed on the
+            // replay only, so a confirmed check weighs exactly once.
+            if (suspendForAgeCheck(state, p, "PLU", pluCode, null)) {
                 return;
             }
             double weight = hardwareService.requestWeighing();

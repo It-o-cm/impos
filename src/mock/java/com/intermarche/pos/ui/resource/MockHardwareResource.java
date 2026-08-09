@@ -12,6 +12,40 @@ import java.util.concurrent.atomic.AtomicReference;
 @ApplicationScoped
 public class MockHardwareResource {
 
+    /**
+     * The register state — needed to relay the virtual terminal's decisions.
+     * <p>
+     * WHY THESE TWO ENDPOINTS LIVE HERE: JAX-RS selects the resource CLASS by
+     * the most specific literal path first. This simulator is
+     * {@code @Path("/api/hardware")} while PosHardwareResource is
+     * {@code @Path("/")} with absolute method paths, so as soon as the
+     * simulator is on the classpath (test scope) EVERY /api/hardware/** URI
+     * resolves against this class — and /api/hardware/tpe/accept|refuse,
+     * having no match here, answered 404. The TPE control surface was
+     * therefore unreachable under test. These two pass-throughs restore it.
+     * <p>
+     * The beans are resolved AT CALL TIME through Arc: field injection came
+     * back null here (this simulator lives in a separate source root and is
+     * not treated as a managed bean for injection), and a null field is a
+     * 500 instead of a relay.
+     *
+     * @return the managed PosState instance
+     */
+    private com.intermarche.pos.ui.PosState posState() {
+        return io.quarkus.arc.Arc.container()
+                .instance(com.intermarche.pos.ui.PosState.class).get();
+    }
+
+    /**
+     * Resolves the payment service at call time (same reason as posState()).
+     *
+     * @return the managed PaymentService instance
+     */
+    private com.intermarche.pos.ui.payment.PaymentService paymentService() {
+        return io.quarkus.arc.Arc.container()
+                .instance(com.intermarche.pos.ui.payment.PaymentService.class).get();
+    }
+
     private final Random random = new Random();
 
     // --- États du Matériel Simulé ---
@@ -202,6 +236,40 @@ public class MockHardwareResource {
     @Path("/printer/clear")
     public Response clearPrinter() {
         printerBuffer.set("");
+        return Response.ok().build();
+    }
+
+    // --- TPE VIRTUEL (relais : voir la note d'ombrage JAX-RS ci-dessus) ---
+
+    /**
+     * Relays the terminal's ACCEPT decision to the register.
+     *
+     * @return 200, or 409 when no card request is pending
+     */
+    @POST
+    @Path("/tpe/accept")
+    public Response tpeAccept() {
+        com.intermarche.pos.ui.PosState state = posState();
+        if (state.payment.pendingCardAmount == null) {
+            return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
+        }
+        paymentService().confirmPendingCard(state);
+        return Response.ok().build();
+    }
+
+    /**
+     * Relays the terminal's REFUSE decision to the register.
+     *
+     * @return 200, or 409 when no card request is pending
+     */
+    @POST
+    @Path("/tpe/refuse")
+    public Response tpeRefuse() {
+        com.intermarche.pos.ui.PosState state = posState();
+        if (state.payment.pendingCardAmount == null) {
+            return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
+        }
+        paymentService().refusePendingCard(state);
         return Response.ok().build();
     }
 }

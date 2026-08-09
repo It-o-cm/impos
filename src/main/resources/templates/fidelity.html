@@ -72,6 +72,37 @@
                     <a href="/" class="btn btn-muted" style="width:180px;">PASSER</a>
                 </div>
             </form>
+
+            <!-- In-store consultation (imfid spec §4): balance and history of
+                 the attached card; degraded imfid = a message, never an error. -->
+            <div style="margin-top: 18px; border-top: 1px solid var(--border-strong); padding-top: 12px;">
+                {#if consultation.message}
+                <div style="text-align:center; color: var(--text-muted); font-weight: bold;">{consultation.message}</div>
+                {/if}
+                {#if consultation.hasAccount}
+                <div style="display:flex; gap:18px; justify-content:center; font-size:1.05rem; margin-bottom:10px;">
+                    <div>STATUT&nbsp;: <b>{consultation.status}</b></div>
+                    <div>SOLDE&nbsp;: <b>{consultation.balance} €</b></div>
+                    <div>DISPONIBLE&nbsp;: <b style="color: var(--accent);">{consultation.available} €</b></div>
+                </div>
+                {#if consultation.rows}
+                <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                    <tr style="color: var(--text-muted); text-align:left;">
+                        <th style="padding:4px 6px;">DATE</th>
+                        <th style="padding:4px 6px;">OPÉRATION</th>
+                        <th style="padding:4px 6px; text-align:right;">MONTANT</th>
+                    </tr>
+                    {#for row in consultation.rows}
+                    <tr style="border-top:1px solid var(--border-color);">
+                        <td style="padding:4px 6px;">{row.0}</td>
+                        <td style="padding:4px 6px;">{row.1}</td>
+                        <td style="padding:4px 6px; text-align:right;">{row.2}</td>
+                    </tr>
+                    {/for}
+                </table>
+                {/if}
+                {/if}
+            </div>
         </div>
     </div>
 </div>

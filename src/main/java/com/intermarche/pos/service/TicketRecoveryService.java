@@ -145,10 +145,23 @@ public class TicketRecoveryService {
                     item.originalUnitPrice = line.originalUnitPrice;
                 }
             }
+            if (line.ean != null) {
+                com.intermarche.pos.domain.Product product =
+                        com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();
+                if (product != null && product.giftCardAmount != null) {
+                    item.moneyProduct = true;
+                }
+            }
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();
 
+        if (draft.globalDiscountType != null) {
+            // The REQUEST is restored; the allocation reruns at the next
+            // total recomputation (phase: global ticket discount).
+            state.ticket.globalDiscountType = draft.globalDiscountType;
+            state.ticket.globalDiscountValue = draft.globalDiscountValue;
+        }
         if (draft.fidelityCard != null) {
             state.fidelity.assignCard(draft.fidelityCard);
         }

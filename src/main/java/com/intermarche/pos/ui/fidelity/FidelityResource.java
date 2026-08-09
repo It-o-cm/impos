@@ -45,7 +45,10 @@ public class FidelityResource {
     @Path("/fidelity") // Chemin complet
     public TemplateInstance fidelityPage() {
         if (state.isLocked()) return lock.data("state", state);
-        return fidelity.data("state", state);
+        // In-store consultation (imfid spec §4): balance and history of the
+        // attached card, assembled server-side; degraded = a message.
+        return fidelity.data("state", state)
+                .data("consultation", fidelityService.loadConsultation(state));
     }
 
     // --- Action ---

@@ -43,6 +43,10 @@ public class TechnicalEvent extends PanacheEntity {
         PAYMENTS_CLEARED,
         /** An in-progress draft was recovered at register startup. */
         DRAFT_RECOVERED,
+        /** The cashier confirmed a customer ID check for a restricted product. */
+        AGE_CHECK_CONFIRMED,
+        /** The cashier refused the sale of an age-restricted product. */
+        AGE_CHECK_REFUSED,
         /** A cash session was opened with its initial float. */
         SESSION_OPENED,
         /** A cash session was closed by a Z report (count, variance, withdrawal). */

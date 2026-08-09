@@ -25,6 +25,10 @@ import java.math.BigDecimal;
 @Priority(2)
 public class EanScanHandler implements ScanContext.ScanHandler {
 
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.ticket.TicketService ticketService;
+
+
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
     @ConfigProperty(name = "pos.vat.default-rate", defaultValue = "0.20")
     BigDecimal defaultVatRate;
@@ -50,11 +54,22 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                     return;
                 }
 
+                // Age gate: a restricted product parks the scan behind the
+                // ID-check prompt; the confirmation replays this very code
+                // through the chain (phase: age control).
+                if (ticketService.suspendForAgeCheck(ctx.state, p, "SCAN", ctx.code, null)) {
+                    ctx.handled = true;
+                    return;
+                }
+
                 Price price = Price.findCurrentPrice(p.id);
                 BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
                 BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
 
                 ctx.state.ticket.addItem(ctx.code, null, p.name.toUpperCase(), finalPrice, BigDecimal.ONE, vatRate);
+                if (p.giftCardAmount != null) {
+                    ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).moneyProduct = true;
+                }
 
                 ctx.handled = true;
             }

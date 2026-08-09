@@ -176,6 +176,28 @@ public class DataInitializer {
         createPrice(p32, "15.00", "18.00", "0.2000", 0);
         createPrice(p33, "25.00", "30.00", "0.2000", 0);
 
+        // --- Gift cards (register-local money products: VAT 0, non-engine
+        //     EANs; selling one issues a registry instrument at the fiscal
+        //     moment — phase: credit notes & gift cards) ---
+        Product gift25 = createProduct(epicerie, "Carte Cadeau 25", "Carte cadeau Intermarché",
+                "Intermarché", null, "3400025000001", "🎁", "0.010", "0.010",
+                ProductType.UNIT, "u");
+        gift25.giftCardAmount = new java.math.BigDecimal("25.00");
+        createPrice(gift25, "25.00", "25.00", "0.0000", 0);
+        Product gift50 = createProduct(epicerie, "Carte Cadeau 50", "Carte cadeau Intermarché",
+                "Intermarché", null, "3400050000001", "🎁", "0.010", "0.010",
+                ProductType.UNIT, "u");
+        gift50.giftCardAmount = new java.math.BigDecimal("50.00");
+        createPrice(gift50, "50.00", "50.00", "0.0000", 0);
+
+        // --- Age-restricted local product (18+, non-engine EAN — the engine's
+        //     unknown-EAN contract absorbs it if ever sent) ---
+        Product wine = createProduct(epicerie, "Vin Rouge Bordeaux 75cl", "AOC Bordeaux",
+                "Château Test", null, "3400018000001", "🍷", "0.750", "1.200",
+                ProductType.UNIT, "L");
+        wine.ageRestriction = 18;
+        createPrice(wine, "5.42", "6.50", "0.2000", 0);
+
         // --- Register-only forbidden test products (non-engine EANs on purpose) ---
         createForbiddenProduct(racines, "Champignon sauvage non contrôlé", "4099", "3400409900001", "🍄", "3.79", "4.00");
         createForbiddenProduct(epicerie, "Lot rappelé (retrait conso)", null, "3660000099999", "⛔", "4.74", "5.00");
@@ -201,6 +223,12 @@ public class DataInitializer {
         // amountPattern : 1er groupe capturant = montant en centimes (si ENCODED).
 
         // Chèque cadeau : 10 chiffres, 4 derniers = montant en centimes.
+        // Registry-backed instruments: the number is a pure identifier, the
+        // registry holds the balance (phase: credit notes & gift cards).
+        createCouponType("AVOIR", "Avoir", "^297\\d{12}$",
+                CouponType.AmountSource.REGISTRY, null, 5);
+        createCouponType("GIFT_CARD", "Carte cadeau", "^296\\d{12}$",
+                CouponType.AmountSource.REGISTRY, null, 5);
         createCouponType("GIFT_VOUCHER", "Chèque cadeau", "^\\d{10}$",
                 CouponType.AmountSource.ENCODED, "\\d{6}(\\d{4})$", 10);
 

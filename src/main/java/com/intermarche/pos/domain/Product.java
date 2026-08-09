@@ -137,6 +137,25 @@ public class Product extends BaseEntity {
     @Column(name = "forbidden_to_sale", nullable = false)
     public boolean forbiddenToSale = false;
 
+    /**
+     * Minimum customer age required to sell this product (e.g. 18 for
+     * alcohol), or null when the product is unrestricted. A restricted scan
+     * suspends the sale until the cashier confirms the ID check or refuses
+     * the sale — both journalized (phase: age control).
+     */
+    @jakarta.persistence.Column(name = "age_restriction")
+    public Integer ageRestriction;
+
+    /**
+     * When set, this product IS a gift card of that denomination: selling it
+     * issues, at the fiscal moment of the sale, an ACTIVE registry
+     * instrument of this amount (phase: credit notes & gift cards). Gift
+     * cards sell at VAT 0 — multi-purpose vouchers are out of VAT scope at
+     * issuance under French rules.
+     */
+    @jakarta.persistence.Column(name = "gift_card_amount", precision = 10, scale = 2)
+    public java.math.BigDecimal giftCardAmount;
+
     // --------------------------------------------------
     // Panache Active Record Queries
     // --------------------------------------------------

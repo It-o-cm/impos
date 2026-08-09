@@ -181,6 +181,14 @@ public class CouponType extends PanacheEntity {
         ENCODED,
 
         /**
+         * The amount comes from the STORED-VALUE REGISTRY: the number is a
+         * pure identifier, the registry holds the live balance and the
+         * redemption applies min(balance, remaining due) — credit notes and
+         * gift cards (phase: credit notes & gift cards).
+         */
+        REGISTRY,
+
+        /**
          * The amount cannot be derived from the number and must be entered by the cashier
          * (for example, Catalina coupons).
          */

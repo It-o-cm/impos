@@ -138,6 +138,10 @@ public class HomeResource {
         result.put("total", state.ticket.getTotalFormatted());
         result.put("amount", state.ticket.getTotalAmount());
         result.put("fidelityActive", state.fidelity.active);
+        result.put("fidelityEarn", state.fidelity.earnTotal != null
+                && state.fidelity.earnTotal.signum() > 0
+                ? String.format("AVANTAGE CARTE %.2f €", state.fidelity.earnTotal).replace('.', ',')
+                : null);
         return result;
     }
 
@@ -284,6 +288,36 @@ public class HomeResource {
      *
      * @return the home page
      */
+    /**
+     * Confirms the pending age check (ID verified): the parked add replays
+     * and the sale resumes (phase: age control).
+     *
+     * @return a redirect to the sale screen
+     */
+    @GET
+    @Path("/action/age-check/confirm")
+    public Response ageCheckConfirm() {
+        if (!state.isLocked()) {
+            ticketService.confirmAgeCheck(state);
+        }
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Refuses the sale of the age-restricted product: nothing is added and
+     * the refusal is journalized (phase: age control).
+     *
+     * @return a redirect to the sale screen
+     */
+    @GET
+    @Path("/action/age-check/refuse")
+    public Response ageCheckRefuse() {
+        if (!state.isLocked()) {
+            ticketService.refuseAgeCheck(state);
+        }
+        return Response.seeOther(URI.create("/")).build();
+    }
+
     @GET
     @Path("/action/price-mod/cancel")
     public TemplateInstance cancelPriceMod() {

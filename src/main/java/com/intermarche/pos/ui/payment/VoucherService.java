@@ -97,6 +97,42 @@ public class VoucherService {
      * @param number the voucher number, or null when there is none
      * @param amount the requested voucher amount
      */
+    /**
+     * Redeems a registry-backed instrument (credit note or gift card): the
+     * live balance is read from the registry, {@code min(balance, remaining
+     * due)} is registered as the payment, and the balance is only DEBITED at
+     * the fiscal moment of this sale (validateTicket) — a cancelled payment
+     * never burns stored value. Refusals: unknown number, exhausted balance,
+     * number already scanned on this sale (phase: credit notes & gift cards).
+     *
+     * @param state the current POS state
+     * @param type the matched registry coupon type
+     * @param number the scanned registry number
+     */
+    public void applyRegistryVoucher(PosState state, CouponType type, String number) {
+        com.intermarche.pos.domain.StoredValue instrument =
+                com.intermarche.pos.domain.StoredValue.findByNumber(number);
+        if (instrument == null) {
+            state.ticket.setError("BON INCONNU AU REGISTRE");
+            state.touch();
+            return;
+        }
+        if (instrument.status == com.intermarche.pos.domain.StoredValue.Status.EXHAUSTED
+                || instrument.balance.signum() <= 0) {
+            state.ticket.setError("BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ");
+            state.touch();
+            return;
+        }
+        boolean alreadyScanned = state.payment.payments.stream()
+                .anyMatch(p -> number.equals(p.voucherNumber));
+        if (alreadyScanned) {
+            state.ticket.setError("BON DÉJÀ SCANNÉ SUR CETTE VENTE");
+            state.touch();
+            return;
+        }
+        registerPayment(state, type, number, instrument.balance);
+    }
+
     private void registerPayment(PosState state, CouponType type, String number, BigDecimal amount) {
         BigDecimal remaining = state.getRemaining();
         BigDecimal amountToPay = amount.min(remaining).setScale(2, RoundingMode.HALF_UP);

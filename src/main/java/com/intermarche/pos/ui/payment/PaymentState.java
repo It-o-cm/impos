@@ -176,6 +176,15 @@ public class PaymentState implements Serializable {
     /**
      * Clears the registered payments and resets the history pagination.
      */
+    /** The active fidelity lease id (imfid burn reservation), or null. */
+    public Long fidReservationId = null;
+
+    /** The lease expiry instant, for the half-life renewal. */
+    public java.time.LocalDateTime fidLeaseExpiresAt = null;
+
+    /** The lease duration in seconds, captured at grant (renewal timing). */
+    public long fidLeaseSeconds = 0L;
+
     public void clearPayments() {
         payments.clear();
         paidAmount = BigDecimal.ZERO;
@@ -188,6 +197,9 @@ public class PaymentState implements Serializable {
      */
     public void reset() {
         clearPayments();
+        fidReservationId = null;
+        fidLeaseExpiresAt = null;
+        fidLeaseSeconds = 0L;
         transactionComplete = false;
         ticketDbId = null;
         paymentInProgress = false;

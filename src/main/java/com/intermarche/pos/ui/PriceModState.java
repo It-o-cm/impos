@@ -56,6 +56,8 @@ public class PriceModState implements Serializable {
         if ("DISCOUNT".equals(type)) return "SAISIE DISCOUNT (%)";
         if ("FORCE_PRICE".equals(type)) return "NOUVEAU PRIX (€)";
         if ("QUANTITY".equals(type)) return "QUANTITÉ ARTICLE";
+        if ("GLOBAL_REMISE".equals(type)) return "REMISE TICKET (€)";
+        if ("GLOBAL_DISCOUNT".equals(type)) return "REMISE TICKET (%)";
         return "MODIFICATION";
     }
 }

@@ -87,18 +87,26 @@ public class EndorsementResource {
                 String uid = state.endorsement.pendingTargetUid;
                 BigDecimal val = state.endorsement.pendingValue;
 
-                TicketState.TicketItem item = state.ticket.items.stream()
-                        .filter(i -> i.uid.equals(uid))
-                        .findFirst()
-                        .orElse(null);
+                if (type != null && type.startsWith("GLOBAL_")) {
+                    // Ticket-level gesture: no target line — the global
+                    // discount applies to the whole sale (phase: global
+                    // ticket discount) and recomputes internally; the flow
+                    // then falls through to the common endorsement tail.
+                    ticketService.applyGlobalDiscount(state, type, val);
+                } else {
+                    TicketState.TicketItem item = state.ticket.items.stream()
+                            .filter(i -> i.uid.equals(uid))
+                            .findFirst()
+                            .orElse(null);
 
-                if (item != null) {
-                    // Type dispatch
-                    if ("REMISE".equals(type)) ticketService.applyRemise(item, val);
-                    else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, val);
-                    else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, val);
+                    if (item != null) {
+                        // Type dispatch
+                        if ("REMISE".equals(type)) ticketService.applyRemise(item, val);
+                        else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, val);
+                        else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, val);
 
-                    ticketService.recalculateTotal(state);
+                        ticketService.recalculateTotal(state);
+                    }
                 }
             }
             else if (actionToExecute.equals("TRAINING_TOGGLE")) {

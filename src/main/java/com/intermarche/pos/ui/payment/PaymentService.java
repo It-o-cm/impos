@@ -1,9 +1,11 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.valuation.ValuationReconciler;
+import com.intermarche.pos.service.TicketPrinterService;
 import com.intermarche.pos.service.valuation.ValuationService;
+import com.intermarche.pos.service.valuation.ValuationReconciler;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -48,6 +50,21 @@ public class PaymentService {
 
     @Inject
     TicketPersistenceService ticketPersistenceService;
+
+    /**
+     * Prints the gift-card vouchers issued by a closed sale (phase: credit
+     * notes & gift cards).
+     */
+    @Inject
+    TicketPrinterService ticketPrinterService;
+
+    /** Loyalty lease lifecycle and event composition (imfid lots 2-3). */
+    @Inject
+    FidelityService fidelityService;
+
+    /** Loyalty fiscal-event outbox (imfid lot 3). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.sync.FidEventOutboxService fidEventOutboxService;
 
     @Inject
     ValuationService valuationService;
@@ -128,6 +145,9 @@ public class PaymentService {
      */
     public void cancelPayments(PosState state) {
         Long ticketId = state.payment.ticketDbId;
+        // The fidelity lease dies with the payments (imfid spec §5.3);
+        // failure-tolerant — the TTL is the safety net.
+        fidelityService.releaseLease(state);
         state.payment.paymentInProgress = false;
         state.payment.pendingCardAmount = null;
         // Phase 7: leaving the payment reverts the valuation — the cart goes
@@ -344,12 +364,22 @@ public class PaymentService {
      * @param amount the amount to pay, or zero/negative to use the remaining due
      */
     public void processFidelity(PosState state, BigDecimal amount) {
-        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
-        if (amount.signum() <= 0) return;
+        if (state.getRemaining().signum() <= 0) return;
 
         state.payment.clearPendingVoucher();
 
-        BigDecimal amountToPay = amount.min(state.getRemaining());
+        // Reservation protocol (imfid spec §5): the lease is granted for
+        // min(requested, remaining, burnableBase, availableBalance); no euro
+        // moves before the fiscal confirmation. Refusals carry their exact
+        // display message (closed nomenclature mapped by the service).
+        com.intermarche.pos.ui.fidelity.FidelityService.BurnVerdict verdict =
+                fidelityService.reserveLease(state, amount, state.getRemaining());
+        if (verdict.refusalMessage != null) {
+            state.ticket.setError(verdict.refusalMessage);
+            state.touch();
+            return;
+        }
+        BigDecimal amountToPay = verdict.grantedAmount;
         state.payment.addPayment("FIDELITY", amountToPay);
         state.touch();
         savePayment(state, "FIDELITY");
@@ -400,6 +430,34 @@ public class PaymentService {
             ticketPersistenceService.validateTicket(ticketId);
             state.lastClosedTicketId = ticketId;
             LOG.info("Ticket validé et fermé en BDD ID: " + ticketId);
+            // Loyalty fiscal sequence (imfid spec §5.2 + §6): confirm the
+            // lease (410 tolerated — the ingestion is authoritative), then
+            // enqueue the ticket-closed event with the verbatim couple. The
+            // outbox drains it; imfid recomputes and the recalcul fait foi.
+            if (state.fidelity.active) {
+                java.time.LocalDate fiscalDate = java.time.LocalDate.now();
+                Long reservationId = fidelityService.confirmLease(state, fiscalDate);
+                com.intermarche.pos.domain.ticket.Ticket closed =
+                        com.intermarche.pos.domain.ticket.Ticket.findById(ticketId);
+                if (closed != null) {
+                    String ticketRef = fiscalDate.getYear() + "-" + closed.ticketNumber;
+                    String payload = fidelityService.buildTicketClosedPayload(
+                            state, ticketRef, state.fidelity.label, fiscalDate, reservationId);
+                    if (payload != null) {
+                        fidEventOutboxService.enqueue(
+                                com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED, payload);
+                    }
+                }
+            }
+            // Gift cards issued by this sale get their printed voucher —
+            // the customer's proof, right after the fiscal moment (phase:
+            // credit notes & gift cards).
+            java.util.List<com.intermarche.pos.domain.StoredValue> issued =
+                    com.intermarche.pos.domain.StoredValue
+                            .find("issuingTicketId", ticketId).list();
+            for (com.intermarche.pos.domain.StoredValue card : issued) {
+                ticketPrinterService.printGiftCardVoucher(card.number, card.initialAmount);
+            }
         }
 
         hardwareService.displayMessage("MERCI A BIENTOT");

@@ -230,6 +230,10 @@ public class TicketPersistenceService {
                 line.productLabel = item.label;
                 line.quantity = item.quantity;
                 line.unitPrice = item.unitPrice;
+        line.modifierLabel = item.modifierLabel;
+        line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
+        line.modifierType = item.modifierType;
+        line.modifierValue = item.modifierValue;
                 line.vatRate = item.vatRate;
                 line.modifierLabel = item.modifierLabel;
                 line.originalUnitPrice = item.modifierLabel != null ? item.originalUnitPrice : null;
@@ -253,6 +257,9 @@ public class TicketPersistenceService {
      */
     private void applyHeaderAndTotals(Ticket ticket, PosState state) {
         ticket.fidelityCard = state.fidelity.active ? state.fidelity.label : null;
+        ticket.globalDiscountType = state.ticket.globalDiscountType;
+        ticket.globalDiscountValue = state.ticket.globalDiscountValue;
+        ticket.globalDiscountApplied = state.ticket.globalDiscountApplied;
         ticket.itemCount = state.ticket.items.size();
 
         VatBreakdown breakdown = new VatBreakdown();
@@ -348,6 +355,48 @@ public class TicketPersistenceService {
 
         counter.grandTotal = counter.grandTotal.add(ticket.totalIncludingTax);
         counter.lastSignature = ticket.signature;
+
+        // --- Stored-value settlement, INSIDE the fiscal transaction
+        //     (phase: credit notes & gift cards) ---
+        // (1) Debit the redeemed registry instruments: the balance only
+        //     moves HERE — a cancelled payment or a crash before this point
+        //     never burns stored value.
+        for (com.intermarche.pos.domain.ticket.TicketPayment payment : ticket.payments) {
+            if (payment instanceof com.intermarche.pos.domain.ticket.VoucherPayment voucher
+                    && com.intermarche.pos.domain.StoredValue.isRegistryNumber(voucher.voucherNumber)) {
+                com.intermarche.pos.domain.StoredValue instrument =
+                        com.intermarche.pos.domain.StoredValue.findByNumber(voucher.voucherNumber);
+                if (instrument != null) {
+                    instrument.balance = instrument.balance.subtract(payment.amount).max(java.math.BigDecimal.ZERO);
+                    instrument.lastRedeemedTicketId = ticket.id;
+                    if (instrument.balance.signum() == 0) {
+                        instrument.status = com.intermarche.pos.domain.StoredValue.Status.EXHAUSTED;
+                        instrument.exhaustedAt = LocalDateTime.now();
+                    }
+                }
+            }
+        }
+        // (2) Issue the gift cards sold on this ticket: one ACTIVE registry
+        //     instrument per unit, numbered from its own row id. Issued at
+        //     the fiscal moment only — an abandoned cart never creates value.
+        for (com.intermarche.pos.domain.ticket.TicketLine line : ticket.lines) {
+            if (line.ean == null) continue;
+            com.intermarche.pos.domain.Product product =
+                    com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();
+            if (product == null || product.giftCardAmount == null) continue;
+            int units = line.quantity.intValue();
+            for (int i = 0; i < units; i++) {
+                com.intermarche.pos.domain.StoredValue card = new com.intermarche.pos.domain.StoredValue();
+                card.kind = com.intermarche.pos.domain.StoredValue.Kind.GIFT_CARD;
+                card.initialAmount = product.giftCardAmount;
+                card.balance = product.giftCardAmount;
+                card.issuedAt = LocalDateTime.now();
+                card.issuingTicketId = ticket.id;
+                card.persist();
+                card.number = com.intermarche.pos.domain.StoredValue.GIFT_CARD_PREFIX
+                        + String.format("%012d", card.id);
+            }
+        }
         ticket.grandTotal = counter.grandTotal;
 
         ticket.persist();

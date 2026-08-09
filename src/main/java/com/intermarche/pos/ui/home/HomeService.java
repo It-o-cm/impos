@@ -146,11 +146,19 @@ public class HomeService {
      * @param type the modification type (remise, discount, force_price)
      */
     public void openPriceMod(String type) {
+        String upper = type.toUpperCase();
+        // Ticket-level gestures target the whole sale: no line selection
+        // required (phase: global ticket discount).
+        if (upper.startsWith("GLOBAL_")) {
+            state.priceModState.set(upper, null, "TICKET COMPLET");
+            state.touch();
+            return;
+        }
         TicketState.TicketItem target = state.getTargetItem();
         if (target == null) {
             state.ticket.setError("AUCUNE LIGNE SÉLECTIONNÉE");
         } else {
-            state.priceModState.set(type.toUpperCase(), target.uid, target.label);
+            state.priceModState.set(upper, target.uid, target.label);
         }
         state.touch();
     }

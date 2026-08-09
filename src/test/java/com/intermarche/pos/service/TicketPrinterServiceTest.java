@@ -643,38 +643,61 @@ class TicketPrinterServiceTest {
     // --------------------------------------------------
 
     /**
-     * Covers the encodable arm of {@code printRefundVoucher}: the amount fits the
-     * encoded format, so the scannable STORE_VOUCHER number (50 + 8-digit serial
-     * + 4-digit cents) is printed.
+     * {@code printRefundVoucher} prints the credit note at its REGISTRY
+     * number: AVOIR title, amount, issue date, the number as given (a pure
+     * identifier — no amount encoding, no cap) and the registry notice.
      */
     @Test
-    void printRefundVoucherPrintsScannableNumberWhenEncodable() {
+    void printRefundVoucherPrintsRegistryNumber() {
         TicketPrinterService service = newService();
         Refund refund = new Refund();
         refund.id = 12L;
         refund.creationDate = NOW;
         refund.totalAmount = new BigDecimal("9.99");
-        service.printRefundVoucher(refund, true);
+        service.printRefundVoucher(refund, "297000000000077");
         String out = captureReceipt(service);
-        assertTrue(out.contains("BON D'ACHAT"));
-        assertTrue(out.contains("N° 50000000120999"));
-        assertTrue(out.contains("(scannable en caisse)"));
+        assertTrue(out.contains("AVOIR"));
+        assertTrue(out.contains("9,99 E"));
+        assertTrue(out.contains("N° 297000000000077"));
+        assertTrue(out.contains("(scannable en caisse - solde au registre)"));
     }
 
     /**
-     * Covers the plain arm of {@code printRefundVoucher}: the amount is not
-     * encodable, so the manual-deduction notice is printed instead of a number.
+     * {@code printRefundVoucher} prints amounts ABOVE the historical 99,99 €
+     * encoded cap just the same: the registry number carries no amount, so
+     * nothing limits the printable credit note.
      */
     @Test
-    void printRefundVoucherPrintsManualNoticeWhenNotEncodable() {
+    void printRefundVoucherHasNoAmountCap() {
         TicketPrinterService service = newService();
         Refund refund = new Refund();
         refund.id = 12L;
         refund.creationDate = NOW;
-        refund.totalAmount = new BigDecimal("9.99");
-        service.printRefundVoucher(refund, false);
+        refund.totalAmount = new BigDecimal("150.00");
+        service.printRefundVoucher(refund, "297000000000078");
         String out = captureReceipt(service);
-        assertTrue(out.contains("A DEDUIRE EN CAISSE SUR PRESENTATION"));
-        assertFalse(out.contains("scannable"));
+        assertTrue(out.contains("AVOIR"));
+        assertTrue(out.contains("150,00 E"));
+        assertTrue(out.contains("N° 297000000000078"));
+    }
+
+    // --------------------------------------------------
+    // printGiftCardVoucher
+    // --------------------------------------------------
+
+    /**
+     * {@code printGiftCardVoucher} prints the freshly issued card: CARTE
+     * CADEAU title, the loaded amount, the registry number and the registry
+     * notice — the customer's proof after the fiscal moment.
+     */
+    @Test
+    void printGiftCardVoucherPrintsNumberAndAmount() {
+        TicketPrinterService service = newService();
+        service.printGiftCardVoucher("296000000000042", new BigDecimal("50.00"));
+        String out = captureReceipt(service);
+        assertTrue(out.contains("CARTE CADEAU"));
+        assertTrue(out.contains("50,00 E"));
+        assertTrue(out.contains("N° 296000000000042"));
+        assertTrue(out.contains("(scannable en caisse - solde au registre)"));
     }
 }

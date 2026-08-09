@@ -60,6 +60,10 @@ public class RefundService {
     @Inject
     TicketPrinterService ticketPrinterService;
 
+    /** Loyalty return-event outbox (imfid lot 3). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.sync.FidEventOutboxService fidEventOutboxService;
+
     @Inject
     CashSessionService cashSessionService;
 
@@ -200,6 +204,18 @@ public class RefundService {
                 .filter(l -> l.id.equals(lineId)).findFirst().orElse(null);
 
         if (line != null) {
+            // Gift cards are non-returnable: refunding a sold card while the
+            // registry instrument stays ACTIVE would double the value
+            // (phase: credit notes & gift cards).
+            if (line.ean != null) {
+                com.intermarche.pos.domain.Product product =
+                        com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();
+                if (product != null && product.giftCardAmount != null) {
+                    state.refund.errorMessage = "RETOUR INTERDIT SUR CARTE CADEAU";
+                    state.touch();
+                    return;
+                }
+            }
             BigDecimal refundable = line.quantity.subtract(alreadyRefunded(lineId));
             if (refundable.signum() < 0) refundable = BigDecimal.ZERO;
             if (quantity.compareTo(BigDecimal.ZERO) < 0) quantity = BigDecimal.ZERO;
@@ -334,6 +350,55 @@ public class RefundService {
                         + refund.totalAmount.setScale(2, RoundingMode.HALF_UP).toPlainString());
         syncOutboxService.enqueue(SyncOutbox.EntityType.REFUND, refund.id);
 
+        // Loyalty refund guard (imfid spec §28): crediting a loyalty balance
+        // requires the ORIGIN ticket's card — refused before anything is
+        // persisted, the cashier picks another method.
+        if (method == Refund.RefundMethod.LOYALTY) {
+            Ticket originGuard = Ticket.findById(refund.originalTicketId);
+            if (originGuard == null || originGuard.fidelityCard == null) {
+                state.refund.errorMessage = "AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE";
+                state.touch();
+                return;
+            }
+        }
+
+        // Loyalty fiscal event (imfid spec §7): a return on a card-bearing
+        // origin ticket feeds the RETURN_DEBIT recomputation — enqueued in
+        // THIS transaction (the event exists iff the refund committed), with
+        // the ORIGIN couple's line ids (the lineUid echoed by /valuation).
+        Ticket originForFid = Ticket.findById(refund.originalTicketId);
+        if (originForFid != null && originForFid.fidelityCard != null) {
+            StringBuilder fidLines = new StringBuilder("[");
+            boolean firstFidLine = true;
+            for (RefundLine refundLine : refund.lines) {
+                com.intermarche.pos.domain.ticket.TicketLine originLine =
+                        com.intermarche.pos.domain.ticket.TicketLine.findById(refundLine.originalLineId);
+                if (originLine == null || originLine.lineUid == null) continue;
+                if (!firstFidLine) fidLines.append(',');
+                firstFidLine = false;
+                fidLines.append("{\"lineId\":\"").append(originLine.lineUid)
+                        .append("\",\"quantity\":").append(refundLine.quantity.toPlainString())
+                        .append('}');
+            }
+            fidLines.append(']');
+            java.time.LocalDate fidFiscalDate = java.time.LocalDate.now();
+            String originRef = fidFiscalDate.getYear() + "-" + originForFid.ticketNumber;
+            // The voluntary loyalty refund travels with the return event
+            // (spec §28): the ingestion creates the REFUND_CREDIT, capped
+            // POS-side to the refund amount by construction.
+            String refundToCard = refund.refundMethod == Refund.RefundMethod.LOYALTY
+                    ? ",\"refundToCard\":{\"card\":\"" + originForFid.fidelityCard
+                            + "\",\"amount\":" + refund.totalAmount.toPlainString() + "}"
+                    : "";
+            String fidPayload = "{\"returnTicketRef\":\"" + originRef + "-R" + refund.id + "\","
+                    + "\"originTicketRef\":\"" + originRef + "\","
+                    + "\"fiscalDate\":\"" + fidFiscalDate + "\","
+                    + "\"lines\":" + fidLines
+                    + refundToCard + "}";
+            fidEventOutboxService.enqueue(
+                    com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN, fidPayload);
+        }
+
         applyMethodSideEffects(refund);
         ticketPrinterService.printRefund(refund.id);
 
@@ -352,11 +417,33 @@ public class RefundService {
     private void applyMethodSideEffects(Refund refund) {
         switch (refund.refundMethod) {
             case CASH -> hardwareService.openDrawer();
-            case VOUCHER -> ticketPrinterService.printRefundVoucher(refund,
-                    refund.totalAmount.compareTo(MAX_ENCODED_VOUCHER) <= 0);
-            case LOYALTY -> LOG.infof(
-                    "Cagnotte créditée de %s (réelle avec le valorisateur, phase 7)",
-                    refund.totalAmount.toPlainString());
+            case VOUCHER -> {
+                // The credit note is a REGISTRY instrument: persisted first,
+                // numbered from its own row id (pure identifier — the
+                // registry stays authoritative for the balance), then
+                // printed with its scannable number (phase: credit notes &
+                // gift cards). Any amount is now supported: the historical
+                // 99,99 € encoded-number cap no longer applies.
+                com.intermarche.pos.domain.StoredValue note =
+                        new com.intermarche.pos.domain.StoredValue();
+                note.kind = com.intermarche.pos.domain.StoredValue.Kind.CREDIT_NOTE;
+                note.initialAmount = refund.totalAmount;
+                note.balance = refund.totalAmount;
+                note.issuedAt = java.time.LocalDateTime.now();
+                note.issuingRefundId = refund.id;
+                note.persist();
+                note.number = com.intermarche.pos.domain.StoredValue.CREDIT_NOTE_PREFIX
+                        + String.format("%012d", note.id);
+                ticketPrinterService.printRefundVoucher(refund, note.number);
+            }
+            case LOYALTY -> {
+                // The credit itself is born at imfid's ingestion of the
+                // ticket-return event (REFUND_CREDIT); the till hands the
+                // customer a printed proof and announces it.
+                hardwareService.displayMessage(String.format("CREDIT FIDELITE %s E",
+                        refund.totalAmount.toPlainString().replace('.', ',')));
+                ticketPrinterService.printLoyaltyCredit(refund.totalAmount);
+            }
             case CARD -> LOG.info("Remboursement carte à traiter sur le TPE (monétique hors périmètre)");
         }
     }

@@ -27,6 +27,13 @@ import java.util.Locale;
  * totals), and every print beyond the first is marked as a numbered DUPLICATA
  * and recorded in the technical event journal.
  * <p>
+ * Package placement: every consumer is a screen flow (sale, payment,
+ * session, reprint, refund) — per the register's placement rule an
+ * exclusively-IHM service leaves the service root; being cross-screen it
+ * lives at the ui root, like PosState. The move also fixes a layering
+ * inversion: it injects the ui hardware facade, which a service-root class
+ * should never have done.
+ * <p>
  * Format contract: 42-column monospace text (WIDTH), French decimal comma
  * (DF), rendered from PERSISTED entities — never from the in-memory state,
  * so a reprint is faithful by construction. The single exception is the
@@ -45,6 +52,21 @@ public class TicketPrinterService {
 
     @Inject
     TechnicalEventService technicalEventService;
+
+    /** The live register state — carries the loyalty projection at print time. */
+    @Inject
+    com.intermarche.pos.ui.PosState posState;
+
+    /**
+     * The ticket the register is currently on (draft or just closed) — the
+     * only one whose live loyalty projection is meaningful.
+     *
+     * @return that ticket's database id, or null
+     */
+    private Long currentOrLastTicketId() {
+        return posState.payment.ticketDbId != null
+                ? posState.payment.ticketDbId : posState.lastClosedTicketId;
+    }
 
     /** French display format for amounts on the receipt. */
     private static final DecimalFormat DF = new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
@@ -113,7 +135,26 @@ public class TicketPrinterService {
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Totals
+        if (ticket.globalDiscountApplied != null) {
+            sb.append(formatLine("REMISE TICKET",
+                    "-" + DF.format(ticket.globalDiscountApplied) + " E"));
+        }
         sb.append(formatLine("TOTAL TTC", DF.format(ticket.totalIncludingTax) + " E"));
+        // Loyalty section (imfid lot 3): the DISPLAYED projection and its rule
+        // labels — the only rule data that travels to the POS (spec §3),
+        // indicative by doctrine (the ingestion's recomputation prevails).
+        // It is read from the LIVE state, which still holds the projection at
+        // print time; a later DUPLICATA therefore carries no section (the earn
+        // is not persisted — known and accepted gap).
+        if (posState.fidelity.earnTotal != null && posState.fidelity.earnTotal.signum() > 0
+                && ticketId.equals(currentOrLastTicketId())) {
+            sb.append(formatLine("CAGNOTTE DU JOUR",
+                    "+" + DF.format(posState.fidelity.earnTotal) + " E"));
+            for (com.intermarche.pos.ui.fidelity.FidelityState.EarnLine earnLine
+                    : posState.fidelity.earnEntries) {
+                sb.append(formatLine("  " + earnLine.label, "+" + DF.format(earnLine.amount) + " E"));
+            }
+        }
         sb.append(formatLine("Dont TVA", DF.format(ticket.totalVat) + " E"));
         // Per-rate VAT ventilation (same rule as the persisted totals)
         VatBreakdown breakdown = new VatBreakdown();
@@ -286,6 +327,10 @@ public class TicketPrinterService {
             sb.append(formatLine(item.label, item.getPriceFormatted() + " E"));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
+        if (state.ticket.globalDiscountApplied != null) {
+            sb.append(formatLine("REMISE TICKET",
+                    "-" + DF.format(state.ticket.globalDiscountApplied) + " E"));
+        }
         sb.append(formatLine("TOTAL", state.ticket.getTotalFormatted() + " E"));
         for (com.intermarche.pos.ui.payment.PaymentState.PaymentEntry entry : state.payment.payments) {
             sb.append(formatLine("  " + entry.method, DF.format(entry.amount) + " E"));
@@ -298,29 +343,64 @@ public class TicketPrinterService {
     /**
      * Prints the store voucher issued by a voucher refund. When the amount is
      * encodable (4 cent digits), the printed number matches the STORE_VOUCHER
-     * pattern (50 + 8-digit serial + 4-digit cents) and is therefore
-     * scannable as a payment voucher on a future ticket.
+     * registry number (297 + 12 digits): a pure identifier — the registry
+     * stays authoritative for the live balance, so any amount is printable
+     * and the note is scannable as a payment on a future ticket.
      *
-     * @param refund the persisted refund the voucher stems from
-     * @param encodable true when the amount fits the encoded voucher format
+     * @param refund the persisted refund the credit note stems from
+     * @param number the registry number of the issued credit note
      */
-    public void printRefundVoucher(Refund refund, boolean encodable) {
+    public void printRefundVoucher(Refund refund, String number) {
         StringBuilder sb = new StringBuilder();
         sb.append(center("INTERMARCHE", WIDTH)).append("\n");
-        sb.append(center("BON D'ACHAT", WIDTH)).append("\n");
+        sb.append(center("AVOIR", WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         sb.append(formatLine("MONTANT", DF.format(refund.totalAmount) + " E"));
         sb.append(String.format("Emis le : %s%n",
                 refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
-        if (encodable) {
-            long cents = refund.totalAmount.setScale(2, java.math.RoundingMode.HALF_UP)
-                    .movePointRight(2).longValueExact();
-            String number = String.format("50%08d%04d", refund.id, cents);
-            sb.append("\n").append(center("N° " + number, WIDTH)).append("\n");
-            sb.append(center("(scannable en caisse)", WIDTH)).append("\n");
-        } else {
-            sb.append("\n").append(center("A DEDUIRE EN CAISSE SUR PRESENTATION", WIDTH)).append("\n");
-        }
+        sb.append("\n").append(center("N° " + number, WIDTH)).append("\n");
+        sb.append(center("(scannable en caisse - solde au registre)", WIDTH)).append("\n");
+        sb.append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints the customer's proof of a voluntary loyalty refund (imfid spec
+     * §28): the amount credited to the card balance at ingestion — the
+     * printed slip is the in-hand evidence while the outbox travels.
+     *
+     * @param amount the amount refunded to the loyalty balance
+     */
+    public void printLoyaltyCredit(java.math.BigDecimal amount) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center("REMBOURSEMENT EN CAGNOTTE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("CREDIT CARTE", "+" + DF.format(amount) + " E"));
+        sb.append(center("(visible sur la carte sous quelques minutes)", WIDTH)).append("\n");
+        sb.append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints a freshly issued gift-card voucher: the scannable registry
+     * number and the loaded amount — the customer's proof, printed right
+     * after the fiscal moment of the issuing sale (phase: credit notes &
+     * gift cards).
+     *
+     * @param number the registry number of the card
+     * @param amount the loaded amount
+     */
+    public void printGiftCardVoucher(String number, java.math.BigDecimal amount) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center("CARTE CADEAU", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("MONTANT CHARGE", DF.format(amount) + " E"));
+        sb.append("\n").append(center("N° " + number, WIDTH)).append("\n");
+        sb.append(center("(scannable en caisse - solde au registre)", WIDTH)).append("\n");
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();

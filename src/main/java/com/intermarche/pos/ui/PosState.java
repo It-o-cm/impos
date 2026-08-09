@@ -56,6 +56,37 @@ public class PosState implements Serializable {
     /** The price-modification modal state. */
     public PriceModState priceModState = new PriceModState();
 
+    /** The pending age-check prompt (server-rendered modal on the sale screen). */
+    public AgeCheckState ageCheck = new AgeCheckState();
+
+    /**
+     * State of the age-control prompt: a restricted product suspended the
+     * add, and the sale waits for the cashier's CONFIRM (ID checked — the
+     * parked add replays) or REFUSE (journalized, nothing added). The parked
+     * gesture is replayed by KIND: SCAN through the recognition chain, PLU
+     * through the weighing add, EAN_QTY through the quantity add.
+     */
+    public static class AgeCheckState {
+        /** Whether the prompt is currently shown. */
+        public boolean active = false;
+        /** The restricted product's display label. */
+        public String productLabel;
+        /** The required minimum age. */
+        public int threshold;
+        /** The replay kind: SCAN, PLU or EAN_QTY. */
+        public String kind;
+        /** The parked code (scanned code, PLU or EAN). */
+        public String code;
+        /** The parked quantity (EAN_QTY kind only). */
+        public java.math.BigDecimal quantity;
+
+        /** Clears the prompt. */
+        public void clear() {
+            active = false; productLabel = null; threshold = 0;
+            kind = null; code = null; quantity = null;
+        }
+    }
+
     /** The reprint screen state. */
     public ReprintState reprint = new ReprintState();
 

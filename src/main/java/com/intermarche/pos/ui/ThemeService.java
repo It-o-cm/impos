@@ -90,6 +90,25 @@ public class ThemeService {
     public static class Globals {
 
         /**
+         * The birth-year threshold of the pending age check, available in
+         * the sale template as {@code {ageCheckBirthYear}} — "né avant
+         * <year>" reads faster at the till than mental arithmetic (phase:
+         * age control; lives here with the other cross-screen Qute globals).
+         *
+         * @return the latest birth year an of-age customer can have
+         */
+        public static int ageCheckBirthYear() {
+            try {
+                InstanceHandle<com.intermarche.pos.ui.PosState> handle =
+                        Arc.container().instance(com.intermarche.pos.ui.PosState.class);
+                int threshold = handle.isAvailable() ? handle.get().ageCheck.threshold : 18;
+                return java.time.LocalDate.now().getYear() - (threshold > 0 ? threshold : 18);
+            } catch (Exception e) {
+                return java.time.LocalDate.now().getYear() - 18;
+            }
+        }
+
+        /**
          * The resolved theme name, available in every template as
          * {@code {posTheme}} without any per-resource plumbing.
          *

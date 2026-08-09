@@ -38,6 +38,10 @@ import java.util.List;
  * re-applies the gesture on the SAME base price the register resolved,
  * a coherence guaranteed by the centralized referentials plus
  * {@code priceDate}.
+ * <p>
+ * Package placement: consumed exclusively by the sale and payment screen
+ * flows and operating on {@code PosState} — per the register's placement
+ * rule the whole valuation package lives under ui.
  */
 @ApplicationScoped
 public class ValuationService {
@@ -55,6 +59,10 @@ public class ValuationService {
 
     @Inject
     ObjectMapper objectMapper;
+
+    /** Loyalty orchestration fed by the valuation path (imfid lot 1). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
 
     /** Seconds during which the engine is skipped after a failure (circuit breaker). */
     @org.eclipse.microprofile.config.inject.ConfigProperty(
@@ -85,6 +93,9 @@ public class ValuationService {
     public static class ValuationOutcome {
         /** Status: LOCAL (engine not configured), ENGINE (valued), DEGRADED (engine failed). */
         public final String status;
+        /** The raw request JSON as sent to the engine (imfid couple), or null. */
+        public final String requestJson;
+
         /** The raw response JSON when valued (reparsed by lot 2), or null. */
         public final String responseJson;
         /** The engine's total including tax when valued (log comparison), or null. */
@@ -98,7 +109,21 @@ public class ValuationService {
          * @param engineTotalInclTax the engine total, or null
          */
         public ValuationOutcome(String status, String responseJson, BigDecimal engineTotalInclTax) {
+            this(status, null, responseJson, engineTotalInclTax);
+        }
+
+        /**
+         * Creates an outcome carrying the verbatim couple (ENGINE case).
+         *
+         * @param status the outcome status
+         * @param requestJson the raw request JSON as sent, or null
+         * @param responseJson the raw response JSON, or null
+         * @param engineTotalInclTax the engine total, or null
+         */
+        public ValuationOutcome(String status, String requestJson, String responseJson,
+                                BigDecimal engineTotalInclTax) {
             this.status = status;
+            this.requestJson = requestJson;
             this.responseJson = responseJson;
             this.engineTotalInclTax = engineTotalInclTax;
         }
@@ -229,14 +254,19 @@ public class ValuationService {
                     LOG.debugf("Revalorisation: caisse=%s moteur=%s",
                             state.ticket.totalAmount, outcome.engineTotalInclTax);
                 }
+                // Loyalty hook: the verbatim couple feeds the earn projection
+                // (phase: imfid integration, lot 1).
+                fidelityService.onValuation(state, outcome.requestJson, outcome.responseJson);
             }
             case "DEGRADED" -> {
                 engineSkipUntil = System.currentTimeMillis() + retrySeconds * 1000L;
                 degradeInMemory(state, ticketDbId);
                 valuationReconciler.markDegraded(ticketDbId);
+                fidelityService.onValuationUnavailable(state);
             }
             default -> { // LOCAL: no eligible line — make sure nothing stale survives
                 revertInMemory(state, ticketDbId);
+                fidelityService.onValuationUnavailable(state);
             }
         }
         state.touch();
@@ -292,12 +322,15 @@ public class ValuationService {
                         ticket.items.size());
                 return new ValuationOutcome("LOCAL", null, null);
             }
+            // The couple travels VERBATIM to imfid (spec §1): the request is
+            // serialized ONCE, before the call, exactly as the client sends it.
+            String requestJson = objectMapper.writeValueAsString(basket);
             ValuationPayloads.ValuationResponseDto response = valuationClient.valuate(basket);
             BigDecimal engineTotal = response.totalPrice != null ? response.totalPrice.amountIncludingTax : null;
             String json = objectMapper.writeValueAsString(response);
             LOG.infof("Valorisation moteur: %d offre(s), %d advantage(s), total moteur=%s",
                     response.offers.size(), response.advantages.size(), engineTotal);
-            return new ValuationOutcome("ENGINE", json, engineTotal);
+            return new ValuationOutcome("ENGINE", requestJson, json, engineTotal);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOG.warn("Valorisation interrompue: mode dégradé prix catalogue");
@@ -328,6 +361,7 @@ public class ValuationService {
 
         for (TicketState.TicketItem item : ticket.items) {
             if (item.ean == null || item.ean.isEmpty()) continue;          // no EAN: out of the engine
+            if (item.moneyProduct) continue;                               // money products: not merchandise
             if (item.getTotalPrice().signum() <= 0) continue;              // deposits/negatives: local
             ValuationPayloads.ItemDto dto = new ValuationPayloads.ItemDto();
             dto.lineId = item.uid;

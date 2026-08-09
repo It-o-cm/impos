@@ -159,6 +159,22 @@ public class Ticket extends BaseEntity {
     @Column(name = "fidelity_card", length = 50)
     public String fidelityCard;
 
+    /**
+     * Ticket-level discount request kind ("AMOUNT"/"PERCENT"), or null
+     * (phase: global ticket discount). The request survives a crash; the
+     * allocation is recomputed at restore.
+     */
+    @jakarta.persistence.Column(name = "global_discount_type", length = 10)
+    public String globalDiscountType;
+
+    /** Ticket-level discount requested value (euros or percent). */
+    @jakarta.persistence.Column(name = "global_discount_value", precision = 10, scale = 2)
+    public java.math.BigDecimal globalDiscountValue;
+
+    /** Ticket-level discount APPLIED amount at last sync (print/reporting). */
+    @jakarta.persistence.Column(name = "global_discount_applied", precision = 10, scale = 2)
+    public java.math.BigDecimal globalDiscountApplied;
+
     /** Access key of the online digital receipt, generated at draft creation. */
     @Column(name = "digital_key", length = 16)
     public String digitalKey;
