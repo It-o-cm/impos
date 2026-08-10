@@ -236,3 +236,51 @@ __  ____  __  _____   ___  __ ____  ______
 18:42:51 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-1) Purged 43 valuation trace(s) older than 2026-08-08T18:42:51.265489
 19:43:52 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-1) Purged 1 valuation trace(s) older than 2026-08-08T19:43:52.297615
 23:47:55 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-1) Purged 6 valuation trace(s) older than 2026-08-08T23:47:55.742730
+17:46:58 INFO  [io.quarkus] (Shutdown thread) imvaluation stopped in 0.025s
+Listening for transport dt_socket at address: 58486
+17:47:11 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-13) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
+__  ____  __  _____   ___  __ ____  ______ 
+ --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+ -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+--\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+17:47:13 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:47:13 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:47:13 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:47:13 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:47:13 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+17:47:13 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Empty database: seeding the reference data from the embedded CSV files.
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 5, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded stores.csv: {"createdCount":5, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+17:47:14 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+17:47:14 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 4, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded store-groups.csv: {"createdCount":4, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 33, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded products.csv: {"createdCount":33, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 9 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:47:14 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 9 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:47:14 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 9 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 9, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded product-families.csv: {"createdCount":9, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 30, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded product-category-storages.csv: {"createdCount":30, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 94, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded prices.csv: {"createdCount":94, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
+17:47:14 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 11, Updated: 0
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded offers.csv: {"createdCount":11, "updatedCount":0}
+17:47:14 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Reference data seed completed.
+17:47:14 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+17:47:14 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.770s. Listening on: http://localhost:8090
+17:47:14 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+17:47:14 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+17:47:23 INFO  [io.quarkus] (Shutdown thread) imvaluation stopped in 0.019s

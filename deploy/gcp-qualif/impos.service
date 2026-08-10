@@ -22,6 +22,12 @@ ExecStart=/usr/bin/java \
 Restart=on-failure
 RestartSec=5
 Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+# The "hardware-api" rest client MUST have a URL or CDI fails at first request
+# (dev mode inherits it from test classes; the prod jar has neither mock nor
+# property). Qualification doctrine = the e2e one: point it at the app itself,
+# where the hardware endpoints do not exist -> 404s absorbed fail-soft, drawer
+# reported closed. Env var form of quarkus.rest-client."hardware-api".url.
+Environment=QUARKUS_REST_CLIENT__HARDWARE_API__URL=http://127.0.0.1:8080
 
 [Install]
 WantedBy=multi-user.target

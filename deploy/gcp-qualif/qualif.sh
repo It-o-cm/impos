@@ -16,8 +16,8 @@ case "${1:-status}" in
     echo -n "Waiting for the 3 apps "
     for i in $(seq 1 24); do
       if gcloud compute ssh "$VM_NAME" --zone="$ZONE" --command \
-        "curl -sf http://127.0.0.1:8080/q/health >/dev/null && \
-         curl -sf http://127.0.0.1:8090/q/health >/dev/null && \
+        "curl -sf http://127.0.0.1:8080/lock >/dev/null && \
+         curl -sf http://127.0.0.1:8090/ >/dev/null && \
          curl -sf http://127.0.0.1:8060/q/health >/dev/null" 2>/dev/null; then
         echo " UP — https://impos-qualif.it-o-cm.fr"; exit 0
       fi

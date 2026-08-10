@@ -1,0 +1,32 @@
+# systemd unit — imfid (loyalty program), port 8060, PostgreSQL (%prod profile reads env).
+[Unit]
+Description=imfid (Quarkus) - qualification
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=apps
+WorkingDirectory=/opt/apps/imfid
+ExecStart=/usr/bin/java -jar /opt/apps/imfid/quarkus-app/quarkus-run.jar
+Restart=on-failure
+RestartSec=5
+Environment=QUARKUS_PROFILE=prod
+Environment=QUARKUS_HTTP_PORT=8060
+Environment=QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/imfid
+Environment=QUARKUS_DATASOURCE_USERNAME=imfid
+Environment=QUARKUS_DATASOURCE_PASSWORD=__DB_PASSWORD__
+Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+# %prod config expands ${IMFID_SMTP_HOST} (password-reset mailer). Qualification
+# has no SMTP server: satisfy the expansion and MOCK the mailer — every mail is
+# written to the journal instead of being sent (read it with journalctl -u imfid).
+Environment=IMFID_SMTP_HOST=localhost
+Environment=QUARKUS_MAILER_MOCK_EMAIL=true
+# Mandatory %prod bootstrap: admin account (back-office first login) and the
+# `pos` Basic-auth password — MUST equal pos.fid.password in impos.service
+# (pos-password), or the register's loyalty calls all fail 401.
+Environment=IMFID_BOOTSTRAP_ADMIN_EMAIL=__ADMIN_EMAIL__
+Environment=IMFID_BOOTSTRAP_ADMIN_PASSWORD=__BOOTSTRAP_PASSWORD__
+Environment=IMFID_BOOTSTRAP_POS_PASSWORD=pos-password
+
+[Install]
+WantedBy=multi-user.target

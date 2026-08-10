@@ -7,9 +7,26 @@ set -euo pipefail
 DB_PASSWORD="${DB_PASSWORD:-CHANGE_ME}"   # single app db password for qualification
 
 # --- Packages -----------------------------------------------------------
+# Debian 12 "bookworm" ships neither OpenJDK 21 (stuck on 17) nor PostgreSQL 16
+# (stuck on 15): both come from their official upstream repositories.
 apt-get update
-apt-get install -y openjdk-21-jre-headless postgresql-16 rsync curl \
-  debian-keyring debian-archive-keyring apt-transport-https
+apt-get install -y wget gnupg rsync curl apt-transport-https \
+  debian-keyring debian-archive-keyring
+
+# Adoptium (Eclipse Temurin) -> Java 21, same JDK as the build workstation
+wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public \
+  | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
+echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb bookworm main" \
+  > /etc/apt/sources.list.d/adoptium.list
+
+# PGDG (official PostgreSQL apt repo) -> PostgreSQL 16, aligned with Mobipay
+wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+  | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+  > /etc/apt/sources.list.d/pgdg.list
+
+apt-get update
+apt-get install -y temurin-21-jre postgresql-16
 
 # Caddy (official repo)
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
@@ -39,6 +56,8 @@ SQL
 cp impos.service imvaluation.service imfid.service /etc/systemd/system/
 cp Caddyfile /etc/caddy/Caddyfile
 sed -i "s/__DB_PASSWORD__/${DB_PASSWORD}/" /etc/systemd/system/imfid.service
+sed -i "s/__BOOTSTRAP_PASSWORD__/${BOOTSTRAP_PASSWORD:-${DB_PASSWORD}}/" /etc/systemd/system/imvaluation.service /etc/systemd/system/imfid.service
+sed -i "s/__ADMIN_EMAIL__/${ADMIN_EMAIL:-admin@example.org}/" /etc/systemd/system/imfid.service
 
 systemctl daemon-reload
 systemctl enable impos imvaluation imfid caddy

@@ -18,6 +18,9 @@ Restart=on-failure
 RestartSec=5
 # Behind Caddy: trust proxy headers (same lesson as the Mobipay CSRF issue)
 Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+# Mandatory in %prod (no default in the app): bootstrap admin account password
+# for the back-office first login (forced change at first login applies).
+Environment=VALUATION_BOOTSTRAP_ADMIN_PASSWORD=__BOOTSTRAP_PASSWORD__
 
 [Install]
 WantedBy=multi-user.target

@@ -59,7 +59,7 @@ You do not need to memorize this — come back to it when a word is unclear.
 | **`gcloud`** | The command-line tool installed on YOUR computer to control GCP: create the VM, start it, stop it, open a terminal on it. |
 | **SSH** | The standard way to open a secure terminal on a remote Linux machine. You never type a password: `gcloud` handles the keys. |
 | **Static IP** | The fixed "phone number" of the VM on the internet. We reserve one so it never changes, even when the VM is stopped. |
-| **DNS / A record** | The internet's phone book. An "A record" says "the name `impos-qualif.it-o-cm.fr` means this IP". Managed at the company where the domain `it-o-cm.fr` was bought (the *registrar*). |
+| **DNS / A record** | The internet's phone book. An "A record" says "the name `impos-qualif.it-o-cm.fr` means this IP". The `it-o-cm.fr` zone is hosted on **Google Cloud DNS**, inside the Mobipay GCP project — records are added with `gcloud dns` commands (Step 2). |
 | **HTTPS / certificate** | The padlock in the browser. Certificates are obtained and renewed automatically by Caddy — you never manage them. |
 | **Caddy** | A small web server installed on the VM. It is the only thing exposed to the internet; it receives the HTTPS traffic and forwards it to the right application. This role is called a *reverse proxy*. |
 | **systemd / service** | The Linux mechanism that starts programs at boot and restarts them if they crash. Each application is a "service": `impos`, `imvaluation`, `imfid`, `caddy`, `postgresql`. |
@@ -111,13 +111,14 @@ most "why not…?" questions:
 - **A Google Cloud account with billing enabled.** Go to
   https://console.cloud.google.com, sign in with a Google account, and follow
   "Activate billing" (a credit card is required; new accounts get 300 $ of
-  free credit, enough for ~5 months of this environment). Then create a
-  project named `impos-qualif` ("Select a project" menu → "New project").
-- **Access to the DNS zone of `it-o-cm.fr`.** This just means being able to
-  log in to the *registrar* — the company the domain was bought from, the same
-  console already used to create `calife-mobipay.it-o-cm.fr` for Mobipay. If
-  in doubt about which company that is, run `whois it-o-cm.fr` in a terminal:
-  the "Registrar" line names it.
+  free credit, enough for ~5 months of this environment). The GCP *project*
+  itself is created later, by command line, in Step 0 of §5.
+- **Access to the GCP project that hosts the `it-o-cm.fr` DNS zone.** The
+  zone is served by Google Cloud DNS (name servers `ns-cloud-d*.googledomains.com`
+  — verifiable with `whois it-o-cm.fr`) and lives in the Mobipay project
+  (`mobipay-calife`). The same Google account used for Mobipay therefore
+  already has what is needed. The domain itself was bought through the
+  registrar Key-Systems, but nothing is ever done there for this environment.
 - **A GitHub account with access to the `It-o-cm` organisation**, with an SSH
   key registered (GitHub → Settings → SSH keys). This is only needed to clone
   the three source repositories.
@@ -188,9 +189,47 @@ is the working copy as it is, so make sure it corresponds to a known commit.
 
 ## 5. First-time installation
 
-Four steps, in this order, all run from
+Five steps, numbered 0 to 4, in this order, all run from
 `impos/deploy/gcp-qualif/` in your terminal. Total time: about 30 minutes,
 most of it waiting.
+
+### Step 0 — Create the GCP project (and make the scripts executable)
+
+A *project* is the folder inside GCP that will hold the VM and its bill. It
+does not exist yet — `gcloud config set project` alone never creates one, it
+only points at it (and warns "does not have permission … or it may not
+exist" if you point at nothing). Create it, attach billing, and switch on the
+Compute Engine API (each GCP API must be enabled once per project — without
+it, even `gcloud compute zones list` complains):
+
+```bash
+gcloud projects create impos-qualif
+# If it answers "already exists": project IDs are unique WORLDWIDE — someone
+# else owns that one. Pick a variant (e.g. impos-qualif-ito) and use it
+# everywhere below and as PROJECT=... when running the scripts.
+
+gcloud billing accounts list          # note the ID, format XXXXXX-XXXXXX-XXXXXX
+gcloud billing projects link impos-qualif --billing-account=XXXXXX-XXXXXX-XXXXXX
+
+gcloud services enable compute.googleapis.com --project=impos-qualif   # ~30 s
+gcloud auth application-default set-quota-project impos-qualif  # silences a recurring warning
+```
+
+Verify before moving on — this must answer without any permission error:
+
+```bash
+gcloud projects describe impos-qualif
+```
+
+Last local detail: if the files arrived via a zip download, the execute
+permission was lost in transit. Restore it once:
+
+```bash
+chmod +x *.sh
+```
+
+(`zsh: permission denied: ./01-create-vm.sh` is the symptom of forgetting
+this.)
 
 ### Step 1 — Create the VM
 
@@ -215,31 +254,44 @@ Auto-stop scheduled every day at 20:00 Europe/Paris (start stays manual: ./quali
 
 ### Step 2 — Declare the three web addresses (DNS)
 
-1. Log in to the registrar of `it-o-cm.fr`.
-2. Open the DNS zone editor of the domain (usually called "DNS zone", "DNS
-   records" or "Zone editor").
-3. Add **three records of type A**, all pointing to the IP from step 1:
+The `it-o-cm.fr` zone is hosted on Google Cloud DNS, inside the **Mobipay**
+project — not in the new qualification project, and not at the domain's
+registrar. So this step is three `gcloud` commands, run from your computer
+(note the explicit `--project`: the active project is `impos-qualif`, but the
+zone lives elsewhere):
 
-   | Name (host) | Type | Value | TTL |
-   |---|---|---|---|
-   | `impos-qualif` | A | `34.76.xxx.xxx` | 300–3600 |
-   | `imvaluation-qualif` | A | `34.76.xxx.xxx` | 300–3600 |
-   | `imfid-qualif` | A | `34.76.xxx.xxx` | 300–3600 |
+```bash
+# 1. Find the zone's internal name (once)
+gcloud dns managed-zones list --project=mobipay-calife
+```
 
-   Depending on the console, the name field takes either the short host
-   (`impos-qualif`) or the full name (`impos-qualif.it-o-cm.fr.`) — copy the
-   convention of the existing `calife-mobipay` record. Nothing else is needed:
-   no NS, no CNAME, no Google DNS service.
-4. Verify from your terminal (repeat until it answers — usually minutes,
-   sometimes up to an hour):
+The output lists the zone for `it-o-cm.fr.` — note its NAME (first column).
+Then create the three records (mind the **trailing dot**: DNS names here are
+absolute):
+
+```bash
+ZONE=<the-name-found-above>
+for h in impos-qualif imvaluation-qualif imfid-qualif; do
+  gcloud dns record-sets create ${h}.it-o-cm.fr. --project=mobipay-calife \
+    --zone="$ZONE" --type=A --ttl=300 --rrdatas=<STATIC_IP-from-step-1>
+done
+```
+
+Verify from your terminal (Cloud DNS propagates almost immediately):
 
 ```bash
 dig +short impos-qualif.it-o-cm.fr      # must print the static IP
 ```
 
+Alternative for the console-minded: GCP console → project `mobipay-calife` →
+"Network services" → "Cloud DNS" → the `it-o-cm.fr` zone → "Add record set",
+three times (type A, TTL 300, the static IP).
+
 This step matters because the HTTPS certificates are requested automatically
 by Caddy the first time someone visits — and that only works once the names
-resolve.
+resolve. If `managed-zones list` finds nothing in `mobipay-calife`, list your
+projects (`gcloud projects list`) and query each: the zone necessarily exists
+somewhere, since `calife-mobipay.it-o-cm.fr` already resolves from it.
 
 ### Step 3 — Install the software on the VM
 
@@ -390,6 +442,25 @@ production profile uses `quarkus.hibernate-orm.database.generation=update` —
 a `drop-and-create` left over from development would wipe the data at every
 restart.
 
+**Bootstrap accounts (first logins).** In production mode the applications
+refuse to start without their bootstrap credentials, provided as environment
+variables in the `.service` files (placeholders substituted by
+`02-provision.sh`). To read the values currently in force on the VM:
+
+```bash
+gcloud compute ssh qualif --command="grep -h BOOTSTRAP /etc/systemd/system/*.service"
+```
+
+| Application | Login | Password source | Note |
+|---|---|---|---|
+| imvaluation back-office | `admin` | `VALUATION_BOOTSTRAP_ADMIN_PASSWORD` | password change forced at first login |
+| imfid admin | the `IMFID_BOOTSTRAP_ADMIN_EMAIL` address | `IMFID_BOOTSTRAP_ADMIN_PASSWORD` | |
+| imfid `pos` machine account | `pos` | `IMFID_BOOTSTRAP_POS_PASSWORD` | MUST equal `pos.fid.password` in `impos.service` (`pos-password`), or every loyalty call from the register fails 401. Not a human account. |
+
+These variables only matter at bootstrap (first start on an empty database)
+and after any database reset — day-to-day logins use whatever passwords were
+set in the applications afterwards.
+
 ## 8. Reading the logs (the reflex for every problem)
 
 Each service writes its log into the system journal. On the VM:
@@ -428,6 +499,13 @@ curl -s http://127.0.0.1:8060/q/health   # from the VM; 8080 impos, 8090 imvalua
 | imfid data vanished after a restart | `drop-and-create` left in the prod profile | Fix the profile (§7 last paragraph), restore the latest dump or snapshot |
 | VM never stops at 20:00 | The schedule's permission grant is missing | Re-run the IAM block of `01-create-vm.sh` (it is safe to re-run) |
 | A `gcloud` command says the VM does not exist | Wrong project/zone configured | `gcloud config set project impos-qualif` and `gcloud config set compute/zone europe-west1-b` |
+| "does not have permission to access projects instance … or it may not exist" | The project was never created (Step 0 skipped) | Do Step 0, then `gcloud projects describe impos-qualif` must succeed |
+| `zsh: permission denied: ./01-create-vm.sh` | Execute bit lost in the zip download | `chmod +x *.sh` once (end of Step 0) |
+| "europe-west1-b is not a valid zone" warning | Compute API not yet enabled on the project — gcloud could not check the zone, which is valid | `gcloud services enable compute.googleapis.com`, answer Y meanwhile |
+| Browser shows **502 Bad Gateway** on one site | Caddy is up but that app is down (often a crash-loop) | `systemctl is-active <app>` then read its journal — see next row |
+| Journal shows "Failed to load config value … for: X" or "Could not expand value Y" in a restart loop | A mandatory %prod config key has no value | Add `Environment=<ENV_NAME>=value` to the app's `.service` (env name = key uppercased, dots/dashes → `_`), `daemon-reload`, restart. The kit units already carry all known ones. |
+| An admin screen answers 500 with an error id | Application exception | `journalctl -u <app> --no-pager \| grep -A 40 '<error id>'` and read the `Caused by` |
+| imfid admin 500 "Unable to access lob stream" | Jar predates the LOB→TEXT fix, or DB still has `oid` columns | Deploy a fixed build, then reset the imfid database (§7) — Hibernate `update` cannot convert `oid` columns |
 
 Golden rule: **the VM is disposable, the repos and the snapshots are not.**
 If an environment is beyond repair, recreating it from scratch (§5) takes
