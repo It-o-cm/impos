@@ -1,0 +1,24 @@
+# Qualification reverse proxy — automatic HTTPS via Let's Encrypt.
+# One subdomain per application; app ports never exposed publicly.
+# Inter-app calls (impos -> imvaluation/imfid) go through localhost, not Caddy.
+
+impos-qualif.it-o-cm.fr {
+	# Hardware simulator (static page from the repo's doc dir, NOT packaged in the
+	# jar on purpose — a real till must never ship it). Same origin as the impos
+	# API it drives (scan bus, scale, TPE, drawer), so no CORS involved.
+	handle_path /simulateur* {
+		root * /opt/apps/impos/simulator
+		file_server
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}
+
+imvaluation-qualif.it-o-cm.fr {
+	reverse_proxy 127.0.0.1:8090
+}
+
+imfid-qualif.it-o-cm.fr {
+	reverse_proxy 127.0.0.1:8060
+}

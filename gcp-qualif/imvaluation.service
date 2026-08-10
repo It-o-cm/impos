@@ -1,0 +1,23 @@
+# systemd unit — imvaluation (basket valuation engine), port 8090, H2 FILE database.
+# H2 file is deliberate: on a real till the engine runs LOCALLY next to the POS
+# (same machine, synchronous localhost calls), so no per-till PostgreSQL server.
+# Its data is referential (products, prices, offers) and rebuildable by re-import:
+# a lost engine DB is re-seeded, it carries no fiscal fact.
+[Unit]
+Description=imvaluation (Quarkus) - qualification
+After=network.target
+
+[Service]
+User=apps
+WorkingDirectory=/opt/apps/imvaluation
+ExecStart=/usr/bin/java \
+  -Dquarkus.http.port=8090 \
+  -Dquarkus.datasource.jdbc.url=jdbc:h2:file:/opt/apps/imvaluation/data/engine \
+  -jar /opt/apps/imvaluation/quarkus-app/quarkus-run.jar
+Restart=on-failure
+RestartSec=5
+# Behind Caddy: trust proxy headers (same lesson as the Mobipay CSRF issue)
+Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+
+[Install]
+WantedBy=multi-user.target

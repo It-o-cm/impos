@@ -1,0 +1,27 @@
+# systemd unit — impos (POS till C04), port 8080, H2 FILE database.
+# H2 file is deliberate: the design mandates one executable and one local DB per till
+# (a sale must never depend on a network link). One VM instance = one till.
+[Unit]
+Description=impos (Quarkus POS) - qualification
+After=network.target
+
+[Service]
+User=apps
+WorkingDirectory=/opt/apps/impos
+ExecStart=/usr/bin/java \
+  -Dquarkus.http.port=8080 \
+  -Dquarkus.datasource.jdbc.url=jdbc:h2:file:/opt/apps/impos/data/pos-c04 \
+  -Dpos.terminal.id=C04 \
+  -Dpos.valuation.url=http://127.0.0.1:8090 \
+  -Dpos.fid.url=http://127.0.0.1:8060 \
+  -Dpos.fid.user=pos \
+  -Dpos.fid.password=pos-password \
+  -Dscan.pattern.fidelity=^299\\d{10}$ \
+  -Dpos.tpe.virtual=true \
+  -jar /opt/apps/impos/quarkus-app/quarkus-run.jar
+Restart=on-failure
+RestartSec=5
+Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+
+[Install]
+WantedBy=multi-user.target
