@@ -6,6 +6,8 @@ import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.domain.SyncOutbox;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.StoredValue;
+import com.intermarche.pos.domain.ticket.CashPayment;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketCounter;
 import com.intermarche.pos.domain.ticket.TicketLine;
@@ -28,11 +30,14 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
@@ -644,6 +649,406 @@ class TicketPersistenceServiceTest {
             service.validateTicket(5L);
             assertEquals("GENESIS", ticket.previousSignature);
             assertEquals(0, new BigDecimal("12.00").compareTo(counter.grandTotal));
+        }
+    }
+
+    // --------------------------------------------------
+    // validateTicket — stored-value registry
+    // --------------------------------------------------
+
+    /**
+     * Stubs the registry lookup at the level Panache actually intercepts:
+     * {@code findByNumber} is declared on StoredValue, so it is NOT
+     * intercepted by the PanacheEntityBase static mock — its body runs and
+     * calls {@code find("number", …)}, which IS. Stubbing that query is what
+     * makes the lookup return the wanted instrument.
+     *
+     * @param mocked the open Panache static mock
+     * @param number the instrument number
+     * @param instrument the instrument to return, possibly null
+     */
+    private void stubRegistryLookup(MockedStatic<PanacheEntityBase> mocked, String number,
+                                    StoredValue instrument) {
+        @SuppressWarnings("unchecked")
+        PanacheQuery<StoredValue> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(instrument);
+        mocked.when(() -> StoredValue.find("number", number)).thenReturn(query);
+    }
+
+    /**
+     * Builds a registry instrument.
+     *
+     * @param number the instrument number
+     * @param balance the current balance
+     * @return the instrument
+     */
+    private StoredValue instrument(String number, String balance) {
+        StoredValue instrument = new StoredValue();
+        instrument.number = number;
+        instrument.balance = new BigDecimal(balance);
+        instrument.status = StoredValue.Status.ACTIVE;
+        return instrument;
+    }
+
+    /**
+     * Prepares a counter so that {@code validateTicket} runs to completion.
+     *
+     * @param service the service under test
+     */
+    private void stubCounter(TicketPersistenceService service) {
+        TicketCounter counter = new TicketCounter();
+        counter.lastSignature = null;
+        when(service.ticketNumberService.lockCounter(TERMINAL)).thenReturn(counter);
+    }
+
+    /**
+     * THE FISCAL DEBIT: a registry voucher used on the closed ticket has its
+     * balance lowered by the amount paid, and the ticket is stamped on the
+     * instrument. The debit happens HERE and nowhere else — a payment that
+     * never reaches the fiscal moment never spends the instrument.
+     */
+    @Test
+    void validateTicketDebitsTheRegistryInstrument() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new VoucherPayment(
+                new BigDecimal("4.00"), "Avoir", "297000000000001"));
+        StoredValue note = instrument("297000000000001", "10.00");
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubRegistryLookup(mocked, "297000000000001", note);
+            service.validateTicket(5L);
+        }
+        assertEquals(0, new BigDecimal("6.00").compareTo(note.balance));
+        assertEquals(5L, note.lastRedeemedTicketId);
+        assertEquals(StoredValue.Status.ACTIVE, note.status);
+        assertNull(note.exhaustedAt);
+    }
+
+    /**
+     * A FULLY SPENT instrument is closed: the balance reaches zero, the
+     * status flips to EXHAUSTED and the moment is stamped — this is what
+     * makes a second scan of the same paper refuse later.
+     */
+    @Test
+    void validateTicketExhaustsAFullySpentInstrument() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new VoucherPayment(
+                new BigDecimal("10.00"), "Avoir", "297000000000001"));
+        StoredValue note = instrument("297000000000001", "10.00");
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubRegistryLookup(mocked, "297000000000001", note);
+            service.validateTicket(5L);
+        }
+        assertEquals(0, BigDecimal.ZERO.compareTo(note.balance));
+        assertEquals(StoredValue.Status.EXHAUSTED, note.status);
+        assertNotNull(note.exhaustedAt);
+    }
+
+    /**
+     * The balance is FLOORED at zero: even if the paid amount somehow exceeds
+     * the balance, the instrument never goes negative — a negative stored
+     * value would be money created out of a rounding accident.
+     */
+    @Test
+    void validateTicketFloorsTheBalanceAtZero() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new VoucherPayment(
+                new BigDecimal("25.00"), "Carte cadeau", "296000000000001"));
+        StoredValue card = instrument("296000000000001", "10.00");
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubRegistryLookup(mocked, "296000000000001", card);
+            service.validateTicket(5L);
+        }
+        assertEquals(0, BigDecimal.ZERO.compareTo(card.balance));
+        assertEquals(StoredValue.Status.EXHAUSTED, card.status);
+    }
+
+    /**
+     * An instrument that VANISHED from the registry is skipped rather than
+     * crashing the fiscal close: the sale is already legally complete, and a
+     * missing row must never hold a closing hostage.
+     */
+    @Test
+    void validateTicketSkipsAVanishedInstrument() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new VoucherPayment(
+                new BigDecimal("4.00"), "Avoir", "297000000000001"));
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubRegistryLookup(mocked, "297000000000001", null);
+            service.validateTicket(5L);
+            assertEquals(Ticket.TicketStatus.CLOSED, ticket.status);
+        }
+    }
+
+    /**
+     * A NON-REGISTRY voucher (an old encoded coupon) is left alone: its value
+     * lives on the paper, not in the registry, and there is nothing to debit.
+     */
+    @Test
+    void validateTicketIgnoresANonRegistryVoucher() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new VoucherPayment(
+                new BigDecimal("4.00"), "Chèque cadeau", "500123"));
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.validateTicket(5L);
+            mocked.verify(() -> StoredValue.find(eq("number"), any(Object[].class)), never());
+        }
+    }
+
+    /**
+     * A NON-VOUCHER payment never reaches the registry lookup (the
+     * {@code instanceof} leg): cash spends no instrument.
+     */
+    @Test
+    void validateTicketIgnoresNonVoucherPayments() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        ticket.payments.add(new CashPayment(new BigDecimal("12.00"), new BigDecimal("20.00")));
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.validateTicket(5L);
+            mocked.verify(() -> StoredValue.find(eq("number"), any(Object[].class)), never());
+        }
+    }
+
+    // --------------------------------------------------
+    // validateTicket — gift-card issuance
+    // --------------------------------------------------
+
+    /**
+     * Builds a gift-card product.
+     *
+     * @param faceValue the loaded value, or null for an ordinary product
+     * @return the product
+     */
+    private Product giftCardProduct(String faceValue) {
+        Product product = new Product();
+        product.giftCardAmount = faceValue == null ? null : new BigDecimal(faceValue);
+        return product;
+    }
+
+    /**
+     * Stubs the catalog lookup of a sold line.
+     *
+     * @param mocked the open Panache static mock
+     * @param ean the scanned EAN
+     * @param product the product to return, possibly null
+     */
+    private void stubProduct(MockedStatic<PanacheEntityBase> mocked, String ean, Product product) {
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Product> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(product);
+        mocked.when(() -> Product.find("ean", ean)).thenReturn(query);
+    }
+
+    /**
+     * Selling a gift card ISSUES the instrument at the fiscal moment: kind,
+     * face value and balance are loaded, the issuing ticket is stamped, and
+     * the number is derived from the generated id AFTER persisting — the
+     * identity comes from the database, never from the register.
+     */
+    @Test
+    void validateTicketIssuesTheSoldGiftCard() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("25.00");
+        ticket.totalVat = BigDecimal.ZERO;
+        TicketLine sold = new TicketLine();
+        sold.ean = "3400025000001";
+        sold.quantity = BigDecimal.ONE;
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class,
+                     (card, ctx) -> card.id = 7L)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubProduct(mocked, "3400025000001", giftCardProduct("25.00"));
+            service.validateTicket(5L);
+            assertEquals(1, issued.constructed().size());
+            StoredValue card = issued.constructed().get(0);
+            assertEquals(StoredValue.Kind.GIFT_CARD, card.kind);
+            assertEquals(0, new BigDecimal("25.00").compareTo(card.initialAmount));
+            assertEquals(0, new BigDecimal("25.00").compareTo(card.balance));
+            assertEquals(5L, card.issuingTicketId);
+            assertNotNull(card.issuedAt);
+            assertEquals("296000000000007", card.number);
+            verify(card).persist();
+        }
+    }
+
+    /**
+     * A line carrying SEVERAL cards issues one instrument PER UNIT: two cards
+     * bought together are two distinct instruments with two numbers, never a
+     * single one loaded twice.
+     */
+    @Test
+    void validateTicketIssuesOneInstrumentPerUnit() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("50.00");
+        ticket.totalVat = BigDecimal.ZERO;
+        TicketLine sold = new TicketLine();
+        sold.ean = "3400025000001";
+        sold.quantity = new BigDecimal("2");
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class,
+                     (card, ctx) -> card.id = 7L)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubProduct(mocked, "3400025000001", giftCardProduct("25.00"));
+            service.validateTicket(5L);
+            assertEquals(2, issued.constructed().size());
+        }
+    }
+
+    /**
+     * A line WITHOUT an EAN issues nothing (first guard): a weighed PLU line
+     * can never be an instrument.
+     */
+    @Test
+    void validateTicketIssuesNothingForALineWithoutEan() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        TicketLine sold = new TicketLine();
+        sold.ean = null;
+        sold.quantity = BigDecimal.ONE;
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.validateTicket(5L);
+            assertTrue(issued.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * An EAN UNKNOWN to the catalog issues nothing (second guard, first leg).
+     */
+    @Test
+    void validateTicketIssuesNothingForAnUnknownProduct() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        TicketLine sold = new TicketLine();
+        sold.ean = "123";
+        sold.quantity = BigDecimal.ONE;
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubProduct(mocked, "123", null);
+            service.validateTicket(5L);
+            assertTrue(issued.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * An ORDINARY product issues nothing (second guard, second leg): only a
+     * loaded face value makes an instrument.
+     */
+    @Test
+    void validateTicketIssuesNothingForAnOrdinaryProduct() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        TicketLine sold = new TicketLine();
+        sold.ean = "123";
+        sold.quantity = BigDecimal.ONE;
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubProduct(mocked, "123", giftCardProduct(null));
+            service.validateTicket(5L);
+            assertTrue(issued.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * A ZERO-quantity line issues nothing: the per-unit loop never runs.
+     */
+    @Test
+    void validateTicketIssuesNothingForAZeroQuantityLine() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        TicketLine sold = new TicketLine();
+        sold.ean = "3400025000001";
+        sold.quantity = BigDecimal.ZERO;
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            stubProduct(mocked, "3400025000001", giftCardProduct("25.00"));
+            service.validateTicket(5L);
+            assertTrue(issued.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * The unreachable arm of the signature: if the JVM ever failed to supply
+     * SHA-256 — which its own specification forbids — the fiscal close would
+     * fail LOUDLY rather than sign with something weaker. Reaching it takes a
+     * static mock of the JCA itself, which is the point: the catch exists so
+     * that an impossible platform cannot silently degrade a fiscal signature.
+     */
+    @Test
+    void validateTicketFailsLoudlyWhenSha256IsUnavailable() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedStatic<java.security.MessageDigest> jca =
+                     mockStatic(java.security.MessageDigest.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            jca.when(() -> java.security.MessageDigest.getInstance("SHA-256"))
+                    .thenThrow(new java.security.NoSuchAlgorithmException("absent"));
+
+            IllegalStateException failure =
+                    assertThrows(IllegalStateException.class, () -> service.validateTicket(5L));
+
+            assertEquals("SHA-256 indisponible", failure.getMessage());
+            assertNotNull(failure.getCause());
+            assertTrue(failure.getCause() instanceof java.security.NoSuchAlgorithmException);
         }
     }
 

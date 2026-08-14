@@ -4,6 +4,8 @@ import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.service.valuation.ValuationReconciler;
 import com.intermarche.pos.service.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.service.sync.FidEventOutboxService;
+import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -59,6 +62,15 @@ class PaymentServiceTest {
     /** Mocked valuation reconciler collaborator (advantage revert). */
     private ValuationReconciler valuationReconciler;
 
+    /** The printer, which issues the gift-card vouchers at the fiscal moment. */
+    private com.intermarche.pos.service.TicketPrinterService ticketPrinterService;
+
+    /** The loyalty lease lifecycle: reserve, renew, release, confirm. */
+    private FidelityService fidelityService;
+
+    /** The loyalty fiscal-event outbox, fed at the fiscal moment. */
+    private FidEventOutboxService fidEventOutboxService;
+
     /** A real POS state carrying real payment and ticket sub-states. */
     private PosState state;
 
@@ -75,8 +87,14 @@ class PaymentServiceTest {
         valuationReconciler = mock(ValuationReconciler.class);
         service.hardwareService = hardwareService;
         service.ticketPersistenceService = ticketPersistenceService;
+        ticketPrinterService = mock(com.intermarche.pos.service.TicketPrinterService.class);
+        service.ticketPrinterService = ticketPrinterService;
         service.valuationService = valuationService;
         service.valuationReconciler = valuationReconciler;
+        fidelityService = mock(FidelityService.class);
+        fidEventOutboxService = mock(FidEventOutboxService.class);
+        service.fidelityService = fidelityService;
+        service.fidEventOutboxService = fidEventOutboxService;
         service.virtualTpe = true;
         state = new PosState();
     }
@@ -646,15 +664,56 @@ class PaymentServiceTest {
     // --------------------------------------------------
 
     /**
-     * {@code processFidelity} returns when the defaulted amount is non-positive
-     * ({@code amount == null} true, second guard true).
+     * {@code processFidelity} returns on a settled ticket: nothing is due, so
+     * no lease is even requested (first guard true).
      */
     @Test
     void processFidelityZeroReturns() {
         state.ticket.totalAmount = BigDecimal.ZERO;
         service.processFidelity(state, null);
         verifyNoInteractions(hardwareService);
+        verifyNoInteractions(fidelityService);
         assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * A REFUSED lease registers no payment and shows the refusal message
+     * verbatim — imfid's closed nomenclature reaches the cashier untouched
+     * (refusal arm of the reservation protocol, spec §5.1).
+     */
+    @Test
+    void processFidelityRefusedShowsMessageAndPaysNothing() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        when(fidelityService.reserveLease(eq(state), any(), any()))
+                .thenReturn(refusal("SOLDE CAGNOTTE INSUFFISANT"));
+        service.processFidelity(state, new BigDecimal("4"));
+        assertEquals("SOLDE CAGNOTTE INSUFFISANT", state.ticket.transientError);
+        assertTrue(state.payment.payments.isEmpty());
+        verifyNoInteractions(hardwareService);
+    }
+
+    /**
+     * Builds a refusal verdict carrying the given display message.
+     *
+     * @param message the exact message the cashier must see
+     * @return the refusal verdict
+     */
+    private FidelityService.BurnVerdict refusal(String message) {
+        FidelityService.BurnVerdict verdict = new FidelityService.BurnVerdict();
+        verdict.refusalMessage = message;
+        return verdict;
+    }
+
+    /**
+     * Builds a granted verdict for the given amount.
+     *
+     * @param amount the amount the lease grants
+     * @return the granted verdict
+     */
+    private FidelityService.BurnVerdict grant(String amount) {
+        FidelityService.BurnVerdict verdict = new FidelityService.BurnVerdict();
+        verdict.grantedAmount = new BigDecimal(amount);
+        return verdict;
     }
 
     /**
@@ -666,6 +725,10 @@ class PaymentServiceTest {
     void processFidelityDefaultsCompletesNoDrawer() {
         state.ticket.totalAmount = new BigDecimal("10.00");
         state.payment.ticketDbId = 3L;
+        // The GRANTED amount is imfid's, not the caller's: the lease caps it
+        // to min(asked, due, burnable base, available balance).
+        when(fidelityService.reserveLease(eq(state), any(), any()))
+                .thenReturn(grant("10.00"));
         service.processFidelity(state, BigDecimal.ZERO);
         assertEquals(0, new BigDecimal("10.00").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("FIDELITE  10,00 E");
@@ -683,6 +746,8 @@ class PaymentServiceTest {
     void processFidelityPositivePartial() {
         state.ticket.totalAmount = new BigDecimal("10.00");
         state.payment.ticketDbId = 3L;
+        when(fidelityService.reserveLease(eq(state), any(), any()))
+                .thenReturn(grant("4"));
         service.processFidelity(state, new BigDecimal("4"));
         assertEquals(0, new BigDecimal("4").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("FIDELITE  4,00 E");
@@ -769,11 +834,253 @@ class PaymentServiceTest {
     @Test
     void finalizeTransactionValidatesDraft() {
         state.payment.ticketDbId = 9L;
-        service.finalizeTransaction(state);
+        // The fiscal moment looks up the gift cards ISSUED by this sale to
+        // print their vouchers: a Panache call, neutralized here (plain
+        // mvn test leaves entities un-enhanced). No card issued = no voucher.
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
         verify(ticketPersistenceService).validateTicket(9L);
         assertEquals(9L, state.lastClosedTicketId);
         verify(hardwareService).displayMessage("MERCI A BIENTOT");
         assertNull(state.payment.ticketDbId);
+    }
+
+    /**
+     * WITHOUT a card, the fiscal moment touches nothing loyalty-side: no
+     * lease to confirm, no event to declare.
+     */
+    @Test
+    void finalizeTransactionWithoutCardEnqueuesNoLoyaltyEvent() {
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verifyNoInteractions(fidelityService);
+        verifyNoInteractions(fidEventOutboxService);
+    }
+
+    /**
+     * The FISCAL SEQUENCE of a card-bearing sale, in order: the lease is
+     * confirmed FIRST (its id then travels), the closed ticket supplies the
+     * reference, and the composed payload is enqueued. The outbox — not a
+     * direct call — is what makes the declaration survive a dead imfid.
+     */
+    @Test
+    void finalizeTransactionConfirmsTheLeaseThenEnqueuesTheClosedEvent() {
+        state.payment.ticketDbId = 9L;
+        state.fidelity.assignCard("2990000000019");
+        com.intermarche.pos.domain.ticket.Ticket closed =
+                new com.intermarche.pos.domain.ticket.Ticket();
+        closed.ticketNumber = "C04-000001";
+        when(fidelityService.confirmLease(eq(state), any())).thenReturn(77L);
+        when(fidelityService.buildTicketClosedPayload(eq(state), any(), any(), any(), any()))
+                .thenReturn("{\"ticketRef\":\"2026-C04-000001\"}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+                    .thenReturn(closed);
+            service.finalizeTransaction(state);
+        }
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(fidelityService, fidEventOutboxService);
+        order.verify(fidelityService).confirmLease(eq(state), any());
+        order.verify(fidelityService).buildTicketClosedPayload(
+                eq(state), eq(java.time.LocalDate.now().getYear() + "-C04-000001"),
+                eq("2990000000019"), any(), eq(77L));
+        order.verify(fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED),
+                eq("{\"ticketRef\":\"2026-C04-000001\"}"));
+    }
+
+    /**
+     * A sale paid WITHOUT the cagnotte still declares its earn: the lease id
+     * is simply null and no burn is claimed.
+     */
+    @Test
+    void finalizeTransactionEnqueuesTheEventWithoutALease() {
+        state.payment.ticketDbId = 9L;
+        state.fidelity.assignCard("2990000000019");
+        com.intermarche.pos.domain.ticket.Ticket closed =
+                new com.intermarche.pos.domain.ticket.Ticket();
+        closed.ticketNumber = "C04-000002";
+        when(fidelityService.confirmLease(eq(state), any())).thenReturn(null);
+        when(fidelityService.buildTicketClosedPayload(eq(state), any(), any(), any(), any()))
+                .thenReturn("{\"earn\":1}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+                    .thenReturn(closed);
+            service.finalizeTransaction(state);
+        }
+        verify(fidelityService).buildTicketClosedPayload(
+                eq(state), any(), eq("2990000000019"), any(), org.mockito.ArgumentMatchers.isNull());
+        verify(fidEventOutboxService).enqueue(
+                com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED, "{\"earn\":1}");
+    }
+
+    /**
+     * NO COUPLE, no event: without the verbatim valuation couple the payload
+     * is null, and imfid would have nothing to recompute — the composer says
+     * so and nothing is enqueued. The lease is still confirmed, because a
+     * reserved balance must never stay locked.
+     */
+    @Test
+    void finalizeTransactionEnqueuesNothingWhenThePayloadIsNull() {
+        state.payment.ticketDbId = 9L;
+        state.fidelity.assignCard("2990000000019");
+        com.intermarche.pos.domain.ticket.Ticket closed =
+                new com.intermarche.pos.domain.ticket.Ticket();
+        closed.ticketNumber = "C04-000003";
+        when(fidelityService.buildTicketClosedPayload(any(), any(), any(), any(), any()))
+                .thenReturn(null);
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+                    .thenReturn(closed);
+            service.finalizeTransaction(state);
+        }
+        verify(fidelityService).confirmLease(eq(state), any());
+        verifyNoInteractions(fidEventOutboxService);
+    }
+
+    /**
+     * A draft that VANISHED between the validation and the lookup enqueues
+     * nothing rather than composing a reference from a null ticket: the
+     * event would be unmatchable at ingestion.
+     */
+    @Test
+    void finalizeTransactionEnqueuesNothingWhenTheClosedTicketIsGone() {
+        state.payment.ticketDbId = 9L;
+        state.fidelity.assignCard("2990000000019");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+                    .thenReturn(null);
+            service.finalizeTransaction(state);
+        }
+        verify(fidelityService).confirmLease(eq(state), any());
+        verify(fidelityService, never()).buildTicketClosedPayload(any(), any(), any(), any(), any());
+        verifyNoInteractions(fidEventOutboxService);
+    }
+
+    /**
+     * Builds a registry instrument as issued by a sale.
+     *
+     * @param number the instrument number
+     * @param amount the loaded face value
+     * @return the instrument
+     */
+    private com.intermarche.pos.domain.StoredValue issuedCard(String number, String amount) {
+        com.intermarche.pos.domain.StoredValue card = new com.intermarche.pos.domain.StoredValue();
+        card.number = number;
+        card.initialAmount = new BigDecimal(amount);
+        return card;
+    }
+
+    /**
+     * Stubs the gift cards issued by the closed sale.
+     *
+     * @param panache the open Panache static mock
+     * @param ticketId the closed draft id
+     * @param issued the instruments to return
+     */
+    @SuppressWarnings("unchecked")
+    private void stubIssuedGiftCards(
+            org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache,
+            long ticketId, java.util.List<com.intermarche.pos.domain.StoredValue> issued) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.StoredValue> query =
+                mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(query.list()).thenReturn(issued);
+        panache.when(() -> com.intermarche.pos.domain.StoredValue
+                .find("issuingTicketId", ticketId)).thenReturn(query);
+    }
+
+    /**
+     * A sale that issued a gift card prints ITS voucher at the fiscal moment:
+     * the customer leaves with the paper carrying the number and the loaded
+     * value — the only thing that lets them use the instrument later, since
+     * the register never writes the balance on the card itself.
+     */
+    @Test
+    void finalizeTransactionPrintsTheIssuedGiftCardVoucher() {
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubIssuedGiftCards(panache, 9L,
+                    java.util.List.of(issuedCard("296000000000001", "25.00")));
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPrinterService).printGiftCardVoucher("296000000000001",
+                new BigDecimal("25.00"));
+    }
+
+    /**
+     * SEVERAL cards issued by the same sale each get their own voucher — a
+     * customer buying two gift cards must leave with two papers, not one.
+     */
+    @Test
+    void finalizeTransactionPrintsOneVoucherPerIssuedCard() {
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubIssuedGiftCards(panache, 9L, java.util.List.of(
+                    issuedCard("296000000000001", "25.00"),
+                    issuedCard("296000000000002", "50.00")));
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPrinterService).printGiftCardVoucher("296000000000001",
+                new BigDecimal("25.00"));
+        verify(ticketPrinterService).printGiftCardVoucher("296000000000002",
+                new BigDecimal("50.00"));
+    }
+
+    /**
+     * A sale that issued NOTHING prints no voucher: the loop body is skipped,
+     * and an ordinary sale must not produce a stray slip.
+     */
+    @Test
+    void finalizeTransactionPrintsNoVoucherWhenNothingWasIssued() {
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPrinterService, never()).printGiftCardVoucher(any(), any());
+    }
+
+    /**
+     * Neutralizes the gift-card lookup of the fiscal moment (no card issued).
+     *
+     * @param panache the open Panache static mock
+     * @param ticketId the closed draft id
+     */
+    @SuppressWarnings("unchecked")
+    private void stubNoGiftCards(
+            org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache,
+            long ticketId) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.StoredValue> empty =
+                mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        when(empty.list()).thenReturn(java.util.List.of());
+        panache.when(() -> com.intermarche.pos.domain.StoredValue
+                .find("issuingTicketId", ticketId)).thenReturn(empty);
     }
 
     /**

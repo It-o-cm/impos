@@ -236,8 +236,13 @@ public class ValuationReconciler {
                 largestLine = share.getKey();
             }
         }
+        // The rounding residual lands on the largest share so the per-line
+        // cuts always sum back to the advantage. No null check on
+        // `largestLine`: the map was checked non-empty above, so the loop
+        // always designated one (the guarded version could never take its
+        // false arm).
         BigDecimal residual = discount.subtract(allocated);
-        if (residual.signum() != 0 && largestLine != null) {
+        if (residual.signum() != 0) {
             advantageByLine.merge(largestLine, residual, BigDecimal::add);
         }
     }

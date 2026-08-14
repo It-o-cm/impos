@@ -2,111 +2,190 @@ package com.intermarche.pos.ui.fidelity;
 
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link FidelityState}.
  * <p>
- * The class is a two-field working copy with a single guarded mutator
- * ({@link FidelityState#assignCard(String)}) and a reset ({@link FidelityState#clear()}).
- * The mutator carries the only conditional logic: the compound guard
- * {@code card != null && card.length() > 2}, whose four branches are exercised
- * here — null card, non-null too-short card, non-null boundary-length card, and a
- * valid card. Assertions use absolute expected values and there is no shared state.
+ * A pure in-memory holder with no collaborator: every test builds a fresh
+ * instance and asserts absolute values. Three behaviours carry meaning beyond
+ * their code — the attachment guard (a length check, NOT a format check: the
+ * format lives in the scan handler's pattern), the last-presented-card-wins
+ * replacement, and the separation between {@code clear()} (the card leaves
+ * with the ticket) and {@code clearEarn()} (only the projection is hidden,
+ * the card stays). Both arms of every guard are covered.
  */
 class FidelityStateTest {
 
     /**
-     * A freshly constructed state is inactive and carries an empty label.
+     * A fresh state carries no card and no projection — the state a sale must
+     * begin from.
      */
     @Test
-    void newStateIsInactiveWithEmptyLabel() {
-        FidelityState state = new FidelityState();
-        assertFalse(state.active);
-        assertEquals("", state.label);
+    void startsPristine() {
+        FidelityState fid = new FidelityState();
+        assertFalse(fid.active);
+        assertEquals("", fid.label);
+        assertNull(fid.earnTotal);
+        assertNull(fid.burnableBase);
+        assertTrue(fid.earnEntries.isEmpty());
+        assertNull(fid.lastValuationRequestJson);
+        assertNull(fid.lastValuationResponseJson);
     }
 
     /**
-     * A null card is silently ignored: the false arm of the {@code card != null}
-     * guard leaves the state untouched.
+     * A real card number attaches and switches the state ACTIVE — the flag
+     * that enables the CAGNOTTE payment button.
+     */
+    @Test
+    void assignCardAttachesRealNumber() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        assertTrue(fid.active);
+        assertEquals("2990000000019", fid.label);
+    }
+
+    /**
+     * A NULL card is silently ignored (first leg of the guard): an empty
+     * submit must not attach anything.
      */
     @Test
     void assignCardIgnoresNull() {
-        FidelityState state = new FidelityState();
-        state.assignCard(null);
-        assertFalse(state.active);
-        assertEquals("", state.label);
+        FidelityState fid = new FidelityState();
+        fid.assignCard(null);
+        assertFalse(fid.active);
+        assertEquals("", fid.label);
     }
 
     /**
-     * A card of exactly two characters is too short: the false arm of the
-     * {@code length() > 2} guard leaves the state untouched.
+     * A TOO-SHORT value is ignored (second leg): the guard is a length floor
+     * against empty submits, not a format check — the discriminant pattern
+     * lives in the scan handler.
      */
     @Test
-    void assignCardIgnoresTooShort() {
-        FidelityState state = new FidelityState();
-        state.assignCard("12");
-        assertFalse(state.active);
-        assertEquals("", state.label);
+    void assignCardIgnoresTooShortValue() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("12");
+        assertFalse(fid.active);
+        assertEquals("", fid.label);
     }
 
     /**
-     * A card of exactly three characters clears the length boundary: the true arm
-     * of both guards attaches the card and activates the state.
+     * Three characters ARE accepted — the boundary of {@code length() > 2}.
      */
     @Test
-    void assignCardAcceptsBoundaryLength() {
-        FidelityState state = new FidelityState();
-        state.assignCard("123");
-        assertTrue(state.active);
-        assertEquals("123", state.label);
+    void assignCardAcceptsThreeCharacters() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("123");
+        assertTrue(fid.active);
+        assertEquals("123", fid.label);
     }
 
     /**
-     * A valid card activates the state and stores the card number verbatim.
+     * A second card REPLACES the first: last presented wins, and there is
+     * never more than one card on a ticket.
      */
     @Test
-    void assignCardAttachesValidCard() {
-        FidelityState state = new FidelityState();
-        state.assignCard("9876543210");
-        assertTrue(state.active);
-        assertEquals("9876543210", state.label);
+    void assignCardLastPresentedWins() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.assignCard("2990000000040");
+        assertEquals("2990000000040", fid.label);
+        assertTrue(fid.active);
     }
 
     /**
-     * A second valid card replaces the first (last presented wins).
+     * A rejected card leaves a previously attached one UNTOUCHED: a stray
+     * empty submit must not detach the customer's card.
      */
     @Test
-    void assignCardReplacesPreviousCard() {
-        FidelityState state = new FidelityState();
-        state.assignCard("111");
-        state.assignCard("222");
-        assertTrue(state.active);
-        assertEquals("222", state.label);
+    void assignCardRejectionKeepsThePreviousCard() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.assignCard("");
+        assertTrue(fid.active);
+        assertEquals("2990000000019", fid.label);
     }
 
     /**
-     * {@link FidelityState#clear()} detaches an attached card, resetting both fields.
+     * {@code clearEarn()} hides the projection but KEEPS the card: this is
+     * the degraded-imfid path — the sale goes on with its card attached, only
+     * the advantage badge disappears.
      */
     @Test
-    void clearResetsAttachedState() {
-        FidelityState state = new FidelityState();
-        state.assignCard("9876543210");
-        state.clear();
-        assertFalse(state.active);
-        assertEquals("", state.label);
+    void clearEarnHidesProjectionButKeepsTheCard() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.earnTotal = new BigDecimal("1.03");
+        fid.burnableBase = new BigDecimal("47.11");
+        fid.earnEntries.add(new FidelityState.EarnLine("SOCLE", "Cagnotte socle", BigDecimal.ONE));
+
+        fid.clearEarn();
+
+        assertNull(fid.earnTotal);
+        assertNull(fid.burnableBase);
+        assertTrue(fid.earnEntries.isEmpty());
+        assertTrue(fid.active);
+        assertEquals("2990000000019", fid.label);
     }
 
     /**
-     * {@link FidelityState#clear()} is idempotent on an already-empty state.
+     * {@code clearEarn()} replaces the entry list rather than emptying it in
+     * place, so a snapshot handed out earlier is never mutated behind the
+     * caller's back.
      */
     @Test
-    void clearIsIdempotentOnEmptyState() {
-        FidelityState state = new FidelityState();
-        state.clear();
-        assertFalse(state.active);
-        assertEquals("", state.label);
+    void clearEarnReplacesTheEntryList() {
+        FidelityState fid = new FidelityState();
+        fid.earnEntries.add(new FidelityState.EarnLine("SOCLE", "Cagnotte socle", BigDecimal.ONE));
+        java.util.List<FidelityState.EarnLine> snapshot = fid.earnEntries;
+
+        fid.clearEarn();
+
+        assertEquals(1, snapshot.size());
+        assertTrue(fid.earnEntries.isEmpty());
+    }
+
+    /**
+     * {@code clear()} detaches the card — called when the ticket is cleared.
+     */
+    @Test
+    void clearDetachesTheCard() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.clear();
+        assertFalse(fid.active);
+        assertEquals("", fid.label);
+    }
+
+    /**
+     * {@code clear()} does NOT clear the projection: the two concerns are
+     * separate, and the end-of-sale broom is what runs both.
+     */
+    @Test
+    void clearLeavesTheProjectionToClearEarn() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.earnTotal = new BigDecimal("1.03");
+        fid.clear();
+        assertEquals(0, new BigDecimal("1.03").compareTo(fid.earnTotal));
+    }
+
+    /**
+     * An earn line carries the three fields the printed ticket needs: the
+     * rule code (traced at close), the label (printed) and the amount.
+     */
+    @Test
+    void earnLineCarriesCodeLabelAndAmount() {
+        FidelityState.EarnLine line =
+                new FidelityState.EarnLine("F&L-SAM", "Fruits & légumes samedi", new BigDecimal("0.75"));
+        assertEquals("F&L-SAM", line.ruleCode);
+        assertEquals("Fruits & légumes samedi", line.label);
+        assertEquals(0, new BigDecimal("0.75").compareTo(line.amount));
     }
 }

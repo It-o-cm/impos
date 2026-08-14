@@ -66,6 +66,10 @@ class PaymentResourceTest {
         resource.paymentService = mock(PaymentService.class);
         resource.voucherService = mock(VoucherService.class);
         resource.ticketPrinterService = mock(TicketPrinterService.class);
+        // Every display of the payment screen offers the fidelity lease its
+        // half-life renewal (imfid spec §5.1): the collaborator is asked on
+        // EVERY GET /pay, so it belongs to the fixture, not to a single test.
+        resource.fidelityService = mock(com.intermarche.pos.ui.fidelity.FidelityService.class);
         resource.pay = mock(Template.class);
         resource.main = mock(Template.class);
         return resource;

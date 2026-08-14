@@ -12,6 +12,7 @@ import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.domain.ticket.TicketLineValuation;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -636,6 +637,322 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("*** FORMATION - SANS VALEUR ***"));
         assertTrue(out.contains("ARTICLE AVEC UN LIBELLE VRAIMENT TRES LONG"));
         assertTrue(out.contains("CB"));
+    }
+
+    // --------------------------------------------------
+    // Whole-ticket discount and loyalty section
+    // --------------------------------------------------
+
+    /**
+     * Wires a live register state carrying a loyalty projection.
+     *
+     * @param service the service under test
+     * @param earnTotal the projected earn, or null
+     * @param draftId the draft in progress, or null
+     * @param lastClosedId the last closed ticket, or null
+     * @return the wired state
+     */
+    private PosState wireLiveState(TicketPrinterService service, BigDecimal earnTotal,
+                                   Long draftId, Long lastClosedId) {
+        PosState state = new PosState();
+        state.fidelity.assignCard("2990000000019");
+        state.fidelity.earnTotal = earnTotal;
+        state.payment.ticketDbId = draftId;
+        state.lastClosedTicketId = lastClosedId;
+        service.posState = state;
+        return state;
+    }
+
+    /**
+     * A persisted ticket carrying a whole-ticket discount prints its REMISE
+     * TICKET line, negative and above the totals — the customer must see the
+     * manager's gesture, not just a total that happens to be lower.
+     */
+    @Test
+    void printTicketPrintsTheWholeTicketDiscountLine() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.globalDiscountApplied = new BigDecimal("1.50");
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("REMISE TICKET"));
+            assertTrue(out.contains("-1,50 E"));
+        }
+    }
+
+    /**
+     * An ordinary sale prints NO discount line (guard false arm).
+     */
+    @Test
+    void printTicketPrintsNoDiscountLineWithoutAGesture() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.globalDiscountApplied = null;
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("REMISE TICKET"));
+        }
+    }
+
+    /**
+     * WITHOUT a register state the loyalty section is skipped: the printer is
+     * also built by hand in tests and by any caller outside CDI, and an
+     * absent state simply means "no loyalty section" rather than a failure.
+     */
+    @Test
+    void printTicketSkipsTheLoyaltySectionWithoutARegisterState() {
+        TicketPrinterService service = newService();
+        service.posState = null;
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * The section prints on the ticket the register is CURRENTLY on, with its
+     * total and one line per rule — those labels are the only rule data the
+     * POS is allowed to print, and they come from imfid, never invented here.
+     */
+    @Test
+    void printTicketPrintsTheLoyaltySectionOnTheCurrentTicket() {
+        TicketPrinterService service = newService();
+        PosState state = wireLiveState(service, new BigDecimal("1.03"), 1L, null);
+        state.fidelity.earnEntries.add(new FidelityState.EarnLine(
+                "SOCLE", "Cagnotte socle", new BigDecimal("0.28")));
+        state.fidelity.earnEntries.add(new FidelityState.EarnLine(
+                "F&L", "Fruits & legumes", new BigDecimal("0.75")));
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("CAGNOTTE DU JOUR"));
+            assertTrue(out.contains("+1,03 E"));
+            assertTrue(out.contains("Cagnotte socle"));
+            assertTrue(out.contains("+0,28 E"));
+            assertTrue(out.contains("Fruits & legumes"));
+        }
+    }
+
+    /**
+     * The section also prints right AFTER the fiscal close, when the draft is
+     * gone and only the last-closed id remains — that is exactly when the
+     * cashier hits IMPRIMER TICKET.
+     */
+    @Test
+    void printTicketPrintsTheLoyaltySectionOnTheLastClosedTicket() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, new BigDecimal("1.03"), null, 1L);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertTrue(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * The DRAFT wins over the last closed id when both are set: the register
+     * is on a new sale, and printing an older ticket must not borrow the
+     * current projection.
+     */
+    @Test
+    void printTicketPrefersTheDraftOverTheLastClosedTicket() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, new BigDecimal("1.03"), 2L, 1L);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * A DUPLICATA of an older ticket carries NO section: the earn is not
+     * persisted, so borrowing the live projection would print somebody
+     * else's cagnotte on this paper. Known and accepted gap.
+     */
+    @Test
+    void printTicketPrintsNoLoyaltySectionOnAnotherTicket() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, new BigDecimal("1.03"), null, 99L);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * With NEITHER a draft NOR a last closed ticket the section is skipped:
+     * there is nothing the projection could belong to.
+     */
+    @Test
+    void printTicketSkipsTheSectionWhenNoTicketIsCurrent() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, new BigDecimal("1.03"), null, null);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * A NULL projection prints no section (second leg of the guard) — the
+     * degraded loyalty display: nothing rather than a figure the register
+     * cannot vouch for.
+     */
+    @Test
+    void printTicketPrintsNoSectionWithoutAProjection() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, null, 1L, null);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * A ZERO projection prints no section either (third leg): a cart absorbed
+     * by an offer earns nothing, and "CAGNOTTE DU JOUR +0,00 E" would look
+     * like a defect to the customer.
+     */
+    @Test
+    void printTicketPrintsNoSectionOnAZeroProjection() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, BigDecimal.ZERO, 1L, null);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+        }
+    }
+
+    /**
+     * A projection with NO rule entries prints the total alone: the section
+     * header exists, the loop simply adds nothing.
+     */
+    @Test
+    void printTicketPrintsTheSectionTotalWithoutRuleLines() {
+        TicketPrinterService service = newService();
+        wireLiveState(service, new BigDecimal("1.03"), 1L, null);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("CAGNOTTE DU JOUR"));
+            assertTrue(out.contains("+1,03 E"));
+        }
+    }
+
+    /**
+     * The TRAINING receipt prints the whole-ticket discount too — a trainee
+     * must see the same paper a customer would get.
+     */
+    @Test
+    void printTrainingReceiptPrintsTheWholeTicketDiscount() {
+        TicketPrinterService service = newService();
+        PosState state = new PosState();
+        state.ticket.items.add(new TicketState.TicketItem(
+                "3000", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.2000")));
+        state.ticket.globalDiscountApplied = new BigDecimal("0.50");
+        service.printTrainingReceipt(state);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("REMISE TICKET"));
+        assertTrue(out.contains("-0,50 E"));
+    }
+
+    /**
+     * WITHOUT a gesture the training receipt prints no discount line either.
+     */
+    @Test
+    void printTrainingReceiptPrintsNoDiscountLineWithoutAGesture() {
+        TicketPrinterService service = newService();
+        PosState state = new PosState();
+        state.ticket.items.add(new TicketState.TicketItem(
+                "3000", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.2000")));
+        service.printTrainingReceipt(state);
+        assertFalse(captureReceipt(service).contains("REMISE TICKET"));
+    }
+
+    // --------------------------------------------------
+    // printLoyaltyCredit
+    // --------------------------------------------------
+
+    /**
+     * The voluntary loyalty refund hands the customer a printed PROOF: the
+     * title, the credited amount signed as a credit, and the notice that the
+     * balance follows within minutes — the register never writes that balance
+     * itself, so this slip is the customer's only in-hand evidence.
+     */
+    @Test
+    void printLoyaltyCreditPrintsTheProof() {
+        TicketPrinterService service = newService();
+        service.printLoyaltyCredit(new BigDecimal("9.99"));
+        String out = captureReceipt(service);
+        assertTrue(out.contains("INTERMARCHE"));
+        assertTrue(out.contains("REMBOURSEMENT EN CAGNOTTE"));
+        assertTrue(out.contains("CREDIT CARTE"));
+        assertTrue(out.contains("+9,99 E"));
+        assertTrue(out.contains("(visible sur la carte sous quelques minutes)"));
+    }
+
+    /**
+     * The amount is formatted like every other figure on paper — two
+     * decimals, French comma.
+     */
+    @Test
+    void printLoyaltyCreditFormatsTheAmountInFrenchNotation() {
+        TicketPrinterService service = newService();
+        service.printLoyaltyCredit(new BigDecimal("12.5"));
+        assertTrue(captureReceipt(service).contains("+12,50 E"));
     }
 
     // --------------------------------------------------

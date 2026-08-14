@@ -3,7 +3,6 @@ package com.intermarche.pos.ui.ticket;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.ticket.TicketService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -91,7 +90,12 @@ public class ProductSearchResource {
                 String priceFormatted = (price != null)
                         ? String.format("%.2f €", price.priceIncludingTax.setScale(2, RoundingMode.HALF_UP)).replace(".", ",")
                         : "—";
-                String code = (product.ean != null && !product.ean.isEmpty()) ? product.ean : product.plu;
+                // The EAN is guaranteed non-empty by the filter above (a
+                // PLU-only product never reaches here — its home is the
+                // weighing grid, not the search), so no fallback is
+                // reachable: the guarded version could never take its
+                // false arm.
+                String code = product.ean;
                 hits.add(new SearchHit(product.name.toUpperCase(), code, priceFormatted));
             }
         }

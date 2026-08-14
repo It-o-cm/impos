@@ -20,12 +20,15 @@ import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -53,6 +56,9 @@ class TicketServiceTest {
 
     /** Service under test with hand-wired collaborators. */
     private TicketService service;
+
+    /** Journal of the age-check decisions (confirmed / refused). */
+    private com.intermarche.pos.service.TechnicalEventService technicalEventService;
 
     /** Real POS state graph shared as both the injected and the parameter state. */
     private PosState state;
@@ -94,6 +100,8 @@ class TicketServiceTest {
         service.cashSessionService = cashSessionService;
         service.ticketPrinterService = ticketPrinterService;
         service.state = state;
+        technicalEventService = mock(com.intermarche.pos.service.TechnicalEventService.class);
+        service.technicalEventService = technicalEventService;
         service.scanHandlers = scanHandlers;
         service.defaultVatRate = new BigDecimal("0.20");
     }
@@ -899,6 +907,427 @@ class TicketServiceTest {
         assertTrue(state.ticket.items.isEmpty());
     }
 
+    // --- applyGlobalDiscount ---
+
+    /**
+     * A payment in progress REFUSES the whole-ticket gesture: the totals are
+     * already committed to the payment screen, so moving them under the
+     * cashier's feet is forbidden (first guard true).
+     */
+    @Test
+    void applyGlobalDiscountRefusedDuringPayment() {
+        state.payment.paymentInProgress = true;
+        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
+        assertEquals("TERMINEZ OU ANNULEZ LE TICKET D'ABORD", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
+    }
+
+    /**
+     * A NULL value is invalid (second guard, first leg).
+     */
+    @Test
+    void applyGlobalDiscountRejectsNullValue() {
+        service.applyGlobalDiscount(state, "GLOBAL_REMISE", null);
+        assertEquals("VALEUR INVALIDE", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
+    }
+
+    /**
+     * A NEGATIVE value is invalid (second guard, second leg): a gesture may
+     * lower a ticket, never inflate it.
+     */
+    @Test
+    void applyGlobalDiscountRejectsNegativeValue() {
+        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("-1"));
+        assertEquals("VALEUR INVALIDE", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
+    }
+
+    /**
+     * A percentage ABOVE 100 is invalid (second guard, third leg): the guard
+     * is percent-only — the same figure in euros is a legitimate request that
+     * the allocation will cap at the base.
+     */
+    @Test
+    void applyGlobalDiscountRejectsPercentAbove100() {
+        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("101"));
+        assertEquals("VALEUR INVALIDE", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
+    }
+
+    /**
+     * Exactly 100 % is ACCEPTED (third leg false at the boundary): giving the
+     * whole ticket away is a legitimate, endorsed gesture.
+     */
+    @Test
+    void applyGlobalDiscountAcceptsExactly100Percent() {
+        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("100"));
+        assertEquals("PERCENT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("100").compareTo(state.ticket.globalDiscountValue));
+    }
+
+    /**
+     * A euro amount ABOVE 100 is accepted (the percent-only leg does not fire
+     * on GLOBAL_REMISE): the allocation caps it at the ticket base.
+     */
+    @Test
+    void applyGlobalDiscountAcceptsEurosAbove100() {
+        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("150"));
+        assertEquals("AMOUNT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("150").compareTo(state.ticket.globalDiscountValue));
+    }
+
+    /**
+     * ZERO is accepted and ERASES the request through the state setter (the
+     * guard is {@code < 0}, not {@code <= 0}): typing 0 is how a cashier
+     * cancels the gesture.
+     */
+    @Test
+    void applyGlobalDiscountZeroErasesRequest() {
+        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
+        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", BigDecimal.ZERO);
+        assertNull(state.ticket.globalDiscountType);
+        assertNull(state.ticket.globalDiscountValue);
+    }
+
+    /**
+     * The type is mapped to the STATE's vocabulary — GLOBAL_DISCOUNT becomes
+     * PERCENT, anything else becomes AMOUNT — and the totals are recomputed
+     * so the allocation happens immediately.
+     */
+    @Test
+    void applyGlobalDiscountMapsTypeAndRecomputes() {
+        state.ticket.items.add(line("MILK", new BigDecimal("10.00"), BigDecimal.ONE));
+        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("2.00"));
+        assertEquals("AMOUNT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("2.00").compareTo(state.ticket.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("8.00").compareTo(state.ticket.totalAmount));
+    }
+
+    // --- suspendForAgeCheck ---
+
+    /**
+     * An UNRESTRICTED product never parks the scan (first leg true).
+     */
+    @Test
+    void suspendForAgeCheckPassesUnrestrictedProduct() {
+        Product p = product("MILK", "123", null);
+        p.ageRestriction = null;
+        assertFalse(service.suspendForAgeCheck(state, p, "SCAN", "123", null));
+        assertFalse(state.ageCheck.active);
+        verifyNoInteractions(hardwareService);
+    }
+
+    /**
+     * A restriction ALREADY covered by this ticket's verified threshold lets
+     * the scan through (second leg true, {@code <} case): the ID is checked
+     * once per ticket, not once per bottle.
+     */
+    @Test
+    void suspendForAgeCheckPassesWhenThresholdAlreadyCleared() {
+        Product p = product("WINE", "123", null);
+        p.ageRestriction = 18;
+        state.ticket.ageVerifiedThreshold = 21;
+        assertFalse(service.suspendForAgeCheck(state, p, "SCAN", "123", null));
+        assertFalse(state.ageCheck.active);
+    }
+
+    /**
+     * An EQUAL threshold also lets the scan through (second leg true,
+     * {@code ==} boundary): the guard is {@code <=}.
+     */
+    @Test
+    void suspendForAgeCheckPassesOnEqualThreshold() {
+        Product p = product("WINE", "123", null);
+        p.ageRestriction = 18;
+        state.ticket.ageVerifiedThreshold = 18;
+        assertFalse(service.suspendForAgeCheck(state, p, "SCAN", "123", null));
+        assertFalse(state.ageCheck.active);
+    }
+
+    /**
+     * A HIGHER restriction parks the gesture with everything needed to replay
+     * it (both legs false): kind, code, quantity, label and threshold — the
+     * customer display is warned and the polling woken.
+     */
+    @Test
+    void suspendForAgeCheckParksTheGesture() {
+        Product p = product("vin rouge", "123", null);
+        p.ageRestriction = 18;
+        state.ticket.ageVerifiedThreshold = 0;
+        long version = state.version;
+        assertTrue(service.suspendForAgeCheck(state, p, "EAN_QTY", "123", new BigDecimal("2")));
+        assertTrue(state.ageCheck.active);
+        assertEquals("VIN ROUGE", state.ageCheck.productLabel);
+        assertEquals(18, state.ageCheck.threshold);
+        assertEquals("EAN_QTY", state.ageCheck.kind);
+        assertEquals("123", state.ageCheck.code);
+        assertEquals(0, new BigDecimal("2").compareTo(state.ageCheck.quantity));
+        verify(hardwareService).displayMessage("CONTROLE D'AGE EN COURS");
+        assertTrue(state.version > version);
+    }
+
+    // --- confirmAgeCheck / refuseAgeCheck ---
+
+    /**
+     * Confirming with NO pending prompt is a silent no-op (guard true).
+     */
+    @Test
+    void confirmAgeCheckWithoutPendingIsNoOp() {
+        service.confirmAgeCheck(state);
+        verifyNoInteractions(technicalEventService);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * Confirming RAISES the ticket's verified threshold, journals the check
+     * and REPLAYS the parked gesture by kind — here the quantity add, whose
+     * EAN and quantity come back verbatim from the parked state.
+     */
+    @Test
+    void confirmAgeCheckRaisesThresholdJournalsAndReplaysEanQty() {
+        openSession();
+        state.auth.operatorName = "Marie";
+        state.ticket.ageVerifiedThreshold = 0;
+        state.ageCheck.active = true;
+        state.ageCheck.productLabel = "VIN ROUGE";
+        state.ageCheck.threshold = 18;
+        state.ageCheck.kind = "EAN_QTY";
+        state.ageCheck.code = "123";
+        state.ageCheck.quantity = new BigDecimal("2");
+        Product p = product("VIN ROUGE", "123", null);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("5.00", "0.20"));
+            service.confirmAgeCheck(state);
+        }
+        assertEquals(18, state.ticket.ageVerifiedThreshold);
+        assertFalse(state.ageCheck.active);
+        assertNull(state.ageCheck.code);
+        assertEquals(1, state.ticket.items.size());
+        assertEquals(0, new BigDecimal("2").compareTo(state.ticket.items.get(0).quantity));
+        verify(technicalEventService).log(
+                eq(TechnicalEvent.EventType.AGE_CHECK_CONFIRMED), anyString());
+    }
+
+    /**
+     * The verified threshold only ever GROWS: confirming an 18+ check on a
+     * ticket already cleared for 21 keeps 21 ({@code Math.max}).
+     */
+    @Test
+    void confirmAgeCheckNeverLowersTheVerifiedThreshold() {
+        openSession();
+        state.auth.operatorName = "Marie";
+        state.ticket.ageVerifiedThreshold = 21;
+        state.ageCheck.active = true;
+        state.ageCheck.productLabel = "VIN ROUGE";
+        state.ageCheck.threshold = 18;
+        state.ageCheck.kind = "PLU";
+        state.ageCheck.code = "99";
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByPlu("99")).thenReturn(null);
+            service.confirmAgeCheck(state);
+        }
+        assertEquals(21, state.ticket.ageVerifiedThreshold);
+    }
+
+    /**
+     * Refusing with NO pending prompt is a silent no-op (guard true).
+     */
+    @Test
+    void refuseAgeCheckWithoutPendingIsNoOp() {
+        service.refuseAgeCheck(state);
+        verifyNoInteractions(technicalEventService);
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * Refusing JOURNALS the refusal, clears the parked gesture and shows the
+     * cashier message — and it does NOT raise the verified threshold, so the
+     * next restricted scan will ask again.
+     */
+    @Test
+    void refuseAgeCheckJournalsClearsAndWarns() {
+        state.auth.operatorName = "Marie";
+        state.ageCheck.active = true;
+        state.ageCheck.productLabel = "VIN ROUGE";
+        state.ageCheck.threshold = 18;
+        state.ageCheck.kind = "SCAN";
+        state.ageCheck.code = "123";
+        service.refuseAgeCheck(state);
+        verify(technicalEventService).log(
+                eq(TechnicalEvent.EventType.AGE_CHECK_REFUSED), anyString());
+        assertFalse(state.ageCheck.active);
+        assertNull(state.ageCheck.code);
+        assertEquals(0, state.ticket.ageVerifiedThreshold);
+        assertEquals("VENTE REFUSÉE - CONTRÔLE D'ÂGE", state.ticket.transientError);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    // --- money product flag ---
+
+    /**
+     * A GIFT CARD added by EAN is flagged as a money product: the line
+     * carries VALUE, not goods — the flag is what later excludes it from
+     * discounts, gestures and valuation, and forbids its refund.
+     */
+    @Test
+    void addItemByEanFlagsGiftCardAsMoneyProduct() {
+        openSession();
+        Product p = product("CARTE CADEAU 25", "3400025000001", null);
+        p.giftCardAmount = new BigDecimal("25.00");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "3400025000001"))
+                    .thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong()))
+                    .thenReturn(price("25.00", "0.00"));
+            service.addItemByEan(state, "3400025000001", BigDecimal.ONE);
+        }
+        assertEquals(1, state.ticket.items.size());
+        assertTrue(state.ticket.items.get(0).moneyProduct);
+    }
+
+    /**
+     * An ordinary product is NOT flagged (null giftCardAmount arm).
+     */
+    @Test
+    void addItemByEanLeavesOrdinaryProductUnflagged() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        p.giftCardAmount = null;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("1.50", "0.055"));
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertFalse(state.ticket.items.get(0).moneyProduct);
+    }
+
+    /**
+     * Confirming a SCAN-kind gesture replays it through the recognition
+     * CHAIN ({@code default} arm of the replay switch), not through a direct
+     * add: the confirmed code re-enters where it came from, so every handler
+     * priority applies again exactly as on the first pass.
+     */
+    @Test
+    void confirmAgeCheckReplaysScanThroughTheChain() {
+        state.auth.operatorName = "Marie";
+        state.ageCheck.active = true;
+        state.ageCheck.productLabel = "VIN ROUGE";
+        state.ageCheck.threshold = 18;
+        state.ageCheck.kind = "SCAN";
+        state.ageCheck.code = "3400018000001";
+        RecordingHandler handler = new RecordingHandler();
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of(handler).spliterator());
+        service.confirmAgeCheck(state);
+        assertEquals("3400018000001", handler.seenCode);
+        assertEquals(18, state.ticket.ageVerifiedThreshold);
+        assertFalse(state.ageCheck.active);
+    }
+
+    /**
+     * {@code addItemByEan} on an age-restricted product PARKS the gesture and
+     * adds nothing (true arm of the suspend call site): the line only appears
+     * after the ID check is confirmed.
+     */
+    @Test
+    void addItemByEanParksRestrictedProduct() {
+        openSession();
+        Product p = product("VIN ROUGE", "3400018000001", null);
+        p.ageRestriction = 18;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "3400018000001"))
+                    .thenReturn(query);
+            service.addItemByEan(state, "3400018000001", new BigDecimal("2"));
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertTrue(state.ageCheck.active);
+        assertEquals("EAN_QTY", state.ageCheck.kind);
+        assertEquals(0, new BigDecimal("2").compareTo(state.ageCheck.quantity));
+        verify(ticketPersistenceService, never()).syncDraft(state);
+    }
+
+    /**
+     * {@code addItemByPlu} on an age-restricted product PARKS the gesture and
+     * — the point of placing the gate BEFORE the scale read — NEVER WEIGHS:
+     * the balance is consumed on the replay only, so a confirmed check
+     * weighs exactly once.
+     */
+    @Test
+    void addItemByPluParksRestrictedProductWithoutWeighing() {
+        openSession();
+        Product p = product("VIN ROUGE", null, "99");
+        p.ageRestriction = 18;
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByPlu("99")).thenReturn(p);
+            service.addItemByPlu(state, "99");
+        }
+        assertTrue(state.ageCheck.active);
+        assertEquals("PLU", state.ageCheck.kind);
+        assertEquals("99", state.ageCheck.code);
+        assertNull(state.ageCheck.quantity);
+        assertTrue(state.ticket.items.isEmpty());
+        verify(hardwareService, never()).requestWeighing();
+    }
+
+    // --- money products are never discounted ---
+
+    /**
+     * {@code applyRemise} REFUSES a money product: a gift card is value, not
+     * goods — discounting it would mint money (money-product guard, true arm).
+     */
+    @Test
+    void applyRemiseRefusesMoneyProduct() {
+        TicketState.TicketItem card = line("CARTE CADEAU 25", new BigDecimal("25.00"), BigDecimal.ONE);
+        card.moneyProduct = true;
+        service.applyRemise(card, new BigDecimal("5.00"));
+        assertEquals(0, new BigDecimal("25.00").compareTo(card.unitPrice));
+        assertNull(card.modifierLabel);
+    }
+
+    /**
+     * {@code applyDiscount} REFUSES a money product (same guard, percentage
+     * flavour).
+     */
+    @Test
+    void applyDiscountRefusesMoneyProduct() {
+        TicketState.TicketItem card = line("CARTE CADEAU 25", new BigDecimal("25.00"), BigDecimal.ONE);
+        card.moneyProduct = true;
+        service.applyDiscount(card, new BigDecimal("10"));
+        assertEquals(0, new BigDecimal("25.00").compareTo(card.unitPrice));
+        assertNull(card.modifierLabel);
+    }
+
+    /**
+     * {@code forcePrice} REFUSES a money product: forcing the price of an
+     * instrument would break the equality between its face value and the
+     * amount loaded on it.
+     */
+    @Test
+    void forcePriceRefusesMoneyProduct() {
+        TicketState.TicketItem card = line("CARTE CADEAU 25", new BigDecimal("25.00"), BigDecimal.ONE);
+        card.moneyProduct = true;
+        service.forcePrice(card, new BigDecimal("1.00"));
+        assertEquals(0, new BigDecimal("25.00").compareTo(card.unitPrice));
+        assertNull(card.modifierLabel);
+    }
+
     // --- cancelItemById ---
 
     /**
@@ -998,6 +1427,26 @@ class TicketServiceTest {
     }
 
     // --- test scan handlers exercising getPriority ---
+
+    /**
+     * A chain handler that records the code it was handed, to prove a
+     * confirmed SCAN gesture really re-enters the recognition chain.
+     */
+    static class RecordingHandler implements ScanContext.ScanHandler {
+
+        /** The code seen by the chain, or null if never called. */
+        String seenCode;
+
+        /**
+         * Records the scanned code and lets the chain continue.
+         *
+         * @param context the scan context
+         */
+        @Override
+        public void handle(ScanContext context) {
+            seenCode = context.code;
+        }
+    }
 
     /**
      * A scan handler carrying an explicit {@link Priority} annotation.

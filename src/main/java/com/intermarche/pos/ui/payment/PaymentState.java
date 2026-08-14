@@ -266,9 +266,12 @@ public class PaymentState implements Serializable {
         int maxPage = getTotalPages() - 1;
         if (currentPage > maxPage) currentPage = maxPage;
         if (currentPage < 0) currentPage = 0;
+        // The clamp above keeps the window inside the list: with a non-empty
+        // list, fromIndex = page * PAGE_SIZE <= maxPage * PAGE_SIZE <= size - 1
+        // (and a negative page is raised to 0). No further bound check is
+        // reachable — one used to sit here and could never fire.
         int fromIndex = currentPage * PAGE_SIZE;
         int toIndex = Math.min(fromIndex + PAGE_SIZE, payments.size());
-        if (fromIndex >= payments.size()) return Collections.emptyList();
         return payments.subList(fromIndex, toIndex);
     }
 

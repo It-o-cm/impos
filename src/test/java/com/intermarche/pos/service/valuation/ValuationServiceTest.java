@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -92,11 +93,20 @@ class ValuationServiceTest {
      *
      * @return the wired service under test
      */
+    /** The loyalty projection, fed at every revaluation outcome. */
+    private final FidelityService fidelityService = mock(FidelityService.class);
+
     private ValuationService newService() {
         ValuationService service = new ValuationService();
         service.valuationClient = valuationClient;
         service.valuationReconciler = valuationReconciler;
         service.ticketPersistenceService = ticketPersistenceService;
+        // The loyalty hooks are collaborators of EVERY revaluation outcome:
+        // the projection is fed the verbatim couple on success, and told to
+        // hide itself on the degraded path. The mock lets the tests below
+        // VERIFY which of the two was called — the whole point of the
+        // ...WithTotalAndFidelity / ...NoFidelity cases.
+        service.fidelityService = fidelityService;
         service.objectMapper = new ObjectMapper();
         service.retrySeconds = 10L;
         return service;
@@ -682,6 +692,61 @@ class ValuationServiceTest {
         assertNull(basket.items.get(3).manualDiscountAmount);
         assertNull(basket.items.get(4).manualDiscountAmount);
         assertNull(basket.items.get(5).manualDiscountAmount);
+    }
+
+    /**
+     * A MONEY PRODUCT is kept OUT of the basket sent to the engine: a gift
+     * card is stored value, not merchandise — pricing it would let an offer
+     * discount money itself, and the engine would recompute a total that no
+     * longer matches what the customer owes. The ordinary line beside it goes
+     * through, so the exclusion is per line and not a whole-basket veto.
+     */
+    @Test
+    void valuateExcludesMoneyProductsFromTheBasket() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("10.00"));
+        TicketState.TicketItem goods = item("G", "10", "10", "1");
+        TicketState.TicketItem giftCard = item("C", "3400025000001", "25", "1");
+        giftCard.moneyProduct = true;
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        // The query mock is built BEFORE opening the static stubbing: calling
+        // query() inside thenReturn() would stub a mock while another
+        // stubbing is still in flight, which Mockito rejects.
+        PanacheQuery<Store> noStore = query(null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(noStore);
+            service.valuate(ticketWith(goods, giftCard), null,
+                    LocalDateTime.of(2026, 8, 3, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        ValuationPayloads.BasketDto basket = captor.getValue();
+        assertEquals(1, basket.items.size());
+        assertEquals("G", basket.items.get(0).lineId);
+    }
+
+    /**
+     * A basket made ONLY of money products never reaches the engine: with no
+     * eligible line there is nothing to price, the call is skipped entirely
+     * and the sale falls back on local arithmetic. Selling a gift card alone
+     * therefore costs not one millisecond of network.
+     */
+    @Test
+    void valuateSkipsTheEngineWhenEveryLineIsAMoneyProduct() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        TicketState.TicketItem giftCard = item("C", "3400025000001", "25", "1");
+        giftCard.moneyProduct = true;
+        PanacheQuery<Store> noStore = query(null);
+        ValuationService.ValuationOutcome outcome;
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(noStore);
+            outcome = service.valuate(ticketWith(giftCard), null,
+                    LocalDateTime.of(2026, 8, 3, 10, 0));
+        }
+        assertEquals("LOCAL", outcome.status);
+        verify(valuationClient, never()).valuate(any());
     }
 
     /**

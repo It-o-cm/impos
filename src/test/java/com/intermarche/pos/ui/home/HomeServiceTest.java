@@ -335,6 +335,82 @@ class HomeServiceTest {
     }
 
     /**
+     * A GLOBAL_ gesture targets the WHOLE ticket: the modal opens with a null
+     * line uid and the "TICKET COMPLET" label, and — the point of the branch
+     * — NO line selection is required. Selecting a line first would be
+     * meaningless for a sale-level discount, and demanding one would block
+     * the gesture on an empty selection.
+     */
+    @Test
+    void openPriceModGlobalTargetsTheWholeTicket() {
+        service.openPriceMod("global_remise");
+        verify(service.state.priceModState).set("GLOBAL_REMISE", null, "TICKET COMPLET");
+        verify(service.state).touch();
+        verify(service.state, never()).getTargetItem();
+        verifyNoInteractions(service.state.ticket);
+    }
+
+    /**
+     * The percentage flavour takes the same branch — the prefix is what
+     * routes, not the full type.
+     */
+    @Test
+    void openPriceModGlobalDiscountTargetsTheWholeTicketToo() {
+        service.openPriceMod("global_discount");
+        verify(service.state.priceModState).set("GLOBAL_DISCOUNT", null, "TICKET COMPLET");
+        verify(service.state).touch();
+    }
+
+    /**
+     * A GLOBAL_ gesture opens even when a line IS selected: the selection is
+     * simply irrelevant here, and the modal must not silently retarget the
+     * gesture onto that line.
+     */
+    @Test
+    void openPriceModGlobalIgnoresAnySelectedLine() {
+        TicketState.TicketItem selected = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        when(service.state.getTargetItem()).thenReturn(selected);
+        service.openPriceMod("GLOBAL_REMISE");
+        verify(service.state.priceModState).set("GLOBAL_REMISE", null, "TICKET COMPLET");
+        verify(service.state.priceModState, never()).set("GLOBAL_REMISE", "A", "L");
+    }
+
+    /**
+     * A GLOBAL_ gesture never raises the no-selection error — the guard that
+     * governs per-line gestures is short-circuited by the early return.
+     */
+    @Test
+    void openPriceModGlobalNeverComplainsAboutSelection() {
+        when(service.state.getTargetItem()).thenReturn(null);
+        service.openPriceMod("global_remise");
+        verify(service.state.ticket, never()).setError(any());
+    }
+
+    /**
+     * The prefix match is on the UPPER-CASED type, so the lower-case form
+     * used by the screen links routes exactly like the canonical one.
+     */
+    @Test
+    void openPriceModGlobalPrefixMatchesOnTheUpperCasedType() {
+        service.openPriceMod("Global_Remise");
+        verify(service.state.priceModState).set("GLOBAL_REMISE", null, "TICKET COMPLET");
+    }
+
+    /**
+     * A per-line type that merely CONTAINS "GLOBAL" without starting with the
+     * prefix keeps the line path: the router is a prefix test, and a future
+     * gesture named e.g. "REMISE_GLOBALE" must not silently become a
+     * whole-ticket one.
+     */
+    @Test
+    void openPriceModOnlyThePrefixRoutesToTheWholeTicket() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        when(service.state.getTargetItem()).thenReturn(it);
+        service.openPriceMod("remise_global");
+        verify(service.state.priceModState).set("REMISE_GLOBAL", "A", "L");
+    }
+
+    /**
      * {@code cancelPriceMod()} closes the modal and touches the state.
      */
     @Test

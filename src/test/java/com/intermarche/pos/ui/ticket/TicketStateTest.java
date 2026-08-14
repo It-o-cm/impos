@@ -537,6 +537,284 @@ class TicketStateTest {
         assertFalse(item.getNegative());
     }
 
+    // --------------------------------------------------
+    // setGlobalDiscount
+    // --------------------------------------------------
+
+    /**
+     * A POSITIVE value ARMS the whole-ticket request: the kind and the value
+     * are stored verbatim (guard false arm). The request is what survives on
+     * the draft; the allocated amount is derived later.
+     */
+    @Test
+    void setGlobalDiscountStoresPositiveRequest() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("5.00"));
+        assertEquals("GLOBAL_REMISE", ts.globalDiscountType);
+        assertEquals(0, new BigDecimal("5.00").compareTo(ts.globalDiscountValue));
+    }
+
+    /**
+     * A null value ERASES a previously armed request (first leg of the guard
+     * true): the ticket goes back to its undiscounted state — this is how the
+     * cashier cancels a whole-ticket gesture, and the kind is dropped too so
+     * no orphan type survives.
+     */
+    @Test
+    void setGlobalDiscountNullValueErasesPreviousRequest() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_DISCOUNT", new BigDecimal("10"));
+        ts.setGlobalDiscount("GLOBAL_DISCOUNT", null);
+        assertNull(ts.globalDiscountType);
+        assertNull(ts.globalDiscountValue);
+    }
+
+    /**
+     * A ZERO value erases as well (second leg, {@code signum() == 0}): typing
+     * 0 on the modal is the documented way to clear the discount, and the
+     * KIND is ignored on that path — it must not linger.
+     */
+    @Test
+    void setGlobalDiscountZeroErases() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("3"));
+        ts.setGlobalDiscount("GLOBAL_REMISE", BigDecimal.ZERO);
+        assertNull(ts.globalDiscountType);
+        assertNull(ts.globalDiscountValue);
+    }
+
+    /**
+     * A NEGATIVE value erases too (second leg, {@code signum() < 0}): the
+     * guard is {@code <= 0}, so no gesture can ever INFLATE a ticket total.
+     */
+    @Test
+    void setGlobalDiscountNegativeErases() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("2"));
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("-1"));
+        assertNull(ts.globalDiscountType);
+        assertNull(ts.globalDiscountValue);
+    }
+
+    /**
+     * A second positive request REPLACES the first, kind included: the
+     * request is a single slot, never an accumulation — two gestures in a row
+     * must not stack into a double discount.
+     */
+    @Test
+    void setGlobalDiscountReplacesRatherThanAccumulates() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("5.00"));
+        ts.setGlobalDiscount("GLOBAL_DISCOUNT", new BigDecimal("10"));
+        assertEquals("GLOBAL_DISCOUNT", ts.globalDiscountType);
+        assertEquals(0, new BigDecimal("10").compareTo(ts.globalDiscountValue));
+    }
+
+    /**
+     * The setter records the REQUEST only — it never computes the allocated
+     * amount, which the next total recomputation produces (the request
+     * survives, the allocation is derived).
+     */
+    @Test
+    void setGlobalDiscountLeavesAllocationUntouched() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("5.00"));
+        assertNull(ts.globalDiscountApplied);
+    }
+
+    // --------------------------------------------------
+    // allocateGlobalDiscount (through recomputeTotal)
+    // --------------------------------------------------
+
+    /**
+     * Adds a line to the ticket and returns it, for building allocation cases.
+     *
+     * @param ts the ticket under test
+     * @param price the unit price
+     * @param qty the quantity
+     * @return the created line
+     */
+    private TicketItem addLine(TicketState ts, String price, String qty) {
+        TicketItem item = unitItem("EAN" + ts.items.size(), price, qty);
+        ts.items.add(item);
+        return item;
+    }
+
+    /**
+     * With NO request armed, every share is wiped and no amount is applied
+     * (first guard, {@code globalDiscountType == null} leg).
+     */
+    @Test
+    void allocateWithoutRequestClearsShares() {
+        TicketState ts = new TicketState();
+        TicketItem line = addLine(ts, "10.00", "1");
+        line.globalDiscountShare = new BigDecimal("3.00");
+        ts.recomputeTotal();
+        assertNull(line.globalDiscountShare);
+        assertNull(ts.globalDiscountApplied);
+    }
+
+    /**
+     * An armed request on an EMPTY ticket applies nothing (first guard,
+     * {@code items.isEmpty()} leg).
+     */
+    @Test
+    void allocateOnEmptyTicketAppliesNothing() {
+        TicketState ts = new TicketState();
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("5.00"));
+        ts.recomputeTotal();
+        assertNull(ts.globalDiscountApplied);
+    }
+
+    /**
+     * A euro request is capped at the base: asking 50 € on a 10 € ticket
+     * discounts 10 €, never more — the total can reach zero but never turns
+     * negative ({@code min(value, base)} leg).
+     */
+    @Test
+    void allocateEurosIsCappedAtTheBase() {
+        TicketState ts = new TicketState();
+        TicketItem line = addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("50.00"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("10.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("10.00").compareTo(line.globalDiscountShare));
+        assertEquals(0, BigDecimal.ZERO.compareTo(ts.totalAmount));
+    }
+
+    /**
+     * A percentage request is computed on the base and spread pro rata: 10 %
+     * on 10 € + 30 € gives 4,00 € split 1,00 / 3,00 (PERCENT leg).
+     */
+    @Test
+    void allocatePercentSpreadsProRata() {
+        TicketState ts = new TicketState();
+        TicketItem small = addLine(ts, "10.00", "1");
+        TicketItem large = addLine(ts, "30.00", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("4.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(small.globalDiscountShare));
+        assertEquals(0, new BigDecimal("3.00").compareTo(large.globalDiscountShare));
+        assertEquals(0, new BigDecimal("36.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * The rounding RESIDUE lands on the LARGEST line so the shares always sum
+     * back to the applied amount to the cent: 1,00 € over three 10 € lines
+     * spreads 0,33 × 3 = 0,99, and the missing cent is added to one line.
+     */
+    @Test
+    void allocateResidueGoesToTheLargestLine() {
+        TicketState ts = new TicketState();
+        TicketItem first = addLine(ts, "10.00", "1");
+        TicketItem second = addLine(ts, "10.00", "1");
+        TicketItem third = addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("1.00"));
+        ts.recomputeTotal();
+        BigDecimal sum = first.globalDiscountShare
+                .add(second.globalDiscountShare).add(third.globalDiscountShare);
+        assertEquals(0, new BigDecimal("1.00").compareTo(sum));
+        assertEquals(0, new BigDecimal("1.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("29.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * MONEY PRODUCTS are excluded from the base AND from the allocation: a
+     * gift card is value, not goods — discounting it would create money.
+     */
+    @Test
+    void allocateExcludesMoneyProducts() {
+        TicketState ts = new TicketState();
+        TicketItem goods = addLine(ts, "10.00", "1");
+        TicketItem giftCard = addLine(ts, "50.00", "1");
+        giftCard.moneyProduct = true;
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("1.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(goods.globalDiscountShare));
+        assertNull(giftCard.globalDiscountShare);
+    }
+
+    /**
+     * NEGATIVE lines (deposits) stay out of the base and receive no share:
+     * a discount never reduces what the customer is owed back.
+     */
+    @Test
+    void allocateIgnoresNegativeLines() {
+        TicketState ts = new TicketState();
+        TicketItem goods = addLine(ts, "10.00", "1");
+        TicketItem deposit = addLine(ts, "-2.00", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("1.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(goods.globalDiscountShare));
+        assertNull(deposit.globalDiscountShare);
+    }
+
+    /**
+     * A ticket whose only positive value is a gift card has an EMPTY base:
+     * nothing is applied ({@code base.signum() <= 0} guard).
+     */
+    @Test
+    void allocateReturnsWhenBaseIsEmpty() {
+        TicketState ts = new TicketState();
+        TicketItem giftCard = addLine(ts, "50.00", "1");
+        giftCard.moneyProduct = true;
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("5.00"));
+        ts.recomputeTotal();
+        assertNull(ts.globalDiscountApplied);
+        assertNull(giftCard.globalDiscountShare);
+    }
+
+    /**
+     * A percentage so small it rounds to zero applies NOTHING rather than a
+     * zero-amount discount ({@code amount.signum() <= 0} guard).
+     */
+    @Test
+    void allocateReturnsWhenAmountRoundsToZero() {
+        TicketState ts = new TicketState();
+        addLine(ts, "0.10", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("1"));
+        ts.recomputeTotal();
+        assertNull(ts.globalDiscountApplied);
+    }
+
+    /**
+     * The allocation is IDEMPOTENT across recomputations: shares are reset
+     * and rebuilt from the pre-share line totals, so a second scan (or a
+     * second call) never compounds the discount.
+     */
+    @Test
+    void allocateIsIdempotentAcrossRecomputations() {
+        TicketState ts = new TicketState();
+        TicketItem line = addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        ts.recomputeTotal();
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("1.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("1.00").compareTo(line.globalDiscountShare));
+        assertEquals(0, new BigDecimal("9.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * The request SURVIVES a cart change and RE-ALLOCATES on the new base:
+     * 10 % of 10 € becomes 10 % of 30 € when two lines join — the demo's
+     * "la remise se ré-alloue au scan suivant".
+     */
+    @Test
+    void allocateReallocatesWhenCartGrows() {
+        TicketState ts = new TicketState();
+        addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        addLine(ts, "20.00", "1");
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("3.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("27.00").compareTo(ts.totalAmount));
+    }
+
     /**
      * The no-arg item constructor yields a serialization-friendly blank line.
      */

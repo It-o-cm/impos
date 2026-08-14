@@ -251,9 +251,11 @@ class CouponTypeTest {
      */
     @Test
     void amountSourceEnumHasTwoConstants() {
-        Assertions.assertEquals(2, CouponType.AmountSource.values().length);
+        Assertions.assertEquals(3, CouponType.AmountSource.values().length);
         Assertions.assertEquals(CouponType.AmountSource.ENCODED,
                 CouponType.AmountSource.valueOf("ENCODED"));
+        Assertions.assertEquals(CouponType.AmountSource.REGISTRY,
+                CouponType.AmountSource.valueOf("REGISTRY"));
         Assertions.assertEquals(CouponType.AmountSource.MANUAL,
                 CouponType.AmountSource.valueOf("MANUAL"));
     }

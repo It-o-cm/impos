@@ -6,6 +6,8 @@ import io.quarkus.qute.TemplateInstance;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -51,6 +53,11 @@ class FidelityResourceTest {
     private TemplateInstance stub(Template template, FidelityResource resource) {
         TemplateInstance view = mock(TemplateInstance.class);
         when(template.data("state", resource.state)).thenReturn(view);
+        // The fidelity page CHAINS a second data() call carrying the in-store
+        // consultation (status, balance, movements). A chained mock returns
+        // null by default, which reads as "the page rendered nothing" — the
+        // view returns ITSELF so the chain stays observable end to end.
+        when(view.data(eq("consultation"), any())).thenReturn(view);
         return view;
     }
 

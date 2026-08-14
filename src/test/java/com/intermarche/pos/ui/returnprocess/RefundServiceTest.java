@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.returnprocess;
 
 import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.StoredValue;
 import com.intermarche.pos.domain.SyncOutbox;
 import com.intermarche.pos.domain.ticket.Refund;
@@ -82,6 +83,10 @@ class RefundServiceTest {
         s.technicalEventService = mock(TechnicalEventService.class);
         s.hardwareService = mock(HardwareService.class);
         s.syncOutboxService = mock(SyncOutboxService.class);
+        // A return on a card-bearing ticket enqueues the loyalty event that
+        // feeds imfid's RETURN_DEBIT recomputation — in the refund's own
+        // transaction, so the collaborator belongs to the fixture.
+        s.fidEventOutboxService = mock(com.intermarche.pos.service.sync.FidEventOutboxService.class);
         return s;
     }
 
@@ -406,6 +411,98 @@ class RefundServiceTest {
     }
 
     /**
+     * A line WITHOUT an EAN skips the gift-card lookup entirely (first guard
+     * false arm): a weighed PLU line can never be an instrument.
+     */
+    @Test
+    void setReturnQuantityWithoutEanSkipsTheGiftCardLookup() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "5", "10.00", "0.20", "MILK");
+        milk.ean = null;
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", milk);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+    }
+
+    /**
+     * An EAN whose product is UNKNOWN to the catalog is returnable (second
+     * guard, {@code product == null} leg): a delisted article must not become
+     * un-refundable.
+     */
+    @Test
+    void setReturnQuantityWithUnknownProductStaysReturnable() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "5", "10.00", "0.20", "MILK");
+        milk.ean = "123";
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", milk);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(null);
+            panache.when(() -> Product.find("ean", "123")).thenReturn(query);
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+    }
+
+    /**
+     * An ORDINARY product is returnable (second guard, {@code giftCardAmount
+     * == null} leg).
+     */
+    @Test
+    void setReturnQuantityWithOrdinaryProductStaysReturnable() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "5", "10.00", "0.20", "MILK");
+        milk.ean = "123";
+        Product p = new Product();
+        p.giftCardAmount = null;
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", milk);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean", "123")).thenReturn(query);
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+    }
+
+    /**
+     * A GIFT CARD line is REFUSED and no quantity is staged: refunding a sold
+     * card while its registry instrument stays ACTIVE would double the value.
+     */
+    @Test
+    void setReturnQuantityRefusesGiftCardLine() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine card = line(1L, "1", "25.00", "0.00", "CARTE CADEAU 25");
+        card.ean = "3400025000001";
+        Product p = new Product();
+        p.giftCardAmount = new BigDecimal("25.00");
+        state.refund.selectedTicket = ticket(10L, "T-1", "25.00", card);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean", "3400025000001")).thenReturn(query);
+            s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        }
+        assertEquals("RETOUR INTERDIT SUR CARTE CADEAU", state.refund.errorMessage);
+        assertTrue(state.refund.returnQuantities.isEmpty());
+    }
+
+    /**
      * {@code setReturnQuantity} stores a positive quantity within the refundable
      * cap unchanged (refundable non-negative, quantity non-negative, quantity
      * not above the cap — all three false arms).
@@ -724,14 +821,19 @@ class RefundServiceTest {
     }
 
     /**
-     * {@code performRefund} for a loyalty refund only journals the credit
-     * (LOYALTY switch arm): no drawer, no voucher.
+     * {@code performRefund} for a loyalty refund hands the customer a printed
+     * proof and announces the credit (LOYALTY switch arm): no drawer, no
+     * voucher. The credit itself is born at imfid's ingestion of the
+     * ticket-return event, never written by the register.
      */
     @Test
     void performRefundLoyaltyJournalsOnly() {
         RefundService s = newService();
         PosState state = new PosState();
         Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        // The origin ticket MUST carry a card: crediting a loyalty balance
+        // needs one, and its absence is a refusal (see the test below).
+        original.fidelityCard = "2990000000019";
         state.refund.selectedTicket = original;
         state.refund.returnQuantities.put(1L, new BigDecimal("2"));
         when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
@@ -748,7 +850,254 @@ class RefundServiceTest {
         }
         verify(s.hardwareService, never()).openDrawer();
         verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
+        verify(s.ticketPrinterService).printLoyaltyCredit(any());
         verify(s.ticketPrinterService).printRefund(55L);
+        verify(s.fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN), anyString());
+    }
+
+    /**
+     * The return event carries ONE entry per refunded line, keyed by the
+     * ORIGIN line's {@code lineUid} — the identity the engine echoed in the
+     * valuation couple, so imfid can recompute the RETURN_DEBIT against the
+     * very lines it credited.
+     */
+    @Test
+    void performRefundReturnEventCarriesOriginLineUids() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "3", "10.00", "0.20", "MILK");
+        milk.lineUid = "U-1";
+        Ticket original = ticket(10L, "T-1", "100.00", milk);
+        original.fidelityCard = "2990000000019";
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        org.mockito.ArgumentCaptor<String> payload =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> TicketLine.findById(1L)).thenReturn(milk);
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        verify(s.fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                payload.capture());
+        assertTrue(payload.getValue().contains("\"lineId\":\"U-1\""));
+        assertTrue(payload.getValue().contains("\"quantity\":2"));
+    }
+
+    /**
+     * TWO refunded lines are SEPARATED by a comma — the separator flag's true
+     * arm. A single-line return never exercises it, yet a missing comma would
+     * produce malformed JSON that imfid rejects wholesale: the return would
+     * silently never be credited back.
+     */
+    @Test
+    void performRefundReturnEventSeparatesSeveralLines() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "3", "10.00", "0.20", "MILK");
+        milk.lineUid = "U-1";
+        TicketLine bread = line(2L, "2", "5.00", "0.055", "BREAD");
+        bread.lineUid = "U-2";
+        Ticket original = ticket(10L, "T-1", "100.00", milk, bread);
+        original.fidelityCard = "2990000000019";
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.returnQuantities.put(2L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        org.mockito.ArgumentCaptor<String> payload =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> RefundLine.list("originalLineId", 2L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> TicketLine.findById(1L)).thenReturn(milk);
+            panache.when(() -> TicketLine.findById(2L)).thenReturn(bread);
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        verify(s.fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                payload.capture());
+        String json = payload.getValue();
+        assertTrue(json.contains("\"lineId\":\"U-1\""));
+        assertTrue(json.contains("\"lineId\":\"U-2\""));
+        assertTrue(json.contains("},{"), "les entrées doivent être séparées par une virgule: " + json);
+    }
+
+    /**
+     * A refunded line whose ORIGIN carries no {@code lineUid} is SKIPPED
+     * rather than sent with a null identity: imfid could not match it, and a
+     * malformed entry would poison the whole event.
+     */
+    @Test
+    void performRefundReturnEventSkipsLinesWithoutUid() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "3", "10.00", "0.20", "MILK");
+        milk.lineUid = null;
+        Ticket original = ticket(10L, "T-1", "100.00", milk);
+        original.fidelityCard = "2990000000019";
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        org.mockito.ArgumentCaptor<String> payload =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> TicketLine.findById(1L)).thenReturn(milk);
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        verify(s.fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                payload.capture());
+        assertTrue(payload.getValue().contains("\"lines\":[]"));
+    }
+
+    /**
+     * A CASH refund carries NO {@code refundToCard} block: the money left the
+     * drawer, nothing is credited on the loyalty balance (ternary false arm).
+     */
+    @Test
+    void performRefundCashEventCarriesNoRefundToCard() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "3", "10.00", "0.20", "MILK");
+        milk.lineUid = "U-1";
+        Ticket original = ticket(10L, "T-1", "100.00", milk);
+        original.fidelityCard = "2990000000019";
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        org.mockito.ArgumentCaptor<String> payload =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+                 mock.totalAmount = new BigDecimal("20.00");
+                 mock.refundMethod = Refund.RefundMethod.CASH;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> TicketLine.findById(1L)).thenReturn(milk);
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        verify(s.fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                payload.capture());
+        assertFalse(payload.getValue().contains("refundToCard"));
+    }
+
+    /**
+     * A LOYALTY refund carries the {@code refundToCard} block naming the
+     * ORIGIN ticket's card and the refunded amount (ternary true arm): the
+     * REFUND_CREDIT is born at imfid's ingestion, never written here.
+     */
+    @Test
+    void performRefundLoyaltyEventCarriesRefundToCard() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "3", "10.00", "0.20", "MILK");
+        milk.lineUid = "U-1";
+        Ticket original = ticket(10L, "T-1", "100.00", milk);
+        original.fidelityCard = "2990000000019";
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        org.mockito.ArgumentCaptor<String> payload =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+                 mock.totalAmount = new BigDecimal("20.00");
+                 mock.refundMethod = Refund.RefundMethod.LOYALTY;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> TicketLine.findById(1L)).thenReturn(milk);
+            s.performRefund(state, Refund.RefundMethod.LOYALTY);
+        }
+        verify(s.fidEventOutboxService).enqueue(
+                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                payload.capture());
+        assertTrue(payload.getValue().contains("\"refundToCard\""));
+        assertTrue(payload.getValue().contains("\"card\":\"2990000000019\""));
+        assertTrue(payload.getValue().contains("\"amount\":20.00"));
+    }
+
+    /**
+     * A ticket WITHOUT a fidelity card enqueues NO return event at all: there
+     * is no balance to recompute.
+     */
+    @Test
+    void performRefundWithoutCardEnqueuesNoReturnEvent() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine milk = line(1L, "3", "10.00", "0.20", "MILK");
+        milk.lineUid = "U-1";
+        Ticket original = ticket(10L, "T-1", "100.00", milk);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        verifyNoInteractions(s.fidEventOutboxService);
+    }
+
+    /**
+     * A loyalty refund on a ticket WITHOUT a card is refused before anything
+     * is written: no refund persisted, no printing — the cashier is told to
+     * pick another method (imfid spec §28).
+     */
+    @Test
+    void performRefundLoyaltyRefusedWithoutCardOnOrigin() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        s.performRefund(state, Refund.RefundMethod.LOYALTY);
+        assertEquals("AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE", state.refund.errorMessage);
+        verifyNoInteractions(s.ticketPrinterService);
+        verifyNoInteractions(s.hardwareService);
+        verifyNoInteractions(s.fidEventOutboxService);
+        verifyNoInteractions(s.syncOutboxService);
     }
 
     /**

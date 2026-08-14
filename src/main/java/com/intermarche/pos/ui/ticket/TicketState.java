@@ -258,10 +258,12 @@ public class TicketState implements Serializable {
         BigDecimal largestTotal = BigDecimal.ZERO;
         for (TicketItem item : items) {
             if (item.moneyProduct) continue;
-            // Shares were reset above: getTotalPrice() is the pre-share
-            // (valued) line total here, the allocation base per line.
-            BigDecimal lineTotal = item.getTotalPrice().add(
-                    item.globalDiscountShare != null ? item.globalDiscountShare : BigDecimal.ZERO);
+            // Shares were ALL reset to null at the top of this method, so
+            // getTotalPrice() already IS the pre-share (valued) line total —
+            // the allocation base per line. Re-adding the share here would be
+            // a no-op (an earlier version did, and the branch could never
+            // fire).
+            BigDecimal lineTotal = item.getTotalPrice();
             if (lineTotal.signum() <= 0) continue;
             BigDecimal share = amount.multiply(lineTotal)
                     .divide(base, 2, RoundingMode.HALF_UP);
@@ -272,8 +274,13 @@ public class TicketState implements Serializable {
                 largestTotal = lineTotal;
             }
         }
+        // The rounding residue lands on the largest line so the shares always
+        // sum back to the applied amount. No null check on `largest`: a
+        // positive base means at least one line was allocated, so the loop
+        // above always designated one (the guarded version could never take
+        // its false arm).
         BigDecimal residue = amount.subtract(allocated);
-        if (residue.signum() != 0 && largest != null) {
+        if (residue.signum() != 0) {
             largest.globalDiscountShare = largest.globalDiscountShare.add(residue);
         }
         globalDiscountApplied = amount;

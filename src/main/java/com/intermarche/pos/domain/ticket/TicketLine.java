@@ -106,6 +106,17 @@ public class TicketLine extends BaseEntity {
     public boolean deposit;
 
     /**
+     * Money instrument sold on this line (gift card): the line carries VALUE,
+     * not goods. Persisted rather than re-derived from the catalog at
+     * recovery: the DRAFT is the durable truth of what was sold, and a
+     * catalog changed mid-sale must not flip the flag of a line already rung
+     * up. It drives the refund refusal and the exclusions from discounts,
+     * gestures and valuation.
+     */
+    @Column(name = "money_product")
+    public boolean moneyProduct;
+
+    /**
      * Returns the line total formatted for display (2 decimals, French comma).
      *
      * @return the formatted line total

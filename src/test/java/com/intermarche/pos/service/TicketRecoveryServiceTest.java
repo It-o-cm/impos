@@ -364,4 +364,83 @@ class TicketRecoveryServiceTest {
         assertTrue(service.state.payment.transactionComplete);
     }
 
+    /**
+     * A draft carrying a whole-ticket discount comes back with its REQUEST —
+     * the type and the value — not with a frozen amount: the allocation is
+     * derived, and it reruns on the next recomputation against whatever the
+     * cart is worth then. Freezing the amount instead would resurrect a
+     * discount computed on a basket that no longer exists.
+     */
+    @Test
+    void restoreDraftRestoresTheGlobalDiscountRequest() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(11L, Ticket.TicketStatus.OPEN);
+        draft.lines = new ArrayList<>(List.of(line(1, "L1", "10.00", null, null)));
+        draft.globalDiscountType = "PERCENT";
+        draft.globalDiscountValue = new BigDecimal("10");
+
+        service.restoreDraft(draft);
+
+        assertEquals("PERCENT", service.state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("10").compareTo(service.state.ticket.globalDiscountValue));
+    }
+
+    /**
+     * The restored request is LIVE: recomputing allocates it again on the
+     * rebuilt cart — the proof that a power cut does not lose the manager's
+     * endorsed gesture.
+     */
+    @Test
+    void restoreDraftGlobalDiscountReallocatesOnRecomputation() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(11L, Ticket.TicketStatus.OPEN);
+        draft.lines = new ArrayList<>(List.of(line(1, "L1", "10.00", null, null)));
+        draft.globalDiscountType = "PERCENT";
+        draft.globalDiscountValue = new BigDecimal("10");
+
+        service.restoreDraft(draft);
+        service.state.ticket.recomputeTotal();
+
+        assertEquals(0, new BigDecimal("1.00")
+                .compareTo(service.state.ticket.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("9.00").compareTo(service.state.ticket.totalAmount));
+    }
+
+    /**
+     * A euro-denominated request is restored just as well — the type travels
+     * verbatim, so the register keeps discounting in the unit the manager
+     * endorsed.
+     */
+    @Test
+    void restoreDraftRestoresAEuroGlobalDiscount() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(11L, Ticket.TicketStatus.OPEN);
+        draft.lines = new ArrayList<>(List.of(line(1, "L1", "10.00", null, null)));
+        draft.globalDiscountType = "AMOUNT";
+        draft.globalDiscountValue = new BigDecimal("2.00");
+
+        service.restoreDraft(draft);
+
+        assertEquals("AMOUNT", service.state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("2.00").compareTo(service.state.ticket.globalDiscountValue));
+    }
+
+    /**
+     * A draft WITHOUT a whole-ticket discount restores none (guard false
+     * arm): an ordinary sale must not inherit a discount from nowhere.
+     */
+    @Test
+    void restoreDraftWithoutGlobalDiscountRestoresNone() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(11L, Ticket.TicketStatus.OPEN);
+        draft.lines = new ArrayList<>(List.of(line(1, "L1", "10.00", null, null)));
+        draft.globalDiscountType = null;
+        draft.globalDiscountValue = new BigDecimal("10");
+
+        service.restoreDraft(draft);
+
+        assertNull(service.state.ticket.globalDiscountType);
+        assertNull(service.state.ticket.globalDiscountValue);
+    }
+
 }

@@ -56,7 +56,7 @@ class TechnicalEventTest {
      */
     @Test
     void eventTypeEnumHasEighteenConstants() {
-        Assertions.assertEquals(18, TechnicalEvent.EventType.values().length);
+        Assertions.assertEquals(20, TechnicalEvent.EventType.values().length);
     }
 
     /**
@@ -80,6 +80,8 @@ class TechnicalEventTest {
                 TechnicalEvent.EventType.DUPLICATA_PRINTED,
                 TechnicalEvent.EventType.PAYMENTS_CLEARED,
                 TechnicalEvent.EventType.DRAFT_RECOVERED,
+                TechnicalEvent.EventType.AGE_CHECK_CONFIRMED,
+                TechnicalEvent.EventType.AGE_CHECK_REFUSED,
                 TechnicalEvent.EventType.SESSION_OPENED,
                 TechnicalEvent.EventType.SESSION_CLOSED,
                 TechnicalEvent.EventType.X_REPORT_PRINTED,

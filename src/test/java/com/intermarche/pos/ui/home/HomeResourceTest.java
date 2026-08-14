@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -765,4 +766,155 @@ class HomeResourceTest {
         assertSame(mainView, resource.printLast());
         verify(resource.homeService).printLastTicket();
     }
+
+    /**
+     * Prepares a resource whose fragment can be rendered, with the given earn
+     * projection on the card.
+     *
+     * @param earnTotal the projected earn, or null when none
+     * @return the ready resource
+     */
+    private HomeResource fragmentResourceWithEarn(java.math.BigDecimal earnTotal) {
+        HomeResource resource = newResource();
+        resource.state.version = 3L;
+        resource.state.fidelity.active = true;
+        resource.state.fidelity.earnTotal = earnTotal;
+        when(resource.state.ticket.getTotalFormatted()).thenReturn("12,00");
+        when(resource.state.ticket.getTotalAmount()).thenReturn(new BigDecimal("12.00"));
+        TemplateInstance ticketView = mock(TemplateInstance.class);
+        when(resource.ticket.data("state", resource.state)).thenReturn(ticketView);
+        when(ticketView.render()).thenReturn("<html>");
+        return resource;
+    }
+
+    /**
+     * A POSITIVE projection produces the badge, formatted to the cent and in
+     * FRENCH notation — the comma matters: the badge is read by a cashier,
+     * not by a parser.
+     */
+    @Test
+    void getTicketFragmentFormatsTheEarnBadge() {
+        HomeResource resource = fragmentResourceWithEarn(new BigDecimal("1.03"));
+        Map<String, Object> result = resource.getTicketFragment(null);
+        assertEquals("AVANTAGE CARTE 1,03 €", result.get("fidelityEarn"));
+    }
+
+    /**
+     * The amount is ROUNDED to two decimals like any money on screen.
+     */
+    @Test
+    void getTicketFragmentRoundsTheEarnBadgeToCents() {
+        HomeResource resource = fragmentResourceWithEarn(new BigDecimal("2.345"));
+        Map<String, Object> result = resource.getTicketFragment(null);
+        assertEquals("AVANTAGE CARTE 2,35 €", result.get("fidelityEarn"));
+    }
+
+    /**
+     * A NULL projection yields a null badge (first leg of the guard): this is
+     * the DEGRADED display — imfid is unreachable, and the register says so
+     * by saying nothing rather than by showing a zero it cannot vouch for.
+     */
+    @Test
+    void getTicketFragmentHidesTheBadgeWhenNoProjection() {
+        HomeResource resource = fragmentResourceWithEarn(null);
+        Map<String, Object> result = resource.getTicketFragment(null);
+        assertNull(result.get("fidelityEarn"));
+        assertEquals(true, result.get("fidelityActive"));
+    }
+
+    /**
+     * A ZERO projection hides the badge too (second leg, {@code signum() ==
+     * 0}): a cart entirely absorbed by an offer earns nothing, and "AVANTAGE
+     * CARTE 0,00 €" would look like a bug to the customer.
+     */
+    @Test
+    void getTicketFragmentHidesTheBadgeOnAZeroProjection() {
+        HomeResource resource = fragmentResourceWithEarn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(null);
+        assertNull(result.get("fidelityEarn"));
+    }
+
+    /**
+     * A NEGATIVE projection hides the badge as well (second leg, {@code
+     * signum() < 0}): the guard is {@code > 0}, so no arithmetic accident
+     * can ever advertise a negative advantage.
+     */
+    @Test
+    void getTicketFragmentHidesTheBadgeOnANegativeProjection() {
+        HomeResource resource = fragmentResourceWithEarn(new BigDecimal("-1.00"));
+        Map<String, Object> result = resource.getTicketFragment(null);
+        assertNull(result.get("fidelityEarn"));
+    }
+
+    /**
+     * The badge is INDEPENDENT of the card flag: what drives it is the
+     * projection, so an attached card with no projection shows nothing.
+     */
+    @Test
+    void getTicketFragmentBadgeFollowsTheProjectionNotTheCardFlag() {
+        HomeResource resource = fragmentResourceWithEarn(null);
+        resource.state.fidelity.active = true;
+        Map<String, Object> result = resource.getTicketFragment(null);
+        assertEquals(true, result.get("fidelityActive"));
+        assertNull(result.get("fidelityEarn"));
+    }
+
+    // --- age check ---
+
+    /**
+     * Confirming the ID check replays the parked gesture and returns the
+     * cashier to the sale screen.
+     */
+    @Test
+    void ageCheckConfirmReplaysAndRedirects() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        Response response = resource.ageCheckConfirm();
+        verify(resource.ticketService).confirmAgeCheck(resource.state);
+        assertEquals(303, response.getStatus());
+        assertEquals(URI.create("/"), response.getLocation());
+    }
+
+    /**
+     * On a LOCKED register the confirmation does NOTHING: an ID check is a
+     * decision of the signed-in cashier, and a locked screen has none. The
+     * redirect still happens — the lock page takes over.
+     */
+    @Test
+    void ageCheckConfirmDoesNothingWhenLocked() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(true);
+        Response response = resource.ageCheckConfirm();
+        verifyNoInteractions(resource.ticketService);
+        assertEquals(303, response.getStatus());
+    }
+
+    /**
+     * Refusing journals the refusal, clears the parked gesture and returns to
+     * the sale screen.
+     */
+    @Test
+    void ageCheckRefuseJournalsAndRedirects() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        Response response = resource.ageCheckRefuse();
+        verify(resource.ticketService).refuseAgeCheck(resource.state);
+        assertEquals(303, response.getStatus());
+        assertEquals(URI.create("/"), response.getLocation());
+    }
+
+    /**
+     * On a LOCKED register the refusal does nothing either — the same guard
+     * governs both verdicts, so neither can be triggered from a locked
+     * screen (nor by a stray URL while the register is locked).
+     */
+    @Test
+    void ageCheckRefuseDoesNothingWhenLocked() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(true);
+        Response response = resource.ageCheckRefuse();
+        verifyNoInteractions(resource.ticketService);
+        assertEquals(303, response.getStatus());
+    }
+
 }

@@ -145,13 +145,11 @@ public class TicketRecoveryService {
                     item.originalUnitPrice = line.originalUnitPrice;
                 }
             }
-            if (line.ean != null) {
-                com.intermarche.pos.domain.Product product =
-                        com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();
-                if (product != null && product.giftCardAmount != null) {
-                    item.moneyProduct = true;
-                }
-            }
+            // The money-instrument flag is READ BACK from the draft, never
+            // re-derived from the catalog: the draft is the durable truth of
+            // what was rung up, and it keeps the recovery free of any product
+            // lookup (phase: gift-card registry).
+            item.moneyProduct = line.moneyProduct;
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();

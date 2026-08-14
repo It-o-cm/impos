@@ -253,9 +253,12 @@ public class PosState implements Serializable {
         if (ticket.items.isEmpty()) return Collections.emptyList();
         int maxPage = Math.max(0, (ticket.items.size() - 1) / PAGE_SIZE);
         if (ticketCurrentPage > maxPage) ticketCurrentPage = maxPage;
+        // The clamp above is what keeps the window inside the list: with a
+        // non-empty ticket, fromIndex = page * PAGE_SIZE <= maxPage *
+        // PAGE_SIZE <= size - 1. No further bound check is reachable — one
+        // used to sit here and could never fire.
         int fromIndex = ticketCurrentPage * PAGE_SIZE;
         int toIndex = Math.min(fromIndex + PAGE_SIZE, ticket.items.size());
-        if (fromIndex >= ticket.items.size()) return Collections.emptyList();
         return ticket.items.subList(fromIndex, toIndex);
     }
 

@@ -65,6 +65,71 @@ class PosStateTest {
         return list;
     }
 
+    // --------------------------------------------------
+    // AgeCheckState.clear
+    // --------------------------------------------------
+
+    /**
+     * {@code AgeCheckState.clear()} wipes the SIX fields of a parked age
+     * prompt at once. All six matter: leaving {@code active} would keep the
+     * modal on screen, and leaving {@code kind}/{@code code}/{@code quantity}
+     * would let a later confirmation REPLAY a gesture that belongs to a scan
+     * already resolved.
+     */
+    @Test
+    void ageCheckClearWipesEveryParkedField() {
+        PosState.AgeCheckState ageCheck = new PosState.AgeCheckState();
+        ageCheck.active = true;
+        ageCheck.productLabel = "VIN ROUGE";
+        ageCheck.threshold = 18;
+        ageCheck.kind = "EAN_QTY";
+        ageCheck.code = "3400018000001";
+        ageCheck.quantity = new BigDecimal("2");
+
+        ageCheck.clear();
+
+        assertFalse(ageCheck.active);
+        assertNull(ageCheck.productLabel);
+        assertEquals(0, ageCheck.threshold);
+        assertNull(ageCheck.kind);
+        assertNull(ageCheck.code);
+        assertNull(ageCheck.quantity);
+    }
+
+    /**
+     * {@code clear()} is IDEMPOTENT: called on an already-pristine prompt it
+     * leaves the same pristine values, so a double confirmation (or a clear
+     * on a sale that never armed the gate) is harmless.
+     */
+    @Test
+    void ageCheckClearIsIdempotentOnPristineState() {
+        PosState.AgeCheckState ageCheck = new PosState.AgeCheckState();
+
+        ageCheck.clear();
+
+        assertFalse(ageCheck.active);
+        assertNull(ageCheck.productLabel);
+        assertEquals(0, ageCheck.threshold);
+        assertNull(ageCheck.kind);
+        assertNull(ageCheck.code);
+        assertNull(ageCheck.quantity);
+    }
+
+    /**
+     * A fresh prompt starts pristine — the state a sale must begin from: no
+     * modal, no threshold, nothing parked.
+     */
+    @Test
+    void ageCheckStartsPristine() {
+        PosState.AgeCheckState ageCheck = new PosState.AgeCheckState();
+        assertFalse(ageCheck.active);
+        assertNull(ageCheck.productLabel);
+        assertEquals(0, ageCheck.threshold);
+        assertNull(ageCheck.kind);
+        assertNull(ageCheck.code);
+        assertNull(ageCheck.quantity);
+    }
+
     /**
      * {@code touch()} bumps the polling version counter by exactly one.
      */

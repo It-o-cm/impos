@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -57,8 +58,28 @@ class EanScanHandlerTest {
      * @return a ready-to-test handler
      */
     private EanScanHandler newHandler() {
+        return newHandler(false);
+    }
+
+    /**
+     * Builds a handler wired with the fallback VAT rate and an age-gate
+     * collaborator answering the given verdict.
+     * <p>
+     * The gate is a MANDATORY collaborator, never an optional one: the
+     * handler asks it before every line, and a silently absent gate would
+     * mean age-restricted goods pass unchecked. The mock therefore replaces
+     * it in tests rather than the handler tolerating its absence.
+     *
+     * @param parksTheScan true to simulate a restricted product parking the
+     *        scan behind the ID-check prompt
+     * @return a ready-to-test handler
+     */
+    private EanScanHandler newHandler(boolean parksTheScan) {
         EanScanHandler handler = new EanScanHandler();
         handler.defaultVatRate = DEFAULT_VAT;
+        handler.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        when(handler.ticketService.suspendForAgeCheck(any(), any(), any(), any(), any()))
+                .thenReturn(parksTheScan);
         return handler;
     }
 
@@ -215,5 +236,114 @@ class EanScanHandlerTest {
         verify(ticket).addItem(eq(CODE), isNull(), eq("COCA COLA"),
                 eq(BigDecimal.ZERO), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
         verify(ticket, never()).setError("PRODUIT INTERDIT À LA VENTE");
+    }
+
+    /**
+     * An AGE-RESTRICTED product PARKS the scan: the gate answers true, so the
+     * context is consumed and NO line is created — the article only appears
+     * once the ID check is confirmed, and the confirmation replays this very
+     * code through the chain.
+     */
+    @Test
+    void ageRestrictedProductParksTheScanAndAddsNoLine() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(handler.ticketService).suspendForAgeCheck(state, p, "SCAN", CODE, null);
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * The gate is asked with the SCAN kind and no quantity: a scanned line is
+     * always a unit, and the kind is what tells the confirmation to replay it
+     * through the recognition chain rather than through a direct add.
+     */
+    @Test
+    void ageGateIsAskedWithScanKindAndNoQuantity() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler(false);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            handler.handle(ctx);
+        }
+        verify(handler.ticketService).suspendForAgeCheck(state, p, "SCAN", CODE, null);
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * A FORBIDDEN product is refused BEFORE the age gate is even consulted:
+     * an unsellable article never parks a scan.
+     */
+    @Test
+    void forbiddenProductNeverReachesTheAgeGate() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(true);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        verify(handler.ticketService, never())
+                .suspendForAgeCheck(any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A GIFT CARD is flagged as a money product on the freshly added line:
+     * the line carries VALUE, not goods. The flag is what later excludes it
+     * from discounts, gestures and valuation, and forbids its refund.
+     */
+    @Test
+    void giftCardLineIsFlaggedAsMoneyProduct() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.giftCardAmount = new BigDecimal("25.00");
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(added.moneyProduct);
+    }
+
+    /**
+     * An ORDINARY product leaves the line unflagged (null giftCardAmount
+     * arm): only instruments carry value.
+     */
+    @Test
+    void ordinaryLineIsNotFlaggedAsMoneyProduct() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.giftCardAmount = null;
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertFalse(added.moneyProduct);
     }
 }

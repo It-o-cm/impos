@@ -121,8 +121,11 @@ public class ImfidClient {
         HttpResponse<String> response =
                 httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new IllegalStateException("imfid /api/earn answered " + response.statusCode()
-                    + (response.body() != null ? " " + response.body() : ""));
+            // The body is appended unconditionally: a String body handler
+            // yields "" for a bodiless answer, never null — the guarded
+            // version could not take its false arm.
+            throw new IllegalStateException("imfid /api/earn answered "
+                    + response.statusCode() + " " + response.body());
         }
         return objectMapper.readValue(response.body(), EarnProjection.class);
     }

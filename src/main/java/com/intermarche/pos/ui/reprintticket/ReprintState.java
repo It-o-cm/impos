@@ -123,9 +123,12 @@ public class ReprintState implements Serializable {
         int maxPage = Math.max(0, (allLines.size() - 1) / DETAIL_PAGE_SIZE);
         if (detailPage > maxPage) detailPage = maxPage;
 
+        // The clamp above keeps the window inside the list: with a non-empty
+        // ticket, from = page * DETAIL_PAGE_SIZE <= maxPage * DETAIL_PAGE_SIZE
+        // <= size - 1. No further bound check is reachable — one used to sit
+        // here and could never fire.
         int from = detailPage * DETAIL_PAGE_SIZE;
         int to = Math.min(from + DETAIL_PAGE_SIZE, allLines.size());
-        if (from >= allLines.size()) return Collections.emptyList();
         return allLines.subList(from, to);
     }
 

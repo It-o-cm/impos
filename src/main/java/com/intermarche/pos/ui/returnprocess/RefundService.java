@@ -291,6 +291,16 @@ public class RefundService {
         Ticket original = state.refund.selectedTicket;
         if (original == null) return;
 
+        // Loyalty refund guard (imfid spec §28): crediting a loyalty balance
+        // requires the ORIGIN ticket's card. Checked HERE, before the refund
+        // is built — a refusal must leave NOTHING behind (no persisted
+        // refund, no outbox row): the cashier simply picks another method.
+        if (method == Refund.RefundMethod.LOYALTY && original.fidelityCard == null) {
+            state.refund.errorMessage = "AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE";
+            state.touch();
+            return;
+        }
+
         Refund refund = new Refund();
         refund.refundNumber = ticketNumberService.nextRefundNumber();
         refund.originalTicketId = original.id;
@@ -350,24 +360,12 @@ public class RefundService {
                         + refund.totalAmount.setScale(2, RoundingMode.HALF_UP).toPlainString());
         syncOutboxService.enqueue(SyncOutbox.EntityType.REFUND, refund.id);
 
-        // Loyalty refund guard (imfid spec §28): crediting a loyalty balance
-        // requires the ORIGIN ticket's card — refused before anything is
-        // persisted, the cashier picks another method.
-        if (method == Refund.RefundMethod.LOYALTY) {
-            Ticket originGuard = Ticket.findById(refund.originalTicketId);
-            if (originGuard == null || originGuard.fidelityCard == null) {
-                state.refund.errorMessage = "AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE";
-                state.touch();
-                return;
-            }
-        }
-
         // Loyalty fiscal event (imfid spec §7): a return on a card-bearing
         // origin ticket feeds the RETURN_DEBIT recomputation — enqueued in
         // THIS transaction (the event exists iff the refund committed), with
         // the ORIGIN couple's line ids (the lineUid echoed by /valuation).
-        Ticket originForFid = Ticket.findById(refund.originalTicketId);
-        if (originForFid != null && originForFid.fidelityCard != null) {
+        Ticket originForFid = original;
+        if (originForFid.fidelityCard != null) {
             StringBuilder fidLines = new StringBuilder("[");
             boolean firstFidLine = true;
             for (RefundLine refundLine : refund.lines) {

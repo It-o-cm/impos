@@ -89,6 +89,46 @@ class PriceModStateTest {
     }
 
     /**
+     * Verifies the GLOBAL_REMISE title (fifth branch, true arm): the euro
+     * gesture aimed at the WHOLE ticket, distinct from the per-line REMISE —
+     * the title is what tells the cashier which target the amount will hit.
+     */
+    @Test
+    void getTypeLabelGlobalRemise() {
+        PriceModState state = new PriceModState();
+        state.type = "GLOBAL_REMISE";
+        Assertions.assertEquals("REMISE TICKET (€)", state.getTypeLabel());
+    }
+
+    /**
+     * Verifies the GLOBAL_DISCOUNT title (sixth branch, true arm): the
+     * percentage flavour of the same whole-ticket gesture.
+     */
+    @Test
+    void getTypeLabelGlobalDiscount() {
+        PriceModState state = new PriceModState();
+        state.type = "GLOBAL_DISCOUNT";
+        Assertions.assertEquals("REMISE TICKET (%)", state.getTypeLabel());
+    }
+
+    /**
+     * The four per-line titles and the two whole-ticket ones are pairwise
+     * DISTINCT: an endorsed gesture must never be presented under another
+     * gesture's title, and the euro/percent pairs differ only by their suffix.
+     */
+    @Test
+    void getTypeLabelsAreAllDistinct() {
+        PriceModState state = new PriceModState();
+        java.util.Set<String> titles = new java.util.HashSet<>();
+        for (String type : new String[] {"REMISE", "DISCOUNT", "FORCE_PRICE",
+                "QUANTITY", "GLOBAL_REMISE", "GLOBAL_DISCOUNT"}) {
+            state.type = type;
+            Assertions.assertTrue(titles.add(state.getTypeLabel()),
+                    "titre en doublon pour " + type + ": " + state.getTypeLabel());
+        }
+    }
+
+    /**
      * Verifies the fallback title when the type matches no known value
      * (false arm of every branch, non-null type).
      */

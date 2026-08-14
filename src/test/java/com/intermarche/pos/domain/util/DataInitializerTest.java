@@ -81,9 +81,9 @@ class DataInitializerTest {
             panache.verify(() -> Employee.deleteAll(), times(5));
             assertEquals(4, employees.constructed().size());
             assertEquals(10, families.constructed().size());
-            assertEquals(35, products.constructed().size());
-            assertEquals(38, prices.constructed().size());
-            assertEquals(6, couponTypes.constructed().size());
+            assertEquals(38, products.constructed().size());
+            assertEquals(41, prices.constructed().size());
+            assertEquals(8, couponTypes.constructed().size());
             assertEquals(1, stores.constructed().size());
             for (Employee employee : employees.constructed()) {
                 verify(employee).persist();

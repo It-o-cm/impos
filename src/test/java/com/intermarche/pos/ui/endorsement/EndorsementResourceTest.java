@@ -15,9 +15,11 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -246,6 +248,119 @@ class EndorsementResourceTest {
         assertSame(mainView, resource.validateEndorsement("m", "1234"));
         verify(resource.ticketService).applyRemise(item, new BigDecimal("0.50"));
         verify(resource.ticketService).recalculateTotal(resource.state);
+    }
+
+    /**
+     * A granted GLOBAL_ gesture goes to the whole-ticket path: the service is
+     * handed the TYPE and the VALUE, and NO target line is looked up — a
+     * sale-level discount has none, and demanding one would make the gesture
+     * impossible on a ticket whose selection was lost meanwhile.
+     */
+    @Test
+    void validateEndorsementGrantedGlobalRemiseTargetsTheWholeTicket() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = "GLOBAL_REMISE";
+        resource.state.endorsement.pendingTargetUid = null;
+        resource.state.endorsement.pendingValue = new BigDecimal("1.00");
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
+                .thenReturn(true);
+        TemplateInstance mainView = stubMain(resource);
+
+        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+
+        verify(resource.ticketService).applyGlobalDiscount(
+                resource.state, "GLOBAL_REMISE", new BigDecimal("1.00"));
+        verify(resource.ticketService, never()).applyRemise(any(), any());
+        verify(resource.ticketService, never()).recalculateTotal(resource.state);
+    }
+
+    /**
+     * The percentage flavour takes the same path — the PREFIX routes, and the
+     * full type is forwarded so the service can tell euros from percent.
+     */
+    @Test
+    void validateEndorsementGrantedGlobalDiscountTargetsTheWholeTicket() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = "GLOBAL_DISCOUNT";
+        resource.state.endorsement.pendingValue = new BigDecimal("10");
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
+                .thenReturn(true);
+        stubMain(resource);
+
+        resource.validateEndorsement("m", "1234");
+
+        verify(resource.ticketService).applyGlobalDiscount(
+                resource.state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
+    }
+
+    /**
+     * A GLOBAL_ gesture applies even when the ticket carries lines and the
+     * pending uid points at one of them: the whole-ticket branch must not be
+     * diverted onto a line by a stale selection.
+     */
+    @Test
+    void validateEndorsementGlobalIgnoresAnyPendingTargetLine() {
+        EndorsementResource resource = newResource();
+        TicketState.TicketItem item = addItem(resource, "L1");
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = "GLOBAL_REMISE";
+        resource.state.endorsement.pendingTargetUid = "L1";
+        resource.state.endorsement.pendingValue = new BigDecimal("1.00");
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
+                .thenReturn(true);
+        stubMain(resource);
+
+        resource.validateEndorsement("m", "1234");
+
+        verify(resource.ticketService).applyGlobalDiscount(
+                resource.state, "GLOBAL_REMISE", new BigDecimal("1.00"));
+        verify(resource.ticketService, never()).applyRemise(item, new BigDecimal("1.00"));
+    }
+
+    /**
+     * A NULL type takes the per-line path (first leg of the guard) and, with
+     * no line matching, applies nothing — the endorsement is simply consumed.
+     */
+    @Test
+    void validateEndorsementNullTypeFallsToThePerLinePath() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = null;
+        resource.state.endorsement.pendingValue = new BigDecimal("1.00");
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
+                .thenReturn(true);
+        stubMain(resource);
+
+        resource.validateEndorsement("m", "1234");
+
+        verify(resource.ticketService, never()).applyGlobalDiscount(any(), any(), any());
+        verify(resource.ticketService, never()).recalculateTotal(resource.state);
+    }
+
+    /**
+     * A type that merely CONTAINS "GLOBAL" without starting with the prefix
+     * keeps the per-line path: the router is a prefix test, so a future
+     * per-line gesture cannot silently become a whole-ticket one.
+     */
+    @Test
+    void validateEndorsementOnlyThePrefixRoutesToTheWholeTicket() {
+        EndorsementResource resource = newResource();
+        TicketState.TicketItem item = addItem(resource, "L1");
+        resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
+        resource.state.endorsement.pendingPriceType = "REMISE_GLOBAL";
+        resource.state.endorsement.pendingTargetUid = "L1";
+        resource.state.endorsement.pendingValue = new BigDecimal("1.00");
+        when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
+                .thenReturn(true);
+        stubMain(resource);
+
+        resource.validateEndorsement("m", "1234");
+
+        verify(resource.ticketService, never()).applyGlobalDiscount(any(), any(), any());
+        verify(resource.ticketService).recalculateTotal(resource.state);
+        assertNotNull(item);
     }
 
     /**

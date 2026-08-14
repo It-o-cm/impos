@@ -1,7 +1,10 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.StoredValue;
+import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -236,5 +240,179 @@ class VoucherServiceTest {
         when(state.getRemaining()).thenReturn(new BigDecimal("20.00"));
         service.applyManualVoucher(state, null, "N9", new BigDecimal("5.00"));
         verify(paymentService).processVoucher(state, "Bon d'achat", "N9", new BigDecimal("5.00"));
+    }
+
+    // --- applyRegistryVoucher ---
+
+    /**
+     * Wires the mocked state with a mocked ticket mailbox and a real payment
+     * sub-state, the two collaborators the registry path touches: the ticket
+     * receives the refusals, the payments carry the already-scanned numbers.
+     *
+     * @return the ticket mailbox mock, for verification
+     */
+    private TicketState wireStateForRegistry() {
+        TicketState ticket = mock(TicketState.class);
+        state.ticket = ticket;
+        state.payment = new PaymentState();
+        return ticket;
+    }
+
+    /**
+     * Builds a registry instrument with the given status and balance.
+     *
+     * @param status the instrument status
+     * @param balance the remaining balance
+     * @return the wired instrument
+     */
+    private StoredValue instrument(StoredValue.Status status, String balance) {
+        StoredValue sv = new StoredValue();
+        sv.status = status;
+        sv.balance = new BigDecimal(balance);
+        return sv;
+    }
+
+    /**
+     * A number ABSENT from the registry is refused: the register never trusts
+     * a printed number on its own — the registry is the authority on what an
+     * instrument is worth.
+     */
+    @Test
+    void applyRegistryVoucher_unknownNumber_refused() {
+        TicketState ticket = wireStateForRegistry();
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001")).thenReturn(null);
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(ticket).setError("BON INCONNU AU REGISTRE");
+        verify(state).touch();
+        verifyNoInteractions(paymentService);
+    }
+
+    /**
+     * An EXHAUSTED instrument is refused even if its balance still looks
+     * positive (first leg of the status guard): the status is authoritative.
+     */
+    @Test
+    void applyRegistryVoucher_exhaustedStatus_refused() {
+        TicketState ticket = wireStateForRegistry();
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.EXHAUSTED, "5.00"));
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(ticket).setError("BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ");
+        verifyNoInteractions(paymentService);
+    }
+
+    /**
+     * A ZERO balance is refused (second leg, {@code signum() == 0}).
+     */
+    @Test
+    void applyRegistryVoucher_zeroBalance_refused() {
+        TicketState ticket = wireStateForRegistry();
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.ACTIVE, "0.00"));
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(ticket).setError("BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ");
+        verifyNoInteractions(paymentService);
+    }
+
+    /**
+     * A NEGATIVE balance is refused too (second leg, {@code signum() < 0}):
+     * the guard is {@code <= 0}, so a corrupted row can never pay.
+     */
+    @Test
+    void applyRegistryVoucher_negativeBalance_refused() {
+        TicketState ticket = wireStateForRegistry();
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.ACTIVE, "-1.00"));
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(ticket).setError("BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ");
+        verifyNoInteractions(paymentService);
+    }
+
+    /**
+     * An instrument ALREADY SCANNED on this very sale is refused: a second
+     * scan of the same paper would pay twice with one instrument.
+     */
+    @Test
+    void applyRegistryVoucher_alreadyScannedOnThisSale_refused() {
+        TicketState ticket = wireStateForRegistry();
+        state.payment.payments.add(new PaymentState.PaymentEntry(
+                "Avoir", new BigDecimal("10.00"), "297000000000001", true));
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.ACTIVE, "10.00"));
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(ticket).setError("BON DÉJÀ SCANNÉ SUR CETTE VENTE");
+        verifyNoInteractions(paymentService);
+    }
+
+    /**
+     * A DIFFERENT instrument already scanned does not block this one: the
+     * guard matches on the NUMBER, not on the mere presence of a voucher.
+     */
+    @Test
+    void applyRegistryVoucher_anotherVoucherScanned_stillAccepted() {
+        wireStateForRegistry();
+        state.payment.payments.add(new PaymentState.PaymentEntry(
+                "Avoir", new BigDecimal("5.00"), "297000000000999", true));
+        when(state.getRemaining()).thenReturn(new BigDecimal("20.00"));
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.ACTIVE, "10.00"));
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(paymentService).processVoucher(state, "Avoir", "297000000000001",
+                new BigDecimal("10.00"));
+    }
+
+    /**
+     * A valid instrument pays its FULL REGISTRY BALANCE — the amount comes
+     * from the registry, never from the paper: an old printed figure can no
+     * longer overpay.
+     */
+    @Test
+    void applyRegistryVoucher_valid_paysTheRegistryBalance() {
+        wireStateForRegistry();
+        when(state.getRemaining()).thenReturn(new BigDecimal("20.00"));
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("297000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.ACTIVE, "12.34"));
+            service.applyRegistryVoucher(state, matchOnlyType("AVOIR", "Avoir", "^297.*"),
+                    "297000000000001");
+        }
+        verify(paymentService).processVoucher(state, "Avoir", "297000000000001",
+                new BigDecimal("12.34"));
+    }
+
+    /**
+     * A balance above the remaining due is CAPPED at what is left to pay:
+     * the residue stays on the instrument for a later sale.
+     */
+    @Test
+    void applyRegistryVoucher_balanceAboveRemaining_isCapped() {
+        wireStateForRegistry();
+        when(state.getRemaining()).thenReturn(new BigDecimal("4.00"));
+        try (MockedStatic<StoredValue> registry = mockStatic(StoredValue.class)) {
+            registry.when(() -> StoredValue.findByNumber("296000000000001"))
+                    .thenReturn(instrument(StoredValue.Status.ACTIVE, "25.00"));
+            service.applyRegistryVoucher(state, matchOnlyType("CADEAU", "Carte cadeau", "^296.*"),
+                    "296000000000001");
+        }
+        verify(paymentService).processVoucher(state, "Carte cadeau", "296000000000001",
+                new BigDecimal("4.00"));
     }
 }

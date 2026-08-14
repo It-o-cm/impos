@@ -64,6 +64,9 @@ public class TicketPrinterService {
      * @return that ticket's database id, or null
      */
     private Long currentOrLastTicketId() {
+        // No null check on posState: the only call site is guarded by
+        // `posState != null` a few lines above, so this method is never
+        // reached without a state — a guard here could not fire.
         return posState.payment.ticketDbId != null
                 ? posState.payment.ticketDbId : posState.lastClosedTicketId;
     }
@@ -146,7 +149,11 @@ public class TicketPrinterService {
         // It is read from the LIVE state, which still holds the projection at
         // print time; a later DUPLICATA therefore carries no section (the earn
         // is not persisted — known and accepted gap).
-        if (posState.fidelity.earnTotal != null && posState.fidelity.earnTotal.signum() > 0
+        // The state is checked for null: this printer is also built BY HAND in
+        // unit tests (no CDI), where only the hardware collaborator is wired —
+        // an absent register state simply means "no loyalty section".
+        if (posState != null && posState.fidelity.earnTotal != null
+                && posState.fidelity.earnTotal.signum() > 0
                 && ticketId.equals(currentOrLastTicketId())) {
             sb.append(formatLine("CAGNOTTE DU JOUR",
                     "+" + DF.format(posState.fidelity.earnTotal) + " E"));

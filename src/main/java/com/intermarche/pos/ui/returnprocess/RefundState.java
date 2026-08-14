@@ -77,10 +77,11 @@ public class RefundState implements Serializable {
         int maxPage = Math.max(0, (allLines.size() - 1) / PAGE_SIZE);
         if (detailPage > maxPage) detailPage = maxPage;
 
+        // Same invariant as the reprint screen: the clamp above already
+        // keeps the window inside the list, so no further bound check is
+        // reachable.
         int from = detailPage * PAGE_SIZE;
         int to = Math.min(from + PAGE_SIZE, allLines.size());
-
-        if (from >= allLines.size()) return Collections.emptyList();
         return allLines.subList(from, to);
     }
 

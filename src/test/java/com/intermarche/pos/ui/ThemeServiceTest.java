@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -320,6 +322,111 @@ class ThemeServiceTest {
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
             assertEquals(ThemeService.DEFAULT_THEME, ThemeService.Globals.posTheme());
+        }
+    }
+
+    // --------------------------------------------------
+    // Globals.ageCheckBirthYear
+    // --------------------------------------------------
+
+    /**
+     * A resolvable state with a POSITIVE threshold yields the pivot birth
+     * year: this year minus the threshold (handle available true, ternary
+     * {@code threshold > 0} true). The value is computed against the current
+     * year so the test never expires.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ageCheckBirthYearUsesStateThreshold() {
+        PosState state = new PosState();
+        state.ageCheck.threshold = 21;
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosState> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(true);
+        when(handle.get()).thenReturn(state);
+        when(container.instance(PosState.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(java.time.LocalDate.now().getYear() - 21,
+                    ThemeService.Globals.ageCheckBirthYear());
+        }
+    }
+
+    /**
+     * A resolvable state whose threshold is ZERO (no age check armed) falls
+     * back to the legal default of 18 (handle available true, ternary
+     * {@code threshold > 0} FALSE) — the keypad must never suggest the
+     * current year as a pivot.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ageCheckBirthYearFallsBackWhenThresholdNotArmed() {
+        PosState state = new PosState();
+        state.ageCheck.threshold = 0;
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosState> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(true);
+        when(handle.get()).thenReturn(state);
+        when(container.instance(PosState.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(java.time.LocalDate.now().getYear() - 18,
+                    ThemeService.Globals.ageCheckBirthYear());
+        }
+    }
+
+    /**
+     * A NEGATIVE threshold takes the same fallback leg as zero — the guard is
+     * {@code > 0}, not {@code != 0}, and a corrupted state must not push the
+     * pivot into the future.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ageCheckBirthYearFallsBackOnNegativeThreshold() {
+        PosState state = new PosState();
+        state.ageCheck.threshold = -5;
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosState> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(true);
+        when(handle.get()).thenReturn(state);
+        when(container.instance(PosState.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(java.time.LocalDate.now().getYear() - 18,
+                    ThemeService.Globals.ageCheckBirthYear());
+        }
+    }
+
+    /**
+     * An UNAVAILABLE bean yields the default of 18 without dereferencing the
+     * handle (handle available FALSE arm) — the template still renders.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ageCheckBirthYearDefaultsWhenBeanUnavailable() {
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosState> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(false);
+        when(container.instance(PosState.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(java.time.LocalDate.now().getYear() - 18,
+                    ThemeService.Globals.ageCheckBirthYear());
+            verify(handle, never()).get();
+        }
+    }
+
+    /**
+     * Any resolution failure is swallowed by the catch guard: the global
+     * still returns the legal default rather than breaking the rendering of
+     * the ID-check keypad (catch arm).
+     */
+    @Test
+    void ageCheckBirthYearDefaultsWhenResolutionThrows() {
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
+            assertEquals(java.time.LocalDate.now().getYear() - 18,
+                    ThemeService.Globals.ageCheckBirthYear());
         }
     }
 

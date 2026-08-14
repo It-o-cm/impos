@@ -461,6 +461,7 @@ public class TicketPersistenceService {
         line.totalPrice = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
         line.vatRate = item.vatRate;
         line.deposit = item.isNegative();
+        line.moneyProduct = item.moneyProduct;
         return line;
     }
 

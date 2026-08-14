@@ -61,24 +61,31 @@ for app in $APPS; do
     exit 1
   fi
   echo "== Building $app =="
-  # Use the repo's Maven wrapper when it exists, the system mvn otherwise
-  ( cd "$dir" && if [ -x ./mvnw ]; then ./mvnw -q clean package -DskipTests -DskipITs; \
-                 else mvn -q clean package -DskipTests -DskipITs; fi )
+  # -DskipJsTests: the Vitest bench is wired via exec-maven-plugin, which
+  # -DskipTests does NOT cover — a deploy build must not depend on test state.
+  ( cd "$dir" && if [ -x ./mvnw ]; then ./mvnw -q clean package -DskipTests -DskipITs -DskipJsTests; \
+                 else mvn -q clean package -DskipTests -DskipITs -DskipJsTests; fi )
   test -f "$dir/target/quarkus-app/quarkus-run.jar" || { echo "Build output missing for $app"; exit 1; }
 done
 
 # --- Backup the PostgreSQL database (imfid only — impos and imvaluation are H2)
 ssh_vm "sudo -u postgres pg_dump imfid | gzip > /tmp/imfid-\$(date +%Y%m%d-%H%M).sql.gz" || true
 
-# --- Differential rsync + restart, one app at a time --------------------
+# --- Tarball + restart, one app at a time -------------------------------
+# quarkus-app/ contains hundreds of files (lib/*.jar): shipping it as ONE
+# compressed tarball is far faster over scp than a recursive per-file copy.
 for app in $APPS; do
   dir="$(dir_for "$app")"
   echo "== Deploying $app =="
-  gcloud compute scp --recurse --zone="$ZONE" --compress \
-    "$dir/target/quarkus-app" "$VM_NAME:/tmp/${app}-quarkus-app"
-  ssh_vm "sudo rsync -a --delete /tmp/${app}-quarkus-app/ /opt/apps/${app}/quarkus-app/ \
+  tar -czf "/tmp/${app}-qa.tgz" -C "$dir/target" quarkus-app
+  gcloud compute scp --zone="$ZONE" "/tmp/${app}-qa.tgz" "$VM_NAME:/tmp/${app}-qa.tgz"
+  rm -f "/tmp/${app}-qa.tgz"
+  ssh_vm "rm -rf /tmp/${app}-qa && mkdir -p /tmp/${app}-qa \
+          && tar -xzf /tmp/${app}-qa.tgz -C /tmp/${app}-qa \
+          && sudo rsync -a --delete /tmp/${app}-qa/quarkus-app/ /opt/apps/${app}/quarkus-app/ \
           && sudo chown -R apps:apps /opt/apps/${app} \
-          && sudo systemctl restart ${app} && rm -rf /tmp/${app}-quarkus-app"
+          && sudo systemctl restart ${app} \
+          && rm -rf /tmp/${app}-qa /tmp/${app}-qa.tgz"
   # Simulator page rides along with impos (static, no restart needed)
   if [ "$app" = "impos" ] && [ -d "$SIMULATOR_DIR" ]; then
     gcloud compute scp --recurse --zone="$ZONE" --compress "$SIMULATOR_DIR" "$VM_NAME:/tmp/simulator"

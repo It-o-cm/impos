@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -69,6 +71,22 @@ class VoucherScanHandlerTest {
         type.code = code;
         type.label = label;
         type.amountSource = manual ? CouponType.AmountSource.MANUAL : CouponType.AmountSource.ENCODED;
+        return type;
+    }
+
+    /**
+     * Builds a REGISTRY-backed coupon type — a credit note or a gift card,
+     * whose amount lives in the stored-value registry, never on the paper.
+     *
+     * @param code the technical code
+     * @param label the human-readable label
+     * @return the configured coupon type
+     */
+    private CouponType registryType(String code, String label) {
+        CouponType type = new CouponType();
+        type.code = code;
+        type.label = label;
+        type.amountSource = CouponType.AmountSource.REGISTRY;
         return type;
     }
 
@@ -187,5 +205,106 @@ class VoucherScanHandlerTest {
         when(voucherService.resolveType("CAT-ABC")).thenReturn(type);
         handler.handle(ctx);
         assertSame(ctx.code, state.payment.pendingVoucherNumber);
+    }
+
+    /**
+     * A REGISTRY-backed instrument goes straight to the registry path: the
+     * panel is NEVER opened and no amount is asked, because the registry —
+     * not the cashier, not the printed figure — is the authority on what the
+     * instrument is still worth.
+     */
+    @Test
+    void handleAppliesRegistryVoucherWithoutAskingAnAmount() {
+        PosState state = nominalState();
+        long versionBefore = state.version;
+        ScanContext ctx = new ScanContext("297000000000001", state);
+        CouponType type = registryType("AVOIR", "Avoir");
+        when(voucherService.resolveType("297000000000001")).thenReturn(type);
+
+        handler.handle(ctx);
+
+        assertTrue(ctx.handled);
+        verify(voucherService).applyRegistryVoucher(state, type, "297000000000001");
+        assertFalse(state.payment.voucherPanelOpen);
+        assertNull(state.payment.pendingVoucherTypeCode);
+        assertNull(state.payment.pendingVoucherNumber);
+        assertEquals(versionBefore, state.version);
+    }
+
+    /**
+     * The three amount sources are MUTUALLY EXCLUSIVE: a registry scan must
+     * never also reach the encoded path, which would pay twice with one
+     * instrument.
+     */
+    @Test
+    void handleRegistryPathExcludesTheOtherTwo() {
+        PosState state = nominalState();
+        ScanContext ctx = new ScanContext("296000000000001", state);
+        CouponType type = registryType("CADEAU", "Carte cadeau");
+        when(voucherService.resolveType("296000000000001")).thenReturn(type);
+
+        handler.handle(ctx);
+
+        verify(voucherService, never()).applyEncodedVoucher(any(), any(), any());
+        verify(voucherService).applyRegistryVoucher(state, type, "296000000000001");
+    }
+
+    /**
+     * A gift card takes the same registry path as a credit note — the two
+     * instruments differ by their prefix and their rules, not by the way the
+     * register reads their balance.
+     */
+    @Test
+    void handleGiftCardTakesTheRegistryPathToo() {
+        PosState state = nominalState();
+        ScanContext ctx = new ScanContext("296000000000042", state);
+        CouponType type = registryType("CADEAU", "Carte cadeau");
+        when(voucherService.resolveType("296000000000042")).thenReturn(type);
+
+        handler.handle(ctx);
+
+        assertTrue(ctx.handled);
+        verify(voucherService).applyRegistryVoucher(state, type, "296000000000042");
+    }
+
+    /**
+     * The registry path CONSUMES the context even when the service refuses
+     * the instrument (unknown, exhausted, already scanned): the refusal is
+     * displayed by the service, and no later handler may re-interpret the
+     * same code as something else.
+     */
+    @Test
+    void handleRegistryScanIsConsumedEvenWhenTheServiceRefuses() {
+        PosState state = nominalState();
+        ScanContext ctx = new ScanContext("297000000000404", state);
+        CouponType type = registryType("AVOIR", "Avoir");
+        when(voucherService.resolveType("297000000000404")).thenReturn(type);
+        doAnswer(invocation -> {
+            state.ticket.setError("BON INCONNU AU REGISTRE");
+            return null;
+        }).when(voucherService).applyRegistryVoucher(state, type, "297000000000404");
+
+        handler.handle(ctx);
+
+        assertTrue(ctx.handled);
+        assertEquals("BON INCONNU AU REGISTRE", state.ticket.transientError);
+    }
+
+    /**
+     * OUTSIDE a payment, a registry instrument is not a voucher at all: the
+     * scan falls through untouched so the chain can treat the number as
+     * whatever else it may be.
+     */
+    @Test
+    void handleIgnoresRegistryScanOutsideAPayment() {
+        PosState state = nominalState();
+        state.payment.paymentInProgress = false;
+        ScanContext ctx = new ScanContext("297000000000001", state);
+
+        handler.handle(ctx);
+
+        assertFalse(ctx.handled);
+        verify(voucherService, never()).applyRegistryVoucher(any(), any(), any());
+        verify(voucherService, never()).resolveType(any());
     }
 }
