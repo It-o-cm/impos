@@ -20,6 +20,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
@@ -108,6 +109,9 @@ public class GroupFIT {
     private static final String LABEL_HUILE = "HUILE D'OLIVE 1L";
 
     /** Single-price unit product, TTC 0,96 € — the small-ticket fixture. */
+    /** The apples: the family DemoIT proved to carry a meal-voucher base. */
+    private static final String EAN_POMMES = "3300000000001";
+
     private static final String EAN_BAGUETTE = "3300000000003";
     private static final String LABEL_BAGUETTE = "BAGUETTE TRADITION";
 
@@ -176,14 +180,25 @@ public class GroupFIT {
         Page over = freshSaleWithHuile();
         goPay(over);
         payThroughScreen(over, "ESPÈCES", "cashForm", "10", false);
+        // Cash OPENS the drawer, so the page that came back may be the drawer
+        // interstitial: the settlement is a SERVER fact, and the modal is
+        // only reachable once the drawer is shut and /pay re-rendered.
+        waitForSettlement();
+        // The drawer pulse is observed BEFORE pushing it shut — reading it a
+        // moment after the settlement can catch the simulator mid-pulse, so
+        // the status is polled rather than sampled once.
+        waitForDrawer("OPEN");
+        closeDrawer();
+        over.navigate(base.toString() + "pay");
         over.getByText("TRANSACTION TERMINÉE").waitFor();
         over.getByText("Rendu Client").waitFor();
         Assertions.assertTrue(over.locator(".change-amount").textContent().contains("4.00"),
                 "the modal must display the 4,00 € change back");
         Assertions.assertEquals(0, posState.payment.lastChangeAmount.compareTo(new BigDecimal("4.00")),
                 "the computed change must be 4,00 €");
-        Assertions.assertEquals("OPEN", drawerStatus(),
-                "a cash payment must pulse the drawer open (deposit + change)");
+        // The drawer pulse was asserted ABOVE, right after the settlement:
+        // reaching this modal required pushing the drawer shut, so asserting
+        // OPEN here would contradict the gesture the test itself made.
         finishSale(over);
         over.close();
     }
@@ -377,21 +392,51 @@ public class GroupFIT {
      */
     @Test
     void f5_cheque_et_ticket_resto_tiroir_ouvert() {
-        Page page = freshSaleWithHuile();
+        // The meal-voucher base is an ENGINE decision carried by the product
+        // family: the oil grants none, the apples do (DemoIT proved it). The
+        // cart is built from THAT family so the scenario has an object.
+        Page page = freshSale();
+        scan(EAN_POMMES);
+        page.getByText("POMMES GOLDEN").waitFor();
+        scan(EAN_POMMES);
         goPay(page);
-        // Cheque 3,00 € (partial): the cheque form prefills the full remaining.
-        payThroughScreen(page, "CHÈQUE", "chequeForm", "3", true);
+        BigDecimal total = posState.getRemaining();
+        BigDecimal mealBase = posState.payment.valuationMealEligible;
+        Assertions.assertTrue(mealBase != null && mealBase.signum() > 0,
+                "le moteur doit accorder une assiette TR sur les pommes — assiette = "
+                        + mealBase + " (vérifier le drapeau ticket-restaurant de la "
+                        + "famille côté moteur)");
+        // The TR tender is what the engine allows, capped so the cheque keeps
+        // something to settle: the scenario proves TWO non-cash tenders.
+        BigDecimal trAmount = mealBase.min(total.subtract(new BigDecimal("0.50")))
+                .setScale(2, java.math.RoundingMode.DOWN);
+        Assertions.assertTrue(trAmount.signum() > 0,
+                "l'assiette TR doit laisser un solde au chèque — total " + total
+                        + ", assiette " + mealBase);
+        BigDecimal chequeAmount = total.subtract(trAmount);
+        // Cheque first (its form prefills the full remaining, hence the clear).
+        payThroughScreen(page, "CHÈQUE", "chequeForm", chequeAmount.toPlainString(), true);
         page.getByText("RESTE :").waitFor();
-        Assertions.assertEquals(0, posState.getRemaining().compareTo(new BigDecimal("3.00")),
-                "a 3,00 € cheque must leave 3,00 € due");
+        Assertions.assertEquals(0, posState.getRemaining().compareTo(trAmount),
+                "le chèque doit laisser exactement le montant TR à payer");
         // The cheque pulsed the drawer open; the next payment POST is drawer-guarded,
         // so the cashier pushes the drawer shut before tendering the meal tickets.
+        waitForDrawer("OPEN");
         closeDrawer();
-        // Meal tickets 3,00 € (balance): the TR form starts empty.
-        payThroughScreen(page, "TICKET RESTO", "trForm", "3", false);
+        payThroughScreen(page, "TICKET RESTO", "trForm", trAmount.toPlainString(), false);
+        Assertions.assertTrue(posState.payment.payments.stream()
+                        .anyMatch(p -> "TR".equals(p.method)),
+                "le paiement TR doit s'enregistrer — assiette TR = " + mealBase
+                        + ", restant dû = " + posState.getRemaining()
+                        + ", paiements = " + posState.payment.payments.stream()
+                                .map(p -> p.method + ":" + p.amount).toList()
+                        + ", message = " + posState.ticket.transientError);
+        // The meal-ticket payment ALSO pulses the drawer open (storage).
+        waitForDrawer("OPEN");
+        closeDrawer();
+        page.navigate(base.toString() + "pay");
+        waitForSettlement();
         page.getByText("TRANSACTION TERMINÉE").waitFor();
-        Assertions.assertEquals("OPEN", drawerStatus(),
-                "cheque and meal-ticket payments must pulse the drawer open (storage)");
         Long ticketId = posState.payment.ticketDbId;
         Assertions.assertNotNull(ticketId, "the settled sale must carry a persisted draft");
         finishSale(page);
@@ -577,13 +622,55 @@ public class GroupFIT {
      */
     private void scanBadgeAndEnterPin(Page page, String badge, String pin) {
         String root = base.toString();
+        // A badge only reaches the AUTHENTICATION handler on a register that
+        // is locked AND has no modal claiming the scan chain first: an
+        // endorsement prompt takes precedence over the lock, and an
+        // age-check prompt parks whatever is scanned. Either one left behind
+        // by a previous scenario swallows this badge, and the PIN prompt then
+        // never appears — a 30 s timeout with no clue. Clear the ground.
+        clearPendingPrompts();
+        closeDrawer();
         page.navigate(root + "lock");
+        Assertions.assertTrue(posState.isLocked(),
+                "the register must be LOCKED after /lock — état: "
+                        + describeRegister());
         APIResponse scan = context.request().post(root + "api/pos/scan",
                 RequestOptions.create().setHeader("Content-Type", "text/plain").setData(badge));
         Assertions.assertTrue(scan.ok(), "the hardware scan bus should accept the badge");
-        page.getByText("Entrez votre code PIN :").waitFor();
+        try {
+            page.getByText("Entrez votre code PIN :")
+                    .waitFor(new Locator.WaitForOptions().setTimeout(10000));
+        } catch (RuntimeException promptNeverCame) {
+            Assertions.fail("le badge n'a pas atteint l'authentification — état: "
+                    + describeRegister() + ", page: " + page.url());
+        }
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+    }
+
+    /**
+     * Dismisses any modal that would claim the scan chain before the
+     * authentication handler, so a badge presented next reaches the lock.
+     * Both prompts are in-memory only, and a scenario that ended mid-gesture
+     * has no other way to put them down.
+     */
+    private void clearPendingPrompts() {
+        posState.endorsement.clear();
+        posState.ageCheck.clear();
+        posState.touch();
+    }
+
+    /**
+     * Describes the register state that decides where a scanned badge goes —
+     * the four flags worth naming when a login gesture goes nowhere.
+     *
+     * @return a one-line state description for failure messages
+     */
+    private String describeRegister() {
+        return "locked=" + posState.isLocked()
+                + ", endorsement=" + posState.endorsement.active
+                + ", ageCheck=" + posState.ageCheck.active
+                + ", paymentInProgress=" + posState.payment.paymentInProgress;
     }
 
     /**
@@ -681,6 +768,54 @@ public class GroupFIT {
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("NOUVELLE VENTE").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
+    }
+
+    /**
+     * Polls the drawer status until it reaches the expected state: the pulse
+     * travels through the hardware simulator, so a single sample taken right
+     * after a payment can miss it.
+     *
+     * @param expected "OPEN" or "CLOSED"
+     */
+    private void waitForDrawer(String expected) {
+        long deadline = System.currentTimeMillis() + 5000;
+        String status = drawerStatus();
+        while (System.currentTimeMillis() < deadline && !expected.equals(status)) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            status = drawerStatus();
+        }
+        Assertions.assertEquals(expected, status,
+                "le tiroir doit être " + expected + " après ce paiement");
+    }
+
+    /**
+     * Waits for the SERVER to declare the sale settled, and fails naming the
+     * state when it does not: the remaining due, the meal-voucher base the
+     * engine allowed and the tenders actually registered.
+     */
+    private void waitForSettlement() {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            if (posState.payment.transactionComplete) {
+                return;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        Assertions.fail("la vente n'est pas soldée — restant dû = " + posState.getRemaining()
+                + ", assiette TR du moteur = " + posState.payment.valuationMealEligible
+                + ", paiements = " + posState.payment.payments.stream()
+                        .map(p -> p.method + ":" + p.amount).toList()
+                + ", message = " + posState.ticket.transientError);
     }
 
     /**

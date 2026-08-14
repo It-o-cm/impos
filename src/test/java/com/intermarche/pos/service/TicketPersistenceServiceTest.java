@@ -899,7 +899,7 @@ class TicketPersistenceServiceTest {
             assertEquals(5L, card.issuingTicketId);
             assertNotNull(card.issuedAt);
             assertEquals("296000000000007", card.number);
-            verify(card).persist();
+            verify(card).persistAndFlush();
         }
     }
 

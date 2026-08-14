@@ -128,6 +128,9 @@ public class GroupHIT {
     /** The store-voucher number format printed by a voucher refund. */
     private static final Pattern STORE_VOUCHER = Pattern.compile("50\\d{12}");
 
+    /** A registry credit-note number: the 297 prefix plus the row id. */
+    private static final Pattern CREDIT_NOTE = Pattern.compile("297\\d{12}");
+
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
     BrowserContext context;
@@ -331,14 +334,20 @@ public class GroupHIT {
         Assertions.assertEquals(1, refunds.size(), "the voucher refund must be created");
         Assertions.assertEquals("VOUCHER", refunds.get(0).method, "the refund method must be VOUCHER");
         page.close();
-        // --- The printed voucher: a scannable STORE_VOUCHER number ---
+        // --- The printed credit note: a REGISTRY number, not an encoded one ---
+        // The refund no longer prints a 50-prefixed voucher carrying its own
+        // amount: it issues an AVOIR in the stored-value registry, whose
+        // number is a pure identifier (297 + the row id) and whose balance
+        // lives server-side. The 99,99 € cap of the encoded format is gone
+        // with it — the registry holds any amount.
         String paper = printerContent();
-        Assertions.assertTrue(paper.contains("BON D'ACHAT"),
-                "the printed voucher must be titled BON D'ACHAT, paper was:\n" + paper);
-        Assertions.assertTrue(paper.contains("(scannable en caisse)"),
-                "a ≤ 99,99 € refund voucher must be marked scannable, paper was:\n" + paper);
-        Matcher m = STORE_VOUCHER.matcher(paper);
-        Assertions.assertTrue(m.find(), "the voucher must carry an encoded 50-prefixed number, paper was:\n" + paper);
+        Assertions.assertTrue(paper.contains("AVOIR"),
+                "the printed credit note must be titled AVOIR, paper was:\n" + paper);
+        Assertions.assertTrue(paper.contains("solde au registre"),
+                "the credit note must point at the registry, paper was:\n" + paper);
+        Matcher m = CREDIT_NOTE.matcher(paper);
+        Assertions.assertTrue(m.find(),
+                "the credit note must carry a 297-prefixed registry number, paper was:\n" + paper);
         String voucherNumber = m.group();
         // --- Encash it on a later sale: scanned during payment, it pays 6,00 € ---
         Page next = freshSale();
@@ -351,9 +360,9 @@ public class GroupHIT {
                 .filter(PaymentState.PaymentEntry::isVoucher).findFirst().orElse(null);
         Assertions.assertNotNull(voucher, "scanning the store voucher during payment must register a voucher payment");
         Assertions.assertEquals(0, voucher.amount.compareTo(new BigDecimal("6.00")),
-                "the encoded voucher must pay its 6,00 € face value");
-        Assertions.assertEquals("Bon enseigne", voucher.method,
-                "the payment must carry the store-voucher type label");
+                "the credit note must pay the balance the REGISTRY holds, not a printed figure");
+        Assertions.assertEquals("Avoir", voucher.method,
+                "the payment must carry the credit-note type label");
         Assertions.assertEquals(0, posState.getRemaining().compareTo(new BigDecimal("6.00")),
                 "the 6,00 € voucher must leave 6,00 € due on the 12,00 € sale");
         next.close();
@@ -445,13 +454,54 @@ public class GroupHIT {
      */
     private void scanBadgeAndEnterPin(Page page, String badge, String pin) {
         String root = base.toString();
+        // A badge only reaches the AUTHENTICATION handler on a register that
+        // is locked AND has no modal claiming the scan chain first: an
+        // endorsement prompt takes precedence over the lock, and an age-check
+        // prompt parks whatever is scanned. Either one left behind by a
+        // scenario that ended mid-gesture swallows this badge, and the PIN
+        // prompt never appears — a bare 30 s timeout. Clear the ground.
+        clearPendingPrompts();
+        closeDrawer();
         page.navigate(root + "lock");
+        Assertions.assertTrue(posState.isLocked(),
+                "the register must be LOCKED after /lock — état: " + describeRegister());
         APIResponse scan = context.request().post(root + "api/pos/scan",
                 RequestOptions.create().setHeader("Content-Type", "text/plain").setData(badge));
         Assertions.assertTrue(scan.ok(), "the hardware scan bus should accept the badge");
-        page.getByText("Entrez votre code PIN :").waitFor();
+        try {
+            page.getByText("Entrez votre code PIN :")
+                    .waitFor(new Locator.WaitForOptions().setTimeout(10000));
+        } catch (RuntimeException promptNeverCame) {
+            Assertions.fail("le badge n'a pas atteint l'authentification — état: "
+                    + describeRegister() + ", page: " + page.url());
+        }
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+    }
+
+    /**
+     * Dismisses any modal that would claim the scan chain before the
+     * authentication handler, so a badge presented next reaches the lock.
+     * Both prompts live in memory only: a scenario that ended mid-gesture has
+     * no other way to put them down.
+     */
+    private void clearPendingPrompts() {
+        posState.endorsement.clear();
+        posState.ageCheck.clear();
+        posState.touch();
+    }
+
+    /**
+     * Describes the register state that decides where a scanned badge goes,
+     * and whether a gesture can land at all.
+     *
+     * @return a one-line state description for failure messages
+     */
+    private String describeRegister() {
+        return "locked=" + posState.isLocked()
+                + ", endorsement=" + posState.endorsement.active
+                + ", ageCheck=" + posState.ageCheck.active
+                + ", paymentInProgress=" + posState.payment.paymentInProgress;
     }
 
     /**
@@ -612,7 +662,38 @@ public class GroupHIT {
         // ticket-pagination SUIVANT button that would otherwise collide.
         page.locator("#endorseModal").getByRole(AriaRole.BUTTON,
                 new Locator.GetByRoleOptions().setName("SUIVANT").setExact(true)).click();
+        // The endorsed gesture may open the drawer (a cash refund) or print,
+        // and the register then answers with the drawer interstitial instead
+        // of the sale screen — waiting for the sale text alone would hang on
+        // a page that is legitimately elsewhere. The SERVER fact is that the
+        // endorsement is consumed; the sale screen is reached after pushing
+        // the drawer shut.
+        waitForEndorsementConsumed();
+        closeDrawer();
+        page.navigate(base.toString());
         page.getByText("TOTAL À PAYER").waitFor();
+    }
+
+    /**
+     * Waits for the endorsement prompt to be consumed server-side (granted or
+     * refused), failing with the register state rather than on a rendering
+     * detail.
+     */
+    private void waitForEndorsementConsumed() {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            if (!posState.endorsement.active) {
+                return;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        Assertions.fail("l'avenant n'a pas été consommé — état: " + describeRegister()
+                + ", message = " + posState.ticket.transientError);
     }
 
     /**

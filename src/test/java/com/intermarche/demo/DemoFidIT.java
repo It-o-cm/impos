@@ -1,5 +1,6 @@
-package com.intermarche.e2e;
+package com.intermarche.demo;
 
+import com.intermarche.e2e.E2eTestProfile;
 import com.intermarche.pos.ui.PosState;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;

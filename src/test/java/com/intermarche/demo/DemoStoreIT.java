@@ -1,5 +1,6 @@
-package com.intermarche.e2e;
+package com.intermarche.demo;
 
+import com.intermarche.e2e.E2eTestProfile;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Locator;
@@ -9,6 +10,7 @@ import com.microsoft.playwright.options.RequestOptions;
 import io.quarkiverse.playwright.InjectPlaywright;
 import io.quarkiverse.playwright.WithPlaywright;
 import io.quarkus.test.common.http.TestHTTPResource;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
@@ -161,7 +163,44 @@ public class DemoStoreIT {
         Assertions.assertTrue(after >= before + 1,
                 "module XIII: the closed sale must land on the store dashboard within "
                         + DRAIN_TIMEOUT_SECONDS + " s (tickets before=" + before
-                        + ", after=" + after + ") — outbox drain or store link broken");
+                        + ", after=" + after + ") — " + linkDiagnosis());
+    }
+
+    /**
+     * Describes WHERE the store link broke, so the failure names its own
+     * cause instead of leaving three hypotheses open: an outbox that never
+     * drained (the register does not push), rows still pending (the store
+     * refuses them), or an empty outbox facing an unchanged dashboard (the
+     * store ingests but does not consolidate).
+     *
+     * @return a one-line diagnosis appended to the failure message
+     */
+    private String linkDiagnosis() {
+        StringBuilder diagnosis = new StringBuilder();
+        // A pushed row is DELETED from the outbox, so a leftover row means the
+        // store refused it (or never answered); an empty outbox means either
+        // nothing was ever enqueued, or everything went through.
+        long remaining = QuarkusTransaction.requiringNew().call(
+                () -> com.intermarche.pos.domain.SyncOutbox.count());
+        String lastError = QuarkusTransaction.requiringNew().call(() -> {
+            com.intermarche.pos.domain.SyncOutbox row =
+                    com.intermarche.pos.domain.SyncOutbox
+                            .<com.intermarche.pos.domain.SyncOutbox>find("order by id desc")
+                            .firstResult();
+            return row == null ? null : row.attempts + " essai(s), dernière erreur: " + row.lastError;
+        });
+        diagnosis.append("outbox caisse: ").append(remaining).append(" ligne(s) restante(s)");
+        if (remaining > 0) {
+            diagnosis.append(" [").append(lastError).append("]")
+                    .append(" → LE MAGASIN REFUSE OU EST MUET: vérifier pos.role=store sur :8082")
+                    .append(" et un éventuel pos.sync.token discordant");
+        } else {
+            diagnosis.append(" → soit la caisse n'a RIEN enfilé (pos.sync.store-url absent au")
+                    .append(" boot ?), soit tout est poussé et le magasin n'a pas consolidé");
+        }
+        APIResponse probe = context.request().get(STORE_URL + "/dashboard-data");
+        diagnosis.append(" | /dashboard-data: HTTP ").append(probe.status());
+        return diagnosis.toString();
     }
 
     /**

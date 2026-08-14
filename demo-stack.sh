@@ -6,9 +6,9 @@
 # quarkus:dev register the demo uses.
 #
 # Usage:
-#   ./e2e/demo-stack.sh            # start engine + imfid, pre-flight, then the register
-#   ./e2e/demo-stack.sh --no-tests # just start the stack (no pre-flight)
-#   ./e2e/demo-stack.sh stop       # stop everything started by this script
+#   ./demo/demo-stack.sh            # start engine + imfid, pre-flight, then the register
+#   ./demo/demo-stack.sh --no-tests # just start the stack (no pre-flight)
+#   ./demo/demo-stack.sh stop       # stop everything started by this script
 #
 # Layout assumption (override by env): the three workspaces are siblings —
 #   IMPOS_DIR       (default: the directory containing this script's parent)
@@ -16,8 +16,12 @@
 #   IMFID_DIR       (default: $IMPOS_DIR/../imfid)
 set -u
 
+lsof -ti :8080 | xargs kill
+lsof -ti :8060 | xargs kill
+lsof -ti :8090 | xargs kill
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Location-agnostic: the script may live at the impos root OR under e2e/ —
+# Location-agnostic: the script may live at the impos root OR under demo/ —
 # the impos root is wherever the pom.xml is.
 if [ -z "${IMPOS_DIR:-}" ]; then
   if [ -f "$SCRIPT_DIR/pom.xml" ]; then IMPOS_DIR="$SCRIPT_DIR"
@@ -106,7 +110,7 @@ cat <<READY
     Écran client  http://localhost:8080/customer
     Moteur        http://localhost:8090/   (IHM admin)
     imfid         http://localhost:8060/   (IHM programme)
-  Logs: $RUN_DIR/   —   Arrêt: ./e2e/demo-stack.sh stop
+  Logs: $RUN_DIR/   —   Arrêt: ./demo/demo-stack.sh stop
   Module XIII (nœud magasin) : à lancer à part (voir PDF 0.1).
 ════════════════════════════════════════════════════════
 READY

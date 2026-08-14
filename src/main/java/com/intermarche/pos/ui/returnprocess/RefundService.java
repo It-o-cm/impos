@@ -429,7 +429,14 @@ public class RefundService {
                 note.balance = refund.totalAmount;
                 note.issuedAt = java.time.LocalDateTime.now();
                 note.issuingRefundId = refund.id;
-                note.persist();
+                // The number is derived from the generated id, but the column
+                // is NOT NULL and only 20 characters wide: the INSERT carries
+                // a SHORT unique placeholder (a base-36 random, 14 chars at
+                // most), and the definitive number replaces it once the id
+                // exists.
+                note.number = "T" + Long.toUnsignedString(
+                        java.util.UUID.randomUUID().getMostSignificantBits(), 36);
+                note.persistAndFlush();
                 note.number = com.intermarche.pos.domain.StoredValue.CREDIT_NOTE_PREFIX
                         + String.format("%012d", note.id);
                 ticketPrinterService.printRefundVoucher(refund, note.number);

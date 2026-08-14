@@ -392,7 +392,12 @@ public class TicketPersistenceService {
                 card.balance = product.giftCardAmount;
                 card.issuedAt = LocalDateTime.now();
                 card.issuingTicketId = ticket.id;
-                card.persist();
+                // Same NOT NULL, 20-character column as the credit note: a
+                // SHORT unique placeholder carries the INSERT, the definitive
+                // number is derived from the generated id right after.
+                card.number = "T" + Long.toUnsignedString(
+                        java.util.UUID.randomUUID().getMostSignificantBits(), 36);
+                card.persistAndFlush();
                 card.number = com.intermarche.pos.domain.StoredValue.GIFT_CARD_PREFIX
                         + String.format("%012d", card.id);
             }

@@ -165,6 +165,10 @@ public class GroupKIT {
     @Inject
     TicketRecoveryService recoveryService;
 
+    /** The sale service, used to replay a revaluation after the recovery. */
+    @Inject
+    com.intermarche.pos.ui.ticket.TicketService ticketService;
+
     /**
      * The real payment service, injected to confirm the virtual-TPE card demand
      * exactly as its {@code /api/hardware/tpe/accept} endpoint wraps it (the
@@ -210,6 +214,7 @@ public class GroupKIT {
         Long draftId = posState.payment.ticketDbId;
         Assertions.assertNotNull(draftId, "building the cart must persist an OPEN draft");
         BigDecimal totalBefore = posState.ticket.totalAmount;
+        String linesBefore = describeCart();
         Assertions.assertTrue(posState.fidelity.active, "the fidelity card must be attached before the crash");
         Assertions.assertEquals(CARD_1, posState.fidelity.label, "the attached card must be the scanned one");
         Assertions.assertEquals(1, openDraftCount(), "exactly one OPEN draft must exist before the crash");
@@ -222,6 +227,15 @@ public class GroupKIT {
         Assertions.assertFalse(posState.fidelity.active, "the crash must wipe the in-memory fidelity");
         // --- RESTART: replay the boot reconciliation ---
         recoveryService.recover();
+        // The recovery restores the DRAFT's own truth: lines, gestures,
+        // quantities, card. It does NOT replay the engine's per-line
+        // advantages — those are derived, not persisted on a draft, and the
+        // engine may have changed its offers meanwhile. The register earns
+        // them back on its next revaluation, which any cashier gesture (and
+        // entering the payment screen) triggers; the test does it explicitly
+        // so the comparison is made on a valued cart, as the customer sees it.
+        ticketService.recalculateTotal(posState);
+        waitForValuedTotal(totalBefore);
         // --- The cart is restored IDENTICALLY ---
         Assertions.assertEquals(3, posState.ticket.items.size(), "recovery must restore the three lines");
         List<String> uidsAfter = new ArrayList<>();
@@ -238,7 +252,9 @@ public class GroupKIT {
         Assertions.assertTrue(posState.fidelity.active, "recovery must reattach the fidelity card");
         Assertions.assertEquals(CARD_1, posState.fidelity.label, "recovery must restore the fidelity card label");
         Assertions.assertEquals(0, posState.ticket.totalAmount.compareTo(totalBefore),
-                "recovery must restore the same cart total");
+                "recovery must restore the same cart total — avant " + totalBefore
+                        + " [" + linesBefore + "] / après " + posState.ticket.totalAmount
+                        + " [" + describeCart() + "]");
         // --- Draft reconciled, no duplicate ---
         Assertions.assertEquals(draftId, posState.payment.ticketDbId,
                 "recovery must reconcile onto the SAME draft, not a new one");
@@ -438,13 +454,54 @@ public class GroupKIT {
      */
     private void scanBadgeAndEnterPin(Page page, String badge, String pin) {
         String root = base.toString();
+        // A badge only reaches the AUTHENTICATION handler on a register that
+        // is locked AND has no modal claiming the scan chain first: an
+        // endorsement prompt takes precedence over the lock, and an age-check
+        // prompt parks whatever is scanned. Either one left behind by a
+        // scenario that ended mid-gesture swallows this badge, and the PIN
+        // prompt never appears — a bare 30 s timeout. Clear the ground.
+        clearPendingPrompts();
+        closeDrawer();
         page.navigate(root + "lock");
+        Assertions.assertTrue(posState.isLocked(),
+                "the register must be LOCKED after /lock — état: " + describeRegister());
         APIResponse scan = context.request().post(root + "api/pos/scan",
                 RequestOptions.create().setHeader("Content-Type", "text/plain").setData(badge));
         Assertions.assertTrue(scan.ok(), "the hardware scan bus should accept the badge");
-        page.getByText("Entrez votre code PIN :").waitFor();
+        try {
+            page.getByText("Entrez votre code PIN :")
+                    .waitFor(new Locator.WaitForOptions().setTimeout(10000));
+        } catch (RuntimeException promptNeverCame) {
+            Assertions.fail("le badge n'a pas atteint l'authentification — état: "
+                    + describeRegister() + ", page: " + page.url());
+        }
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+    }
+
+    /**
+     * Dismisses any modal that would claim the scan chain before the
+     * authentication handler, so a badge presented next reaches the lock.
+     * Both prompts live in memory only: a scenario that ended mid-gesture has
+     * no other way to put them down.
+     */
+    private void clearPendingPrompts() {
+        posState.endorsement.clear();
+        posState.ageCheck.clear();
+        posState.touch();
+    }
+
+    /**
+     * Describes the register state that decides where a scanned badge goes,
+     * and whether a gesture can land at all.
+     *
+     * @return a one-line state description for failure messages
+     */
+    private String describeRegister() {
+        return "locked=" + posState.isLocked()
+                + ", endorsement=" + posState.endorsement.active
+                + ", ageCheck=" + posState.ageCheck.active
+                + ", paymentInProgress=" + posState.payment.paymentInProgress;
     }
 
     /**
@@ -567,6 +624,49 @@ public class GroupKIT {
     }
 
     // --- Hardware bus & keypad ---
+
+    /**
+     * Waits for the revaluation to bring the cart total back to its pre-crash
+     * value: the engine call is asynchronous, so the comparison must not race
+     * it.
+     *
+     * @param expected the total observed before the crash
+     */
+    private void waitForValuedTotal(BigDecimal expected) {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            if (posState.ticket.totalAmount.compareTo(expected) == 0) {
+                return;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+    }
+
+    /**
+     * Describes every cart line the way a total is built from it — label,
+     * quantity, unit price, the gesture that lowered it and the engine
+     * advantage — so a total that comes back different says WHICH line moved.
+     *
+     * @return a one-line description of the whole cart
+     */
+    private String describeCart() {
+        StringBuilder cart = new StringBuilder();
+        for (TicketState.TicketItem item : posState.ticket.items) {
+            if (cart.length() > 0) cart.append(" | ");
+            cart.append(item.label).append(" x").append(item.quantity)
+                    .append(" @").append(item.unitPrice)
+                    .append(" orig=").append(item.originalUnitPrice)
+                    .append(" mod=").append(item.modifierType)
+                    .append("/").append(item.modifierValue)
+                    .append(" total=").append(item.getTotalPrice());
+        }
+        return cart.toString();
+    }
 
     /**
      * Presents a code on the hardware scan bus (scanner gun / simulator) and asserts

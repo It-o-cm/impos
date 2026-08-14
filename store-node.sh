@@ -4,18 +4,27 @@
 # (two instances on one H2 file lock each other — the classic trap).
 #
 # Usage:
-#   ./e2e/store-node.sh          # package if needed, start the node, wait for it
-#   ./e2e/store-node.sh test     # start it (if down) then run DemoStoreIT against it
-#   ./e2e/store-node.sh stop     # stop the node started by this script
-#   ./e2e/store-node.sh status   # is it answering?
+#   ./demo/store-node.sh          # package if needed, start the node, wait for it
+#   ./demo/store-node.sh test     # start it (if down) then run DemoStoreIT against it
+#   ./demo/store-node.sh stop     # stop the node started by this script
+#   ./demo/store-node.sh status   # is it answering?
 #
-# THE decisive property is pos.role=store: without it the node boots in
-# "register" role and EVERY ingestion/export endpoint answers 403 off-role —
-# the dashboard then stays desperately at zero (that is not a bug).
+# TWO settings decide everything here:
+#  - pos.role=store: without it the node boots in "register" role and every
+#    ingestion/export endpoint answers 403 off-role.
+#  - QUARKUS DEV MODE: the referential seed (DataInitializer) is annotated
+#    @IfBuildProfile(dev, test), a BUILD-time filter — a prod-packaged jar
+#    simply does not contain it so the node would start with an empty
+#    database and refuse every ingestion with "409 Aucun magasin sur le nœud
+#    magasin". No runtime flag can bring it back; the node must run in dev,
+#    like the engine and imfid do.
 #
 # Env overrides: STORE_PORT (8082), STORE_DB (./data/store-node), IMPOS_DIR,
 # STORE_TOKEN (shared X-Sync-Token, only if your registers send one).
 set -u
+
+lsof -ti :8082 | xargs kill
+lsof -ti :8080 | xargs kill
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -z "${IMPOS_DIR:-}" ]; then
@@ -62,22 +71,31 @@ esac
 
 # ---------- start ----------
 if is_up; then
-  echo "· Nœud magasin déjà actif sur :$STORE_PORT — réutilisé."
-else
-  JAR="$IMPOS_DIR/target/quarkus-app/quarkus-run.jar"
-  if [ ! -f "$JAR" ]; then
-    echo "· Packaging (mvn package -DskipTests)…"
-    ( cd "$IMPOS_DIR" && mvn -q package -DskipTests ) || { echo "✗ Packaging en échec."; exit 1; }
+  # A node this script did not start is a TRAP: it may be the prod-packaged
+  # jar (no referential seed → "409 Aucun magasin") or a register-role node
+  # (403 off-role), and reusing it silently costs a full 40 s test run to
+  # rediscover. Refuse rather than reuse what we cannot vouch for.
+  if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    echo "· Nœud magasin déjà actif sur :$STORE_PORT (lancé par ce script) — réutilisé."
+  else
+    echo "✗ Un nœud NON GÉRÉ par ce script occupe :$STORE_PORT."
+    echo "  Il tourne peut-être en prod (pas de seed → 409 « Aucun magasin »)"
+    echo "  ou en rôle caisse (403 hors-rôle). Le tuer puis relancer :"
+    echo "      lsof -ti :$STORE_PORT | xargs kill"
+    echo "      $0 ${1:-start}"
+    exit 1
   fi
-  echo "· Démarrage du nœud magasin (port $STORE_PORT, base $STORE_DB)…"
+else
+  echo "· Démarrage du nœud magasin en DEV (port $STORE_PORT, base $STORE_DB)…"
   TOKEN_ARG=""
   if [ -n "${STORE_TOKEN:-}" ]; then TOKEN_ARG="-Dpos.sync.token=$STORE_TOKEN"; fi
-  ( cd "$IMPOS_DIR" && nohup java \
+  ( cd "$IMPOS_DIR" && nohup mvn -q quarkus:dev -Dquarkus.console.enabled=false \
       -Dquarkus.http.port="$STORE_PORT" \
       -Dquarkus.datasource.jdbc.url="jdbc:h2:file:$STORE_DB" \
       -Dpos.role=store \
+      -Ddebug=false \
       $TOKEN_ARG \
-      -jar "$JAR" > "$LOG_FILE" 2>&1 & echo $! > "$PID_FILE" )
+      > "$LOG_FILE" 2>&1 & echo $! > "$PID_FILE" )
 
   printf "· Attente de :%s " "$STORE_PORT"
   waited=0
@@ -104,8 +122,9 @@ cat <<READY
   NŒUD MAGASIN PRÊT (module XIII)
     Dashboard     $STORE_URL/dashboard      ← LE seul agrégateur
     Rôle          pos.role=store (sans lui : 403 hors-rôle sur tout)
+    Mode          dev (le seed du référentiel n'existe pas en prod)
     Superviseur   depuis la caisse : menu AUTRES → APPEL SUPERVISEUR
-  Log: $LOG_FILE   —   Arrêt: ./e2e/store-node.sh stop
+  Log: $LOG_FILE   —   Arrêt: ./demo/store-node.sh stop
 
   ⚠ La CAISSE doit savoir où pousser : elle doit tourner avec
       -Dpos.sync.store-url=$STORE_URL

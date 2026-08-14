@@ -774,7 +774,10 @@ class RefundServiceTest {
             assertEquals(new BigDecimal("20.00"), note.balance);
             assertEquals(Long.valueOf(55L), note.issuingRefundId);
             assertNotNull(note.issuedAt);
-            verify(note).persist();
+            // persistAndFlush, not persist: the number column is NOT NULL, so
+            // the INSERT carries a provisional value and the definitive number
+            // is derived from the generated id right after the flush.
+            verify(note).persistAndFlush();
             // Number = prefix + the instrument's own row id, zero-padded.
             verify(s.ticketPrinterService).printRefundVoucher(refund, "297000000000077");
         }

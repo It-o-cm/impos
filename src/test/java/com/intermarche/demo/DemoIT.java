@@ -1,5 +1,6 @@
-package com.intermarche.e2e;
+package com.intermarche.demo;
 
+import com.intermarche.e2e.E2eTestProfile;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLineValuation;
