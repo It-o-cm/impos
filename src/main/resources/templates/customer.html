@@ -47,7 +47,7 @@
   <!-- Welcome -->
   <div class="screen center-screen active" id="welcomeScreen">
     <div class="brand-big">INTERMARCHÉ</div>
-    <div class="subtitle">Bienvenue</div>
+    <div class="subtitle" id="welcomeMessage">Bienvenue</div>
   </div>
 
   <!-- Running cart -->
@@ -102,6 +102,9 @@
         return;
       }
       if (data.locked || data.empty) {
+        if (data.welcomeMessage) {
+          document.getElementById('welcomeMessage').textContent = data.welcomeMessage;
+        }
         show('welcomeScreen');
         return;
       }
@@ -111,7 +114,9 @@
         const row = document.createElement('div');
         row.className = 'cart-line';
         row.innerHTML = '<span class="qty">' + item.qty + '</span>'
-            + '<span>' + item.label + '</span>'
+            + '<span>' + item.label
+            + (item.ean ? ' <small style="color:var(--text-muted);">' + item.ean + '</small>' : '')
+            + '</span>'
             + '<span class="amt">' + item.amount + ' €</span>';
         lines.appendChild(row);
       });

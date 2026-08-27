@@ -53,12 +53,12 @@ class HomeResourceTest {
         resource.state = mock(PosState.class);
         resource.state.ticket = mock(TicketState.class);
         resource.state.fidelity = mock(FidelityState.class);
+        resource.state.ageCheck = mock(PosState.AgeCheckState.class);
         resource.state.priceModState = mock(PriceModState.class);
         resource.homeService = mock(HomeService.class);
         resource.ticketService = mock(TicketService.class);
         resource.hardwareService = mock(HardwareService.class);
         resource.main = mock(Template.class);
-        resource.lock = mock(Template.class);
         resource.supervisor = mock(Template.class);
         resource.ticket = mock(Template.class);
         resource.drawerError = mock(Template.class);
@@ -75,19 +75,6 @@ class HomeResourceTest {
     private TemplateInstance stubMain(HomeResource resource) {
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.main.data("state", resource.state)).thenReturn(view);
-        return view;
-    }
-
-    /**
-     * Stubs the {@code lock} template to return a recognizable view for the given
-     * resource's state.
-     *
-     * @param resource the resource whose {@code lock} template is stubbed
-     * @return the view {@code lock.data("state", state)} will return
-     */
-    private TemplateInstance stubLock(HomeResource resource) {
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(view);
         return view;
     }
 
@@ -210,18 +197,6 @@ class HomeResourceTest {
     // --- Main pages ---
 
     /**
-     * {@code home()} renders the lock page when the terminal is locked.
-     */
-    @Test
-    void homeRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.home());
-        verifyNoInteractions(resource.main);
-    }
-
-    /**
      * {@code home()} renders the main page when the terminal is unlocked.
      */
     @Test
@@ -230,7 +205,6 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.home());
-        verifyNoInteractions(resource.lock);
     }
 
     /**
@@ -241,9 +215,14 @@ class HomeResourceTest {
     void getTicketFragmentReportsUnchangedWhenVersionsMatch() {
         HomeResource resource = newResource();
         resource.state.version = 7L;
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
         Map<String, Object> result = resource.getTicketFragment(7L);
         assertEquals(false, result.get("changed"));
         assertFalse(result.containsKey("html"));
+        // The lock and payability flags ride on EVERY answer, version match
+        // included: they are how an open page learns it must reload.
+        assertEquals(false, result.get("locked"));
+        assertEquals(false, result.get("payable"));
         verifyNoInteractions(resource.ticket);
     }
 
@@ -256,6 +235,7 @@ class HomeResourceTest {
         HomeResource resource = newResource();
         resource.state.version = 3L;
         resource.state.fidelity.active = true;
+        when(resource.state.fidelity.getDisplaySummary()).thenReturn("DUPONT · 2990000000019");
         when(resource.state.ticket.getTotalFormatted()).thenReturn("12,00");
         when(resource.state.ticket.getTotalAmount()).thenReturn(new BigDecimal("12.00"));
         TemplateInstance ticketView = mock(TemplateInstance.class);
@@ -267,7 +247,11 @@ class HomeResourceTest {
         assertEquals("<html>", result.get("html"));
         assertEquals("12,00", result.get("total"));
         assertEquals(new BigDecimal("12.00"), result.get("amount"));
+        assertEquals(false, result.get("locked"));
+        assertEquals(true, result.get("payable"));
         assertEquals(true, result.get("fidelityActive"));
+        // The attached-card summary rides on the changed answer next to the icon.
+        assertEquals("DUPONT · 2990000000019", result.get("fidelitySummary"));
     }
 
     /**
@@ -287,19 +271,11 @@ class HomeResourceTest {
         Map<String, Object> result = resource.getTicketFragment(99L);
         assertEquals(true, result.get("changed"));
         assertEquals(3L, result.get("version"));
+        assertEquals(false, result.get("locked"));
+        assertEquals(false, result.get("payable"));
         assertEquals(false, result.get("fidelityActive"));
-    }
-
-    /**
-     * {@code supervisorPage()} renders the lock page when the terminal is locked.
-     */
-    @Test
-    void supervisorPageRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.supervisorPage());
-        verifyNoInteractions(resource.supervisor);
+        // No card attached: the summary is null on the changed answer too.
+        assertNull(result.get("fidelitySummary"));
     }
 
     /**
@@ -313,20 +289,6 @@ class HomeResourceTest {
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.supervisor.data("state", resource.state)).thenReturn(view);
         assertSame(view, resource.supervisorPage());
-        verifyNoInteractions(resource.lock);
-    }
-
-    /**
-     * {@code callSupervisor()} redirects to the lock page without calling the service
-     * when the terminal is locked.
-     */
-    @Test
-    void callSupervisorRedirectsToLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        Response response = resource.callSupervisor("no-change");
-        assertEquals("/lock", response.getLocation().toString());
-        verifyNoInteractions(resource.homeService);
     }
 
     /**
@@ -340,19 +302,6 @@ class HomeResourceTest {
         Response response = resource.callSupervisor("no-change");
         assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).callSupervisor("NO CHANGE");
-    }
-
-    /**
-     * {@code toggleTraining()} redirects to the lock page without requesting the
-     * toggle when the terminal is locked.
-     */
-    @Test
-    void toggleTrainingRedirectsToLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        Response response = resource.toggleTraining();
-        assertEquals("/lock", response.getLocation().toString());
-        verifyNoInteractions(resource.homeService);
     }
 
     /**
@@ -427,19 +376,6 @@ class HomeResourceTest {
     // --- Selection & cancellation ---
 
     /**
-     * {@code selectLine()} renders the lock page without touching the service when
-     * the terminal is locked.
-     */
-    @Test
-    void selectLineRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.selectLine(2));
-        verifyNoInteractions(resource.homeService);
-    }
-
-    /**
      * {@code selectLine()} toggles the line selection and returns the home view when
      * unlocked.
      */
@@ -450,19 +386,6 @@ class HomeResourceTest {
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.selectLine(2));
         verify(resource.homeService).selectLine(2);
-    }
-
-    /**
-     * {@code cancelLine()} renders the lock page without touching the service when
-     * the terminal is locked.
-     */
-    @Test
-    void cancelLineRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.cancelLine());
-        verifyNoInteractions(resource.homeService);
     }
 
     /**
@@ -479,19 +402,6 @@ class HomeResourceTest {
     }
 
     // --- Price-modification modal ---
-
-    /**
-     * {@code openPriceMod()} renders the lock page without touching the service when
-     * the terminal is locked.
-     */
-    @Test
-    void openPriceModRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.openPriceMod("remise"));
-        verifyNoInteractions(resource.homeService);
-    }
 
     /**
      * {@code openPriceMod()} opens the modal for the given type and returns the home
@@ -516,19 +426,6 @@ class HomeResourceTest {
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.cancelPriceMod());
         verify(resource.homeService).cancelPriceMod();
-    }
-
-    /**
-     * {@code submitPriceMod()} renders the lock page without submitting when the
-     * terminal is locked.
-     */
-    @Test
-    void submitPriceModRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.submitPriceMod("REMISE", "u1", "1,5"));
-        verifyNoInteractions(resource.homeService);
     }
 
     /**
@@ -588,19 +485,6 @@ class HomeResourceTest {
     // --- Other actions ---
 
     /**
-     * {@code addPlu()} renders the lock page without touching the service when the
-     * terminal is locked.
-     */
-    @Test
-    void addPluRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.addPlu("123"));
-        verifyNoInteractions(resource.ticketService);
-    }
-
-    /**
      * {@code addPlu()} adds the weighed product by PLU and returns the home view when
      * unlocked.
      */
@@ -611,19 +495,6 @@ class HomeResourceTest {
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.addPlu("123"));
         verify(resource.ticketService).addItemByPlu(resource.state, "123");
-    }
-
-    /**
-     * {@code addManualKnown()} renders the lock page without touching the service when
-     * the terminal is locked.
-     */
-    @Test
-    void addManualKnownRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.addManualKnown("EAN", "3"));
-        verifyNoInteractions(resource.ticketService);
     }
 
     /**
@@ -691,19 +562,6 @@ class HomeResourceTest {
     }
 
     /**
-     * {@code addManualUnknown()} renders the lock page without touching the service
-     * when the terminal is locked.
-     */
-    @Test
-    void addManualUnknownRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.addManualUnknown("Label", "2,00"));
-        verifyNoInteractions(resource.ticketService);
-    }
-
-    /**
      * {@code addManualUnknown()} adds the unlisted item and returns the home view when
      * unlocked.
      */
@@ -714,19 +572,6 @@ class HomeResourceTest {
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.addManualUnknown("Label", "2,00"));
         verify(resource.ticketService).addUnknownItem(resource.state, "Label", "2,00");
-    }
-
-    /**
-     * {@code addDepositReturn()} renders the lock page without touching the service
-     * when the terminal is locked.
-     */
-    @Test
-    void addDepositReturnRendersLockWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.addDepositReturn());
-        verifyNoInteractions(resource.ticketService);
     }
 
     /**
@@ -876,20 +721,6 @@ class HomeResourceTest {
     }
 
     /**
-     * On a LOCKED register the confirmation does NOTHING: an ID check is a
-     * decision of the signed-in cashier, and a locked screen has none. The
-     * redirect still happens — the lock page takes over.
-     */
-    @Test
-    void ageCheckConfirmDoesNothingWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        Response response = resource.ageCheckConfirm();
-        verifyNoInteractions(resource.ticketService);
-        assertEquals(303, response.getStatus());
-    }
-
-    /**
      * Refusing journals the refusal, clears the parked gesture and returns to
      * the sale screen.
      */
@@ -901,20 +732,6 @@ class HomeResourceTest {
         verify(resource.ticketService).refuseAgeCheck(resource.state);
         assertEquals(303, response.getStatus());
         assertEquals(URI.create("/"), response.getLocation());
-    }
-
-    /**
-     * On a LOCKED register the refusal does nothing either — the same guard
-     * governs both verdicts, so neither can be triggered from a locked
-     * screen (nor by a stray URL while the register is locked).
-     */
-    @Test
-    void ageCheckRefuseDoesNothingWhenLocked() {
-        HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        Response response = resource.ageCheckRefuse();
-        verifyNoInteractions(resource.ticketService);
-        assertEquals(303, response.getStatus());
     }
 
 }

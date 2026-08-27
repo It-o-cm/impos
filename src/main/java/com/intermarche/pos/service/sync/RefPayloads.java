@@ -106,6 +106,17 @@ public final class RefPayloads {
     }
 
     /**
+     * A back-office parameter (upsert by key; an absent key means the
+     * register reverts to the catalog default).
+     */
+    public static class SettingDto {
+        /** The parameter key (upsert key). */
+        public String key;
+        /** The parameter value, as text. */
+        public String value;
+    }
+
+    /**
      * A coupon type (upsert by code).
      */
     public static class CouponTypeDto {

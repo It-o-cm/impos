@@ -25,8 +25,6 @@ import java.net.URI;
 @Path("/reprint")
 @DrawerMustBeClosed
 public class ReprintResource {
-
-    @Inject Template lock;
     @Inject
     PosState state;
     @Inject ReprintService reprintService;
@@ -39,10 +37,9 @@ public class ReprintResource {
     /**
      * Shows the reprint screen with a fresh closed-ticket history.
      *
-     * @return the reprint page, or the lock page when locked
+     * @return the reprint page
      */
     public TemplateInstance showReprintPage() {
-        if (state.isLocked()) return lock.data("state", state);
         reprintService.loadHistory();
         return reprintTicketPage.data("state", state);
     }
@@ -55,7 +52,6 @@ public class ReprintResource {
      * @return the reprint page
      */
     public TemplateInstance reprintPrevPage() {
-        if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.isHasListPrev()) state.reprint.listPage--;
         state.touch();
         return reprintTicketPage.data("state", state);
@@ -69,7 +65,6 @@ public class ReprintResource {
      * @return the reprint page
      */
     public TemplateInstance reprintNextPage() {
-        if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.isHasListNext()) state.reprint.listPage++;
         state.touch();
         return reprintTicketPage.data("state", state);
@@ -84,7 +79,6 @@ public class ReprintResource {
      * @return the reprint page on its detail view
      */
     public TemplateInstance showReprintDetail(@PathParam("id") Long id) {
-        if (state.isLocked()) return lock.data("state", state);
         Ticket t = Ticket.findById(id);
         if (t != null) {
             state.reprint.setViewedTicket(t);
@@ -102,7 +96,6 @@ public class ReprintResource {
      * @return the reprint page on its detail view
      */
     public TemplateInstance detailPrevPage(@PathParam("id") Long id) {
-        if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
             return showReprintDetail(id);
         }
@@ -120,7 +113,6 @@ public class ReprintResource {
      * @return the reprint page on its detail view
      */
     public TemplateInstance detailNextPage(@PathParam("id") Long id) {
-        if (state.isLocked()) return lock.data("state", state);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
             return showReprintDetail(id);
         }

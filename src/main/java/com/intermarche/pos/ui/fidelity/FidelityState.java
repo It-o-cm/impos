@@ -75,9 +75,30 @@ public class FidelityState implements Serializable {
     }
 
     /**
+     * The holder's last name, known ONLY when the card was attached through
+     * the identity lookup (addendum §3.3) — a scanned card carries no
+     * identity, by the pseudonymity doctrine. Operator-facing display only.
+     */
+    public String holderLastName = null;
+
+    /** The holder's first name — same provenance and rules as the last name. */
+    public String holderFirstName = null;
+
+    /** ACTIVE | PENDING_ACTIVATION | RESILIATED, read at attachment, or null. */
+    public String accountStatus = null;
+
+    /**
+     * The AVAILABLE balance read at attachment (spec §4 — net of leases),
+     * or null when imfid could not answer (degraded = show nothing).
+     */
+    public java.math.BigDecimal availableBalance = null;
+
+    /**
      * Attaches a card; silently ignores null or too-short values (a guard
      * against empty submits, not a format check — the format check lives in
-     * the scan handler's pattern).
+     * the scan handler's pattern). Any holder identity or account data of a
+     * PREVIOUS card is dropped: re-selecting a card REPLACES the former one
+     * entirely, and a scanned card must never inherit another holder's name.
      *
      * @param card the card number
      */
@@ -85,6 +106,10 @@ public class FidelityState implements Serializable {
         if (card != null && card.length() > 2) {
             this.active = true;
             this.label = card;
+            this.holderLastName = null;
+            this.holderFirstName = null;
+            this.accountStatus = null;
+            this.availableBalance = null;
         }
     }
 
@@ -94,5 +119,33 @@ public class FidelityState implements Serializable {
     public void clear() {
         active = false;
         label = "";
+        holderLastName = null;
+        holderFirstName = null;
+        accountStatus = null;
+        availableBalance = null;
+    }
+
+    /**
+     * Returns the operator-facing summary of the attached card: holder (when
+     * known from a lookup), card number and available balance — the line the
+     * main screen shows next to the fidelity icon.
+     *
+     * @return the display line, or null when no card is attached
+     */
+    public String getDisplaySummary() {
+        if (!active) return null;
+        StringBuilder sb = new StringBuilder();
+        if (holderLastName != null) {
+            sb.append(holderLastName.toUpperCase());
+            if (holderFirstName != null && !holderFirstName.isBlank()) {
+                sb.append(' ').append(holderFirstName);
+            }
+            sb.append(" \u00b7 ");
+        }
+        sb.append(label);
+        if (availableBalance != null) {
+            sb.append(" \u00b7 ").append(String.format("%.2f", availableBalance).replace('.', ',')).append(" \u20ac");
+        }
+        return sb.toString();
     }
 }

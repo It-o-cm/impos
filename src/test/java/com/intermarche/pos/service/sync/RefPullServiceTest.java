@@ -60,7 +60,7 @@ import static org.mockito.Mockito.when;
  * {@code onStop} — the {@code executor != null} both arms; {@code pullSafely} —
  * the success arm and the catch arm; {@code pullOnce} — the three arms of
  * {@code remoteFingerprint == null || equals(lastApplied)} (absent, unchanged,
- * changed); {@code applyDomain} — the five switch arms plus the default throw
+ * changed); {@code applyDomain} — the six switch arms plus the default throw
  * and the trailing {@code recordApplied}; {@code pages} — both arms of
  * {@code rows.isEmpty()} (continue, break); {@code get} — the two operands of
  * {@code statusCode < 200 || statusCode >= 300} (1xx throw, 5xx throw, 2xx
@@ -261,7 +261,7 @@ class RefPullServiceTest {
     /**
      * Covers the changed arm of {@code pullOnce}, every switch arm of
      * {@code applyDomain}, both arms of the {@code pages} paging loop and the
-     * trailing {@code recordApplied}: all five domains differ and are pulled
+     * trailing {@code recordApplied}: all six domains differ and are pulled
      * and applied, each snapshot spanning one non-empty page then an empty one.
      */
     @Test
@@ -285,7 +285,7 @@ class RefPullServiceTest {
         }).when(client).send(any(HttpRequest.class), any());
         Map<String, String> versions = Map.of(
                 "FAMILIES", "f1", "PRODUCTS", "f2", "PRICES", "f3",
-                "EMPLOYEES", "f4", "COUPON_TYPES", "f5");
+                "EMPLOYEES", "f4", "COUPON_TYPES", "f5", "SETTINGS", "f6");
         doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
@@ -297,11 +297,13 @@ class RefPullServiceTest {
         verify(apply).applyPrices(any());
         verify(apply).applyEmployees(any());
         verify(apply).applyCouponTypes(any());
+        verify(apply).applySettings(any());
         verify(apply).recordApplied("FAMILIES", "f1");
         verify(apply).recordApplied("PRODUCTS", "f2");
         verify(apply).recordApplied("PRICES", "f3");
         verify(apply).recordApplied("EMPLOYEES", "f4");
         verify(apply).recordApplied("COUPON_TYPES", "f5");
+        verify(apply).recordApplied("SETTINGS", "f6");
     }
 
     /**

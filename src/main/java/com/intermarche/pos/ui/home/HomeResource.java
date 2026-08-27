@@ -41,7 +41,6 @@ import java.util.Map;
 public class HomeResource {
 
     @Inject Template main;
-    @Inject Template lock;
     @Inject Template supervisor;
     @Inject Template ticket;
 
@@ -105,14 +104,13 @@ public class HomeResource {
     // --- Main pages ---
 
     /**
-     * Shows the home page, or the lock page when no operator is logged in.
+     * Shows the home page.
      *
-     * @return the home or lock page
+     * @return the home page
      */
     @GET
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance home() {
-        if (state.isLocked()) return lock.data("state", state);
         return main.data("state", state);
     }
 
@@ -128,6 +126,16 @@ public class HomeResource {
     @DrawerMayBeOpen
     public Map<String, Object> getTicketFragment(@QueryParam("v") Long clientVersion) {
         Map<String, Object> result = new HashMap<>();
+        // The lock state rides on EVERY answer, version match included: the
+        // poll is how an already-open screen learns that the register locked
+        // and must navigate to /lock (see LockCheckFilter).
+        result.put("locked", state.isLocked());
+        // Payability rides along for the same reason: the ENCAISSER control
+        // is server-rendered OUTSIDE the polled fragment, so a cart filled
+        // through the scan bus (hardware scanner, simulator) would leave the
+        // button in its render-time state until a navigation. The client
+        // reloads once when this flag stops matching the rendered control.
+        result.put("payable", state.ticket.getTotalAmount().signum() > 0);
         if (clientVersion != null && state.version == clientVersion) {
             result.put("changed", false);
             return result;
@@ -137,7 +145,15 @@ public class HomeResource {
         result.put("html", ticket.data("state", state).render());
         result.put("total", state.ticket.getTotalFormatted());
         result.put("amount", state.ticket.getTotalAmount());
+        // The age-check prompt is rendered SERVER-SIDE in main.html, so a scan
+        // that parks a restricted article changes the state without changing
+        // the page: the poll must know, or the cashier faces a screen that
+        // simply stops responding to scans.
+        result.put("ageCheckActive", state.ageCheck.active);
         result.put("fidelityActive", state.fidelity.active);
+        // Attached-card summary (holder from the lookup, card, balance) —
+        // shown permanently next to the fidelity icon, cleared with the card.
+        result.put("fidelitySummary", state.fidelity.getDisplaySummary());
         result.put("fidelityEarn", state.fidelity.earnTotal != null
                 && state.fidelity.earnTotal.signum() > 0
                 ? String.format("AVANTAGE CARTE %.2f €", state.fidelity.earnTotal).replace('.', ',')
@@ -148,13 +164,12 @@ public class HomeResource {
     /**
      * Shows the supervisor-call page.
      *
-     * @return the supervisor or lock page
+     * @return the supervisor page
      */
     @GET
     @Path("/supervisor")
     @DrawerMayBeOpen
     public TemplateInstance supervisorPage() {
-        if (state.isLocked()) return lock.data("state", state);
         return supervisor.data("state", state);
     }
 
@@ -168,7 +183,6 @@ public class HomeResource {
     @GET
     @Path("/action/supervisor/{reason}")
     public Response callSupervisor(@PathParam("reason") String reason) {
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         homeService.callSupervisor(reason.toUpperCase().replace('-', ' '));
         return Response.seeOther(URI.create("/")).build();
     }
@@ -181,7 +195,6 @@ public class HomeResource {
     @GET
     @Path("/action/training")
     public Response toggleTraining() {
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         homeService.requestTrainingToggle();
         return Response.seeOther(URI.create("/")).build();
     }
@@ -244,12 +257,11 @@ public class HomeResource {
      * Toggles the selection of a ticket line.
      *
      * @param index the index of the line in the full ticket
-     * @return the home or lock page
+     * @return the home page
      */
     @GET
     @Path("/action/select/{index}")
     public TemplateInstance selectLine(@PathParam("index") int index) {
-        if (state.isLocked()) return lock.data("state", state);
         homeService.selectLine(index);
         return home();
     }
@@ -257,12 +269,11 @@ public class HomeResource {
     /**
      * Cancels the targeted line (directly or via endorsement).
      *
-     * @return the home or lock page
+     * @return the home page
      */
     @GET
     @Path("/action/cancelLine")
     public TemplateInstance cancelLine() {
-        if (state.isLocked()) return lock.data("state", state);
         homeService.cancelLine();
         return home();
     }
@@ -273,12 +284,11 @@ public class HomeResource {
      * Opens the price-modification modal for the targeted line.
      *
      * @param type the modification type (remise, discount, force_price)
-     * @return the home or lock page
+     * @return the home page
      */
     @GET
     @Path("/action/price-mod/{type}")
     public TemplateInstance openPriceMod(@PathParam("type") String type) {
-        if (state.isLocked()) return lock.data("state", state);
         homeService.openPriceMod(type);
         return home();
     }
@@ -297,9 +307,7 @@ public class HomeResource {
     @GET
     @Path("/action/age-check/confirm")
     public Response ageCheckConfirm() {
-        if (!state.isLocked()) {
-            ticketService.confirmAgeCheck(state);
-        }
+        ticketService.confirmAgeCheck(state);
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -312,9 +320,7 @@ public class HomeResource {
     @GET
     @Path("/action/age-check/refuse")
     public Response ageCheckRefuse() {
-        if (!state.isLocked()) {
-            ticketService.refuseAgeCheck(state);
-        }
+        ticketService.refuseAgeCheck(state);
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -331,7 +337,7 @@ public class HomeResource {
      * @param type the modification type (REMISE, DISCOUNT, FORCE_PRICE)
      * @param uid the uid of the targeted ticket line
      * @param rawValue the raw typed value (French comma tolerated)
-     * @return the home or lock page
+     * @return the home page
      */
     @POST
     @Path("/action/price-mod/submit")
@@ -340,8 +346,6 @@ public class HomeResource {
             @FormParam("type") String type,
             @FormParam("uid") String uid,
             @FormParam("rawValue") String rawValue) {
-
-        if (state.isLocked()) return lock.data("state", state);
 
         BigDecimal value;
         try {
@@ -364,12 +368,11 @@ public class HomeResource {
      * Adds a weighed product by its PLU code.
      *
      * @param code the PLU code
-     * @return the home or lock page
+     * @return the home page
      */
     @GET
     @Path("/action/add/{code}")
     public TemplateInstance addPlu(@PathParam("code") String code) {
-        if (state.isLocked()) return lock.data("state", state);
         ticketService.addItemByPlu(state, code);
         return home();
     }
@@ -379,13 +382,12 @@ public class HomeResource {
      *
      * @param ean the EAN code
      * @param quantityStr the typed quantity (defaults to 1)
-     * @return the home or lock page
+     * @return the home page
      */
     @POST
     @Path("/action/manual-add-known")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public TemplateInstance addManualKnown(@FormParam("ean") String ean, @FormParam("quantity") String quantityStr) {
-        if (state.isLocked()) return lock.data("state", state);
         int qty = 1;
         try { if(quantityStr != null && !quantityStr.isEmpty()) qty = Integer.parseInt(quantityStr); } catch(Exception e) {}
         if(qty <= 0) qty = 1;
@@ -398,13 +400,12 @@ public class HomeResource {
      *
      * @param label the label typed by the cashier
      * @param priceStr the price typed by the cashier
-     * @return the home or lock page
+     * @return the home page
      */
     @POST
     @Path("/action/manual-add-unknown")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public TemplateInstance addManualUnknown(@FormParam("label") String label, @FormParam("price") String priceStr) {
-        if (state.isLocked()) return lock.data("state", state);
         ticketService.addUnknownItem(state, label, priceStr);
         return home();
     }
@@ -412,12 +413,11 @@ public class HomeResource {
     /**
      * Adds a deposit-return line to the ticket.
      *
-     * @return the home or lock page
+     * @return the home page
      */
     @GET
     @Path("/action/deposit")
     public TemplateInstance addDepositReturn() {
-        if (state.isLocked()) return lock.data("state", state);
         ticketService.addDeposit(state);
         return home();
     }

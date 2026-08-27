@@ -291,6 +291,27 @@ class TicketRecoveryServiceTest {
     }
 
     /**
+     * The price-embedded flag is READ BACK from the draft, line by line: a
+     * sticker line restores {@code priceEmbedded = true} while a plain line
+     * restores it false — the draft is the durable truth, never re-derived.
+     */
+    @Test
+    void restoreDraftReadsBackThePriceEmbeddedFlag() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(12L, Ticket.TicketStatus.OPEN);
+        TicketLine sticker = line(1, "S1", "3.00", null, null);
+        sticker.priceEmbedded = true;
+        TicketLine plain = line(2, "P1", "2.00", null, null);
+        plain.priceEmbedded = false;
+        draft.lines = new ArrayList<>(Arrays.asList(sticker, plain));
+        service.restoreDraft(draft);
+        List<TicketState.TicketItem> items = service.state.ticket.items;
+        assertEquals(2, items.size());
+        assertTrue(items.get(0).priceEmbedded);
+        assertFalse(items.get(1).priceEmbedded);
+    }
+
+    /**
      * Covers the null-fidelity arm of {@code restoreCart}: a draft without a
      * fidelity card leaves the fidelity state inactive.
      */

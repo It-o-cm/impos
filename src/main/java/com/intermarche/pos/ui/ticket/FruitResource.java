@@ -20,7 +20,6 @@ import java.util.List;
 public class FruitResource {
 
     @Inject Template fruits;
-    @Inject Template lock;
     @Inject FruitService fruitService;
 
     @Inject
@@ -29,12 +28,11 @@ public class FruitResource {
     /**
      * Shows the weighing grid of active PLU products.
      *
-     * @return the fruits page, or the lock page when locked
+     * @return the fruits page
      */
     @GET
     @Path("/fruits")
     public TemplateInstance fruitsPage() {
-        if (state.isLocked()) return lock.data("state", state);
         List<Product> products = fruitService.getPluProducts();
         return fruits.data("state", state).data("products", products);
     }

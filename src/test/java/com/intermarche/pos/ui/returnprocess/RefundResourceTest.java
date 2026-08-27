@@ -41,25 +41,9 @@ class RefundResourceTest {
         resource.state = mock(PosState.class);
         resource.state.refund = mock(RefundState.class);
         resource.refundService = mock(RefundService.class);
-        resource.lock = mock(Template.class);
         resource.returnSearchPage = mock(Template.class);
         resource.returnDetailPage = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * Stubs the {@code lock} template chain to return a recognizable view for the
-     * given resource's state.
-     *
-     * @param resource the resource whose {@code lock} template is stubbed
-     * @return the view {@code lock.data("state", state).data("error", null)} returns
-     */
-    private TemplateInstance stubLock(RefundResource resource) {
-        TemplateInstance seeded = mock(TemplateInstance.class);
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(seeded);
-        when(seeded.data("error", null)).thenReturn(view);
-        return view;
     }
 
     /**
@@ -91,20 +75,6 @@ class RefundResourceTest {
     // --- showSearchPage ---
 
     /**
-     * {@code showSearchPage()} renders the lock page when the terminal is locked
-     * (first guard true).
-     */
-    @Test
-    void showSearchPageRendersLockWhenLocked() {
-        RefundResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.showSearchPage());
-        verifyNoInteractions(resource.returnSearchPage);
-        verifyNoInteractions(resource.returnDetailPage);
-    }
-
-    /**
      * {@code showSearchPage()} renders the detail page when unlocked and a ticket is
      * already selected (first guard false, second guard true).
      */
@@ -115,7 +85,6 @@ class RefundResourceTest {
         when(resource.state.refund.isTicketSelected()).thenReturn(true);
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.showSearchPage());
-        verifyNoInteractions(resource.lock);
         verifyNoInteractions(resource.returnSearchPage);
     }
 
@@ -130,7 +99,6 @@ class RefundResourceTest {
         when(resource.state.refund.isTicketSelected()).thenReturn(false);
         TemplateInstance searchView = stubSearch(resource);
         assertSame(searchView, resource.showSearchPage());
-        verifyNoInteractions(resource.lock);
         verifyNoInteractions(resource.returnDetailPage);
     }
 

@@ -188,4 +188,83 @@ class FidelityStateTest {
         assertEquals("Fruits & légumes samedi", line.label);
         assertEquals(0, new BigDecimal("0.75").compareTo(line.amount));
     }
+
+    /**
+     * Re-assigning a card PURGES the previous holder identity, account status
+     * and available balance: a scanned card must never inherit the former
+     * holder's name or balance (the pseudonymity doctrine).
+     */
+    @Test
+    void assignCardPurgesHolderStatusAndBalance() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.holderLastName = "Dupont";
+        fid.holderFirstName = "Jean";
+        fid.accountStatus = "ACTIVE";
+        fid.availableBalance = new BigDecimal("12.00");
+        fid.assignCard("2990000000040");
+        assertEquals("2990000000040", fid.label);
+        assertNull(fid.holderLastName);
+        assertNull(fid.holderFirstName);
+        assertNull(fid.accountStatus);
+        assertNull(fid.availableBalance);
+    }
+
+    /**
+     * {@code getDisplaySummary} returns null when no card is attached
+     * (inactive arm).
+     */
+    @Test
+    void displaySummaryIsNullWithoutCard() {
+        assertNull(new FidelityState().getDisplaySummary());
+    }
+
+    /**
+     * {@code getDisplaySummary} shows the bare card number when no holder and
+     * no balance are known (holder-null / balance-null arms).
+     */
+    @Test
+    void displaySummaryShowsBareCard() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        assertEquals("2990000000019", fid.getDisplaySummary());
+    }
+
+    /**
+     * {@code getDisplaySummary} prefixes the upper-cased holder and first name
+     * when both are known (holder-non-null / first-name-present arms).
+     */
+    @Test
+    void displaySummaryShowsHolderAndFirstName() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.holderLastName = "Dupont";
+        fid.holderFirstName = "Jean";
+        assertEquals("DUPONT Jean · 2990000000019", fid.getDisplaySummary());
+    }
+
+    /**
+     * {@code getDisplaySummary} omits a blank first name (first-name-blank
+     * arm), showing only the upper-cased holder before the card.
+     */
+    @Test
+    void displaySummaryOmitsBlankFirstName() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.holderLastName = "Dupont";
+        fid.holderFirstName = "  ";
+        assertEquals("DUPONT · 2990000000019", fid.getDisplaySummary());
+    }
+
+    /**
+     * {@code getDisplaySummary} appends the French-formatted available balance
+     * when known (balance-non-null arm).
+     */
+    @Test
+    void displaySummaryAppendsBalance() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.availableBalance = new BigDecimal("12.5");
+        assertEquals("2990000000019 · 12,50 €", fid.getDisplaySummary());
+    }
 }

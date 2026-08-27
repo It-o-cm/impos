@@ -1,0 +1,55 @@
+{!
+ ! Back-office parameters page: the PosSettingsService catalog rendered by
+ ! section, one widget per type (BOOL select, INT number, TEXT text), one
+ ! POST saving everything, POST -> 303 -> notice — the imvaluation admin
+ ! cycle. `entries` = list of {def, value, section headings precomputed}.
+!}
+{#include admin-layout}
+
+{#title}Paramètres caisse{/title}
+
+{#body}
+<div class="page-head">
+    <div>
+        <h1>Paramètres caisse</h1>
+        <p class="page-sub">{entries.size()} paramètres — appliqués aux caisses au prochain tirage référentiel.</p>
+    </div>
+</div>
+
+{#if notice}
+<div class="alert {#if noticeOk}alert-ok{#else}alert-error{/if}" role="status">{notice}</div>
+{/if}
+
+<form method="post" action="/admin/settings">
+    {#for entry in entries}
+    {#if entry.firstOfSection}
+    {#if entry_index > 0}
+    </div></div>
+    {/if}
+    <div class="card">
+        <h2 class="card-title">{entry.section}</h2>
+        <div class="field-grid">
+    {/if}
+        <div class="field">
+            <label class="field-label" for="f-{entry.key}">{entry.label}</label>
+            {#if entry.bool}
+            <select class="input-control" id="f-{entry.key}" name="{entry.key}">
+                <option value="true" {#if entry.value == 'true'}selected{/if}>Activé</option>
+                <option value="false" {#if entry.value != 'true'}selected{/if}>Désactivé</option>
+            </select>
+            {#else if entry.integer}
+            <input type="number" id="f-{entry.key}" name="{entry.key}" value="{entry.value}" min="0">
+            {#else}
+            <input type="text" id="f-{entry.key}" name="{entry.key}" value="{entry.value}" maxlength="120">
+            {/if}
+            <span class="field-hint">{entry.hint}</span>
+        </div>
+    {/for}
+    </div></div>
+
+    <div class="page-actions" style="margin-top: 6px;">
+        <button class="btn btn-primary" type="submit">Enregistrer</button>
+        <a class="btn btn-ghost" href="/admin/settings">Annuler</a>
+    </div>
+</form>
+{/body}

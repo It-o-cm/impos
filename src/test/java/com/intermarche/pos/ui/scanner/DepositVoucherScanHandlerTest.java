@@ -223,7 +223,7 @@ class DepositVoucherScanHandlerTest {
             new DepositVoucherScanHandler().handle(ctx);
         }
         assertTrue(ctx.handled);
-        verify(ticket).addItem(isNull(), isNull(), eq("CONSIGNE"),
+        verify(ticket).addItem(eq(CODE), isNull(), eq("CONSIGNE"),
                 eq(new BigDecimal("-2.50")), eq(BigDecimal.ONE), eq(BigDecimal.ZERO));
         verify(ticket, never()).setError("BON DE CONSIGNE ILLISIBLE");
     }

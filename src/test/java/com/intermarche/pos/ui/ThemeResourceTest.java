@@ -38,24 +38,7 @@ class ThemeResourceTest {
         resource.state = mock(PosState.class);
         resource.themeService = mock(ThemeService.class);
         resource.themeSelect = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * {@code themeSelectPage()} renders the lock page (and nothing else) when the
-     * terminal is locked.
-     */
-    @Test
-    void themeSelectPageReturnsLockWhenLocked() {
-        ThemeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(lockView);
-        TemplateInstance result = resource.themeSelectPage();
-        assertSame(lockView, result);
-        verifyNoInteractions(resource.themeSelect);
-        verifyNoInteractions(resource.themeService);
     }
 
     /**
@@ -76,7 +59,6 @@ class ThemeResourceTest {
         verify(resource.themeSelect).data("state", resource.state);
         verify(view).data("themes", ThemeService.AVAILABLE_THEMES);
         verify(view).data("current", "clair");
-        verifyNoInteractions(resource.lock);
     }
 
     /**
@@ -93,17 +75,4 @@ class ThemeResourceTest {
         assertEquals("/", response.getLocation().toString());
     }
 
-    /**
-     * {@code chooseTheme()} skips persistence but still redirects to the sale screen
-     * when the terminal is locked.
-     */
-    @Test
-    void chooseThemeSkipsPersistWhenLocked() {
-        ThemeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        Response response = resource.chooseTheme("clair");
-        verifyNoInteractions(resource.themeService);
-        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
-        assertEquals("/", response.getLocation().toString());
-    }
 }

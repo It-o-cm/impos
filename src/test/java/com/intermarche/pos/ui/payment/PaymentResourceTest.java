@@ -710,4 +710,21 @@ class PaymentResourceTest {
         verify(resource.ticketPrinterService, never()).printTicket(any());
         assertEquals("/", response.getLocation().toString());
     }
+
+    /**
+     * {@code abandonTicketFromPayment} cancels the collected payments BEFORE
+     * cancelling the ticket (the mandatory order, so no orphaned payment
+     * survives a discarded ticket) and redirects home.
+     */
+    @Test
+    void abandonTicketFromPaymentCancelsPaymentsThenTicket() {
+        PaymentResource resource = newResource();
+        resource.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        Response response = resource.abandonTicketFromPayment();
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(resource.paymentService, resource.ticketService);
+        order.verify(resource.paymentService).cancelPayments(resource.state);
+        order.verify(resource.ticketService).cancelTicket(resource.state);
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+    }
 }

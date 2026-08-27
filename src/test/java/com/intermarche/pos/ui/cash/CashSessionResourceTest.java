@@ -65,23 +65,7 @@ class CashSessionResourceTest {
         resource.technicalEventService = mock(TechnicalEventService.class);
         resource.hardwareService = mock(HardwareService.class);
         resource.session = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * Stubs the two-link {@code lock} template chain
-     * ({@code lock.data("state", state).data("error", null)}).
-     *
-     * @param resource the resource whose {@code lock} template is stubbed
-     * @return the final rendered lock view
-     */
-    private TemplateInstance stubLockChain(CashSessionResource resource) {
-        TemplateInstance ti1 = mock(TemplateInstance.class);
-        TemplateInstance ti2 = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(ti1);
-        when(ti1.data(eq("error"), isNull())).thenReturn(ti2);
-        return ti2;
     }
 
     /**
@@ -115,19 +99,6 @@ class CashSessionResourceTest {
     }
 
     // --- sessionPage ---
-
-    /**
-     * {@code sessionPage()} renders the lock page when the register is locked
-     * ({@code isLocked()} true arm).
-     */
-    @Test
-    void sessionPageLockedRendersLock() {
-        CashSessionResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLockChain(resource);
-        assertSame(lockView, resource.sessionPage("whatever"));
-        verifyNoInteractions(resource.cashSessionService);
-    }
 
     /**
      * {@code sessionPage()} renders the already-open error message for the
@@ -189,19 +160,6 @@ class CashSessionResourceTest {
     }
 
     /**
-     * {@code openSession()} redirects to the lock page when locked
-     * ({@code trainingMode} false, {@code isLocked()} true arm).
-     */
-    @Test
-    void openSessionLockedRedirectsLock() {
-        CashSessionResource resource = newResource();
-        resource.state.trainingMode = false;
-        when(resource.state.isLocked()).thenReturn(true);
-        assertRedirect(resource.openSession("10"), "/lock");
-        verifyNoInteractions(resource.cashSessionService);
-    }
-
-    /**
      * {@code openSession()} redirects back with {@code open-failed} when the
      * service refuses to open ({@code opened == null} true arm); the null float
      * exercises the {@code parseAmount} {@code value == null} branch.
@@ -252,18 +210,6 @@ class CashSessionResourceTest {
     // --- printXReport ---
 
     /**
-     * {@code printXReport()} redirects to the lock page when locked
-     * ({@code isLocked()} true arm).
-     */
-    @Test
-    void printXReportLockedRedirectsLock() {
-        CashSessionResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        assertRedirect(resource.printXReport(), "/lock");
-        verifyNoInteractions(resource.cashSessionService);
-    }
-
-    /**
      * {@code printXReport()} redirects with {@code no-session} when no session
      * is open ({@code isLocked()} false, {@code current == null} true arm).
      */
@@ -310,19 +256,6 @@ class CashSessionResourceTest {
     }
 
     /**
-     * {@code startClosing()} redirects to the lock page when locked
-     * ({@code trainingMode} false, {@code isLocked()} true arm).
-     */
-    @Test
-    void startClosingLockedRedirectsLock() {
-        CashSessionResource resource = newResource();
-        resource.state.trainingMode = false;
-        when(resource.state.isLocked()).thenReturn(true);
-        assertRedirect(resource.startClosing(), "/lock");
-        verifyNoInteractions(resource.hardwareService);
-    }
-
-    /**
      * {@code startClosing()} redirects with {@code no-session} when no session
      * is open ({@code getOpenSession() == null} true arm).
      */
@@ -362,19 +295,6 @@ class CashSessionResourceTest {
         resource.state.trainingMode = true;
         assertRedirect(resource.closeSession("10", "0", "{}"),
                 "/session?error=INDISPONIBLE+EN+FORMATION");
-        verifyNoInteractions(resource.cashSessionService);
-    }
-
-    /**
-     * {@code closeSession()} redirects to the lock page when locked
-     * ({@code trainingMode} false, {@code isLocked()} true arm).
-     */
-    @Test
-    void closeSessionLockedRedirectsLock() {
-        CashSessionResource resource = newResource();
-        resource.state.trainingMode = false;
-        when(resource.state.isLocked()).thenReturn(true);
-        assertRedirect(resource.closeSession("10", "0", "{}"), "/lock");
         verifyNoInteractions(resource.cashSessionService);
     }
 

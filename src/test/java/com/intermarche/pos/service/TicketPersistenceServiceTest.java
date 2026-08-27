@@ -21,6 +21,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
@@ -30,6 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -276,6 +278,44 @@ class TicketPersistenceServiceTest {
             assertNull(ticket.fidelityCard);
             assertEquals(3, ticket.itemCount);
             verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * The price-embedded flag is carried from each in-memory line onto its
+     * persisted {@code TicketLine} (mapped both true and false), so the sticker
+     * total survives a restart and a re-valuation.
+     */
+    @Test
+    void syncDraftMapsThePriceEmbeddedFlagOntoEachLine() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        state.fidelity.active = false;
+        TicketState.TicketItem sticker = addItem(state, "S1", null, null, "3.00", "1", null);
+        sticker.priceEmbedded = true;
+        TicketState.TicketItem plain = addItem(state, "P1", null, null, "2.00", "1", null);
+        plain.priceEmbedded = false;
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        CashSession session = mock(CashSession.class);
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
+        when(service.cashSessionService.getOpenSession()).thenReturn(session);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
+            service.syncDraft(state);
+            Ticket ticket = created.constructed().get(0);
+            ArgumentCaptor<TicketLine> lineCaptor = ArgumentCaptor.forClass(TicketLine.class);
+            verify(ticket, times(2)).addLine(lineCaptor.capture());
+            assertTrue(lineCaptor.getAllValues().get(0).priceEmbedded);
+            assertFalse(lineCaptor.getAllValues().get(1).priceEmbedded);
         }
     }
 

@@ -49,23 +49,9 @@ class ReprintResourceTest {
         resource.state = mock(PosState.class);
         resource.state.reprint = mock(ReprintState.class);
         resource.reprintService = mock(ReprintService.class);
-        resource.lock = mock(Template.class);
         resource.reprintTicketPage = mock(Template.class);
         resource.reprintDetailPage = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * Stubs the {@code lock} template to return a recognizable view for the
-     * given resource's state.
-     *
-     * @param resource the resource whose {@code lock} template is stubbed
-     * @return the view {@code lock.data("state", state)} returns
-     */
-    private TemplateInstance stubLock(ReprintResource resource) {
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(view);
-        return view;
     }
 
     /**
@@ -97,20 +83,6 @@ class ReprintResourceTest {
     // --- showReprintPage ---
 
     /**
-     * {@code showReprintPage()} renders the lock page and loads no history when
-     * the terminal is locked (guard true).
-     */
-    @Test
-    void showReprintPageRendersLockWhenLocked() {
-        ReprintResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.showReprintPage());
-        verifyNoInteractions(resource.reprintService);
-        verifyNoInteractions(resource.reprintTicketPage);
-    }
-
-    /**
      * {@code showReprintPage()} loads a fresh history and renders the list page
      * when unlocked (guard false).
      */
@@ -121,24 +93,9 @@ class ReprintResourceTest {
         TemplateInstance listView = stubList(resource);
         assertSame(listView, resource.showReprintPage());
         verify(resource.reprintService).loadHistory();
-        verifyNoInteractions(resource.lock);
     }
 
     // --- reprintPrevPage ---
-
-    /**
-     * {@code reprintPrevPage()} renders the lock page and leaves the paging
-     * untouched when the terminal is locked (lock guard true).
-     */
-    @Test
-    void reprintPrevPageRendersLockWhenLocked() {
-        ReprintResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.reprintPrevPage());
-        verify(resource.state, org.mockito.Mockito.never()).touch();
-        verifyNoInteractions(resource.reprintTicketPage);
-    }
 
     /**
      * {@code reprintPrevPage()} pages the list back when a previous page exists
@@ -175,20 +132,6 @@ class ReprintResourceTest {
     // --- reprintNextPage ---
 
     /**
-     * {@code reprintNextPage()} renders the lock page and leaves the paging
-     * untouched when the terminal is locked (lock guard true).
-     */
-    @Test
-    void reprintNextPageRendersLockWhenLocked() {
-        ReprintResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.reprintNextPage());
-        verify(resource.state, org.mockito.Mockito.never()).touch();
-        verifyNoInteractions(resource.reprintTicketPage);
-    }
-
-    /**
      * {@code reprintNextPage()} pages the list forward when a next page exists
      * (lock false, hasListNext true).
      */
@@ -221,20 +164,6 @@ class ReprintResourceTest {
     }
 
     // --- showReprintDetail ---
-
-    /**
-     * {@code showReprintDetail()} renders the lock page and never queries the
-     * ticket when the terminal is locked (lock guard true).
-     */
-    @Test
-    void showReprintDetailRendersLockWhenLocked() {
-        ReprintResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.showReprintDetail(7L));
-        verify(resource.state, org.mockito.Mockito.never()).touch();
-        verifyNoInteractions(resource.reprintDetailPage);
-    }
 
     /**
      * {@code showReprintDetail()} installs the found ticket in the detail view
@@ -272,20 +201,6 @@ class ReprintResourceTest {
     }
 
     // --- detailPrevPage ---
-
-    /**
-     * {@code detailPrevPage()} renders the lock page when the terminal is locked
-     * (lock guard true).
-     */
-    @Test
-    void detailPrevPageRendersLockWhenLocked() {
-        ReprintResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.detailPrevPage(7L));
-        verify(resource.state, org.mockito.Mockito.never()).touch();
-        verifyNoInteractions(resource.reprintDetailPage);
-    }
 
     /**
      * {@code detailPrevPage()} reopens the ticket when none is currently viewed
@@ -366,20 +281,6 @@ class ReprintResourceTest {
     }
 
     // --- detailNextPage ---
-
-    /**
-     * {@code detailNextPage()} renders the lock page when the terminal is locked
-     * (lock guard true).
-     */
-    @Test
-    void detailNextPageRendersLockWhenLocked() {
-        ReprintResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.detailNextPage(7L));
-        verify(resource.state, org.mockito.Mockito.never()).touch();
-        verifyNoInteractions(resource.reprintDetailPage);
-    }
 
     /**
      * {@code detailNextPage()} reopens the ticket when none is currently viewed

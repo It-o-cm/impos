@@ -50,6 +50,9 @@ class CustomerDisplayResourceTest {
      */
     private CustomerDisplayResource newResource() {
         CustomerDisplayResource resource = new CustomerDisplayResource();
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(resource.posSettingsService.customerOpenMessage()).thenReturn("Bienvenue");
+        when(resource.posSettingsService.customerClosedMessage()).thenReturn("Caisse fermée");
         resource.state = mock(PosState.class);
         resource.state.ticket = mock(TicketState.class);
         resource.state.ticket.items = new ArrayList<>();
@@ -125,10 +128,11 @@ class CustomerDisplayResourceTest {
         resource.state.payment.lastChangeAmount = null;
         resource.state.payment.ticketDbId = null;
         Map<String, Object> result = resource.customerData(1L);
-        assertEquals(12, result.size());
+        assertEquals(13, result.size());
         assertEquals(true, result.get("changed"));
         assertEquals(2L, result.get("version"));
         assertEquals(false, result.get("locked"));
+        assertEquals("Bienvenue", result.get("welcomeMessage"));
         assertEquals(false, result.get("training"));
         assertEquals(true, result.get("empty"));
         assertEquals("0,00", result.get("total"));
@@ -168,10 +172,11 @@ class CustomerDisplayResourceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(42L)).thenReturn(ticket);
             Map<String, Object> result = resource.customerData(null);
-            assertEquals(12, result.size());
+            assertEquals(13, result.size());
             assertEquals(true, result.get("changed"));
             assertEquals(9L, result.get("version"));
             assertEquals(true, result.get("locked"));
+            assertEquals("Caisse fermée", result.get("welcomeMessage"));
             assertEquals(true, result.get("training"));
             assertEquals(false, result.get("empty"));
             assertEquals("12,34", result.get("total"));

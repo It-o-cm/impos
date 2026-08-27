@@ -59,7 +59,6 @@ class EndorsementResourceTest {
         resource.refundService = mock(RefundService.class);
         resource.homeService = mock(HomeService.class);
         resource.main = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
     }
 
@@ -73,19 +72,6 @@ class EndorsementResourceTest {
     private TemplateInstance stubMain(EndorsementResource resource) {
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.main.data("state", resource.state)).thenReturn(view);
-        return view;
-    }
-
-    /**
-     * Stubs the {@code lock} template to return a recognizable view for the
-     * given resource's state.
-     *
-     * @param resource the resource whose {@code lock} template is stubbed
-     * @return the view {@code lock.data("state", state)} returns
-     */
-    private TemplateInstance stubLock(EndorsementResource resource) {
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(view);
         return view;
     }
 
@@ -181,21 +167,6 @@ class EndorsementResourceTest {
         verify(resource.state).touch();
         verify(resource.endorsementService, never()).clearRequest(resource.state);
         verifyNoInteractions(resource.ticketService);
-    }
-
-    /**
-     * {@code validateEndorsement()} renders the lock view when the terminal is
-     * locked after a refused endorsement (locked {@code mainView} arm).
-     */
-    @Test
-    void validateEndorsementRefusedRendersLockWhenLocked() {
-        EndorsementResource resource = newResource();
-        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
-        when(resource.endorsementService.authorize("m", "0000", "CANCEL_TICKET")).thenReturn(false);
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stubLock(resource);
-        assertSame(lockView, resource.validateEndorsement("m", "0000"));
-        verifyNoInteractions(resource.main);
     }
 
     // --- validateEndorsement: granted dispatch registry ---
@@ -552,5 +523,73 @@ class EndorsementResourceTest {
         assertSame(mainView, resource.cancelEndorsement());
         verify(resource.endorsementService).clearRequest(resource.state);
         verify(resource.state).touch();
+    }
+
+    // --- selfEndorse (connected-supervisor shortcut) ---
+
+    /**
+     * {@code selfEndorse} with no pending action clears the request and
+     * re-renders (null-action arm), never consulting the supervisor role.
+     */
+    @Test
+    void selfEndorseWithoutActionClears() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = null;
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.selfEndorse());
+        verify(resource.endorsementService).clearRequest(resource.state);
+        verify(resource.endorsementService, never()).operatorIsSupervisor(any());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * {@code selfEndorse} refuses when the logged operator is not a supervisor
+     * (refused arm): it flags the error, touches and re-renders without
+     * executing the action.
+     */
+    @Test
+    void selfEndorseRefusesNonSupervisor() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.selfEndorse());
+        assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
+        verify(resource.state).touch();
+        verify(resource.ticketService, never()).cancelTicket(any());
+        verify(resource.endorsementService, never()).clearRequest(any());
+    }
+
+    /**
+     * {@code selfEndorse} executes the pending action for a supervisor
+     * (success arm): it runs the approved action, clears the request and
+     * re-renders.
+     */
+    @Test
+    void selfEndorseExecutesForSupervisor() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.selfEndorse());
+        verify(resource.ticketService).cancelTicket(resource.state);
+        verify(resource.endorsementService).clearRequest(resource.state);
+        verify(resource.state).touch();
+    }
+
+    /**
+     * The approved-action dispatch routes a {@code PRINT_BADGE_<n>} action to
+     * {@code homeService.printOperatorBadge} with the trailing selector
+     * (PRINT_BADGE branch), reached through the supervisor shortcut.
+     */
+    @Test
+    void selfEndorseDispatchesPrintBadge() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "PRINT_BADGE_5";
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        stubMain(resource);
+        resource.selfEndorse();
+        verify(resource.homeService).printOperatorBadge("5");
+        verify(resource.endorsementService).clearRequest(resource.state);
     }
 }

@@ -23,7 +23,6 @@ import java.net.URI;
 public class ParkedTicketResource {
 
     @Inject @Location("parked") Template parked;
-    @Inject Template lock;
     @Inject TicketParkingService ticketParkingService;
     @Inject
     PosState state;
@@ -37,7 +36,6 @@ public class ParkedTicketResource {
     @GET
     @Path("/action/parked/park")
     public Response parkCurrent() {
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         String error = ticketParkingService.parkCurrent();
         if (error != null) {
             state.ticket.setError(error);
@@ -48,14 +46,12 @@ public class ParkedTicketResource {
     /**
      * Shows the parked tickets of this register.
      *
-     * @return the parked-tickets page, or the lock page when no operator is
-     *         logged in
+     * @return the parked-tickets page
      */
     @GET
     @Path("/parked")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance parkedPage() {
-        if (state.isLocked()) return lock.data("state", state).data("error", null);
         return parked
                 .data("state", state)
                 .data("tickets", ticketParkingService.listParked());
@@ -71,7 +67,6 @@ public class ParkedTicketResource {
     @GET
     @Path("/action/parked/resume/{id}")
     public Response resume(@PathParam("id") Long id) {
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         String error = ticketParkingService.resume(id);
         if (error != null) {
             state.ticket.setError(error);

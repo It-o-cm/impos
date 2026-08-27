@@ -1,0 +1,52 @@
+{!
+ ! Operator badge reprint (LC-01-06-01): the operator number is typed on a
+ ! numpad, then the print request is PARKED as an endorsed action
+ ! (PRINT_BADGE_<n>) — the paper only comes out after a manager approval on
+ ! the endorsement modal of the sale screen.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Badge opérateur</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .panel {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid var(--border-strong); border-radius: 10px; position: relative;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 18px;
+        }
+        h1 { font-size: 1.4rem; letter-spacing: 2px; color: var(--text-muted); }
+        .entry { width: 380px; display: flex; flex-direction: column; gap: 12px; }
+        .value-display { font-size: 2rem; text-align: center; color: var(--primary); font-weight: bold;
+                         background: var(--bg-page); border: 3px solid var(--primary); border-radius: 8px; padding: 10px; }
+        .kb-area { min-height: 220px; display: flex; flex-direction: column; }
+        .back { position: absolute; top: 15px; left: 15px; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+    <div class="panel">
+        <a href="/" class="btn btn-muted back">&larr; RETOUR</a>
+        <h1>RÉIMPRESSION BADGE OPÉRATEUR</h1>
+        <form method="post" action="/action/badge-print" class="entry">
+            <input type="hidden" name="operator" id="opHidden" value="">
+            <input type="text" id="opDisplay" class="value-display" value="" readonly>
+            <div class="kb-area" id="opKbArea"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">IMPRIMER (AVEC AUTORISATION)</button>
+        </form>
+    </div>
+    {#include keyboard-lib /}
+    <script>
+        PosInput.setup({
+            displayId: 'opDisplay',
+            hiddenId: 'opHidden',
+            containerId: 'opKbArea',
+            keyboardType: 'numpad',
+            mode: 'text',
+            placeholder: "",
+            maxLength: 20
+        });
+    </script>
+</body>
+</html>

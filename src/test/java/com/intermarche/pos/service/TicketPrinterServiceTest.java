@@ -86,6 +86,8 @@ class TicketPrinterServiceTest {
         TicketPrinterService service = new TicketPrinterService();
         service.hardwareService = mock(HardwareService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
+        // Back-office parameters at their defaults: no EAN on paper.
+        service.posSettingsService = mock(PosSettingsService.class);
         return service;
     }
 
@@ -1016,5 +1018,80 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("50,00 E"));
         assertTrue(out.contains("N° 296000000000042"));
         assertTrue(out.contains("(scannable en caisse - solde au registre)"));
+    }
+
+    // --- printParkedTicket ---
+
+    /**
+     * Captures the receipt text pushed by a method that prints without cutting
+     * the paper (the parked ticket and the operator badge).
+     *
+     * @param service the service whose printer mock is inspected
+     * @return the rendered receipt text
+     */
+    private String captureRaw(TicketPrinterService service) {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(service.hardwareService).printReceipt(captor.capture());
+        return captor.getValue();
+    }
+
+    /**
+     * {@code printParkedTicket} renders the header, the resume number, each
+     * cart line — truncating a label longer than 20 characters (truncation
+     * arm) and keeping a short one (no-truncation arm) — the waiting total and
+     * the scan invitation.
+     */
+    @Test
+    void printParkedTicketRendersHeaderLinesAndInvitation() {
+        TicketPrinterService service = newService();
+        Ticket draft = ticket(0, null);
+        draft.lines.add(line("A", "UN LIBELLE ARTICLE TRES LONG A COUPER", "2", "1.00", "2.00"));
+        draft.lines.add(line("B", "LAIT", "1", "1.50", "1.50"));
+        service.printParkedTicket(draft);
+        String out = captureRaw(service);
+        assertTrue(out.contains("TICKET EN ATTENTE"));
+        assertTrue(out.contains("C04-00000001"));
+        assertTrue(out.contains("UN LIBELLE ARTICLE T"));
+        assertFalse(out.contains("UN LIBELLE ARTICLE TRES LONG A COUPER"));
+        assertTrue(out.contains("LAIT"));
+        assertTrue(out.contains("TOTAL EN ATTENTE"));
+        assertTrue(out.contains("SCANNEZ CE NUMERO POUR REPRENDRE"));
+    }
+
+    // --- printOperatorBadge ---
+
+    /**
+     * {@code printOperatorBadge} renders the badge with the operator's login
+     * and its badge id when present (badge-id present arm).
+     */
+    @Test
+    void printOperatorBadgeRendersBadgeId() {
+        TicketPrinterService service = newService();
+        Employee employee = new Employee();
+        employee.loginName = "jdupont";
+        employee.badgeId = "12341234";
+        service.printOperatorBadge(employee);
+        String out = captureRaw(service);
+        assertTrue(out.contains("BADGE OPERATEUR"));
+        assertTrue(out.contains("jdupont"));
+        assertTrue(out.contains("12341234"));
+        assertTrue(out.contains("SCANNEZ OU SAISISSEZ CE NUMERO"));
+    }
+
+    /**
+     * {@code printOperatorBadge} prints a dash for a missing badge id
+     * (badge-id null arm).
+     */
+    @Test
+    void printOperatorBadgeRendersDashWithoutBadgeId() {
+        TicketPrinterService service = newService();
+        Employee employee = new Employee();
+        employee.loginName = "jdupont";
+        employee.badgeId = null;
+        service.printOperatorBadge(employee);
+        String out = captureRaw(service);
+        assertTrue(out.contains("BADGE"));
+        assertTrue(out.contains("jdupont"));
+        assertTrue(out.contains("-"));
     }
 }

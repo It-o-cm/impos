@@ -42,6 +42,9 @@ public class PaymentResource {
     @Inject
     TicketPrinterService ticketPrinterService;
     @Inject PosState state;
+
+    /** Ticket lifecycle service — used by the payment-phase ticket abandon. */
+    @Inject com.intermarche.pos.ui.ticket.TicketService ticketService;
     /** Loyalty lease renewal on payment-screen refresh (imfid lot 2). */
     @Inject com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
 
@@ -399,6 +402,22 @@ public class PaymentResource {
                 System.err.println("Erreur réimpression: " + e.getMessage());
             }
         }
+        return Response.seeOther(URI.create("/")).build();
+    }
+    /**
+     * Abandons the WHOLE ticket from the payment phase, without going back
+     * to the article-entry screen first (LC-04-04-05): the partial payments
+     * are cancelled the usual way (lease released, valuation reverted,
+     * payments removed from the draft — the automatic handling this register
+     * applies instead of blocking), then the ticket itself is cancelled.
+     *
+     * @return a redirect to the sale screen (empty cart)
+     */
+    @GET
+    @Path("/action/pay/abandon-ticket")
+    public Response abandonTicketFromPayment() {
+        paymentService.cancelPayments(state);
+        ticketService.cancelTicket(state);
         return Response.seeOther(URI.create("/")).build();
     }
 }

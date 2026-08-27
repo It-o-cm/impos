@@ -696,4 +696,110 @@ class ImfidClientTest {
         client.postEvent("/api/events/ticket-closed", "{}");
         assertNotNull(receivedAuthorization.get());
     }
+
+    // --- lookup ---
+
+    /**
+     * A 200 on the lookup endpoint yields the parsed matches (non-empty list
+     * arm), no CRM flag and no refusal reason.
+     *
+     * @throws Exception on transport failure
+     */
+    @Test
+    void lookupReturnsMatchesOn200() throws Exception {
+        stub("/api/cards/lookup", 200,
+                "[{\"card\":\"2990000000019\",\"status\":\"ACTIVE\","
+                + "\"lastName\":\"Dupont\",\"firstName\":\"Jean\"}]");
+        ImfidClient.LookupResult result = client.lookup(null, "jean@x.fr", null, null);
+        assertNotNull(result.matches);
+        assertEquals(1, result.matches.size());
+        assertEquals("2990000000019", result.matches.get(0).card);
+        assertEquals("Dupont", result.matches.get(0).lastName);
+        assertFalse(result.crmManaged);
+        assertNull(result.refusalReason);
+    }
+
+    /**
+     * A 200 with an empty array yields an empty match list (empty-list arm).
+     *
+     * @throws Exception on transport failure
+     */
+    @Test
+    void lookupReturnsEmptyListOn200() throws Exception {
+        stub("/api/cards/lookup", 200, "[]");
+        ImfidClient.LookupResult result = client.lookup("0612345678", null, null, null);
+        assertNotNull(result.matches);
+        assertTrue(result.matches.isEmpty());
+    }
+
+    /**
+     * A 422 whose reason names the CRM sets the CRM flag (reason-non-null and
+     * startsWith arm) and leaves the matches null.
+     *
+     * @throws Exception on transport failure
+     */
+    @Test
+    void lookupFlagsCrmOn422() throws Exception {
+        stub("/api/cards/lookup", 422,
+                "{\"reason\":\"Holder identity is managed by the CRM system\"}");
+        ImfidClient.LookupResult result = client.lookup(null, null, "Dupont", "Jean");
+        assertTrue(result.crmManaged);
+        assertEquals("Holder identity is managed by the CRM system", result.refusalReason);
+        assertNull(result.matches);
+    }
+
+    /**
+     * A 422 whose reason does not name the CRM leaves the flag false
+     * (reason-non-null but not startsWith arm) while echoing the reason.
+     *
+     * @throws Exception on transport failure
+     */
+    @Test
+    void lookupDoesNotFlagCrmOnOther422() throws Exception {
+        stub("/api/cards/lookup", 422, "{\"reason\":\"SOME_OTHER_REASON\"}");
+        ImfidClient.LookupResult result = client.lookup(null, null, "Dupont", null);
+        assertFalse(result.crmManaged);
+        assertEquals("SOME_OTHER_REASON", result.refusalReason);
+    }
+
+    /**
+     * A 422 with no reason leaves the flag false (reason-null arm).
+     *
+     * @throws Exception on transport failure
+     */
+    @Test
+    void lookupDoesNotFlagCrmOnReasonlessRefusal() throws Exception {
+        stub("/api/cards/lookup", 422, "{}");
+        ImfidClient.LookupResult result = client.lookup(null, null, "Dupont", null);
+        assertFalse(result.crmManaged);
+        assertNull(result.refusalReason);
+    }
+
+    /**
+     * Any other status is an unexpected answer the caller's breaker must see
+     * as an exception (default throw arm).
+     */
+    @Test
+    void lookupThrowsOnUnexpectedStatus() {
+        stub("/api/cards/lookup", 503, "");
+        assertThrows(IllegalStateException.class,
+                () -> client.lookup(null, "jean@x.fr", null, null));
+    }
+
+    /**
+     * Each supplied criterion is URL-encoded onto the query string as typed
+     * (encoding arm); a blank or null criterion is omitted.
+     *
+     * @throws Exception on transport failure
+     */
+    @Test
+    void lookupEncodesCriteria() throws Exception {
+        stub("/api/cards/lookup", 200, "[]");
+        client.lookup("06 12 34 56 78", "  ", null, "Éric");
+        String line = receivedRequestLine.get();
+        assertTrue(line.contains("phone=06+12+34+56+78"), line);
+        assertTrue(line.contains("firstName=%C3%89ric"), line);
+        assertFalse(line.contains("email="), line);
+        assertFalse(line.contains("name=Dupont"), line);
+    }
 }

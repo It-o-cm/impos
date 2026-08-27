@@ -1,0 +1,187 @@
+package com.intermarche.pos.ui;
+
+import com.intermarche.pos.service.PosSettingsService;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link LockCheckFilter}.
+ * <p>
+ * The filter is a plain JAX-RS request filter: it reads the path off a mocked
+ * {@link ContainerRequestContext}, consults a real {@link PosState} for the
+ * lock state and the idle clock, a mocked {@link PosSettingsService} for the
+ * idle-lockout delay, and either lets the request through or aborts it toward
+ * {@code /lock}. Time is the real wall clock; expiry is exercised by pushing
+ * the last-activity stamp into the past. No database and no Quarkus context is
+ * booted.
+ * <p>
+ * Branch enumeration (every arm exercised — 100%): the path normalization
+ * (leading-slash present / absent), the idle-expiry compound guard (delay-zero
+ * arm, no-prior-activity arm, not-expired arm, all-true expiry arm), the
+ * post-check activity clock (cashier-path reset arm / allowlisted no-reset
+ * arm) and the locked dispatch (allowlisted pass arm / redirect arm).
+ */
+class LockCheckFilterTest {
+
+    /**
+     * Builds a filter over a real state and a mocked settings service.
+     *
+     * @param state the register state
+     * @param idleSeconds the idle-lockout delay the settings service returns
+     * @return the wired filter
+     */
+    private LockCheckFilter newFilter(PosState state, long idleSeconds) {
+        LockCheckFilter filter = new LockCheckFilter();
+        filter.state = state;
+        filter.posSettingsService = mock(PosSettingsService.class);
+        when(filter.posSettingsService.idleLockoutSeconds()).thenReturn(idleSeconds);
+        return filter;
+    }
+
+    /**
+     * Builds a request context whose path is fixed.
+     *
+     * @param path the value {@code getUriInfo().getPath()} returns
+     * @return the mocked context
+     */
+    private ContainerRequestContext ctxFor(String path) {
+        ContainerRequestContext ctx = mock(ContainerRequestContext.class);
+        UriInfo uriInfo = mock(UriInfo.class);
+        when(ctx.getUriInfo()).thenReturn(uriInfo);
+        when(uriInfo.getPath()).thenReturn(path);
+        return ctx;
+    }
+
+    /**
+     * Builds an unlocked register state.
+     *
+     * @return the unlocked state
+     */
+    private PosState unlocked() {
+        PosState state = new PosState();
+        state.auth.isLocked = false;
+        return state;
+    }
+
+    /**
+     * A locked register redirects a cashier-facing request to {@code /lock}
+     * (locked arm, non-allowlisted arm), the path normalized from a
+     * leading-slash-less raw value.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedCashierPathRedirects() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        ContainerRequestContext ctx = ctxFor("sale");
+        filter.filter(ctx);
+        ArgumentCaptor<Response> captor = ArgumentCaptor.forClass(Response.class);
+        verify(ctx).abortWith(captor.capture());
+        assertEquals(303, captor.getValue().getStatus());
+        assertEquals("/lock", captor.getValue().getLocation().toString());
+    }
+
+    /**
+     * A locked register lets an allowlisted surface through (allowlisted arm),
+     * the raw path already carrying a leading slash (normalization true arm).
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedAllowlistedPathPasses() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        ContainerRequestContext ctx = ctxFor("/api/pos/scan");
+        filter.filter(ctx);
+        verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
+     * An unlocked register on a cashier path with the idle pause disabled
+     * (delay-zero arm) passes and stamps the activity clock (reset arm).
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void unlockedDisabledIdleStampsClock() throws Exception {
+        PosState state = unlocked();
+        state.auth.lastActivityAt = 0L;
+        LockCheckFilter filter = newFilter(state, 0);
+        ContainerRequestContext ctx = ctxFor("sale");
+        filter.filter(ctx);
+        verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+        assertFalse(state.isLocked());
+        assertTrue(state.auth.lastActivityAt > 0L);
+    }
+
+    /**
+     * An unlocked register on an allowlisted poll does NOT reset the activity
+     * clock (no-reset arm), the idle guard skipped for want of prior activity
+     * (no-prior-activity arm).
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void unlockedAllowlistedPollLeavesClock() throws Exception {
+        PosState state = unlocked();
+        state.auth.lastActivityAt = 0L;
+        LockCheckFilter filter = newFilter(state, 60);
+        ContainerRequestContext ctx = ctxFor("ticket-fragment");
+        filter.filter(ctx);
+        verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+        assertEquals(0L, state.auth.lastActivityAt);
+    }
+
+    /**
+     * An unlocked register whose last activity is recent is not expired
+     * (not-expired arm): it stays unlocked and passes, the clock refreshed.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void unlockedRecentActivityNotExpired() throws Exception {
+        PosState state = unlocked();
+        long recent = System.currentTimeMillis() - 1000L;
+        state.auth.lastActivityAt = recent;
+        LockCheckFilter filter = newFilter(state, 60);
+        ContainerRequestContext ctx = ctxFor("sale");
+        filter.filter(ctx);
+        verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+        assertFalse(state.isLocked());
+        assertTrue(state.auth.lastActivityAt >= recent);
+    }
+
+    /**
+     * An unlocked register whose last activity is older than the delay expires
+     * (all-true expiry arm): the filter logs the operator out and, the register
+     * now locked, redirects the cashier path to {@code /lock}.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void unlockedIdleExpiryLogsOutAndRedirects() throws Exception {
+        PosState state = unlocked();
+        state.auth.lastActivityAt = System.currentTimeMillis() - 120_000L;
+        long beforeVersion = state.version;
+        LockCheckFilter filter = newFilter(state, 60);
+        ContainerRequestContext ctx = ctxFor("sale");
+        filter.filter(ctx);
+        assertTrue(state.isLocked());
+        assertTrue(state.version > beforeVersion);
+        ArgumentCaptor<Response> captor = ArgumentCaptor.forClass(Response.class);
+        verify(ctx).abortWith(captor.capture());
+        assertEquals("/lock", captor.getValue().getLocation().toString());
+    }
+}

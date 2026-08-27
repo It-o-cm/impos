@@ -1,0 +1,35 @@
+{!
+ ! Back-office layout — the IMVALUATION ADMIN GABARIT transplanted verbatim
+ ! (same base.css, same --im-* tokens, same chrome): the store's back office
+ ! must feel like the valuation and fidelity admins, NOT like the till. The
+ ! till's dark touch theme (theme.html) is deliberately absent here.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{#insert title}POS admin{/}</title>
+    <link rel="stylesheet" href="/admin/base.css">
+</head>
+<body>
+<header class="app-header">
+    <a class="app-brand" href="/admin/settings">
+        <span class="app-brand-mark"></span>
+        <span class="app-brand-text">POS<b>admin</b></span>
+    </a>
+    <nav class="app-nav">
+        <a href="/admin/settings">Paramètres</a>
+        <a href="/dashboard">Supervision</a>
+    </nav>
+</header>
+
+<main class="app-main">
+    {#insert body}{/}
+</main>
+
+<footer class="app-footer">
+    <span>Les paramètres sont distribués aux caisses par le tirage référentiel (domaine SETTINGS), comme les produits et les prix.</span>
+</footer>
+</body>
+</html>

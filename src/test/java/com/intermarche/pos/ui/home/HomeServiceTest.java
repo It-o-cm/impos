@@ -11,6 +11,10 @@ import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.domain.Employee;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import org.mockito.MockedStatic;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,12 +27,14 @@ import java.util.ArrayList;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mockStatic;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -75,7 +81,12 @@ class HomeServiceTest {
         service.state.priceModState = mock(PriceModState.class);
         service.state.payment = mock(PaymentState.class);
         service.ticketService = mock(TicketService.class);
+        service.ticketPrinterService = mock(com.intermarche.pos.service.TicketPrinterService.class);
         service.endorsementService = mock(EndorsementService.class);
+        // Back-office parameters at their catalog defaults: the endorsement
+        // ceremony applies, so the historical routing assertions hold.
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(true);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.ticketNumberService = mock(TicketNumberService.class);
         service.syncOutboxService = mock(SyncOutboxService.class);
@@ -677,12 +688,61 @@ class HomeServiceTest {
     }
 
     /**
-     * {@code submitPriceMod()} refuses a quantity on a weighed line
-     * (plu non-empty: unit-line first paren false, not a unit line).
+     * {@code submitPriceMod()} applies a DECIMAL weight on a weighed line
+     * (LC-02-13-02: plu carried, ean present, not price-embedded — the typed
+     * value is the weight in kilograms, stored at scale 3).
      */
     @Test
-    void submitPriceModQuantityRefusedOnWeighedLine() {
+    void submitPriceModQuantityAppliesDecimalWeightOnWeighedLine() {
+        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.submitPriceMod("QUANTITY", "A", new BigDecimal("0.85"));
+        assertEquals(0, new BigDecimal("0.850").compareTo(it.quantity));
+        assertEquals(3, it.quantity.scale());
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses an out-of-range weight on a weighed
+     * line (zero, above 99.999 kg, or finer than the gram) with the weight
+     * message — one test per leg of the composed guard.
+     */
+    @Test
+    void submitPriceModQuantityRefusesInvalidWeightLegs() {
         service.state.ticket.items.add(item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE));
+        service.submitPriceMod("QUANTITY", "A", BigDecimal.ZERO);
+        verify(service.state.ticket).setError("POIDS INVALIDE (0,001-99,999 KG)");
+        service.submitPriceMod("QUANTITY", "A", new BigDecimal("100.000"));
+        service.submitPriceMod("QUANTITY", "A", new BigDecimal("0.0005"));
+        service.submitPriceMod("QUANTITY", "A", null);
+        verify(service.state.ticket, times(4)).setError("POIDS INVALIDE (0,001-99,999 KG)");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses a quantity on a PRICE-EMBEDDED sticker
+     * line: one physical sticker is one object at its printed total, never a
+     * multipliable line.
+     */
+    @Test
+    void submitPriceModQuantityRefusedOnPriceEmbeddedLine() {
+        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
+        it.priceEmbedded = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses a quantity on a MONEY-PRODUCT line
+     * (gift card): money is not multiplied by a gesture.
+     */
+    @Test
+    void submitPriceModQuantityRefusedOnMoneyProductLine() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        it.moneyProduct = true;
+        service.state.ticket.items.add(it);
         service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
         verify(service.ticketService, never()).recalculateTotal(any());
@@ -764,5 +824,197 @@ class HomeServiceTest {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
         service.submitPriceMod("QUANTITY", "A", new BigDecimal("1000"));
         verify(service.state.ticket).setError("QUANTITÉ INVALIDE (1-999)");
+    }
+
+    // --- submitPriceMod without endorsement (applyGestureDirectly) ---
+
+    /**
+     * Adds a ticket line with the given uid to the real items list.
+     *
+     * @param uid the uid to assign
+     * @return the created item
+     */
+    private TicketState.TicketItem addLine(String uid) {
+        TicketState.TicketItem item = new TicketState.TicketItem(
+                "3000", null, "Milk", new BigDecimal("1.00"), BigDecimal.ONE, new BigDecimal("0.2000"));
+        item.uid = uid;
+        service.state.ticket.items.add(item);
+        return item;
+    }
+
+    /**
+     * With the endorsement ceremony disabled, a global gesture is applied
+     * directly (disabled-routing arm, GLOBAL_ arm) without a manager request.
+     */
+    @Test
+    void submitPriceModDisabledAppliesGlobalDirectly() {
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        BigDecimal value = new BigDecimal("10");
+        service.submitPriceMod("GLOBAL_PERCENT", "A", value);
+        verify(service.ticketService).applyGlobalDiscount(service.state, "GLOBAL_PERCENT", value);
+        verify(service.endorsementService, never()).requestPriceModification(any(), any(), any(), any());
+        verify(service.state.priceModState).clear();
+        verify(service.state).touch();
+    }
+
+    /**
+     * The direct gesture reports an unknown line when the uid matches nothing
+     * (type-null arm of the global guard, item-null arm).
+     */
+    @Test
+    void gestureDirectlyReportsMissingLine() {
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        service.submitPriceMod(null, "MISSING", new BigDecimal("1"));
+        verify(service.state.ticket).setError("LIGNE INTROUVABLE");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * The direct gesture applies a REMISE on the target line (REMISE arm) and
+     * recomputes.
+     */
+    @Test
+    void gestureDirectlyAppliesRemise() {
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        TicketState.TicketItem item = addLine("A");
+        BigDecimal value = new BigDecimal("2");
+        service.submitPriceMod("REMISE", "A", value);
+        verify(service.ticketService).applyRemise(item, value);
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * The direct gesture applies a DISCOUNT on the target line (DISCOUNT arm).
+     */
+    @Test
+    void gestureDirectlyAppliesDiscount() {
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        TicketState.TicketItem item = addLine("A");
+        BigDecimal value = new BigDecimal("15");
+        service.submitPriceMod("DISCOUNT", "A", value);
+        verify(service.ticketService).applyDiscount(item, value);
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * The direct gesture forces a price on the target line (FORCE_PRICE arm).
+     */
+    @Test
+    void gestureDirectlyForcesPrice() {
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        TicketState.TicketItem item = addLine("A");
+        BigDecimal value = new BigDecimal("5");
+        service.submitPriceMod("FORCE_PRICE", "A", value);
+        verify(service.ticketService).forcePrice(item, value);
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * The direct gesture on an unrecognized type applies nothing yet still
+     * recomputes (none-of-the-three arm).
+     */
+    @Test
+    void gestureDirectlyUnknownTypeStillRecalculates() {
+        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        TicketState.TicketItem item = addLine("A");
+        service.submitPriceMod("MYSTERY", "A", new BigDecimal("1"));
+        verify(service.ticketService, never()).applyRemise(any(), any());
+        verify(service.ticketService, never()).applyDiscount(any(), any());
+        verify(service.ticketService, never()).forcePrice(any(), any());
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    // --- printOperatorBadge ---
+
+    /**
+     * Builds a Panache query whose {@code firstResult} resolves to the value.
+     *
+     * @param employee the employee the query returns, or null
+     * @return the mocked query
+     */
+    @SuppressWarnings("unchecked")
+    private PanacheQuery<Employee> employeeQuery(Employee employee) {
+        PanacheQuery<Employee> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(employee);
+        return query;
+    }
+
+    /**
+     * Builds an employee with the given activity.
+     *
+     * @param active whether the employee is active
+     * @return the employee mock
+     */
+    private Employee activeEmployee(boolean active) {
+        Employee employee = mock(Employee.class);
+        employee.active = active;
+        return employee;
+    }
+
+    /**
+     * {@code printOperatorBadge} resolves an operator by badge id, prints the
+     * badge and confirms (badge-found arm, active arm).
+     */
+    @Test
+    void printOperatorBadgeByBadgeId() {
+        Employee employee = activeEmployee(true);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Employee> byBadge = employeeQuery(employee);
+            ms.when(() -> Employee.find("badgeId", "5")).thenReturn(byBadge);
+            service.printOperatorBadge("5");
+        }
+        verify(service.ticketPrinterService).printOperatorBadge(employee);
+        verify(service.state.ticket).setError("BADGE OPÉRATEUR IMPRIMÉ");
+    }
+
+    /**
+     * {@code printOperatorBadge} falls back to the login name when the badge
+     * id matches nothing (badge-null arm, login-found arm).
+     */
+    @Test
+    void printOperatorBadgeByLoginName() {
+        Employee employee = activeEmployee(true);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Employee> byBadge = employeeQuery(null);
+            PanacheQuery<Employee> byLogin = employeeQuery(employee);
+            ms.when(() -> Employee.find("badgeId", "jdupont")).thenReturn(byBadge);
+            ms.when(() -> Employee.find("loginName", "jdupont")).thenReturn(byLogin);
+            service.printOperatorBadge("jdupont");
+        }
+        verify(service.ticketPrinterService).printOperatorBadge(employee);
+        verify(service.state.ticket).setError("BADGE OPÉRATEUR IMPRIMÉ");
+    }
+
+    /**
+     * {@code printOperatorBadge} reports an unknown operator when neither
+     * lookup matches (both-null arm), printing nothing.
+     */
+    @Test
+    void printOperatorBadgeNotFound() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Employee> byBadge = employeeQuery(null);
+            PanacheQuery<Employee> byLogin = employeeQuery(null);
+            ms.when(() -> Employee.find("badgeId", "x")).thenReturn(byBadge);
+            ms.when(() -> Employee.find("loginName", "x")).thenReturn(byLogin);
+            service.printOperatorBadge("x");
+        }
+        verify(service.state.ticket).setError("OPÉRATEUR INTROUVABLE (x)");
+        verify(service.ticketPrinterService, never()).printOperatorBadge(any());
+    }
+
+    /**
+     * {@code printOperatorBadge} reports an unknown operator for a deactivated
+     * one (inactive arm), printing nothing.
+     */
+    @Test
+    void printOperatorBadgeInactive() {
+        Employee employee = activeEmployee(false);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Employee> byBadge = employeeQuery(employee);
+            ms.when(() -> Employee.find("badgeId", "5")).thenReturn(byBadge);
+            service.printOperatorBadge("5");
+        }
+        verify(service.state.ticket).setError("OPÉRATEUR INTROUVABLE (5)");
+        verify(service.ticketPrinterService, never()).printOperatorBadge(any());
     }
 }

@@ -1404,4 +1404,314 @@ class FidelityServiceTest {
         assertEquals("Fruits & légumes samedi", state.fidelity.earnEntries.get(0).label);
         assertEquals(0, new BigDecimal("0.75").compareTo(state.fidelity.earnEntries.get(0).amount));
     }
+
+    // --- lookupCards ---
+
+    /**
+     * Builds a service whose imfid client is a configured mock.
+     *
+     * @return the service under test
+     */
+    private FidelityService lookupService() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(true);
+        return service;
+    }
+
+    /**
+     * Builds a lookup result carrying the given matches.
+     *
+     * @param n the number of synthetic matches, or -1 for a null match list
+     * @param crm whether the CRM flag is raised
+     * @param reason the refusal reason
+     * @return the result
+     */
+    private ImfidClient.LookupResult lookupResult(int n, boolean crm, String reason) {
+        ImfidClient.LookupResult result = new ImfidClient.LookupResult();
+        result.crmManaged = crm;
+        result.refusalReason = reason;
+        if (n >= 0) {
+            result.matches = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                result.matches.add(new ImfidClient.LookupMatch());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * {@code lookupCards} short-circuits to the unavailable message when the
+     * service is not configured (not-configured arm).
+     */
+    @Test
+    void lookupCardsUnavailableWhenNotConfigured() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        FidelityService.LookupView view = service.lookupCards("06", null, null, null);
+        assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", view.message);
+        assertNull(view.matches);
+    }
+
+    /**
+     * {@code lookupCards} refuses an all-blank criterion set (no-criterion
+     * arm) without any network call.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsRequiresACriterion() throws Exception {
+        FidelityService service = lookupService();
+        FidelityService.LookupView view = service.lookupCards("  ", "", "  ", "x");
+        assertEquals("SAISISSEZ UN TÉLÉPHONE, UN E-MAIL OU UN NOM", view.message);
+        verify(service.imfidClient, never()).lookup(any(), any(), any(), any());
+    }
+
+    /**
+     * {@code lookupCards} maps a CRM-managed answer to its dedicated message
+     * (crm arm).
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsReportsCrmMode() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.lookup(any(), any(), any(), any()))
+                .thenReturn(lookupResult(-1, true, null));
+        FidelityService.LookupView view = service.lookupCards(null, "jean@x.fr", null, null);
+        assertEquals("IDENTITÉS GÉRÉES PAR LE CRM - RECHERCHE INDISPONIBLE EN CAISSE", view.message);
+        assertNull(view.matches);
+    }
+
+    /**
+     * {@code lookupCards} maps a null-match refusal to the refused message
+     * (matches-null arm).
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsReportsRefusal() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.lookup(any(), any(), any(), any()))
+                .thenReturn(lookupResult(-1, false, "SOME_REASON"));
+        FidelityService.LookupView view = service.lookupCards(null, null, "Dupont", null);
+        assertEquals("RECHERCHE REFUSÉE PAR LE SERVICE FIDÉLITÉ", view.message);
+        assertNull(view.matches);
+    }
+
+    /**
+     * {@code lookupCards} annotates an empty result set (empty arm) while
+     * still exposing the (empty) match list.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsReportsNoMatch() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.lookup(any(), any(), any(), any()))
+                .thenReturn(lookupResult(0, false, null));
+        FidelityService.LookupView view = service.lookupCards(null, null, "Dupont", null);
+        assertEquals("AUCUNE CARTE TROUVÉE - ESSAYEZ UN AUTRE CRITÈRE", view.message);
+        assertTrue(view.matches.isEmpty());
+    }
+
+    /**
+     * {@code lookupCards} warns about truncation when the list hits the cap of
+     * 20 (cap arm), still exposing the matches.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsWarnsWhenCapped() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.lookup(any(), any(), any(), any()))
+                .thenReturn(lookupResult(20, false, null));
+        FidelityService.LookupView view = service.lookupCards("0612345678", null, null, null);
+        assertEquals("TROP DE CORRESPONDANCES - PRÉCISEZ LE CRITÈRE (TÉLÉPHONE)", view.message);
+        assertEquals(20, view.matches.size());
+    }
+
+    /**
+     * {@code lookupCards} exposes a bounded result set with no message
+     * (in-range arm).
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsExposesBoundedMatches() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.lookup(any(), any(), any(), any()))
+                .thenReturn(lookupResult(3, false, null));
+        FidelityService.LookupView view = service.lookupCards(null, null, "Dupont", "Jean");
+        assertNull(view.message);
+        assertEquals(3, view.matches.size());
+    }
+
+    /**
+     * A transport failure opens the breaker (exception arm): the first call
+     * degrades and a second call short-circuits on the breaker without a
+     * second network call.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void lookupCardsTransportFailureOpensBreaker() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.lookup(any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("boom"));
+        FidelityService.LookupView first = service.lookupCards("0612345678", null, null, null);
+        assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", first.message);
+        FidelityService.LookupView second = service.lookupCards("0612345678", null, null, null);
+        assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", second.message);
+        verify(service.imfidClient, times(1)).lookup(any(), any(), any(), any());
+    }
+
+    // --- attachLookedUpCard ---
+
+    /**
+     * {@code attachLookedUpCard} refuses a resiliated card (RESILIATED arm)
+     * without attaching anything.
+     */
+    @Test
+    void attachRefusesResiliatedCard() {
+        FidelityService service = lookupService();
+        PosState state = new PosState();
+        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "RESILIATED");
+        assertEquals("CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL", message);
+        assertFalse(state.fidelity.active);
+    }
+
+    /**
+     * {@code attachLookedUpCard} attaches a pending card, records the holder,
+     * defaults the status (status-null arm) and warns that the cagnotte cannot
+     * be spent (PENDING_ACTIVATION arm).
+     */
+    @Test
+    void attachPendingCardWarnsAndDefaultsStatus() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        PosState state = new PosState();
+        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION");
+        assertNull(message);
+        assertTrue(state.fidelity.active);
+        assertEquals("Dupont", state.fidelity.holderLastName);
+        assertEquals("Jean", state.fidelity.holderFirstName);
+        assertEquals("PENDING_ACTIVATION", state.fidelity.accountStatus);
+        assertEquals("CARTE EN ATTENTE D'ACTIVATION - CAGNOTTE SANS UTILISATION", state.ticket.transientError);
+    }
+
+    /**
+     * {@code attachLookedUpCard} attaches an active card without warning
+     * (PENDING_ACTIVATION false arm), defaulting the status when the refresh
+     * read nothing (status-null arm).
+     */
+    @Test
+    void attachActiveCardDefaultsStatusWhenRefreshSilent() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        PosState state = new PosState();
+        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", null, "ACTIVE");
+        assertNull(message);
+        assertEquals("ACTIVE", state.fidelity.accountStatus);
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * {@code attachLookedUpCard} keeps the status the live refresh already set
+     * (status-non-null arm), not overwriting it with the passed value.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void attachKeepsStatusReadLive() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.account("2990000000019")).thenReturn(account("ACTIVE", "10", "10"));
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION");
+        assertEquals("ACTIVE", state.fidelity.accountStatus);
+    }
+
+    // --- refreshAccountDisplay (through validateCard) ---
+
+    /**
+     * The account refresh skips an inactive card (inactive arm): a too-short
+     * value leaves the card unattached and the account untouched.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void refreshSkipsWhenCardInactive() throws Exception {
+        FidelityService service = lookupService();
+        PosState state = new PosState();
+        service.validateCard(state, "12");
+        verify(service.imfidClient, never()).account(any());
+    }
+
+    /**
+     * The account refresh skips when the service is not configured
+     * (not-configured arm).
+     *
+     * @throws Exception never
+     */
+    @Test
+    void refreshSkipsWhenNotConfigured() throws Exception {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        PosState state = new PosState();
+        service.validateCard(state, "2990000000019");
+        verify(service.imfidClient, never()).account(any());
+    }
+
+    /**
+     * The account refresh leaves the display fields null when imfid returns no
+     * account (account-null arm).
+     *
+     * @throws Exception never
+     */
+    @Test
+    void refreshLeavesFieldsNullOnNullAccount() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.account("2990000000019")).thenReturn(null);
+        PosState state = new PosState();
+        service.validateCard(state, "2990000000019");
+        assertNull(state.fidelity.accountStatus);
+        assertNull(state.fidelity.availableBalance);
+    }
+
+    /**
+     * The account refresh projects the status and available balance when imfid
+     * answers (account-non-null arm).
+     *
+     * @throws Exception never
+     */
+    @Test
+    void refreshPopulatesFromAccount() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.account("2990000000019")).thenReturn(account("ACTIVE", "20", "15"));
+        PosState state = new PosState();
+        service.validateCard(state, "2990000000019");
+        assertEquals("ACTIVE", state.fidelity.accountStatus);
+        assertEquals(0, new BigDecimal("15").compareTo(state.fidelity.availableBalance));
+    }
+
+    /**
+     * A refresh transport failure opens the breaker (exception arm): the
+     * fields stay null and a second attachment does not call imfid again.
+     *
+     * @throws Exception never
+     */
+    @Test
+    void refreshExceptionOpensBreaker() throws Exception {
+        FidelityService service = lookupService();
+        when(service.imfidClient.account("2990000000019")).thenThrow(new RuntimeException("down"));
+        PosState state = new PosState();
+        service.validateCard(state, "2990000000019");
+        assertNull(state.fidelity.accountStatus);
+        service.validateCard(state, "2990000000019");
+        verify(service.imfidClient, times(1)).account("2990000000019");
+    }
 }

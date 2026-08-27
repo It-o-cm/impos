@@ -43,7 +43,6 @@ import java.net.URI;
 public class CashSessionResource {
 
     @Inject @Location("session") Template session;
-    @Inject Template lock;
     @Inject CashSessionService cashSessionService;
     @Inject TicketPrinterService ticketPrinterService;
     @Inject TechnicalEventService technicalEventService;
@@ -54,13 +53,12 @@ public class CashSessionResource {
      * Shows the session page: current open session, or the opening form.
      *
      * @param error an optional error code from a redirect
-     * @return the session page, or the lock page when no operator is logged in
+     * @return the session page
      */
     @GET
     @Path("/session")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance sessionPage(@QueryParam("error") String error) {
-        if (state.isLocked()) return lock.data("state", state).data("error", null);
         String message = null;
         if ("open-failed".equals(error)) {
             message = "OUVERTURE IMPOSSIBLE (SESSION DÉJÀ OUVERTE ?)";
@@ -86,7 +84,6 @@ public class CashSessionResource {
         if (state.trainingMode) {
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         BigDecimal openingFloat = parseAmount(floatStr);
         CashSession opened = cashSessionService.openSession(state.auth.operatorId, openingFloat);
         state.touch();
@@ -108,7 +105,6 @@ public class CashSessionResource {
     @GET
     @Path("/action/session/x-report")
     public Response printXReport() {
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         CashSession current = cashSessionService.getOpenSession();
         if (current == null) {
             return Response.seeOther(URI.create("/session?error=no-session")).build();
@@ -131,7 +127,6 @@ public class CashSessionResource {
         if (state.trainingMode) {
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         if (cashSessionService.getOpenSession() == null) {
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
@@ -160,7 +155,6 @@ public class CashSessionResource {
         if (state.trainingMode) {
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         CashSessionService.SessionReport report = cashSessionService.closeSession(
                 state.auth.operatorId, parseAmount(countedStr), parseAmount(withdrawnStr), detail);
         if (report == null) {

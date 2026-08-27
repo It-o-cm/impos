@@ -2,6 +2,7 @@ package com.intermarche.pos.service.sync;
 
 import com.intermarche.pos.domain.CouponType;
 import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.PosSetting;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.ProductFamily;
@@ -451,6 +452,71 @@ class RefApplyServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> RefState.find("domain", "products")).thenReturn(absentQuery);
             assertNull(service.lastApplied("products"));
+        }
+    }
+
+    // --------------------------------------------------
+    // applySettings
+    // --------------------------------------------------
+
+    /**
+     * Covers both arms of {@code applySettings}: one dto has no existing row
+     * (insert path, constructed instance gets its key and value) while the
+     * second matches an existing row (update path); every row is persisted,
+     * the keys not seen are deleted (non-empty seen arm) and the settings
+     * cache is invalidated.
+     */
+    @Test
+    void applySettingsUpsertsDeletesAndInvalidates() {
+        RefApplyService service = new RefApplyService();
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        RefPayloads.SettingDto insert = new RefPayloads.SettingDto();
+        insert.key = "display.show-ean";
+        insert.value = "true";
+        RefPayloads.SettingDto update = new RefPayloads.SettingDto();
+        update.key = "auth.idle-lockout-seconds";
+        update.value = "30";
+        PosSetting existing = mock(PosSetting.class);
+        PanacheQuery<PosSetting> absentQuery = queryReturning(null);
+        PanacheQuery<PosSetting> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<PosSetting> created = mockConstruction(PosSetting.class)) {
+            mocked.when(() -> PosSetting.find("settingKey", "display.show-ean")).thenReturn(absentQuery);
+            mocked.when(() -> PosSetting.find("settingKey", "auth.idle-lockout-seconds")).thenReturn(existingQuery);
+            mocked.when(() -> PosSetting.delete(org.mockito.ArgumentMatchers.eq("settingKey not in ?1"),
+                    org.mockito.ArgumentMatchers.any(java.util.Set.class))).thenReturn(2L);
+            service.applySettings(List.of(insert, update));
+            PosSetting inserted = created.constructed().get(0);
+            assertEquals("display.show-ean", inserted.settingKey);
+            assertEquals("true", inserted.settingValue);
+            verify(inserted, times(1)).persist();
+            assertEquals("30", existing.settingValue);
+            verify(existing, times(1)).persist();
+            mocked.verify(() -> PosSetting.delete(org.mockito.ArgumentMatchers.eq("settingKey not in ?1"),
+                    org.mockito.ArgumentMatchers.any(java.util.Set.class)));
+            verify(service.posSettingsService, times(1)).invalidate();
+        }
+    }
+
+    /**
+     * Covers the empty-payload arm of {@code applySettings}: with no dto the
+     * loop is skipped and the delete guards against an empty {@code IN} clause
+     * by passing a single sentinel (empty-seen arm), still invalidating the
+     * cache.
+     */
+    @Test
+    void applySettingsEmptyPayloadDeletesAllAndInvalidates() {
+        RefApplyService service = new RefApplyService();
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<PosSetting> created = mockConstruction(PosSetting.class)) {
+            mocked.when(() -> PosSetting.delete(org.mockito.ArgumentMatchers.eq("settingKey not in ?1"),
+                    org.mockito.ArgumentMatchers.eq(List.of("")))).thenReturn(5L);
+            service.applySettings(List.of());
+            assertTrue(created.constructed().isEmpty());
+            mocked.verify(() -> PosSetting.delete(org.mockito.ArgumentMatchers.eq("settingKey not in ?1"),
+                    org.mockito.ArgumentMatchers.eq(List.of(""))));
+            verify(service.posSettingsService, times(1)).invalidate();
         }
     }
 }

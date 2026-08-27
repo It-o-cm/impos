@@ -1,0 +1,65 @@
+{!
+ ! Stored-value balance consultation (LC-02-09-04): gift cards and credit
+ ! notes live in the LOCAL registry (stored_values) — the balance answer is
+ ! authoritative and needs no external hub. Read-only: nothing here touches
+ ! the ticket or the registry.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Solde bon / carte cadeau</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .panel {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid var(--border-strong); border-radius: 10px; position: relative;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px;
+        }
+        h1 { font-size: 1.4rem; letter-spacing: 2px; color: var(--text-muted); }
+        .entry { width: 420px; display: flex; flex-direction: column; gap: 12px; }
+        .value-display { font-size: 1.8rem; text-align: center; color: var(--primary); font-weight: bold;
+                         background: var(--bg-page); border: 3px solid var(--primary); border-radius: 8px; padding: 10px; }
+        .kb-area { min-height: 220px; display: flex; flex-direction: column; }
+        .result { text-align: center; font-size: 1.2rem; font-weight: bold; }
+        .back { position: absolute; top: 15px; left: 15px; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+    <div class="panel">
+        <a href="/" class="btn btn-muted back">&larr; RETOUR</a>
+        <h1>SOLDE BON / CARTE CADEAU</h1>
+
+        {#if result}
+        <div class="result">
+            {#if result.found}
+            {result.kindLabel} N° {result.number}<br>
+            STATUT : {result.statusLabel} &nbsp;&mdash;&nbsp; SOLDE : <span style="color: var(--success);">{result.balanceFormatted} €</span>
+            {#else}
+            <span style="color: var(--danger);">BON INCONNU AU REGISTRE</span>
+            {/if}
+        </div>
+        {/if}
+
+        <form method="post" action="/action/voucher-balance" class="entry">
+            <input type="hidden" name="number" id="vbHidden" value="">
+            <input type="text" id="vbDisplay" class="value-display" value="" readonly>
+            <div class="kb-area" id="vbKbArea"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">CONSULTER</button>
+        </form>
+    </div>
+    {#include keyboard-lib /}
+    <script>
+        PosInput.setup({
+            displayId: 'vbDisplay',
+            hiddenId: 'vbHidden',
+            containerId: 'vbKbArea',
+            keyboardType: 'numpad',
+            mode: 'text',
+            placeholder: "",
+            maxLength: 20
+        });
+    </script>
+</body>
+</html>

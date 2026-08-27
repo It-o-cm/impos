@@ -41,6 +41,15 @@
       <a href="/action/endorse-cancel" class="btn btn-muted" style="width:50%;">ANNULER</a>
       <button class="btn btn-warning" style="width:50%; color:black;" onclick="endorseNext()">SUIVANT</button>
     </div>
+    {#if supervisorLogged}
+    <!-- Connected-supervisor shortcut (LC-01-05-07): the logged operator IS
+         the authority — one tap, role re-checked server-side. -->
+    <div style="display:flex; margin-top:10px;">
+      <form action="/action/endorse-self" method="POST" style="width:100%;">
+        <button type="submit" class="btn btn-primary" style="width:100%;">VALIDER (MANAGER CONNECTÉ)</button>
+      </form>
+    </div>
+    {/if}
   </div>
 </div>
 

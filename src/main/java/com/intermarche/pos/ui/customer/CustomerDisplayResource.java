@@ -41,6 +41,10 @@ public class CustomerDisplayResource {
     @Inject @Location("customer") Template customer;
     @Inject PosState state;
 
+    /** The back-office parameters (EAN, welcome messages — LC-10-01-20/21). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /**
      * Shows the customer display page.
      *
@@ -72,6 +76,11 @@ public class CustomerDisplayResource {
         result.put("changed", true);
         result.put("version", state.version);
         result.put("locked", state.isLocked());
+        // LC-10-01-20/21: the idle message is administered — one text for an
+        // open register waiting for a sale, another for a locked one.
+        result.put("welcomeMessage", state.isLocked()
+                ? posSettingsService.customerClosedMessage()
+                : posSettingsService.customerOpenMessage());
         result.put("training", state.trainingMode);
         result.put("empty", state.ticket.items.isEmpty());
         result.put("total", state.ticket.getTotalFormatted());
@@ -87,6 +96,10 @@ public class CustomerDisplayResource {
         for (TicketState.TicketItem item : state.ticket.items) {
             Map<String, String> row = new HashMap<>();
             row.put("label", item.label);
+            if (posSettingsService.showEan() && item.ean != null) {
+                // LC-02-04-02: the EAN accompanies the label when configured.
+                row.put("ean", item.ean);
+            }
             row.put("qty", quantityDisplay(item));
             row.put("amount", item.getPriceFormatted());
             items.add(row);

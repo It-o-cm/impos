@@ -211,6 +211,49 @@
             kb.appendChild(del);
 
             container.appendChild(kb);
+        },
+
+        /**
+         * Renders the e-mail keyboard: digits row, AZERTY letters and the
+         * four characters an address needs (@ . - _). ADDITIVE variant — the
+         * canonical .pos-key metrics are untouched (theme rule).
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderEmailKeyboard: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const kb = this._makeGrid('pos-keyboard--alpha');
+
+            const rows = ['1234567890', 'AZERTYUIOP', 'QSDFGHJKLM', 'WXCVBN@._-'];
+            rows.forEach(row => {
+                row.split('').forEach(l => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.innerText = l;
+                    b.className = 'pos-key pos-key--digit pos-key--alpha';
+                    b.onclick = () => onKey(l.toLowerCase());
+                    kb.appendChild(b);
+                });
+            });
+
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.innerText = 'EFFACER';
+            del.className = 'pos-key pos-key--danger pos-key--wide5';
+            del.onclick = () => onKey('DEL');
+            kb.appendChild(del);
+
+            const clr = document.createElement('button');
+            clr.type = 'button';
+            clr.innerText = 'C';
+            clr.className = 'pos-key pos-key--action pos-key--wide5';
+            clr.onclick = () => onKey('C');
+            kb.appendChild(clr);
+
+            container.appendChild(kb);
         }
     };
 
@@ -234,6 +277,7 @@
 
             switch(cfg.keyboardType) {
                 case 'alpha': PosKeyboards.renderAlphaKeyboard(container, handler); break;
+                case 'email': PosKeyboards.renderEmailKeyboard(container, handler); break;
                 case 'price': PosKeyboards.renderPriceNumpad(container, handler); break;
                 case 'payment': PosKeyboards.renderPaymentNumpad(container, handler); break;
                 case 'search': PosKeyboards.renderSearchPad(container, handler); break;

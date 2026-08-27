@@ -22,6 +22,9 @@
             <div class="receipt-item {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
                 <div class="item-details">
                     {item.html.raw}
+                    {#if showEan && item.ean}
+                    <div style="font-size:0.7rem; color:var(--text-muted);">{item.ean}</div>
+                    {/if}
                 </div>
                 <span class="price">
                     {#if item.modifierLabel}
@@ -32,6 +35,18 @@
             </div>
         </a>
     {/for}
+
+    {#if state.ticket.globalDiscountApplied != null}
+        <!-- The ticket-level discount is allocated INTO the line totals
+             (no floating amount), so without this row the gesture would be
+             invisible on screen — mirror of the printed "REMISE TICKET" line. -->
+        <div class="receipt-item negative">
+            <div class="item-details">
+                <strong>{state.ticket.globalDiscountLabel}</strong>
+            </div>
+            <span class="price">{state.ticket.globalDiscountAppliedFormatted} €</span>
+        </div>
+    {/if}
 
     <!-- Navigation -->
     <div class="ticket-nav">

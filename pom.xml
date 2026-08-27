@@ -232,21 +232,36 @@
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
-            <!-- Wire the dormant src/mock source root (the embedded hardware
-                 simulator, MockHardwareResource) into the TEST classpath only:
-                 @QuarkusTest deploys it so E2E hardware calls hit a live 200
-                 endpoint instead of a dead URL. It never enters the production
-                 jar (add-test-source, not add-source). -->
+            <!-- Wire the src/mock source root (the embedded hardware simulator,
+                 MockHardwareResource) into the MAIN classpath, so that its
+                 endpoints answer in DEV as well as under test.
+
+                 WHY MAIN AND NOT TEST: the simulator IS the hardware boundary
+                 of a register with no peripheral attached — the scale, the
+                 drawer, the customer display, the printer and the virtual
+                 payment terminal. The standalone simulateur.html page (opened
+                 straight from the filesystem) calls /api/hardware/** and
+                 /api/pos/scan on localhost:8080, so a `mvn quarkus:dev` — and
+                 every IntelliJ run configuration, which uses the same MAIN
+                 classpath — must expose them. With add-test-source they only
+                 existed while Maven ran tests, and every demo or manual
+                 session got a connection error.
+
+                 CONSEQUENCE, DELIBERATE FOR NOW: these endpoints also land in
+                 a production jar. The day that matters, annotate the class
+                 with @IfBuildProfile(anyOf = {"dev", "test"}) — the same
+                 BUILD-TIME filter that already keeps DataInitializer out of
+                 production — and nothing else has to change here. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
                 <version>3.6.1</version>
                 <executions>
                     <execution>
-                        <id>add-mock-hardware-test-source</id>
-                        <phase>generate-test-sources</phase>
+                        <id>add-mock-hardware-source</id>
+                        <phase>generate-sources</phase>
                         <goals>
-                            <goal>add-test-source</goal>
+                            <goal>add-source</goal>
                         </goals>
                         <configuration>
                             <sources>

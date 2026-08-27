@@ -15,9 +15,18 @@ import com.intermarche.pos.ui.PosState;
  * scale label (all at 1 — the tie is safe ONLY because their recognition
  * domains are disjoint: a regex, a 298 prefix, a 2x EAN-13; a new handler
  * at a shared priority must keep that disjointness), then payment voucher
- * and catalog EAN (2), typed PLU (3), and the unknown-code fallback (100)
- * which is the only handler allowed to answer "I don't know". Handlers
- * missing a {@code @Priority} default to 100 in the assembler.
+ * and catalog EAN (2), and the unknown-code fallback (100) which is the
+ * only handler allowed to answer "I don't know". Handlers missing a
+ * {@code @Priority} default to 100 in the assembler.
+ * <p>
+ * NO PLU HANDLER, deliberately: a PLU is not a barcode. It is the four- or
+ * five-digit number printed on a produce sticker or a shelf card, and the
+ * cashier TYPES it — the sale screen posts it to {@code /action/add/{code}},
+ * which weighs the item and carries its EAN. A handler recognizing short
+ * digit strings on the scan bus used to exist; it added a unit line with NO
+ * EAN, so the engine never saw the item and the total was wrong. Weighed
+ * produce reaches this chain only as a 2x scale label, which is a real
+ * barcode.
  */
 public class ScanContext {
     /** The scanned or typed code. */

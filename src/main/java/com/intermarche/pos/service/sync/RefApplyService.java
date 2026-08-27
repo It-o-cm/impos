@@ -204,6 +204,38 @@ public class RefApplyService {
         LOG.infof("Référentiel types de bons appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
     }
 
+    /** The settings cache to drop after an apply. */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /**
+     * Applies the back-office parameters snapshot: upsert by key, and the
+     * keys ABSENT from the store are deleted locally — the register then
+     * reverts to the catalog defaults, so "not administered" means the same
+     * thing on every node. The settings cache is dropped last.
+     *
+     * @param dtos the full parameters snapshot
+     */
+    @jakarta.transaction.Transactional
+    public void applySettings(List<RefPayloads.SettingDto> dtos) {
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.SettingDto dto : dtos) {
+            com.intermarche.pos.domain.PosSetting row =
+                    com.intermarche.pos.domain.PosSetting.findByKey(dto.key);
+            if (row == null) {
+                row = new com.intermarche.pos.domain.PosSetting();
+                row.settingKey = dto.key;
+            }
+            row.settingValue = dto.value;
+            row.persist();
+            seen.add(dto.key);
+        }
+        long removed = com.intermarche.pos.domain.PosSetting.delete(
+                "settingKey not in ?1", seen.isEmpty() ? java.util.List.of("") : seen);
+        posSettingsService.invalidate();
+        LOG.infof("Paramètres appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
+    }
+
     /**
      * Records the applied fingerprint of a domain.
      *

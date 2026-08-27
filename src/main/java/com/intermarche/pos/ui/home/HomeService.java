@@ -39,6 +39,14 @@ public class HomeService {
     @Inject
     TicketService ticketService;
 
+    /** The back-office parameters (endorsement policy — LC-03-02-08). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** Printer service — used by the endorsed operator-badge reprint. */
+    @Inject
+    com.intermarche.pos.service.TicketPrinterService ticketPrinterService;
+
     @Inject
     EndorsementService endorsementService;
 
@@ -257,20 +265,56 @@ public class HomeService {
         if ("QUANTITY".equals(type)) {
             // Multiplying a scanned line is a normal sale action: no endorsement
             applyLineQuantity(uid, value);
-        } else {
+        } else if (posSettingsService.gestureEndorsementRequired()) {
             endorsementService.requestPriceModification(state, type, uid, value);
+        } else {
+            // Administered WITHOUT endorsement (LC-03-02-08): the cashier
+            // applies the gesture directly — same execution as the approved
+            // endorsement dispatch, ceremony skipped.
+            applyGestureDirectly(type, uid, value);
         }
         state.priceModState.clear();
         state.touch();
     }
 
     /**
-     * Applies a typed quantity on a ticket line: unit EAN lines only (a
-     * weighed line's quantity is its weight, a deposit or sticker line is one
-     * physical object), whole values between 1 and 999.
+     * Applies a price gesture without the endorsement ceremony — the exact
+     * mirror of the approved-endorsement dispatch, used when the back office
+     * administered the gestures as free (LC-03-02-08).
+     *
+     * @param type the gesture type (REMISE, DISCOUNT, FORCE_PRICE, GLOBAL_*)
+     * @param uid the targeted line uid, or null for a global gesture
+     * @param value the typed value
+     */
+    private void applyGestureDirectly(String type, String uid, BigDecimal value) {
+        if (type != null && type.startsWith("GLOBAL_")) {
+            ticketService.applyGlobalDiscount(state, type, value);
+            return;
+        }
+        TicketState.TicketItem item = state.ticket.items.stream()
+                .filter(i -> i.uid.equals(uid))
+                .findFirst()
+                .orElse(null);
+        if (item == null) {
+            state.ticket.setError("LIGNE INTROUVABLE");
+            return;
+        }
+        if ("REMISE".equals(type)) ticketService.applyRemise(item, value);
+        else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, value);
+        else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, value);
+        ticketService.recalculateTotal(state);
+    }
+
+    /**
+     * Applies a typed quantity on a ticket line. Two families (LC-02-13-02):
+     * unit EAN lines take a WHOLE quantity between 1 and 999; weighed lines
+     * (PLU carried, catalog price per kilogram) take a DECIMAL weight in
+     * kilograms between 0.001 and 99.999. Price-embedded sticker lines stay
+     * untouchable — one physical sticker is one object at its printed total —
+     * as do money products and negative (deposit) lines.
      *
      * @param uid the uid of the targeted line
-     * @param value the typed quantity
+     * @param value the typed quantity (units, or kg for a weighed line)
      */
     private void applyLineQuantity(String uid, BigDecimal value) {
         TicketState.TicketItem item = state.ticket.items.stream()
@@ -281,19 +325,54 @@ public class HomeService {
             state.ticket.setError("LIGNE INTROUVABLE");
             return;
         }
-        boolean unitLine = (item.plu == null || item.plu.isEmpty())
-                && item.ean != null && !item.ean.isEmpty();
-        if (!unitLine || item.getTotalPrice().signum() < 0) {
+        boolean hasEan = item.ean != null && !item.ean.isEmpty();
+        boolean weighedLine = item.plu != null && !item.plu.isEmpty()
+                && hasEan && !item.priceEmbedded;
+        boolean unitLine = (item.plu == null || item.plu.isEmpty()) && hasEan;
+        if ((!unitLine && !weighedLine) || item.getTotalPrice().signum() < 0
+                || item.moneyProduct) {
             state.ticket.setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
             return;
         }
-        if (value == null || value.stripTrailingZeros().scale() > 0
-                || value.compareTo(BigDecimal.ONE) < 0
-                || value.compareTo(BigDecimal.valueOf(999)) > 0) {
-            state.ticket.setError("QUANTITÉ INVALIDE (1-999)");
+        if (weighedLine) {
+            if (value == null || value.scale() > 3
+                    || value.compareTo(new BigDecimal("0.001")) < 0
+                    || value.compareTo(new BigDecimal("99.999")) > 0) {
+                state.ticket.setError("POIDS INVALIDE (0,001-99,999 KG)");
+                return;
+            }
+            item.quantity = value.setScale(3, java.math.RoundingMode.HALF_UP);
+        } else {
+            if (value == null || value.stripTrailingZeros().scale() > 0
+                    || value.compareTo(BigDecimal.ONE) < 0
+                    || value.compareTo(BigDecimal.valueOf(999)) > 0) {
+                state.ticket.setError("QUANTITÉ INVALIDE (1-999)");
+                return;
+            }
+            item.quantity = BigDecimal.valueOf(value.intValueExact());
+        }
+        ticketService.recalculateTotal(state);
+    }
+    /**
+     * (Re)prints an operator's badge number (LC-01-06-01) — executed ONLY
+     * through the endorsement dispatch, after a manager approval. The
+     * operator is resolved by badge id first, then by login name; an unknown
+     * number lands in the message zone, never on paper.
+     *
+     * @param operatorNumber the typed badge id or login name
+     */
+    public void printOperatorBadge(String operatorNumber) {
+        com.intermarche.pos.domain.Employee employee = com.intermarche.pos.domain.Employee
+                .<com.intermarche.pos.domain.Employee>find("badgeId", operatorNumber).firstResult();
+        if (employee == null) {
+            employee = com.intermarche.pos.domain.Employee
+                    .<com.intermarche.pos.domain.Employee>find("loginName", operatorNumber).firstResult();
+        }
+        if (employee == null || !employee.active) {
+            state.ticket.setError("OPÉRATEUR INTROUVABLE (" + operatorNumber + ")");
             return;
         }
-        item.quantity = BigDecimal.valueOf(value.intValueExact());
-        ticketService.recalculateTotal(state);
+        ticketPrinterService.printOperatorBadge(employee);
+        state.ticket.setError("BADGE OPÉRATEUR IMPRIMÉ");
     }
 }

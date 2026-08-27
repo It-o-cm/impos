@@ -36,24 +36,7 @@ class ManualResourceTest {
         resource.state = mock(PosState.class);
         resource.manualService = mock(ManualService.class);
         resource.manual = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * {@code manualPage()} renders the lock page seeded with the state and
-     * never queries the drill-down service when the terminal is locked
-     * (guard true arm).
-     */
-    @Test
-    void manualPageRendersLockWhenLocked() {
-        ManualResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(lockView);
-        assertSame(lockView, resource.manualPage());
-        verifyNoInteractions(resource.manualService);
-        verifyNoInteractions(resource.manual);
     }
 
     /**
@@ -76,23 +59,6 @@ class ManualResourceTest {
         when(withItems.data("breadcrumb", viewData.breadcrumb)).thenReturn(withBreadcrumb);
         when(withBreadcrumb.data("isRoot", viewData.isRoot)).thenReturn(withIsRoot);
         assertSame(withIsRoot, resource.manualPage());
-        verifyNoInteractions(resource.lock);
-    }
-
-    /**
-     * {@code manualCategoryPage(code)} renders the lock page seeded with the
-     * state and never queries the drill-down service when the terminal is
-     * locked (guard true arm).
-     */
-    @Test
-    void manualCategoryPageRendersLockWhenLocked() {
-        ManualResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(lockView);
-        assertSame(lockView, resource.manualCategoryPage("F"));
-        verifyNoInteractions(resource.manualService);
-        verifyNoInteractions(resource.manual);
     }
 
     /**
@@ -118,6 +84,5 @@ class ManualResourceTest {
         when(withBreadcrumb.data("isRoot", viewData.isRoot)).thenReturn(withIsRoot);
         when(withIsRoot.data("parentUrl", viewData.parentUrl)).thenReturn(withParentUrl);
         assertSame(withParentUrl, resource.manualCategoryPage("F"));
-        verifyNoInteractions(resource.lock);
     }
 }

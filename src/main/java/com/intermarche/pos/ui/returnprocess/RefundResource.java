@@ -29,8 +29,6 @@ public class RefundResource {
     @Inject
     PosState state;
     @Inject RefundService refundService;
-
-    @Inject Template lock;
     @Inject @Location("return-search") Template returnSearchPage;
     @Inject @Location("return-detail") Template returnDetailPage;
 
@@ -38,11 +36,10 @@ public class RefundResource {
      * Shows the refund search page, or the detail page when a ticket is
      * already selected.
      *
-     * @return the appropriate refund page, or the lock page
+     * @return the appropriate refund page
      */
     @GET
     public TemplateInstance showSearchPage() {
-        if (state.isLocked()) return lock.data("state", state).data("error", null);
         if (state.refund.isTicketSelected()) return returnDetailPage.data("state", state);
         return returnSearchPage.data("state", state);
     }

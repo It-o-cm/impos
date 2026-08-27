@@ -31,7 +31,6 @@ import java.net.URI;
 public class ThemeResource {
 
     @Inject @Location("theme-select") Template themeSelect;
-    @Inject @Location("lock") Template lock;
 
     @Inject
     PosState state;
@@ -42,14 +41,11 @@ public class ThemeResource {
     /**
      * Shows the theme-selection screen.
      *
-     * @return the selection page, or the lock page when locked
+     * @return the selection page
      */
     @GET
     @Path("/theme-select")
     public TemplateInstance themeSelectPage() {
-        if (state.isLocked()) {
-            return lock.data("state", state);
-        }
         return themeSelect.data("state", state)
                 .data("themes", ThemeService.AVAILABLE_THEMES)
                 .data("current", themeService.currentTheme());
@@ -66,9 +62,7 @@ public class ThemeResource {
     @Path("/action/theme")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response chooseTheme(@FormParam("theme") String theme) {
-        if (!state.isLocked()) {
-            themeService.setThemeForOperator(theme);
-        }
+        themeService.setThemeForOperator(theme);
         return Response.seeOther(URI.create("/")).build();
     }
 }

@@ -17,6 +17,10 @@ import jakarta.inject.Inject;
  * If the voucher amount is encoded in the number, the payment is registered
  * automatically; otherwise (Catalina) the amount must be entered, so the UI
  * is switched to amount entry.
+ * <p>
+ * Outside the payment phase, a code matching a payment voucher pattern is
+ * consumed with the explicit message "BON VALABLE EN PHASE PAIEMENT" instead
+ * of falling through to the misleading generic "CODE INCONNU".
  */
 @ApplicationScoped
 @Priority(2)
@@ -38,7 +42,17 @@ public class VoucherScanHandler implements ScanContext.ScanHandler {
         if (state.isLocked()) return;
 
         // A scan is treated as a payment voucher only while a payment is in progress.
-        if (!state.payment.paymentInProgress) return;
+        // Outside the payment phase, a code matching a payment voucher pattern is
+        // still recognized, but only to tell the cashier the right moment: the
+        // generic "CODE INCONNU" would be misleading (the code IS known).
+        if (!state.payment.paymentInProgress) {
+            CouponType matched = voucherService.resolveType(ctx.code);
+            if (matched != null) {
+                state.ticket.setError("BON VALABLE EN PHASE PAIEMENT");
+                ctx.handled = true;
+            }
+            return;
+        }
 
         CouponType type = voucherService.resolveType(ctx.code);
         if (type == null) return;

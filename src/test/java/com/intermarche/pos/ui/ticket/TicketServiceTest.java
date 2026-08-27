@@ -88,6 +88,11 @@ class TicketServiceTest {
     @BeforeEach
     void setUp() {
         service = new TicketService();
+        // Back-office parameters: caps at their catalog defaults, so every
+        // historical assertion (the 100 % ceiling included) is unchanged.
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(service.posSettingsService.lineMaxDiscountPercent()).thenReturn(100);
+        when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(100);
         state = new PosState();
         hardwareService = mock(HardwareService.class);
         ticketPersistenceService = mock(TicketPersistenceService.class);

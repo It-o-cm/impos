@@ -65,10 +65,144 @@ public class FidelityService {
      */
     public void validateCard(PosState state, String card) {
         state.fidelity.assignCard(card);
+        refreshAccountDisplay(state);
         if (!state.ticket.items.isEmpty()) {
             ticketService.recalculateTotal(state);
         }
         state.touch(); // Indispensable pour le polling
+    }
+
+    /**
+     * Reads the attached card's account once to feed the main-screen summary
+     * (status + available balance). Best effort under the breaker: a silent
+     * degraded leaves the fields null and the screen simply shows the bare
+     * card number — the sale is never blocked (spec §2.2).
+     *
+     * @param state the current POS state
+     */
+    private void refreshAccountDisplay(PosState state) {
+        if (!state.fidelity.active || !imfidClient.isConfigured()
+                || System.currentTimeMillis() < fidSkipUntil) {
+            return;
+        }
+        try {
+            ImfidClient.AccountInfo account = imfidClient.account(state.fidelity.label);
+            if (account != null) {
+                state.fidelity.accountStatus = account.status;
+                state.fidelity.availableBalance = account.availableBalance;
+            }
+        } catch (Exception e) {
+            fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
+            LOG.warnf("Lecture compte fidélité indisponible (%s): affichage sans solde", e.getMessage());
+        }
+    }
+
+    /**
+     * Searches cards by holder identity (addendum §3) and returns a
+     * ready-to-render outcome. ONE criterion per call, by the addendum's
+     * priority: phone, else e-mail, else name (+ optional first name) —
+     * matching is EXACT after imfid's normalization, never a prefix search.
+     *
+     * @param phone the typed phone, or null
+     * @param email the typed e-mail, or null
+     * @param name the typed last name, or null
+     * @param firstName the typed first name, or null
+     * @return the lookup view (matches, or a display message)
+     */
+    public LookupView lookupCards(String phone, String email, String name, String firstName) {
+        LookupView view = new LookupView();
+        if (!imfidClient.isConfigured() || System.currentTimeMillis() < fidSkipUntil) {
+            view.message = "SERVICE FIDÉLITÉ INDISPONIBLE";
+            return view;
+        }
+        boolean hasCriterion = notBlank(phone) || notBlank(email) || notBlank(name);
+        if (!hasCriterion) {
+            view.message = "SAISISSEZ UN TÉLÉPHONE, UN E-MAIL OU UN NOM";
+            return view;
+        }
+        try {
+            ImfidClient.LookupResult result = imfidClient.lookup(phone, email, name, firstName);
+            if (result.crmManaged) {
+                // Addendum §2: identity lives in the CRM — out of imfid's
+                // contract, and no CRM connector exists on this register.
+                view.message = "IDENTITÉS GÉRÉES PAR LE CRM - RECHERCHE INDISPONIBLE EN CAISSE";
+                return view;
+            }
+            if (result.matches == null) {
+                LOG.warnf("Lookup fidélité refusé: %s", result.refusalReason);
+                view.message = "RECHERCHE REFUSÉE PAR LE SERVICE FIDÉLITÉ";
+                return view;
+            }
+            view.matches = result.matches;
+            if (result.matches.isEmpty()) {
+                view.message = "AUCUNE CARTE TROUVÉE - ESSAYEZ UN AUTRE CRITÈRE";
+            } else if (result.matches.size() >= 20) {
+                // Addendum §3.3: the list is CAPPED at 20 — a full page means
+                // truncation, ask for a more discriminating criterion.
+                view.message = "TROP DE CORRESPONDANCES - PRÉCISEZ LE CRITÈRE (TÉLÉPHONE)";
+            }
+            return view;
+        } catch (Exception e) {
+            fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
+            LOG.warnf("Lookup fidélité indisponible (%s)", e.getMessage());
+            view.message = "SERVICE FIDÉLITÉ INDISPONIBLE";
+            return view;
+        }
+    }
+
+    /**
+     * Attaches a card picked in the lookup list (addendum §4): RESILIATED is
+     * refused (front desk, never the register), PENDING_ACTIVATION attaches
+     * with the earn-only warning, ACTIVE attaches silently. The attachment
+     * itself is the SAME single entry point as a scan — the found number is
+     * used exactly like a scanned one, holder identity added on top for the
+     * operator's verbal check.
+     *
+     * @param state the current POS state
+     * @param card the selected card number
+     * @param lastName the holder's last name from the lookup
+     * @param firstName the holder's first name from the lookup
+     * @param status the account status from the lookup
+     * @return null on success, or the refusal message to display
+     */
+    public String attachLookedUpCard(PosState state, String card, String lastName,
+                                     String firstName, String status) {
+        if ("RESILIATED".equals(status)) {
+            return "CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL";
+        }
+        validateCard(state, card);
+        state.fidelity.holderLastName = lastName;
+        state.fidelity.holderFirstName = firstName;
+        if (state.fidelity.accountStatus == null) {
+            state.fidelity.accountStatus = status;
+        }
+        if ("PENDING_ACTIVATION".equals(status)) {
+            // The card earns but cannot burn (reservation would answer 422
+            // ACCOUNT_STATUS) — tell the cashier so the client is told.
+            state.ticket.setError("CARTE EN ATTENTE D'ACTIVATION - CAGNOTTE SANS UTILISATION");
+        }
+        return null;
+    }
+
+    /**
+     * Returns true when the value carries text.
+     *
+     * @param s the value
+     * @return true when non-null and non-blank
+     */
+    private boolean notBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    /**
+     * Render-ready outcome of a holder lookup: the matches and/or the
+     * message replacing or annotating them.
+     */
+    public static class LookupView {
+        /** The matches to list, or null when the search did not run. */
+        public java.util.List<ImfidClient.LookupMatch> matches;
+        /** The message to display (empty result, degraded, CRM mode), or null. */
+        public String message;
     }
 
     /**

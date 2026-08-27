@@ -150,6 +150,7 @@ public class TicketRecoveryService {
             // what was rung up, and it keeps the recovery free of any product
             // lookup (phase: gift-card registry).
             item.moneyProduct = line.moneyProduct;
+            item.priceEmbedded = line.priceEmbedded;
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();

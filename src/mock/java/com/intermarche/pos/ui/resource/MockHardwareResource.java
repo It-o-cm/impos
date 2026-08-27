@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.resource;
 
+import io.quarkus.arc.profile.IfBuildProfile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -8,8 +9,23 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * The EMBEDDED HARDWARE SIMULATOR: the scale, the drawer, the customer
+ * display, the printer and the virtual payment terminal, driven over HTTP so
+ * that a register with no peripheral attached can still be sold, tested and
+ * demonstrated.
+ * <p>
+ * It lives in its own source root ({@code src/mock/java}) but is compiled
+ * WITH the application, so it answers in DEV — a simulator that only existed
+ * during a test run could not be demonstrated, and half the demo script
+ * (weighing, drawer, receipt) goes through it. What keeps it out of a store
+ * is the BUILD-TIME profile filter below, the same one that governs the
+ * referential seed: the class is compiled everywhere, the bean exists only in
+ * dev and test, and a production jar exposes none of these endpoints.
+ */
 @Path("/api/hardware")
 @ApplicationScoped
+@IfBuildProfile(anyOf = {"dev", "test"})
 public class MockHardwareResource {
 
     /**
@@ -240,6 +256,29 @@ public class MockHardwareResource {
     }
 
     // --- TPE VIRTUEL (relais : voir la note d'ombrage JAX-RS ci-dessus) ---
+
+    /**
+     * Relays the terminal status poll to the register — mirror of
+     * {@code PosHardwareResource.tpeStatus()}. Without this relay the JAX-RS
+     * shadowing (see the note above) sends the simulator's 1-second
+     * {@code GET /api/hardware/tpe} poll to a 404: the pending amount never
+     * shows and the ACCEPT/REFUSE buttons stay disabled.
+     *
+     * @return a JSON map with the pending flag and the formatted amount
+     */
+    @GET
+    @Path("/tpe")
+    @Produces(MediaType.APPLICATION_JSON)
+    public java.util.Map<String, Object> tpeStatus() {
+        com.intermarche.pos.ui.PosState state = posState();
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        boolean pending = state.payment.pendingCardAmount != null;
+        result.put("pending", pending);
+        result.put("amount", pending
+                ? state.payment.pendingCardAmount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().replace(".", ",")
+                : "");
+        return result;
+    }
 
     /**
      * Relays the terminal's ACCEPT decision to the register.

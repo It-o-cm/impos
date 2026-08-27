@@ -9,6 +9,13 @@
   line display / drawer / printer mirrors → poll the /api/hardware/*
   state endpoints. The simulator is one implementation of the HTTP hardware
   boundary — a real bridge replaces it by serving the same paths.
+
+  NO PLU MODULE, deliberately: this page simulates HARDWARE. A PLU is typed
+  by the cashier on the sale screen's own keypad — adding a remote control
+  for a button that sits right there would duplicate the UI, not a device.
+  Weighed produce is exercised here through the SCALE (arm a weight, then
+  type the PLU on the register) and through the 2x label, which is a real
+  barcode.
 -->
 <!DOCTYPE html>
 <html lang="fr">
@@ -230,27 +237,25 @@
 
         <div class="module">
             <h3>💳 Carte Fidélité</h3>
-            <label for="fidelityId">Numéro :</label>
-            <input type="text" id="fidelityId" placeholder="Cliquez sur Générer">
-            <button onclick="generateFidelity()">Générer</button>
+            <!-- These cards MIRROR the imfid seed: a 299 number the loyalty
+                 service never issued answers "CARTE FIDÉLITÉ INCONNUE", which
+                 reads as a broken link rather than an unknown customer. Each
+                 one exercises a different corner of the programme. -->
+            <label for="fidelityId">Carte du programme :</label>
+            <select id="fidelityId">
+                <option value="2990000000019">2990000000019 — Historique riche (ACTIVE)</option>
+                <option value="2990000000026">2990000000026 — Communauté Bébés (ACTIVE)</option>
+                <option value="2990000000033">2990000000033 — Étudiants, adhésion expirée</option>
+                <option value="2990000000040">2990000000040 — EN ATTENTE D'ACTIVATION (gagne, ne dépense pas)</option>
+                <option value="2990000000057">2990000000057 — Solde NÉGATIF (reprise sur retour)</option>
+                <option value="2990000000064">2990000000064 — Carte PERDUE (résiliée, solde transféré)</option>
+                <option value="2990000000071">2990000000071 — Carte SUCCESSEUR (solde reçu)</option>
+                <option value="2990000000088">2990000000088 — Bail ACTIF sur une autre caisse</option>
+                <option value="2990000000095">2990000000095 — Annulée par le batch CGU (résiliée)</option>
+                <option value="2990000000404">2990000000404 — INCONNUE au programme (test du refus)</option>
+            </select>
             <button class="btn-fid" onclick="sendFidelity()" style="margin-top:5px;">Scanner Fidélité</button>
             <div id="fidelityStatus" class="status">En attente...</div>
-        </div>
-
-        <div class="module">
-            <h3>🏷️ PLU (Fruits & Légumes)</h3>
-            <label for="pluList">Produits au poids :</label>
-            <select id="pluList">
-                <option value="">-- Sélectionner --</option>
-                <option value="4011">4011 - Banane</option>
-                <option value="4020">4020 - Pomme Golden</option>
-                <option value="4060">4060 - Tomate Ronde</option>
-                <option value="4064">4064 - Courgette</option>
-                <option value="4068">4068 - Carotte</option>
-                <option value="4099">4099 - Champignon sauvage (INTERDIT)</option>
-            </select>
-            <button class="btn-plu" onclick="sendPlu()">Scanner ce PLU</button>
-            <div id="pluStatus" class="status">En attente...</div>
         </div>
 
         <div class="module">
@@ -264,13 +269,18 @@
         <div class="module">
             <h3>🏷️ Étiquette Balance (EAN 2x)</h3>
             <label for="scalePlu">Article balance :</label>
+            <!-- Same seed mirror as the PLU module above: the label is well
+                 formed either way, but an article the referential does not know
+                 lands on "CODE INCONNU" once the checksum passes. -->
             <select id="scalePlu">
                 <option value="">-- Sélectionner --</option>
-                <option value="4011">4011 - Banane</option>
-                <option value="4020">4020 - Pomme Golden</option>
-                <option value="4060">4060 - Tomate Ronde</option>
-                <option value="4064">4064 - Courgette</option>
-                <option value="4068">4068 - Carotte</option>
+                <option value="4020">4020 - Pommes Golden</option>
+                <option value="4062">4062 - Concombre</option>
+                <option value="4796">4796 - Tomates Cerises 500g</option>
+                <option value="210">210 - Jambon Blanc 100g</option>
+                <option value="220">220 - Beurre Doux 250g</option>
+                <option value="230">230 - Poulet Rôti 1.2kg</option>
+                <option value="240">240 - Saumon Fumé 200g</option>
             </select>
             <label for="scaleMode">Type d'étiquette :</label>
             <select id="scaleMode">
@@ -286,18 +296,41 @@
         <div class="module">
             <h3>barcode EAN-13 (Codes Longs)</h3>
             <label for="eanList">Produits scannables :</label>
+            <!-- These EANs MIRROR the register seed (DataInitializer). A code
+                 absent from the referential answers "CODE INCONNU", which reads
+                 as a broken simulator rather than an unknown article. Keep this
+                 list in step whenever the catalog changes. -->
             <select id="eanList">
                 <option value="">-- Sélectionner --</option>
-                <optgroup label="🥖 Boulangerie">
-                    <option value="3660000000010">3660000000010 - Baguette</option>
-                    <option value="3660000000027">3660000000027 - Pain Campagne</option>
-                    <option value="3660000000041">3660000000041 - Croissant</option>
+                <optgroup label="🍎 Fruits &amp; légumes (au poids)">
+                    <option value="3300000000001">3300000000001 - Pommes Golden</option>
+                    <option value="3300000000017">3300000000017 - Concombre</option>
+                    <option value="3300000000018">3300000000018 - Tomates Cerises 500g</option>
                 </optgroup>
-                <optgroup label="🧀 Crèmerie">
-                    <option value="3660000000072">3660000000072 - Lait 1L</option>
-                    <option value="3660000000089">3660000000089 - Œufs x6</option>
+                <optgroup label="🥖 Épicerie">
+                    <option value="3300000000002">3300000000002 - Lait UHT 1L</option>
+                    <option value="3300000000003">3300000000003 - Baguette Tradition</option>
+                    <option value="3300000000004">3300000000004 - Café Grains 500g</option>
+                    <option value="3300000000006">3300000000006 - Huile d'Olive 1L</option>
+                    <option value="3300000000010">3300000000010 - Yaourt Nature 4x125g</option>
+                    <option value="3300000000013">3300000000013 - Biscuits Chocolat 200g</option>
+                    <option value="3300000000014">3300000000014 - Chips Classiques 150g</option>
+                    <option value="3300000000019">3300000000019 - Oeufs Bio 6 unités</option>
+                </optgroup>
+                <optgroup label="💧 Boissons">
+                    <option value="3300000000007">3300000000007 - Eau Minérale 1.5L</option>
+                    <option value="3300000000011">3300000000011 - Coca-Cola 1.5L</option>
+                    <option value="3300000000012">3300000000012 - Orangina 1.25L</option>
+                </optgroup>
+                <optgroup label="🍷 Contrôle d'âge (18+)">
+                    <option value="3400018000001">3400018000001 - Vin Rouge Bordeaux 75cl</option>
+                </optgroup>
+                <optgroup label="🎁 Cartes cadeau (produit-monnaie)">
+                    <option value="3400025000001">3400025000001 - Carte Cadeau 25 €</option>
+                    <option value="3400050000001">3400050000001 - Carte Cadeau 50 €</option>
                 </optgroup>
                 <optgroup label="⛔ Interdits à la vente">
+                    <option value="3400409900001">3400409900001 - Champignon sauvage (INTERDIT)</option>
                     <option value="3660000099999">3660000099999 - Lot rappelé (INTERDIT)</option>
                 </optgroup>
             </select>
@@ -495,7 +528,6 @@
             .catch(() => { status.innerText = 'Caisse injoignable'; status.className = 'status error'; });
     }
 
-    function sendPlu() { postPosAction('scan', document.getElementById('pluList').value, document.getElementById('pluStatus')); }
 
     /* Computes the EAN13 check digit of a 12-digit body. */
     function ean13Checksum(body12) {
@@ -553,16 +585,8 @@
         postPosAction('scan', val, document.getElementById('badgeStatus'));
     }
 
-    function generateFidelity() {
-        let val = "789";
-        for(let i=0; i<12; i++) val += Math.floor(Math.random() * 10);
-        document.getElementById('fidelityId').value = val;
-    }
-
     function sendFidelity() {
-        let val = document.getElementById('fidelityId').value;
-        if (!val) generateFidelity();
-        val = document.getElementById('fidelityId').value;
+        const val = document.getElementById('fidelityId').value;
         postPosAction('scan', val, document.getElementById('fidelityStatus'));
     }
 
@@ -591,7 +615,6 @@
     // Init
     document.getElementById("scanCode").addEventListener("keypress", e => { if(e.key === "Enter") sendManualScan(); });
     document.getElementById("weightValue").addEventListener("keypress", e => { if(e.key === "Enter") sendWeight(); });
-    generateFidelity();
 
 </script>
 

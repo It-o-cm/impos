@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -61,6 +62,9 @@ class TicketParkingServiceTest {
         service.ticketRecoveryService = mock(TicketRecoveryService.class);
         service.ticketNumberService = mock(TicketNumberService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
+        service.ticketPrinterService = mock(TicketPrinterService.class);
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.parkingPrintReceipt()).thenReturn(true);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
         return service;
     }
@@ -199,6 +203,8 @@ class TicketParkingServiceTest {
             verify(draft, times(1)).persist();
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_PARKED, "C04-000001");
+            // LC-04-01-02: the parked receipt goes out with the resume number.
+            verify(service.ticketPrinterService).printParkedTicket(draft);
             assertTrue(service.state.ticket.items.isEmpty());
             assertEquals(versionBefore + 2, service.state.version);
         }
@@ -291,6 +297,97 @@ class TicketParkingServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertNull(service.resume(7L));
+            assertEquals(Ticket.TicketStatus.OPEN, draft.status);
+            verify(draft, times(1)).persist();
+            verify(service.ticketRecoveryService).restoreDraft(draft);
+            verify(service.technicalEventService).log(
+                    TechnicalEvent.EventType.TICKET_RESUMED, "C04-000001");
+        }
+    }
+
+    /**
+     * Covers the print-disabled arm of {@code parkCurrent}: with the parking
+     * receipt parameter off, the OPEN draft is parked but nothing is printed.
+     */
+    @Test
+    void parkCurrentDoesNotPrintWhenReceiptDisabled() {
+        TicketParkingService service = newService();
+        when(service.posSettingsService.parkingPrintReceipt()).thenReturn(false);
+        addOneItem(service);
+        when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
+        Ticket draft = draft(Ticket.TicketStatus.OPEN, "C04-000001", TERMINAL);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
+            assertNull(service.parkCurrent());
+            assertEquals(Ticket.TicketStatus.PARKED, draft.status);
+            verify(service.ticketPrinterService, never()).printParkedTicket(draft);
+        }
+    }
+
+    /**
+     * Builds a Panache query whose {@code firstResult} resolves to the draft.
+     *
+     * @param draft the draft the query returns, or null
+     * @return the mocked query
+     */
+    @SuppressWarnings("unchecked")
+    private PanacheQuery<Ticket> query(Ticket draft) {
+        PanacheQuery<Ticket> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(draft);
+        return query;
+    }
+
+    /**
+     * Covers the not-found arm of {@code resumeByNumber}: no PARKED draft
+     * carries the number on this terminal, so the resume-by-number answers the
+     * not-found message.
+     */
+    @Test
+    void resumeByNumberNotFound() {
+        TicketParkingService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> none = query(null);
+            mocked.when(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C04-000001", TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(none);
+            assertEquals("TICKET EN ATTENTE INTROUVABLE", service.resumeByNumber("C04-000001"));
+            verifyNoInteractions(service.ticketRecoveryService);
+        }
+    }
+
+    /**
+     * Covers the terminal scoping of {@code resumeByNumber}: the lookup is
+     * bound to THIS register's terminal id, so a foreign ticket cannot be
+     * resumed by number (implicit wrong-terminal arm — the finder never
+     * matches).
+     */
+    @Test
+    void resumeByNumberIsTerminalScoped() {
+        TicketParkingService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> none = query(null);
+            mocked.when(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C04-000001", TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(none);
+            service.resumeByNumber("C04-000001");
+            mocked.verify(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C04-000001", TERMINAL, Ticket.TicketStatus.PARKED));
+        }
+    }
+
+    /**
+     * Covers the success arm of {@code resumeByNumber}: the PARKED draft is
+     * found by number on this terminal and delegated to {@code resume}, which
+     * flips it OPEN, restores it and journals the resume.
+     */
+    @Test
+    void resumeByNumberSucceeds() {
+        TicketParkingService service = newService();
+        Ticket draft = draft(Ticket.TicketStatus.PARKED, "C04-000001", TERMINAL);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> found = query(draft);
+            mocked.when(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C04-000001", TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(found);
+            mocked.when(() -> Ticket.findById(42L)).thenReturn(draft);
+            assertNull(service.resumeByNumber("C04-000001"));
             assertEquals(Ticket.TicketStatus.OPEN, draft.status);
             verify(draft, times(1)).persist();
             verify(service.ticketRecoveryService).restoreDraft(draft);

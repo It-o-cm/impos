@@ -47,6 +47,10 @@ import java.util.Locale;
 @ApplicationScoped
 public class TicketPrinterService {
 
+    /** The back-office parameters (EAN on paper, LC-02-04-04). */
+    @jakarta.inject.Inject
+    PosSettingsService posSettingsService;
+
     @Inject
     HardwareService hardwareService;
 
@@ -123,6 +127,10 @@ public class TicketPrinterService {
             String qtyStr = DF.format(line.quantity);
             String unitPriceStr = DF.format(line.unitPrice);
             sb.append(String.format("%-20s %5s x %6s%n", label, qtyStr, unitPriceStr));
+            if (posSettingsService.showEan() && line.ean != null && !line.ean.isEmpty()) {
+                // LC-02-04-04: the EAN printed under the label when configured.
+                sb.append("  ").append(line.ean).append("\n");
+            }
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
@@ -456,5 +464,48 @@ public class TicketPrinterService {
         int space = WIDTH - left.length() - right.length();
         if (space < 1) space = 1;
         return left + " ".repeat(space) + right + "\n";
+    }
+    /**
+     * Prints an operator's badge ticket (LC-01-06-01): the badge id in
+     * clear, usable by manual entry or by the register's own scan bus (a
+     * graphical barcode would need printer barcode primitives, out of this
+     * text printer's reach — the number IS the credential).
+     *
+     * @param employee the operator whose badge is reprinted
+     */
+    public void printOperatorBadge(com.intermarche.pos.domain.Employee employee) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("BADGE OPERATEUR", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("OPERATEUR", employee.loginName));
+        sb.append(formatLine("BADGE", employee.badgeId != null ? employee.badgeId : "-"));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("SCANNEZ OU SAISISSEZ CE NUMERO", WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+    }
+    /**
+     * Prints the parked-ticket receipt (LC-04-01-02): the ticket number in
+     * clear — the resume code —, the articles and the running total. The
+     * number is what the resume path recognizes, scanned on the bus or
+     * typed; this text printer has no barcode primitives, the number IS the
+     * code.
+     *
+     * @param draft the freshly parked draft
+     */
+    public void printParkedTicket(com.intermarche.pos.domain.ticket.Ticket draft) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("TICKET EN ATTENTE", WIDTH)).append("\n");
+        sb.append(center(draft.ticketNumber, WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        for (TicketLine line : draft.lines) {
+            String label = line.productLabel.length() > 20
+                    ? line.productLabel.substring(0, 20) : line.productLabel;
+            sb.append(formatLine(label + " x" + DF.format(line.quantity),
+                    DF.format(line.totalPrice) + " E"));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("TOTAL EN ATTENTE", DF.format(draft.totalIncludingTax) + " E"));
+        sb.append(center("SCANNEZ CE NUMERO POUR REPRENDRE", WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
     }
 }

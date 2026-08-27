@@ -121,17 +121,20 @@ class VoucherScanHandlerTest {
     }
 
     /**
-     * When no payment is in progress, the scan is not treated as a voucher and
-     * the handler returns without resolving anything.
+     * When no payment is in progress and the code matches no payment voucher
+     * pattern, the scan falls through untouched so the chain can treat the
+     * number as whatever else it may be.
      */
     @Test
     void handleReturnsWhenNoPaymentInProgress() {
         PosState state = nominalState();
         state.payment.paymentInProgress = false;
         ScanContext ctx = new ScanContext("VCH123", state);
+        when(voucherService.resolveType("VCH123")).thenReturn(null);
         handler.handle(ctx);
         assertFalse(ctx.handled);
-        verifyNoInteractions(voucherService);
+        verify(voucherService, never()).applyRegistryVoucher(any(), any(), any());
+        verify(voucherService, never()).applyEncodedVoucher(any(), any(), any());
         assertFalse(state.payment.voucherPanelOpen);
     }
 
@@ -291,20 +294,25 @@ class VoucherScanHandlerTest {
     }
 
     /**
-     * OUTSIDE a payment, a registry instrument is not a voucher at all: the
-     * scan falls through untouched so the chain can treat the number as
-     * whatever else it may be.
+     * OUTSIDE a payment, a code matching a payment voucher pattern is NOT
+     * applied — no payment may be registered — but the scan is consumed with
+     * the explicit wrong-moment message instead of falling through to the
+     * misleading generic "CODE INCONNU".
      */
     @Test
-    void handleIgnoresRegistryScanOutsideAPayment() {
+    void handleRecognizedVoucherOutsideAPaymentTellsTheRightMoment() {
         PosState state = nominalState();
         state.payment.paymentInProgress = false;
         ScanContext ctx = new ScanContext("297000000000001", state);
+        when(voucherService.resolveType("297000000000001"))
+                .thenReturn(registryType("AVOIR", "Avoir"));
 
         handler.handle(ctx);
 
-        assertFalse(ctx.handled);
+        assertTrue(ctx.handled);
+        assertEquals("BON VALABLE EN PHASE PAIEMENT", state.ticket.transientError);
         verify(voucherService, never()).applyRegistryVoucher(any(), any(), any());
-        verify(voucherService, never()).resolveType(any());
+        verify(voucherService, never()).applyEncodedVoucher(any(), any(), any());
+        assertFalse(state.payment.voucherPanelOpen);
     }
 }

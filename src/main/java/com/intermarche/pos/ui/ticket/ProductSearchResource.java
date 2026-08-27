@@ -28,7 +28,6 @@ public class ProductSearchResource {
     private static final int MAX_RESULTS = 24;
 
     @Inject @Location("search") Template search;
-    @Inject Template lock;
     @Inject TicketService ticketService;
     @Inject PosState state;
 
@@ -68,13 +67,12 @@ public class ProductSearchResource {
      * article code (PLU).
      *
      * @param query the typed query, or null
-     * @return the search page, or the lock page when no operator is logged in
+     * @return the search page
      */
     @GET
     @Path("/search")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance searchPage(@QueryParam("q") String query) {
-        if (state.isLocked()) return lock.data("state", state).data("error", null);
         String q = (query != null) ? query.trim() : "";
         List<SearchHit> hits = new ArrayList<>();
         if (q.length() >= 2) {
@@ -115,7 +113,6 @@ public class ProductSearchResource {
     @GET
     @Path("/action/search/add/{ean}")
     public Response addFromSearch(@PathParam("ean") String ean) {
-        if (state.isLocked()) return Response.seeOther(URI.create("/lock")).build();
         ticketService.addItemByEan(state, ean, BigDecimal.ONE);
         return Response.seeOther(URI.create("/")).build();
     }

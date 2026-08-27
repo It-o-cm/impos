@@ -61,26 +61,7 @@ class ProductSearchResourceTest {
         resource.state = mock(PosState.class);
         resource.ticketService = mock(TicketService.class);
         resource.search = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * {@code searchPage(query)} renders the lock page seeded with the state and
-     * a null error, and never runs the catalog query, when the terminal is
-     * locked (lock guard true arm).
-     */
-    @Test
-    void searchPageRendersLockWhenLocked() {
-        ProductSearchResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withError = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("error", null)).thenReturn(withError);
-        assertSame(withError, resource.searchPage("milk"));
-        verifyNoInteractions(resource.search);
-        verifyNoInteractions(resource.ticketService);
     }
 
     /**
@@ -100,7 +81,6 @@ class ProductSearchResourceTest {
         when(withQ.data(eq("hits"), any())).thenReturn(withHits);
         assertSame(withHits, resource.searchPage(null));
         assertTrue(captureHits(withQ).getValue().isEmpty());
-        verifyNoInteractions(resource.lock);
     }
 
     /**
@@ -120,7 +100,6 @@ class ProductSearchResourceTest {
         when(withQ.data(eq("hits"), any())).thenReturn(withHits);
         assertSame(withHits, resource.searchPage("  a  "));
         assertTrue(captureHits(withQ).getValue().isEmpty());
-        verifyNoInteractions(resource.lock);
     }
 
     /**
@@ -179,21 +158,6 @@ class ProductSearchResourceTest {
         assertEquals("BREAD", hits.get(1).label);
         assertEquals("EAN2", hits.get(1).code);
         assertEquals("—", hits.get(1).priceFormatted);
-        verifyNoInteractions(resource.lock);
-    }
-
-    /**
-     * {@code addFromSearch(ean)} redirects to the lock page and never touches
-     * the ticket when the terminal is locked (lock guard true arm).
-     */
-    @Test
-    void addFromSearchRedirectsToLockWhenLocked() {
-        ProductSearchResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        Response response = resource.addFromSearch("EAN1");
-        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
-        assertEquals("/lock", response.getLocation().toString());
-        verifyNoInteractions(resource.ticketService);
     }
 
     /**

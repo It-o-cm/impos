@@ -573,15 +573,16 @@ class ValuationServiceTest {
     }
 
     /**
-     * doRevalue on a LOCAL outcome (no eligible line, engine not called) takes
-     * the default branch and reverts in memory with no prior valuation
-     * (hadValuation false arm), leaving the status LOCAL.
+     * doRevalue on a LOCAL outcome (empty cart, engine not called) takes the
+     * default branch and reverts in memory with no prior valuation
+     * (hadValuation false arm), leaving the status LOCAL. Since per-line
+     * filtering was removed, an empty cart is the only path to a LOCAL outcome.
      */
     @Test
     void doRevalueLocalRevertsInMemory() throws Exception {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(true);
-        PosState state = posStateWith(item("L1", null, "10", "1"));
+        PosState state = posStateWith();
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<Store> storeQuery = query(null);
             ms.when(Store::findAll).thenReturn(storeQuery);
@@ -613,23 +614,21 @@ class ValuationServiceTest {
     }
 
     /**
-     * valuate returns LOCAL when no line is eligible (empty basket arm),
-     * exercising the three build-basket skips — null ean, empty ean and a
-     * non-positive total — with a null fidelity card (customerCode null arm)
-     * and a null creation date (date fallback arm), the engine untouched.
+     * valuate returns LOCAL for an EMPTY cart (empty basket arm) with a null
+     * fidelity card (customerCode null arm) and a null creation date (date
+     * fallback arm), the engine untouched. There is no longer any per-line
+     * filtering: every line of a non-empty ticket reaches the engine, so only
+     * a cart with no line at all yields the empty basket.
      */
     @Test
     void valuateReturnsLocalWhenNoEligibleLine() throws Exception {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(true);
-        TicketState.TicketItem nullEan = item("A1", null, "10", "1");
-        TicketState.TicketItem emptyEan = item("A2", "", "10", "1");
-        TicketState.TicketItem zeroTotal = item("A3", "9", "0", "1");
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<Store> storeQuery = query(null);
             ms.when(Store::findAll).thenReturn(storeQuery);
             ValuationService.ValuationOutcome outcome =
-                    service.valuate(ticketWith(nullEan, emptyEan, zeroTotal), null, null);
+                    service.valuate(ticketWith(), null, null);
             assertEquals("LOCAL", outcome.status);
         }
         verify(valuationClient, never()).valuate(any());
@@ -695,25 +694,21 @@ class ValuationServiceTest {
     }
 
     /**
-     * A MONEY PRODUCT is kept OUT of the basket sent to the engine: a gift
-     * card is stored value, not merchandise — pricing it would let an offer
-     * discount money itself, and the engine would recompute a total that no
-     * longer matches what the customer owes. The ordinary line beside it goes
-     * through, so the exclusion is per line and not a whole-basket veto.
+     * EVERY line reaches the engine — a gift card included. The register does
+     * not decide what is merchandise: the engine is the authority on what a
+     * basket is worth, and a money instrument it should not discount is ITS
+     * rule to apply, not the POS's to pre-empt by hiding the line.
      */
     @Test
-    void valuateExcludesMoneyProductsFromTheBasket() throws Exception {
+    void valuateSendsMoneyProductsToTheEngineToo() throws Exception {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(true);
-        when(valuationClient.valuate(any())).thenReturn(response("10.00"));
+        when(valuationClient.valuate(any())).thenReturn(response("35.00"));
         TicketState.TicketItem goods = item("G", "10", "10", "1");
         TicketState.TicketItem giftCard = item("C", "3400025000001", "25", "1");
         giftCard.moneyProduct = true;
         ArgumentCaptor<ValuationPayloads.BasketDto> captor =
                 ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
-        // The query mock is built BEFORE opening the static stubbing: calling
-        // query() inside thenReturn() would stub a mock while another
-        // stubbing is still in flight, which Mockito rejects.
         PanacheQuery<Store> noStore = query(null);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(Store::findAll).thenReturn(noStore);
@@ -721,32 +716,31 @@ class ValuationServiceTest {
                     LocalDateTime.of(2026, 8, 3, 10, 0));
         }
         verify(valuationClient).valuate(captor.capture());
-        ValuationPayloads.BasketDto basket = captor.getValue();
-        assertEquals(1, basket.items.size());
-        assertEquals("G", basket.items.get(0).lineId);
+        assertEquals(2, captor.getValue().items.size());
+        assertEquals("C", captor.getValue().items.get(1).lineId);
     }
 
     /**
-     * A basket made ONLY of money products never reaches the engine: with no
-     * eligible line there is nothing to price, the call is skipped entirely
-     * and the sale falls back on local arithmetic. Selling a gift card alone
-     * therefore costs not one millisecond of network.
+     * A NEGATIVE line (a deposit voucher) travels too: what a returned
+     * container is worth inside a basket is an engine rule.
      */
     @Test
-    void valuateSkipsTheEngineWhenEveryLineIsAMoneyProduct() throws Exception {
+    void valuateSendsNegativeLinesToTheEngineToo() throws Exception {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(true);
-        TicketState.TicketItem giftCard = item("C", "3400025000001", "25", "1");
-        giftCard.moneyProduct = true;
+        when(valuationClient.valuate(any())).thenReturn(response("8.50"));
+        TicketState.TicketItem goods = item("G", "10", "10", "1");
+        TicketState.TicketItem deposit = item("D", "2980000010150", "-1.50", "1");
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
         PanacheQuery<Store> noStore = query(null);
-        ValuationService.ValuationOutcome outcome;
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(Store::findAll).thenReturn(noStore);
-            outcome = service.valuate(ticketWith(giftCard), null,
+            service.valuate(ticketWith(goods, deposit), null,
                     LocalDateTime.of(2026, 8, 3, 10, 0));
         }
-        assertEquals("LOCAL", outcome.status);
-        verify(valuationClient, never()).valuate(any());
+        verify(valuationClient).valuate(captor.capture());
+        assertEquals(2, captor.getValue().items.size());
     }
 
     /**
@@ -841,5 +835,60 @@ class ValuationServiceTest {
         assertEquals("ENGINE", outcome.status);
         assertEquals("{}", outcome.responseJson);
         assertSame("{}", outcome.responseJson);
+    }
+
+    /**
+     * A PRICE-EMBEDDED line carries the surcharge trio onto its basket item
+     * (priceEmbedded true arm): the included price copies the sticker unit
+     * price, the VAT rate is echoed and the excluded price is derived
+     * (10,00 / 1,20 = 8,33).
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void buildBasketFillsTheSurchargeTrioForPriceEmbeddedLine() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("10.00"));
+        TicketState.TicketItem sticker = item("S", "2100010001000", "10", "1");
+        sticker.priceEmbedded = true;
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Store> storeQuery = query(null);
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(sticker), null, LocalDateTime.of(2026, 8, 3, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        ValuationPayloads.ItemDto dto = captor.getValue().items.get(0);
+        assertEquals(new BigDecimal("10"), dto.pricePerUnitInclTax);
+        assertEquals(new BigDecimal("0.20"), dto.vatRate);
+        assertEquals(new BigDecimal("8.33"), dto.pricePerUnitExclTax);
+    }
+
+    /**
+     * A plain line leaves the surcharge trio untouched (priceEmbedded false
+     * arm): the engine re-prices it from its own catalog.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void buildBasketLeavesTheSurchargeTrioNullForPlainLine() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("10.00"));
+        TicketState.TicketItem plain = item("P", "3560070000000", "10", "1");
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Store> storeQuery = query(null);
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(plain), null, LocalDateTime.of(2026, 8, 3, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        ValuationPayloads.ItemDto dto = captor.getValue().items.get(0);
+        assertNull(dto.pricePerUnitInclTax);
+        assertNull(dto.vatRate);
+        assertNull(dto.pricePerUnitExclTax);
     }
 }

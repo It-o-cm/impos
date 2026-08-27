@@ -81,6 +81,27 @@ public class EndorsementService {
     }
 
     /**
+     * Returns true when the LOGGED operator already holds a supervising role
+     * (MANAGER or ADMIN, the same roles that validate endorsements) — the
+     * connected-supervisor shortcut of LC-01-05-07. Looked up live in the
+     * referential: a role revoked by a pull is effective immediately.
+     *
+     * @param state the current POS state
+     * @return true when the logged operator can approve without a credential
+     */
+    public boolean operatorIsSupervisor(PosState state) {
+        Long operatorId = state.auth.getOperatorId();
+        if (operatorId == null) {
+            return false;
+        }
+        com.intermarche.pos.domain.Employee operator =
+                com.intermarche.pos.domain.Employee.findById(operatorId);
+        return operator != null && operator.active
+                && (operator.role == com.intermarche.pos.domain.Employee.EmployeeRole.MANAGER
+                    || operator.role == com.intermarche.pos.domain.Employee.EmployeeRole.ADMIN);
+    }
+
+    /**
      * Opens an endorsement request for a price modification.
      *
      * @param state the current POS state

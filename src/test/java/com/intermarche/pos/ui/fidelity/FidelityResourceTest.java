@@ -38,7 +38,6 @@ class FidelityResourceTest {
         resource.fidelityService = mock(FidelityService.class);
         resource.fidelity = mock(Template.class);
         resource.main = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
     }
 
@@ -53,28 +52,17 @@ class FidelityResourceTest {
     private TemplateInstance stub(Template template, FidelityResource resource) {
         TemplateInstance view = mock(TemplateInstance.class);
         when(template.data("state", resource.state)).thenReturn(view);
-        // The fidelity page CHAINS a second data() call carrying the in-store
-        // consultation (status, balance, movements). A chained mock returns
-        // null by default, which reads as "the page rendered nothing" — the
-        // view returns ITSELF so the chain stays observable end to end.
+        // The fidelity page CHAINS further data() calls: the holder-lookup
+        // outcome (null outside a search) then the in-store consultation
+        // (status, balance, movements). A chained mock returns null by
+        // default, which reads as "the page rendered nothing" — the view
+        // returns ITSELF so the chain stays observable end to end.
+        when(view.data(eq("lookup"), any())).thenReturn(view);
         when(view.data(eq("consultation"), any())).thenReturn(view);
         return view;
     }
 
     // --- fidelityPage ---
-
-    /**
-     * {@code fidelityPage()} renders the lock view and never touches the
-     * fidelity template when the terminal is locked (guard true arm).
-     */
-    @Test
-    void fidelityPageRendersLockWhenLocked() {
-        FidelityResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stub(resource.lock, resource);
-        assertSame(lockView, resource.fidelityPage());
-        verifyNoInteractions(resource.fidelity);
-    }
 
     /**
      * {@code fidelityPage()} renders the fidelity view when the terminal is
@@ -86,24 +74,9 @@ class FidelityResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance fidelityView = stub(resource.fidelity, resource);
         assertSame(fidelityView, resource.fidelityPage());
-        verifyNoInteractions(resource.lock);
     }
 
     // --- validateFidelity ---
-
-    /**
-     * {@code validateFidelity()} renders the lock view and never attaches the
-     * card when the terminal is locked (guard true arm).
-     */
-    @Test
-    void validateFidelityRendersLockWhenLocked() {
-        FidelityResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = stub(resource.lock, resource);
-        assertSame(lockView, resource.validateFidelity("1234"));
-        verifyNoInteractions(resource.fidelityService);
-        verifyNoInteractions(resource.main);
-    }
 
     /**
      * {@code validateFidelity()} attaches the card and returns the main view
@@ -117,21 +90,6 @@ class FidelityResourceTest {
         TemplateInstance mainView = stub(resource.main, resource);
         assertSame(mainView, resource.validateFidelity("1234"));
         verify(resource.fidelityService).validateCard(resource.state, "1234");
-        verifyNoInteractions(resource.lock);
     }
 
-    /**
-     * {@code validateFidelity()} attaches the card then returns the lock view
-     * when the terminal locks between the entry guard and {@code home()}
-     * ({@code home} ternary true arm).
-     */
-    @Test
-    void validateFidelityAttachesCardThenLocksInHome() {
-        FidelityResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(false, true);
-        TemplateInstance lockView = stub(resource.lock, resource);
-        assertSame(lockView, resource.validateFidelity("1234"));
-        verify(resource.fidelityService).validateCard(resource.state, "1234");
-        verifyNoInteractions(resource.main);
-    }
 }

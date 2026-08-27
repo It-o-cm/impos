@@ -38,7 +38,7 @@ public class RefExportService {
 
     /** The referential domains, in register apply order. */
     public static final List<String> DOMAINS =
-            List.of("FAMILIES", "PRODUCTS", "PRICES", "EMPLOYEES", "COUPON_TYPES");
+            List.of("FAMILIES", "PRODUCTS", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS");
 
     /** Fingerprint cache TTL in milliseconds. */
     private static final long FINGERPRINT_TTL_MS = 60_000;
@@ -89,8 +89,24 @@ public class RefExportService {
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "COUPON_TYPES" -> CouponType.<CouponType>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
+            case "SETTINGS" -> com.intermarche.pos.domain.PosSetting
+                    .<com.intermarche.pos.domain.PosSetting>find("order by settingKey")
+                    .page(page, size).list().stream().map(this::toDto).toList();
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         };
+    }
+
+    /**
+     * Maps a back-office parameter to its snapshot payload.
+     *
+     * @param setting the stored parameter row
+     * @return the transport DTO
+     */
+    private RefPayloads.SettingDto toDto(com.intermarche.pos.domain.PosSetting setting) {
+        RefPayloads.SettingDto dto = new RefPayloads.SettingDto();
+        dto.key = setting.settingKey;
+        dto.value = setting.settingValue;
+        return dto;
     }
 
     /**
@@ -144,6 +160,9 @@ public class RefExportService {
         if (row instanceof RefPayloads.EmployeeDto e) {
             return String.join("|", n(e.loginName), n(e.firstName), n(e.lastName), n(e.password),
                     n(e.email), n(e.role), n(e.badgeId), n(e.theme), String.valueOf(e.active));
+        }
+        if (row instanceof RefPayloads.SettingDto s) {
+            return String.join("|", n(s.key), n(s.value));
         }
         if (row instanceof RefPayloads.CouponTypeDto c) {
             return String.join("|", n(c.code), n(c.label), n(c.matchPattern), n(c.amountSource),

@@ -46,6 +46,14 @@ public class TicketParkingService {
     @Inject
     TechnicalEventService technicalEventService;
 
+    /** Printer — the parked receipt carries the resume number (LC-04-01-02). */
+    @Inject
+    TicketPrinterService ticketPrinterService;
+
+    /** The back-office parameters (parked-receipt printing policy). */
+    @Inject
+    PosSettingsService posSettingsService;
+
     /**
      * Parks the current cart: synchronizes the draft one last time, flips it
      * to PARKED and clears the in-memory state.
@@ -71,6 +79,12 @@ public class TicketParkingService {
         draft.status = Ticket.TicketStatus.PARKED;
         draft.persist();
         technicalEventService.log(TechnicalEvent.EventType.TICKET_PARKED, draft.ticketNumber);
+        // LC-04-01-02: the parked receipt carries the ticket number — the
+        // code the resume scan (or a manual entry) recognizes. Printing is
+        // administered on the back office.
+        if (posSettingsService.parkingPrintReceipt()) {
+            ticketPrinterService.printParkedTicket(draft);
+        }
         LOG.infof("Ticket mis en attente ID: %d (%s)", draft.id, draft.ticketNumber);
 
         state.clearTicket();
@@ -113,5 +127,25 @@ public class TicketParkingService {
         technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, draft.ticketNumber);
         LOG.infof("Ticket repris ID: %d (%s)", draft.id, draft.ticketNumber);
         return null;
+    }
+    /**
+     * Resumes a parked ticket from its SCANNED (or typed) ticket number
+     * (LC-04-02-01) — the number printed on the parked receipt. Resolution
+     * is register-local: the number must belong to this terminal and still
+     * be PARKED; everything else answers the same message as an unknown id,
+     * and the resume itself reuses the guarded {@link #resume(Long)}.
+     *
+     * @param ticketNumber the scanned or typed ticket number
+     * @return null on success, or an error message shown to the cashier
+     */
+    public String resumeByNumber(String ticketNumber) {
+        Ticket draft = Ticket.<Ticket>find(
+                "ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                ticketNumber, ticketNumberService.getTerminalId(),
+                Ticket.TicketStatus.PARKED).firstResult();
+        if (draft == null) {
+            return "TICKET EN ATTENTE INTROUVABLE";
+        }
+        return resume(draft.id);
     }
 }

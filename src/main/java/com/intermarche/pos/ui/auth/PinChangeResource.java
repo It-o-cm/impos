@@ -21,8 +21,6 @@ public class PinChangeResource {
     @Inject
     @Location("pin-change")
     Template pinChange;
-
-    @Inject Template lock;
     @Inject AuthService authService;
     @Inject
     PosState state;
@@ -30,13 +28,12 @@ public class PinChangeResource {
     /**
      * Displays the PIN change page for the logged-in operator.
      *
-     * @return the PIN change page, or the lock page if no operator is logged in
+     * @return the PIN change page
      */
     @GET
     @Path("/pin-change")
     @DrawerMayBeOpen
     public TemplateInstance pinChangePage() {
-        if (state.isLocked()) return lock.data("state", state);
         return pinChange.data("state", state);
     }
 
@@ -59,7 +56,6 @@ public class PinChangeResource {
             @FormParam("currentPin") String currentPin,
             @FormParam("newPin") String newPin,
             @FormParam("confirmPin") String confirmPin) {
-        if (state.isLocked()) return lock.data("state", state);
         String error = authService.changePin(state, currentPin, newPin, confirmPin);
         if (error != null) {
             return pinChange.data("state", state).data("error", error);

@@ -16,7 +16,6 @@ import jakarta.ws.rs.*;
 public class ManualResource {
 
     @Inject Template manual;
-    @Inject Template lock;
     @Inject ManualService manualService;
 
     @Inject
@@ -27,10 +26,9 @@ public class ManualResource {
     /**
      * Shows the root level of the drill-down.
      *
-     * @return the manual page, or the lock page when locked
+     * @return the manual page
      */
     public TemplateInstance manualPage() {
-        if (state.isLocked()) return lock.data("state", state);
         ManualService.ManualViewData viewData = manualService.getManualRootData();
         return manual.data("state", state)
                 .data("items", viewData.items)
@@ -44,10 +42,9 @@ public class ManualResource {
      * Shows one category level of the drill-down.
      *
      * @param code the family code
-     * @return the manual page, or the lock page when locked
+     * @return the manual page
      */
     public TemplateInstance manualCategoryPage(@PathParam("code") String code) {
-        if (state.isLocked()) return lock.data("state", state);
         ManualService.ManualViewData viewData = manualService.getManualCategoryData(code);
         return manual.data("state", state)
                 .data("items", viewData.items)

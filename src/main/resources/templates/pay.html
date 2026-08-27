@@ -315,6 +315,7 @@
                     <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
                     <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
                     <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
+                    <a href="/action/pay/abandon-ticket" class="btn btn-danger">ANNULER TICKET</a>
                 </div>
             </div>
         </div>
@@ -372,6 +373,13 @@
         fetch('/ticket-fragment?v=' + lastKnownVersion)
             .then(r => r.ok ? r.json() : Promise.reject())
             .then(data => {
+                // No cashier logged in: leave this now-invalid screen for
+                // the lock page (the server redirects navigations the same
+                // way — see LockCheckFilter).
+                if (data.locked) {
+                    window.location.href = '/lock';
+                    return;
+                }
                 if (data.changed && data.version !== lastKnownVersion) {
                     window.location.reload();
                 }

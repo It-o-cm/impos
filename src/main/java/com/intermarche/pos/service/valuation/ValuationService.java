@@ -317,9 +317,9 @@ public class ValuationService {
         try {
             ValuationPayloads.BasketDto basket = buildBasket(ticket, fidelityCard, creationDate);
             if (basket.items.isEmpty()) {
-                // Nothing eligible (pure deposit/unknown cart): local math only
-                LOG.debugf("Valorisation: aucune ligne éligible (%d ligne(s) au panier), moteur non appelé",
-                        ticket.items.size());
+                // An EMPTY CART, nothing else: there is no basket to price.
+                // This is not a filtering decision — every line of a non-empty
+                // ticket reaches the engine.
                 return new ValuationOutcome("LOCAL", null, null);
             }
             // The couple travels VERBATIM to imfid (spec §1): the request is
@@ -359,15 +359,29 @@ public class ValuationService {
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         basket.createdAt = isoDate;
 
+        // EVERY line goes to the engine — no exception, no local filtering.
+        // The engine is the AUTHORITY on what a basket is worth: it alone
+        // decides what a gift card, a deposit voucher or an age-restricted
+        // bottle is worth, and the register never second-guesses it. The POS
+        // computes a total by itself ONLY when the engine cannot answer
+        // (unreachable or in error), which is the degraded path below.
         for (TicketState.TicketItem item : ticket.items) {
-            if (item.ean == null || item.ean.isEmpty()) continue;          // no EAN: out of the engine
-            if (item.moneyProduct) continue;                               // money products: not merchandise
-            if (item.getTotalPrice().signum() <= 0) continue;              // deposits/negatives: local
             ValuationPayloads.ItemDto dto = new ValuationPayloads.ItemDto();
             dto.lineId = item.uid;
             dto.produceEan = item.ean;
             dto.quantity = item.quantity;
             dto.priceDate = isoDate;
+            if (item.priceEmbedded) {
+                // PRICE-EMBEDDED sticker (EAN 2x, prefixes 21-22): the price
+                // lives on the paper, not in any catalog. The contract's
+                // surcharge trio — all-or-nothing — overrides the engine's
+                // catalog price for this line; without it the engine would
+                // re-price the EAN per kilogram and clobber the sticker total.
+                dto.pricePerUnitInclTax = item.unitPrice;
+                dto.vatRate = item.vatRate;
+                dto.pricePerUnitExclTax = item.unitPrice.divide(
+                        BigDecimal.ONE.add(item.vatRate), 2, RoundingMode.HALF_UP);
+            }
             applyGesture(dto, item);
             basket.items.add(dto);
         }

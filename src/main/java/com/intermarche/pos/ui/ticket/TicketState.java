@@ -345,6 +345,32 @@ public class TicketState implements Serializable {
     public List<TicketItem> getItems() { return items; }
 
     /**
+     * Returns the left-hand label of the on-screen global-discount row:
+     * "REMISE TICKET", suffixed with the requested rate for a PERCENT
+     * request (e.g. "REMISE TICKET (10 %)").
+     *
+     * @return the display label, or null when no discount is applied
+     */
+    public String getGlobalDiscountLabel() {
+        if (globalDiscountApplied == null) return null;
+        if ("PERCENT".equals(globalDiscountType)) {
+            return "REMISE TICKET (" + globalDiscountValue.stripTrailingZeros().toPlainString() + " %)";
+        }
+        return "REMISE TICKET";
+    }
+
+    /**
+     * Returns the applied global-discount amount formatted for display,
+     * signed (e.g. "-1,81").
+     *
+     * @return the formatted amount, or null when no discount is applied
+     */
+    public String getGlobalDiscountAppliedFormatted() {
+        if (globalDiscountApplied == null) return null;
+        return "-" + formatPrice(globalDiscountApplied);
+    }
+
+    /**
      * Formats a monetary value with 2 decimals and a French comma separator.
      *
      * @param value the value to format
@@ -468,6 +494,17 @@ public class TicketState implements Serializable {
          * Re-derived from the product at draft recovery.
          */
         public boolean moneyProduct = false;
+
+        /**
+         * True when this line was rung from a PRICE-EMBEDDED balance sticker
+         * (EAN 2x, prefixes 21-22): the sticker total IS the line's price and
+         * the catalog knows nothing about it. The valuation engine must
+         * receive it through the surcharge trio (pricePerUnitExclTax /
+         * InclTax / vatRate, all-or-nothing) instead of re-pricing the EAN
+         * from its own catalog. Persisted on the draft and read back at
+         * recovery — the draft is the durable truth of what was rung up.
+         */
+        public boolean priceEmbedded = false;
 
         public BigDecimal getTotalPrice() {
             BigDecimal __t = valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);

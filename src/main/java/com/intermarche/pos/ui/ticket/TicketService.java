@@ -44,12 +44,31 @@ import java.util.stream.StreamSupport;
 @ApplicationScoped
 public class TicketService {
 
+    /** The back-office parameters (discount caps — LC-03-02). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /** Internal scale used for intermediate unit-price divisions. */
     private static final int PRICE_SCALE = 4;
 
     /** Default VAT rate applied to unknown items without a catalog price (e.g. 0.20). */
     @ConfigProperty(name = "pos.vat.default-rate", defaultValue = "0.20")
     BigDecimal defaultVatRate;
+
+    /**
+     * Technical EAN of the manual deconsignment line (parameterized).
+     * <p>
+     * Register-generated lines carry a technical EAN like every other line:
+     * the valuation engine prices the WHOLE ticket and must be able to
+     * resolve each line it receives — a line without an EAN does not exist.
+     * The referential must declare these codes on the engine side too.
+     */
+    @ConfigProperty(name = "pos.ean.deconsignment")
+    String deconsignmentEan;
+
+    /** Technical EAN of a manually typed unknown article (parameterized). */
+    @ConfigProperty(name = "pos.ean.unknown-item")
+    String unknownItemEan;
 
     @Inject
     HardwareService hardwareService;
@@ -105,8 +124,11 @@ public class TicketService {
             state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
             return;
         }
+        // The percentage cap is administered (LC-03-02-13); 100 stays the
+        // absolute ceiling whatever the back office says.
+        int cap = Math.min(100, posSettingsService.globalMaxDiscountPercent());
         if (value == null || value.signum() < 0
-                || ("GLOBAL_DISCOUNT".equals(type) && value.compareTo(new BigDecimal("100")) > 0)) {
+                || ("GLOBAL_DISCOUNT".equals(type) && value.compareTo(BigDecimal.valueOf(cap)) > 0)) {
             state.ticket.setError("VALEUR INVALIDE");
             return;
         }
@@ -332,8 +354,10 @@ public class TicketService {
      */
     public void applyDiscount(TicketState.TicketItem item, BigDecimal percent) {
         if (item != null && item.moneyProduct) return; // money products are never discounted
+        // The line cap is administered (LC-03-02-07); 100 stays absolute.
+        int lineCap = Math.min(100, posSettingsService.lineMaxDiscountPercent());
         if (item == null || percent == null || percent.signum() <= 0
-                || percent.compareTo(BigDecimal.valueOf(100)) > 0) return;
+                || percent.compareTo(BigDecimal.valueOf(lineCap)) > 0) return;
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
@@ -476,7 +500,8 @@ public class TicketService {
         try {
             BigDecimal price = new BigDecimal(priceStr.replace(',', '.').replace(" ", ""));
             if (price.signum() >= 0 && label != null && !label.isEmpty()) {
-                state.ticket.addItem(null, null, label.toUpperCase(), price, BigDecimal.ONE, defaultVatRate);
+                state.ticket.addItem(unknownItemEan, null, label.toUpperCase(),
+                        price, BigDecimal.ONE, defaultVatRate);
                 displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
                 syncAndRevalue(state);
             }
@@ -493,7 +518,8 @@ public class TicketService {
     public void addDeposit(PosState state) {
         if (!requireOpenSession(state)) return;
         state.selectedTicketIndex = -1;
-        state.ticket.addItem(null, null, "DECONSIGNATION", new BigDecimal("-1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        state.ticket.addItem(deconsignmentEan, null, "DECONSIGNATION",
+                new BigDecimal("-1.00"), BigDecimal.ONE, BigDecimal.ZERO);
         displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
         syncAndRevalue(state);
     }

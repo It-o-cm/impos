@@ -243,6 +243,14 @@ class WeightedEanScanHandlerTest {
     void priceEmbeddedAddsLocalLine() {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
+        // The handler flags the LAST ADDED line as price-embedded (surcharge
+        // trio toward the engine), so the mock must materialize the add: a
+        // real item lands in a real list, like EanScanHandler's money flag.
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
         Product p = newProduct(false);
         Price price = newPrice("9.99", "0.055");
         ScanContext ctx = new ScanContext(PRICE_CODE, state);
@@ -253,8 +261,11 @@ class WeightedEanScanHandlerTest {
             newHandler().handle(ctx);
         }
         assertTrue(ctx.handled);
-        verify(ticket).addItem(isNull(), isNull(), eq("BANANE"),
+        // The line carries the product EAN like every other (doctrine of
+        // 14/08: a line without an EAN does not exist) at the sticker total.
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
                 eq(BigDecimal.valueOf(150, 2)), eq(BigDecimal.ONE), eq(new BigDecimal("0.055")));
+        assertTrue(ticket.items.get(0).priceEmbedded);
         verify(ticket, never()).setError(any());
     }
 

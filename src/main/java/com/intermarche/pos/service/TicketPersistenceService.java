@@ -467,6 +467,7 @@ public class TicketPersistenceService {
         line.vatRate = item.vatRate;
         line.deposit = item.isNegative();
         line.moneyProduct = item.moneyProduct;
+        line.priceEmbedded = item.priceEmbedded;
         return line;
     }
 

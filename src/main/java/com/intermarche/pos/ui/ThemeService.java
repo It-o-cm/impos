@@ -109,6 +109,45 @@ public class ThemeService {
         }
 
         /**
+         * True when the LOGGED operator holds a supervising role — drives
+         * the connected-supervisor shortcut button of the endorsement modal
+         * (LC-01-05-07). Resolved through Arc like {@code posTheme()}; any
+         * trouble answers false (the modal then simply asks a credential).
+         *
+         * @return true when the logged operator can approve endorsements
+         */
+        public static boolean supervisorLogged() {
+            try {
+                InstanceHandle<com.intermarche.pos.ui.endorsement.EndorsementService> svc =
+                        Arc.container().instance(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+                InstanceHandle<com.intermarche.pos.ui.PosState> st =
+                        Arc.container().instance(com.intermarche.pos.ui.PosState.class);
+                return svc.isAvailable() && st.isAvailable()
+                        && svc.get().operatorIsSupervisor(st.get());
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
+         * Whether the article EAN is displayed next to the label on the
+         * register and customer screens (LC-02-04-02) — driven by the
+         * {@code pos.display.show-ean} configuration key, available in every
+         * template as {@code {showEan}}.
+         *
+         * @return true when the EAN accompanies the label on screen
+         */
+        public static boolean showEan() {
+            try {
+                InstanceHandle<com.intermarche.pos.service.PosSettingsService> handle =
+                        Arc.container().instance(com.intermarche.pos.service.PosSettingsService.class);
+                return handle.isAvailable() && handle.get().showEan();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
          * The resolved theme name, available in every template as
          * {@code {posTheme}} without any per-resource plumbing.
          *

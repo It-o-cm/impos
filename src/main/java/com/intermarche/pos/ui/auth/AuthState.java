@@ -31,6 +31,13 @@ public class AuthState implements Serializable {
     /** True while the lock page owns the register (no operator logged in). */
     public boolean isLocked = true;
 
+    /**
+     * Timestamp (epoch millis) of the operator's last cashier-facing request,
+     * maintained by the lock filter. Drives the automatic idle lockout
+     * (LC-01-03-02); 0 = no activity recorded yet.
+     */
+    public long lastActivityAt = 0L;
+
     /** The display name of the logged-in operator, or an empty string. */
     public String operatorName = "";
 
@@ -58,6 +65,7 @@ public class AuthState implements Serializable {
         this.operatorName = name;
         this.isLocked = false;
         this.scannedBadgeId = null;
+        this.lastActivityAt = System.currentTimeMillis();
     }
 
     /**

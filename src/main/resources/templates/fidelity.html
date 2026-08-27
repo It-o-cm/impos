@@ -55,30 +55,79 @@
         </div>
 
         <div class="fid-container">
+            <!-- The status/consultation message lives ABOVE the form, always
+                 visible without scrolling — it was drowned below the fold. -->
+            {#if consultation.message}
+            <div style="text-align:center; color: var(--text-muted); font-weight: bold;">{consultation.message}</div>
+            {/if}
+            {#if lookup && lookup.message}
+            <div style="text-align:center; color: var(--warning, var(--accent)); font-weight: bold;">{lookup.message}</div>
+            {/if}
+
             <div class="fid-modes">
                 <button class="fid-toggle active" id="btnCard" onclick="setFidMode('card', this)">N° CARTE</button>
                 <button class="fid-toggle" id="btnTel" onclick="setFidMode('tel', this)">TÉLÉPHONE</button>
+                <button class="fid-toggle" id="btnEmail" onclick="setFidMode('email', this)">E-MAIL</button>
                 <button class="fid-toggle" id="btnName" onclick="setFidMode('name', this)">NOM / PRÉNOM</button>
             </div>
 
+            <!-- Card mode ATTACHES directly (/action/fidelity) ; the three
+                 identity modes SEARCH the imfid holder directory
+                 (/action/fidelity-lookup, addendum §3 — EXACT match after
+                 imfid's normalization, never a prefix search). In name mode
+                 type "NOM PRENOM": the server splits on the first space. -->
             <form action="/action/fidelity" method="POST" id="fidForm">
                 <input type="hidden" name="card" id="fidHiddenInput" value="">
+                <input type="hidden" name="mode" id="fidMode" value="card">
                 <input type="text" id="fidDisplay" class="fid-display" value="" readonly>
 
                 <div class="fid-keyboard-area" id="fidKeyboardArea"></div>
 
                 <div class="fid-actions">
-                    <button type="submit" class="btn btn-primary" style="width:180px;">VALIDER</button>
+                    <button type="submit" class="btn btn-primary" style="width:180px;" id="fidSubmit">VALIDER</button>
                     <a href="/" class="btn btn-muted" style="width:180px;">PASSER</a>
                 </div>
             </form>
 
+            {#if lookup && lookup.matches}
+            <!-- Holder matches (addendum §4): the operator confirms the
+                 identity VERBALLY, never reads the list to the client. A
+                 RESILIATED card is not selectable from the register. -->
+            <table style="width:100%; border-collapse:collapse; font-size:1rem;">
+                <tr style="color: var(--text-muted); text-align:left;">
+                    <th style="padding:4px 6px;">CARTE</th>
+                    <th style="padding:4px 6px;">NOM</th>
+                    <th style="padding:4px 6px;">PRÉNOM</th>
+                    <th style="padding:4px 6px;">STATUT</th>
+                    <th style="padding:4px 6px;"></th>
+                </tr>
+                {#for m in lookup.matches}
+                <tr style="border-top:1px solid var(--border-color);">
+                    <td style="padding:6px;">{m.card}</td>
+                    <td style="padding:6px;">{m.lastName}</td>
+                    <td style="padding:6px;">{m.firstName}</td>
+                    <td style="padding:6px;">{#if m.status == 'ACTIVE'}ACTIVE{#else if m.status == 'PENDING_ACTIVATION'}EN ATTENTE D'ACTIVATION{#else}RÉSILIÉE{/if}</td>
+                    <td style="padding:6px; text-align:right;">
+                        {#if m.status != 'RESILIATED'}
+                        <form action="/action/fidelity-select" method="POST" style="display:inline;">
+                            <input type="hidden" name="card" value="{m.card}">
+                            <input type="hidden" name="lastName" value="{m.lastName}">
+                            <input type="hidden" name="firstName" value="{m.firstName}">
+                            <input type="hidden" name="status" value="{m.status}">
+                            <button type="submit" class="btn btn-primary" style="padding:8px 14px; font-size:0.9rem;">SÉLECTIONNER</button>
+                        </form>
+                        {#else}
+                        <span style="color: var(--danger); font-weight:bold;">ACCUEIL</span>
+                        {/if}
+                    </td>
+                </tr>
+                {/for}
+            </table>
+            {/if}
+
             <!-- In-store consultation (imfid spec §4): balance and history of
                  the attached card; degraded imfid = a message, never an error. -->
             <div style="margin-top: 18px; border-top: 1px solid var(--border-strong); padding-top: 12px;">
-                {#if consultation.message}
-                <div style="text-align:center; color: var(--text-muted); font-weight: bold;">{consultation.message}</div>
-                {/if}
                 {#if consultation.hasAccount}
                 <div style="display:flex; gap:18px; justify-content:center; font-size:1.05rem; margin-bottom:10px;">
                     <div>STATUT&nbsp;: <b>{consultation.status}</b></div>
@@ -115,15 +164,27 @@
         document.querySelectorAll('.fid-toggle').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
+        // Card mode attaches; identity modes search the holder directory.
+        var form = document.getElementById('fidForm');
+        form.action = (mode === 'card') ? '/action/fidelity' : '/action/fidelity-lookup';
+        document.getElementById('fidHiddenInput').name = (mode === 'card') ? 'card' : 'value';
+        document.getElementById('fidMode').value = mode;
+        document.getElementById('fidSubmit').innerText = (mode === 'card') ? 'VALIDER' : 'RECHERCHER';
+
+        var kb = 'numpad', im = 'integer', max = 15;
+        if (mode === 'name')  { kb = 'alpha'; im = 'text'; max = 40; }
+        if (mode === 'email') { kb = 'email'; im = 'text'; max = 60; }
+        if (mode === 'tel')   { kb = 'numpad'; im = 'text'; max = 20; }
+
         PosInput.setup({
             displayId: 'fidDisplay',
             hiddenId: 'fidHiddenInput',
             containerId: 'fidKeyboardArea',
-            keyboardType: (mode === 'name') ? 'alpha' : 'numpad',
-            mode: (mode === 'name') ? 'text' : 'integer',
-            uppercase: true,
+            keyboardType: kb,
+            mode: im,
+            uppercase: (mode === 'name'),
             placeholder: "",
-            maxLength: (mode === 'name') ? 30 : 15
+            maxLength: max
         });
     }
 

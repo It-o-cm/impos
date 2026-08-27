@@ -34,37 +34,10 @@ class PinChangeResourceTest {
         resource.state = mock(PosState.class);
         resource.authService = mock(AuthService.class);
         resource.pinChange = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
     }
 
-    /**
-     * Stubs the {@code lock} template's {@code data("state", state)} call to
-     * return a recognizable view.
-     *
-     * @param resource the resource whose {@code lock} template is stubbed
-     * @return the view the lock template will return
-     */
-    private TemplateInstance stubLock(PinChangeResource resource) {
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(view);
-        return view;
-    }
-
     // --- pinChangePage ---
-
-    /**
-     * {@code pinChangePage()} renders the lock page when the state is locked
-     * (guard true), never touching the PIN change template.
-     */
-    @Test
-    void pinChangePageRendersLockWhenLocked() {
-        PinChangeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance view = stubLock(resource);
-        assertSame(view, resource.pinChangePage());
-        verifyNoInteractions(resource.pinChange);
-    }
 
     /**
      * {@code pinChangePage()} renders the PIN change page when the state is not
@@ -77,24 +50,9 @@ class PinChangeResourceTest {
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.pinChange.data("state", resource.state)).thenReturn(view);
         assertSame(view, resource.pinChangePage());
-        verifyNoInteractions(resource.lock);
     }
 
     // --- changePin ---
-
-    /**
-     * {@code changePin(...)} renders the lock page when the state is locked
-     * (guard true), never invoking the auth service.
-     */
-    @Test
-    void changePinRendersLockWhenLocked() {
-        PinChangeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance view = stubLock(resource);
-        assertSame(view, resource.changePin("1111", "2222", "2222"));
-        verifyNoInteractions(resource.authService);
-        verifyNoInteractions(resource.pinChange);
-    }
 
     /**
      * {@code changePin(...)} renders the PIN change page with the service error
@@ -111,7 +69,6 @@ class PinChangeResourceTest {
         when(resource.pinChange.data("state", resource.state)).thenReturn(withState);
         when(withState.data("error", "PIN incorrect")).thenReturn(withError);
         assertSame(withError, resource.changePin("1111", "2222", "3333"));
-        verifyNoInteractions(resource.lock);
     }
 
     /**
@@ -130,6 +87,5 @@ class PinChangeResourceTest {
         when(withState.data("success", "Code PIN modifié")).thenReturn(withSuccess);
         assertSame(withSuccess, resource.changePin("1111", "2222", "2222"));
         verify(resource.authService).changePin(resource.state, "1111", "2222", "2222");
-        verifyNoInteractions(resource.lock);
     }
 }

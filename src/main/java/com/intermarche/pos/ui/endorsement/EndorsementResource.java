@@ -62,7 +62,7 @@ public class EndorsementResource {
      *
      * @param login the badge id or login name presented for the endorsement
      * @param password the raw PIN presented for the endorsement
-     * @return the main (or lock) page
+     * @return the main page
      */
     @POST
     @Path("/action/endorse-validate")
@@ -76,6 +76,26 @@ public class EndorsementResource {
         }
 
         if (endorsementService.authorize(login, password, actionToExecute)) {
+            executeApprovedAction(actionToExecute);
+            endorsementService.clearRequest(state);
+            state.touch();
+            return mainView(state);
+        } else {
+            state.endorsement.error = "AUTORISATION REFUSÉE";
+            state.touch();
+            return mainView(state);
+        }
+    }
+
+    /**
+     * Executes an APPROVED endorsed action — the registry of every guarded
+     * gesture. Called only after a manager credential passed, or through the
+     * connected-supervisor shortcut below (LC-01-05-07): the approval always
+     * precedes the execution, never the reverse.
+     *
+     * @param actionToExecute the parked action string
+     */
+    private void executeApprovedAction(String actionToExecute) {
             if (actionToExecute.equals("CANCEL_TICKET")) {
                 ticketService.cancelTicket(state);
             } else if (actionToExecute.startsWith("CANCEL_LINE_")) {
@@ -124,21 +144,43 @@ public class EndorsementResource {
                     // Guard refusal: the message is already on the refund screen
                 }
             }
+            else if (actionToExecute.startsWith("PRINT_BADGE_")) {
+                // (Re)prints an operator's badge number (LC-01-06-01).
+                homeService.printOperatorBadge(actionToExecute.substring("PRINT_BADGE_".length()));
+            }
+    }
 
+    /**
+     * Connected-supervisor shortcut (LC-01-05-07): when the LOGGED operator
+     * already holds the MANAGER or ADMIN role, the pending endorsement is
+     * executed directly — no second credential is asked. The role check is
+     * done server-side here, never trusted from the page.
+     *
+     * @return the main page
+     */
+    @POST
+    @Path("/action/endorse-self")
+    public TemplateInstance selfEndorse() {
+        String actionToExecute = state.endorsement.requestedAction;
+        if (actionToExecute == null) {
             endorsementService.clearRequest(state);
-            state.touch();
             return mainView(state);
-        } else {
+        }
+        if (!endorsementService.operatorIsSupervisor(state)) {
             state.endorsement.error = "AUTORISATION REFUSÉE";
             state.touch();
             return mainView(state);
         }
+        executeApprovedAction(actionToExecute);
+        endorsementService.clearRequest(state);
+        state.touch();
+        return mainView(state);
     }
 
     /**
      * Cancels the pending endorsement request.
      *
-     * @return the main (or lock) page
+     * @return the main page
      */
     @GET
     @Path("/action/endorse-cancel")
@@ -149,15 +191,14 @@ public class EndorsementResource {
     }
 
     @Inject Template main;
-    @Inject Template lock;
 
     /**
-     * Returns the main page, or the lock page when no operator is logged in.
+     * Returns the main page.
      *
      * @param state the current POS state
      * @return the appropriate template instance
      */
     private TemplateInstance mainView(PosState state) {
-        return state.isLocked() ? lock.data("state", state) : main.data("state", state);
+        return main.data("state", state);
     }
 }

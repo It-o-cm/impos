@@ -117,6 +117,15 @@ public class TicketLine extends BaseEntity {
     public boolean moneyProduct;
 
     /**
+     * True when the line was rung from a price-embedded balance sticker
+     * (EAN 2x, prefixes 21-22). Persisted rather than re-derived: the sticker
+     * price exists only on the paper, and the flag decides whether the
+     * valuation request carries the surcharge trio at recovery time.
+     */
+    @Column(name = "price_embedded")
+    public boolean priceEmbedded;
+
+    /**
      * Returns the line total formatted for display (2 decimals, French comma).
      *
      * @return the formatted line total

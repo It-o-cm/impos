@@ -94,11 +94,19 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
                 ctx.handled = true;
                 return;
             }
-            // Embedded total in cents: quantity 1, no EAN/PLU carried so the
-            // line never merges (each sticker is its own line).
+            // Embedded total in cents, quantity 1. The line carries the
+            // product EAN like every other: a line without an EAN does not
+            // exist, and the valuation engine — which prices the WHOLE ticket
+            // — must see this one too. Non-merging is guaranteed by the
+            // sticker-code guard above (one physical sticker = one scan), not
+            // by stripping the identity.
             BigDecimal total = BigDecimal.valueOf(embeddedValue, 2);
-            ctx.state.ticket.addItem(null, null, product.name.toUpperCase(),
+            ctx.state.ticket.addItem(product.ean, articleCode, product.name.toUpperCase(),
                     total, BigDecimal.ONE, vatRate);
+            // The sticker price is the line's own truth: flag it so the
+            // valuation request carries the surcharge trio and the engine
+            // does not re-price this EAN from its catalog.
+            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).priceEmbedded = true;
         } else {
             // Embedded weight in grams: catalog price per kilogram. The line
             // carries the product EAN: its price IS the catalog price, so the

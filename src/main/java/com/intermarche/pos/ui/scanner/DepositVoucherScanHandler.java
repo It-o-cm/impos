@@ -50,8 +50,11 @@ public class DepositVoucherScanHandler implements ScanContext.ScanHandler {
                 ctx.handled = true;
                 return;
             }
-            // Deposit refunds are out of VAT scope: zero rate.
-            state.ticket.addItem(null, null, type.label.toUpperCase(),
+            // Deposit refunds are out of VAT scope: zero rate. The line
+            // carries the SCANNED CODE as its identity — it is printed on the
+            // voucher and is what the valuation engine receives; a line
+            // without an EAN does not exist.
+            state.ticket.addItem(ctx.code, null, type.label.toUpperCase(),
                     amount.negate(), BigDecimal.ONE, BigDecimal.ZERO);
             ctx.handled = true;
             return;

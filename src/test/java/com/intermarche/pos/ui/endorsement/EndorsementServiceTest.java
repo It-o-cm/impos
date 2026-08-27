@@ -5,7 +5,10 @@ import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.auth.AuthService;
+import com.intermarche.pos.ui.auth.AuthState;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
@@ -13,6 +16,7 @@ import java.math.BigDecimal;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -195,5 +199,107 @@ class EndorsementServiceTest {
         service.clearRequest(state);
         verify(state.endorsement).clear();
         verify(state).touch();
+    }
+
+    // --- operatorIsSupervisor ---
+
+    /**
+     * Builds a state whose logged-in operator id is the given value.
+     *
+     * @param operatorId the operator id, or null for none
+     * @return the wired state
+     */
+    private PosState stateWithOperator(Long operatorId) {
+        PosState state = mock(PosState.class);
+        state.auth = new AuthState();
+        state.auth.operatorId = operatorId;
+        return state;
+    }
+
+    /**
+     * Builds an employee with the given activity and role.
+     *
+     * @param active whether the employee is active
+     * @param role the employee role
+     * @return the employee mock
+     */
+    private Employee employee(boolean active, Employee.EmployeeRole role) {
+        Employee employee = mock(Employee.class);
+        employee.active = active;
+        employee.role = role;
+        return employee;
+    }
+
+    /**
+     * {@code operatorIsSupervisor} is false when no operator is logged in
+     * (operator-id null arm), without a lookup.
+     */
+    @Test
+    void supervisorFalseWhenNoOperator() {
+        EndorsementService service = new EndorsementService();
+        assertFalse(service.operatorIsSupervisor(stateWithOperator(null)));
+    }
+
+    /**
+     * {@code operatorIsSupervisor} is false when the operator row is unknown
+     * (operator-null arm).
+     */
+    @Test
+    void supervisorFalseWhenOperatorUnknown() {
+        EndorsementService service = new EndorsementService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(null);
+            assertFalse(service.operatorIsSupervisor(stateWithOperator(7L)));
+        }
+    }
+
+    /**
+     * {@code operatorIsSupervisor} is false for a deactivated manager
+     * (active-false arm).
+     */
+    @Test
+    void supervisorFalseWhenInactive() {
+        EndorsementService service = new EndorsementService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(employee(false, Employee.EmployeeRole.MANAGER));
+            assertFalse(service.operatorIsSupervisor(stateWithOperator(7L)));
+        }
+    }
+
+    /**
+     * {@code operatorIsSupervisor} is false for an active cashier (role
+     * neither MANAGER nor ADMIN arm).
+     */
+    @Test
+    void supervisorFalseForCashier() {
+        EndorsementService service = new EndorsementService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(employee(true, Employee.EmployeeRole.CASHIER));
+            assertFalse(service.operatorIsSupervisor(stateWithOperator(7L)));
+        }
+    }
+
+    /**
+     * {@code operatorIsSupervisor} is true for an active manager (MANAGER arm).
+     */
+    @Test
+    void supervisorTrueForManager() {
+        EndorsementService service = new EndorsementService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(employee(true, Employee.EmployeeRole.MANAGER));
+            assertTrue(service.operatorIsSupervisor(stateWithOperator(7L)));
+        }
+    }
+
+    /**
+     * {@code operatorIsSupervisor} is true for an active admin (ADMIN arm).
+     */
+    @Test
+    void supervisorTrueForAdmin() {
+        EndorsementService service = new EndorsementService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(employee(true, Employee.EmployeeRole.ADMIN));
+            assertTrue(service.operatorIsSupervisor(stateWithOperator(7L)));
+        }
     }
 }

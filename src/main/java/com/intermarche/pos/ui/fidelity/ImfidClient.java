@@ -156,6 +156,68 @@ public class ImfidClient {
     }
 
     /**
+     * Searches cards by holder identity (addendum §3, {@code /api/cards/lookup}).
+     * <p>
+     * ONE criterion per call, by the addendum's priority: phone, else e-mail,
+     * else name (+ optional firstName). Normalization (phone formats, case,
+     * accents) is imfid's job — the register sends the operator's input as
+     * typed. Outcomes are TYPED, never exceptions for business answers:
+     * 200 = matches (possibly empty, capped at 20 by imfid), 422 with the
+     * CRM reason = identity lives in the CRM (addendum §2), any other
+     * non-200 throws (the caller's breaker turns it into the degraded
+     * message).
+     *
+     * @param phone the holder's phone, any format, or null
+     * @param email the holder's e-mail, or null
+     * @param name the holder's last name, or null
+     * @param firstName the optional first name refining a name search, or null
+     * @return the typed lookup outcome
+     * @throws Exception on transport failure or unexpected status
+     */
+    public LookupResult lookup(String phone, String email, String name, String firstName)
+            throws Exception {
+        StringBuilder qs = new StringBuilder();
+        appendParam(qs, "phone", phone);
+        appendParam(qs, "email", email);
+        appendParam(qs, "name", name);
+        appendParam(qs, "firstName", firstName);
+        HttpRequest request = authenticated("/api/cards/lookup" + qs)
+                .timeout(Duration.ofMillis(2500))
+                .GET()
+                .build();
+        HttpResponse<String> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        LookupResult result = new LookupResult();
+        if (response.statusCode() == 200) {
+            result.matches = objectMapper.readValue(response.body(),
+                    objectMapper.getTypeFactory()
+                            .constructCollectionType(List.class, LookupMatch.class));
+            return result;
+        }
+        if (response.statusCode() == 422) {
+            RefusalBody refusal = objectMapper.readValue(response.body(), RefusalBody.class);
+            result.crmManaged = refusal.reason != null
+                    && refusal.reason.startsWith("Holder identity is managed by the CRM");
+            result.refusalReason = refusal.reason;
+            return result;
+        }
+        throw new IllegalStateException("imfid /api/cards/lookup answered " + response.statusCode());
+    }
+
+    /**
+     * Appends one URL-encoded query parameter when its value is non-blank.
+     *
+     * @param qs the query string under construction
+     * @param key the parameter name
+     * @param value the raw value, or null
+     */
+    private void appendParam(StringBuilder qs, String key, String value) {
+        if (value == null || value.isBlank()) return;
+        qs.append(qs.length() == 0 ? '?' : '&').append(key).append('=')
+          .append(java.net.URLEncoder.encode(value.trim(), java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /**
      * Reserves a fidelity-payment lease (spec §5.1). Business refusals are
      * TYPED results, never exceptions — only transport failures throw.
      *
@@ -357,6 +419,29 @@ public class ImfidClient {
     }
 
     /** The parsed account (spec §4 — subset the POS uses). */
+    /** Typed outcome of a holder lookup (addendum §3.3/§3.4). */
+    public static class LookupResult {
+        /** The matches (200), empty when none; null on a 422 refusal. */
+        public List<LookupMatch> matches;
+        /** True when imfid runs in CRM mode: identity is not its business. */
+        public boolean crmManaged;
+        /** The verbatim 422 reason, for the log. */
+        public String refusalReason;
+    }
+
+    /** One holder match (tolerant reader — unknown fields ignored). */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public static class LookupMatch {
+        /** The card number — the only key the ticket flow ever uses. */
+        public String card;
+        /** ACTIVE | PENDING_ACTIVATION | RESILIATED. */
+        public String status;
+        /** The holder's last name, for the operator's verbal check only. */
+        public String lastName;
+        /** The holder's first name, for the operator's verbal check only. */
+        public String firstName;
+    }
+
     public static class AccountInfo {
         /** ACTIVE | PENDING_ACTIVATION | RESILIATED. */
         public String status;

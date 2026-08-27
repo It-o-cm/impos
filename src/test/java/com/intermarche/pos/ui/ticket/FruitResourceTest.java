@@ -36,23 +36,7 @@ class FruitResourceTest {
         resource.state = mock(PosState.class);
         resource.fruitService = mock(FruitService.class);
         resource.fruits = mock(Template.class);
-        resource.lock = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * {@code fruitsPage()} renders the lock page seeded with the state and never
-     * queries the PLU catalog when the terminal is locked (guard true arm).
-     */
-    @Test
-    void fruitsPageRendersLockWhenLocked() {
-        FruitResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(true);
-        TemplateInstance lockView = mock(TemplateInstance.class);
-        when(resource.lock.data("state", resource.state)).thenReturn(lockView);
-        assertSame(lockView, resource.fruitsPage());
-        verifyNoInteractions(resource.fruitService);
-        verifyNoInteractions(resource.fruits);
     }
 
     /**
@@ -70,6 +54,5 @@ class FruitResourceTest {
         when(resource.fruits.data("state", resource.state)).thenReturn(withState);
         when(withState.data("products", products)).thenReturn(withProducts);
         assertSame(withProducts, resource.fruitsPage());
-        verifyNoInteractions(resource.lock);
     }
 }

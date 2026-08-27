@@ -1,11 +1,9 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.TicketPrinterService;
-import com.intermarche.pos.service.valuation.ValuationService;
 import com.intermarche.pos.service.valuation.ValuationReconciler;
+import com.intermarche.pos.service.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -56,11 +54,21 @@ public class PaymentService {
      * notes & gift cards).
      */
     @Inject
-    TicketPrinterService ticketPrinterService;
+    com.intermarche.pos.service.TicketPrinterService ticketPrinterService;
+
+    /**
+     * Technical EAN of the solidarity-rounding line (parameterized).
+     * <p>
+     * A register-generated line is still a line: every line carries an EAN the
+     * valuation engine can resolve, because the engine prices the WHOLE ticket
+     * and a line without an EAN does not exist.
+     */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "pos.ean.donation")
+    String donationEan;
 
     /** Loyalty lease lifecycle and event composition (imfid lots 2-3). */
-    @Inject
-    FidelityService fidelityService;
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
 
     /** Loyalty fiscal-event outbox (imfid lot 3). */
     @jakarta.inject.Inject
@@ -128,7 +136,11 @@ public class PaymentService {
             BigDecimal difference = roundedUp.subtract(total);
             if (difference.signum() <= 0) return;
             // Collected on behalf of the charity: out of VAT scope
-            state.ticket.addItem(null, null, "ARRONDI SOLIDAIRE", difference, BigDecimal.ONE, BigDecimal.ZERO);
+            // Technical EAN, parameterized: a register-generated line is still
+            // a line, and every line carries an EAN the valuation engine can
+            // resolve (a line without one does not exist).
+            state.ticket.addItem(donationEan, null, "ARRONDI SOLIDAIRE",
+                    difference, BigDecimal.ONE, BigDecimal.ZERO);
             state.donationLineUid = state.lastEnteredItemId;
         }
         ticketPersistenceService.syncDraft(state);
