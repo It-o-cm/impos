@@ -109,6 +109,15 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-orm-panache</artifactId>
         </dependency>
+        <!-- Securite HTTP : active les interceptions @RolesAllowed et fournit
+             le socle d'identite du back-office. Les fournisseurs d'identite
+             sont ecrits a la main (com.intermarche.pos.security) et lisent la
+             table employees : quarkus-security-jpa n'est PAS utilise, son
+             @Roles exigeant une colonne texte que le role enum n'offre pas. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-resteasy-jackson</artifactId>

@@ -64,9 +64,11 @@ import java.net.URL;
  * <p>
  * <b>Justified residue.</b> None: the whole group is {@code [S]}. M4 browses the
  * cashier's screen set; the remaining full-page templates (customer display,
- * dashboard, cash-count, digital-ticket) carry the SAME single
- * {@code data-theme} cascade — one flip re-themes an entire page, there is no
- * per-element theme — so the coverage proof does not need every route re-walked.
+ * cash-count, digital-ticket) carry the SAME single {@code data-theme}
+ * cascade — one flip re-themes an entire page, there is no per-element theme
+ * — so the coverage proof does not need every route re-walked. The store
+ * dashboard is NOT among them any more: it moved to the back-office gabarit
+ * and no longer takes part in the till's theme cascade at all.
  */
 @QuarkusTest
 @TestProfile(E2eTestProfile.class)

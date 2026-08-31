@@ -61,18 +61,32 @@ public class DataInitializer {
     }
 
     /**
-     * Seeds the test employees (badge, login, PIN, role).
+     * Back-office password given to the seeded accounts that have one.
+     * <p>
+     * A bootstrap value, and named like one: it is written in this source
+     * file, so every seeded account carries {@code mustChangePassword} and
+     * is confined to the password screen until someone replaces it. Only
+     * the two supervising accounts get one at all — a cashier has no back
+     * office, and the absence of a password is what says so.
+     */
+    private static final String BOOTSTRAP_BACK_OFFICE_PASSWORD = "changeme00";
+
+    /**
+     * Seeds the test employees (badge, login, PIN, role, back-office
+     * password).
      */
     private void loadEmployees() {
-        // Format : createEmployee(BadgeID 8chiffres, PIN 4chiffres, Prénom, Nom, Rôle)
-        createEmployee("11111111", "mcurie", "1111", "Marie", "Curie", Employee.EmployeeRole.MANAGER);
+        // Format : createEmployee(BadgeID 8chiffres, login, PIN 4chiffres, Prénom, Nom, Rôle, mot de passe back-office)
+        createEmployee("11111111", "mcurie", "1111", "Marie", "Curie", Employee.EmployeeRole.MANAGER,
+                BOOTSTRAP_BACK_OFFICE_PASSWORD);
         // Theme demo: Marie prefers the light theme (cashier preference
         // overrides the store default — see ThemeService)
         Employee marie = Employee.find("loginName", "mcurie").firstResult();
         marie.theme = "clair";
-        createEmployee("22222222", "aeinstein", "2222", "Albert", "Einstein", Employee.EmployeeRole.PICKER);
-        createEmployee("00000000", "manager", "0000", "Le", "Manager", Employee.EmployeeRole.ADMIN);
-        createEmployee("12341234",  "jdupont","1234", "Jean", "Dupont", Employee.EmployeeRole.CASHIER);
+        createEmployee("22222222", "aeinstein", "2222", "Albert", "Einstein", Employee.EmployeeRole.PICKER, null);
+        createEmployee("00000000", "manager", "0000", "Le", "Manager", Employee.EmployeeRole.ADMIN,
+                BOOTSTRAP_BACK_OFFICE_PASSWORD);
+        createEmployee("12341234",  "jdupont","1234", "Jean", "Dupont", Employee.EmployeeRole.CASHIER, null);
     }
 
     /**
@@ -260,12 +274,16 @@ public class DataInitializer {
      *
      * @param badgeId the 8-digit physical badge identifier
      * @param loginName the login name
-     * @param pin the 4-digit PIN (hashed)
+     * @param pin the 4-digit PIN, opening the REGISTER (hashed)
      * @param firstName the first name
      * @param lastName the last name
      * @param role the employee role
+     * @param backOfficePassword the back-office password, opening the
+     *        ADMINISTRATION (hashed), or null for an employee who has no
+     *        back office
      */
-    private void createEmployee(String badgeId, String loginName, String pin, String firstName, String lastName, Employee.EmployeeRole role) {
+    private void createEmployee(String badgeId, String loginName, String pin, String firstName, String lastName,
+                                Employee.EmployeeRole role, String backOfficePassword) {
         Employee emp = new Employee();
         emp.badgeId = badgeId; // Identifiant physique du badge (8 chiffres)
         emp.loginName = loginName;
@@ -275,6 +293,10 @@ public class DataInitializer {
         emp.email = firstName.toLowerCase() + "." + lastName.toLowerCase() + "@test.com";
         emp.role = role;
         emp.active = true;
+        emp.setBackOfficePassword(backOfficePassword);
+        // The password comes from this file, so it is known outside the
+        // account: the first sign-in is confined to the password screen.
+        emp.mustChangePassword = backOfficePassword != null;
         emp.persist();
     }
 

@@ -39,7 +39,14 @@ IMVALUATION_DIR="${IMVALUATION_DIR:-$IMPOS_DIR/../imvaluation}"
 IMFID_DIR="${IMFID_DIR:-$IMPOS_DIR/../imfid}"
 FEEDS_DIR="$IMPOS_DIR/demo/feeds"
 RUN_DIR="$IMPOS_DIR/.demo-stack"
-ADMIN_AUTH="admin:admin"
+# Compte ADMIN du seed (DataInitializer) : identifiant "manager", mot de passe
+# BACK-OFFICE "changeme00" -- surtout pas le PIN "0000", qui n'ouvre que la
+# caisse. Depuis que la securite HTTP est active ces identifiants sont
+# reellement verifies contre la table employees ; le couple admin:admin d'avant
+# ne correspondait a aucun compte et ne passait que parce que rien ne
+# controlait. Le drapeau mustChangePassword du seed ne gene pas ces appels :
+# le filtre de changement laisse passer toute requete en HTTP Basic.
+ADMIN_AUTH="manager:changeme00"
 mkdir -p "$RUN_DIR"
 
 # ---------- stop ----------

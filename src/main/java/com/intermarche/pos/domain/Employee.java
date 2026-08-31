@@ -18,15 +18,27 @@ import java.util.Set;
  * <p>
  * Semantic contract:
  * <ul>
- *   <li>Authentication: badge scan resolves the account, the 4-digit PIN is
- *       verified against the bcrypt hash stored in {@code password}. The
- *       same PIN check guards login and manager endorsements, and shares
- *       one lockout: {@code failedAttempts} / {@code lockedUntil}
- *       (pos.auth.max-attempts, pos.auth.lockout-minutes).</li>
+ *   <li>TWO CREDENTIALS, two doors, one staff file. The 4-digit PIN
+ *       ({@code password}) opens the REGISTER and nothing else; the
+ *       back-office password ({@code backOfficePassword}) opens the
+ *       BACK OFFICE and the machine surfaces, and nothing else. Neither
+ *       is accepted at the other's door. An employee with no back-office
+ *       password simply has no back office — which is the normal state of
+ *       a cashier.</li>
+ *   <li>Authentication at the register: badge scan resolves the account,
+ *       the 4-digit PIN is verified against the bcrypt hash stored in
+ *       {@code password}. The same PIN check guards login and manager
+ *       endorsements, and shares one lockout: {@code failedAttempts} /
+ *       {@code lockedUntil} (pos.auth.max-attempts,
+ *       pos.auth.lockout-minutes).</li>
  *   <li>The lockout pair is LOCAL operational state: the centralized
- *       referential pull upserts every business field (hash included — any
- *       cashier can badge on any register) but never touches these two, so
- *       a lock on one register neither spreads nor resets.</li>
+ *       referential pull upserts every business field (PIN hash included —
+ *       any cashier can badge on any register) but never touches these two,
+ *       so a lock on one register neither spreads nor resets. The
+ *       back-office password and its forced-change flag are local for the
+ *       SAME reason: the back office is administered on the node where it
+ *       runs, and a password someone changed there has no business being
+ *       pushed onto every register.</li>
  *   <li>Roles: MANAGER and ADMIN validate endorsements; deactivation, not
  *       deletion, removes an employee (historical documents reference
  *       them).</li>
@@ -89,7 +101,12 @@ public class Employee extends BaseEntity {
     public String loginName;
 
     /**
-     * The hashed password (PIN code) of the employee.
+     * The hashed 4-digit PIN of the employee — the REGISTER credential.
+     * <p>
+     * Kept under its historical name because it is what the whole register
+     * chain reads; the back-office credential is
+     * {@link #backOfficePassword}, a different secret behind a different
+     * door.
      * <p>
      * Note: This should store the hash (e.g., BCrypt), never the plain text PIN.
      */
@@ -169,6 +186,38 @@ public class Employee extends BaseEntity {
     @Column(name = "locked_until")
     public LocalDateTime lockedUntil;
 
+    // --------------------------------------------------
+    // Back-office credential (local state, like the lockout)
+    // --------------------------------------------------
+
+    /**
+     * The hashed back-office password, or null when the employee has no
+     * back-office access at all.
+     * <p>
+     * A conventional password, not a PIN: it travels over HTTP, it is typed
+     * on a keyboard, and it is the credential the login form and the HTTP
+     * Basic clients present. Null is the normal state of a cashier — the
+     * absence of a value IS the absence of the right, so no extra flag is
+     * needed to keep the back office shut.
+     * <p>
+     * Never carried by the referential pull: see the class contract.
+     */
+    @Column(name = "bo_password", length = 100)
+    public String backOfficePassword;
+
+    /**
+     * Whether the back-office password must be replaced before anything
+     * else can be reached.
+     * <p>
+     * Set whenever the password comes from somewhere other than its owner —
+     * the seed today, an administrator's reset tomorrow — so a password
+     * that is known outside the account cannot survive the first sign-in.
+     * <p>
+     * Never carried by the referential pull: see the class contract.
+     */
+    @Column(name = "must_change_password", nullable = false)
+    public boolean mustChangePassword = false;
+
     /**
      * Indicates whether the account is currently locked out after repeated
      * PIN failures.
@@ -211,6 +260,41 @@ public class Employee extends BaseEntity {
             return Set.of();
         }
         return Set.of(role.name());
+    }
+
+    /**
+     * Indicates whether the employee may reach the back office at all.
+     *
+     * @return true when a back-office password has been set
+     */
+    public boolean hasBackOfficeAccess() {
+        return backOfficePassword != null && !backOfficePassword.isBlank();
+    }
+
+    /**
+     * Sets the back-office password, hashing it.
+     *
+     * @param rawPassword the clear-text password, or null to withdraw
+     *                    back-office access entirely
+     */
+    public void setBackOfficePassword(String rawPassword) {
+        this.backOfficePassword = rawPassword == null ? null : hashPassword(rawPassword);
+    }
+
+    /**
+     * Verifies a presented back-office password against the stored hash.
+     * <p>
+     * Returns false when no back-office password is set: an account without
+     * one is not a back-office account, and no input can make it one.
+     *
+     * @param rawPassword the clear-text password presented
+     * @return true when it matches
+     */
+    public boolean verifyBackOfficePassword(String rawPassword) {
+        if (!hasBackOfficeAccess() || rawPassword == null) {
+            return false;
+        }
+        return BCrypt.checkpw(rawPassword, this.backOfficePassword);
     }
 
     /**
@@ -323,6 +407,10 @@ public class Employee extends BaseEntity {
      * Calculates a checksum based on the entity's current state.
      * <p>
      * Includes the password reset fields in the calculation to detect changes.
+     * <p>
+     * Deliberately EXCLUDES the back-office credential: that field is local
+     * state, outside the referential exchange, and hashing it here would
+     * make a local password change look like a referential divergence.
      *
      * @return the calculated checksum.
      */

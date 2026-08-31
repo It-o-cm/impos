@@ -1,6 +1,8 @@
 package com.intermarche.pos.ui.dashboard;
 
 import io.quarkus.qute.Location;
+import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
@@ -28,13 +30,17 @@ import java.util.Optional;
  * the registers POST to — the latter gated like the sync ingestion (store
  * role, optional shared token).
  * <p>
- * Security posture, explicit: the dashboard pages and their data carry NO
- * authentication — a back-office screen on the store LAN, accepted as such.
- * Only the machine-facing inbound call endpoint is gated (role + token),
- * because a register pushes to it across the network. Exposing the
- * dashboard beyond the back office would require adding an operator gate
- * first. The page itself works on any node (it reads the local database);
+ * Security posture, explicit: the supervision page, its poll and the
+ * acknowledgement require a signed-in MANAGER or ADMIN — supervision is a
+ * management screen, not a public LAN page. The machine-facing inbound call
+ * endpoint keeps its OWN gate instead (node role plus shared token) and
+ * stays anonymous: a register pushes to it across the network and carries no
+ * operator identity. The page itself works on any node (it reads the local database);
  * it only becomes the STORE dashboard by running on the consolidated node.
+ * <p>
+ * Chrome: the page renders inside the back-office gabarit
+ * ({@code admin-layout}), the same as {@code /admin/settings} — one
+ * surface, one chrome, one navigation. It does NOT carry the till's theme.
  */
 @Path("/")
 public class DashboardResource {
@@ -70,6 +76,7 @@ public class DashboardResource {
      */
     @GET
     @Path("/dashboard")
+    @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance dashboardPage() {
         return dashboard.instance();
@@ -83,6 +90,7 @@ public class DashboardResource {
      */
     @GET
     @Path("/dashboard-data")
+    @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.APPLICATION_JSON)
     public Map<String, Object> dashboardData() {
         Map<String, Object> data = dashboardService.buildData();
@@ -108,6 +116,7 @@ public class DashboardResource {
      */
     @GET
     @Path("/dashboard/ack/{id}")
+    @RolesAllowed({"ADMIN", "MANAGER"})
     public Response acknowledge(@PathParam("id") long id) {
         supervisorCallRegistry.acknowledge(id);
         return Response.noContent().build();
@@ -123,6 +132,7 @@ public class DashboardResource {
      */
     @POST
     @Path("/api/supervisor/call")
+    @PermitAll
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public Response receiveCall(@HeaderParam("X-Sync-Token") String presentedToken, CallDto dto) {

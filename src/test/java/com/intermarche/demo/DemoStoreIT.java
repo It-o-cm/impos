@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -58,6 +60,19 @@ public class DemoStoreIT {
 
     /** The outbox drains every 10 s: poll up to three cycles. */
     private static final int DRAIN_TIMEOUT_SECONDS = 35;
+
+    /**
+     * Basic credentials for the store node's supervision data.
+     * <p>
+     * {@code /dashboard-data} became a manager-facing endpoint when the back
+     * office got its identity: it now answers 401 to an anonymous reader.
+     * The seed's ADMIN account is used with its BACK-OFFICE password, not
+     * its register PIN, and the header is sent explicitly because HTTP Basic
+     * outranks the login form for a request that carries one — which also
+     * exempts this read from the forced-password-change diversion.
+     */
+    private static final String STORE_AUTH = "Basic " + Base64.getEncoder()
+            .encodeToString("manager:changeme00".getBytes(StandardCharsets.UTF_8));
 
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
@@ -200,7 +215,8 @@ public class DemoStoreIT {
             diagnosis.append(" → soit la caisse n'a RIEN enfilé (pos.sync.store-url absent au")
                     .append(" boot ?), soit tout est poussé et le magasin n'a pas consolidé");
         }
-        APIResponse probe = context.request().get(STORE_URL + "/dashboard-data");
+        APIResponse probe = context.request().get(STORE_URL + "/dashboard-data",
+                RequestOptions.create().setHeader("Authorization", STORE_AUTH));
         diagnosis.append(" | /dashboard-data: HTTP ").append(probe.status());
         return diagnosis.toString();
     }
@@ -213,7 +229,8 @@ public class DemoStoreIT {
      */
     private Integer storeTicketCount() {
         try {
-            APIResponse data = context.request().get(STORE_URL + "/dashboard-data");
+            APIResponse data = context.request().get(STORE_URL + "/dashboard-data",
+                    RequestOptions.create().setHeader("Authorization", STORE_AUTH));
             if (!data.ok()) {
                 return null;
             }

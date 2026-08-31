@@ -1,9 +1,13 @@
 package com.intermarche.pos.ui.admin;
 
+import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Location;
+import io.quarkus.security.Authenticated;
+import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
@@ -30,10 +34,18 @@ import java.util.List;
  * registers through the referential pull (domain SETTINGS): administered on
  * the STORE node they apply store-wide at the next pull; edited on a
  * standalone register they apply locally — same screen, same table, the
- * topology decides the reach. No authentication yet: the page sits on the
- * back-office surface next to {@code /dashboard}, outside the cashier lock
- * (allowlisted in the lock filter), and a real admin login is a known gap
- * of the whole back-office surface.
+ * topology decides the reach.
+ * <p>
+ * Access is reserved to ADMIN, deliberately one notch above the supervision
+ * page (ADMIN or MANAGER): these parameters decide, among other things,
+ * whether a gesture requires a manager's endorsement — letting a manager
+ * lift the requirement that a manager approves would be an escalation. The
+ * page sits outside the cashier lock (the lock filter allowlists
+ * {@code /admin}) because it is a back-office surface, not a till screen.
+ * <p>
+ * Also serves the back office's ENTRY POINT ({@code /admin}), which
+ * redirects here: the surface has one address to type and one address for
+ * the header brand to point at, the mirror of the imvaluation admin root.
  */
 @Path("/")
 public class AdminSettingsResource {
@@ -46,6 +58,10 @@ public class AdminSettingsResource {
     /** The catalog and store of the parameters. */
     @Inject
     PosSettingsService posSettingsService;
+
+    /** The identity of the signed-in operator, used to route the root. */
+    @Inject
+    SecurityIdentity identity;
 
     /**
      * One render-ready catalog entry: the definition flattened for Qute plus
@@ -71,6 +87,27 @@ public class AdminSettingsResource {
     }
 
     /**
+     * Routes the back-office root to the entry point the signed-in operator
+     * may actually reach.
+     * <p>
+     * An administrator lands on the parameters; a manager, who has no
+     * business there, lands on the supervision. Without this the single
+     * landing page of form authentication would send half the operators
+     * onto a refusal, and the header brand would do the same. Kept in this
+     * resource rather than in a class of its own: a redirect does not
+     * warrant one.
+     *
+     * @return a 303 redirect to the parameters or to the supervision
+     */
+    @GET
+    @Path("/admin")
+    @Authenticated
+    public Response adminRoot() {
+        boolean admin = identity != null && identity.hasRole(Employee.EmployeeRole.ADMIN.name());
+        return Response.seeOther(URI.create(admin ? "/admin/settings" : "/dashboard")).build();
+    }
+
+    /**
      * Shows the parameters page.
      *
      * @param notice the one-shot outcome message, or null
@@ -79,6 +116,7 @@ public class AdminSettingsResource {
      */
     @GET
     @Path("/admin/settings")
+    @RolesAllowed("ADMIN")
     public TemplateInstance settingsPage(@QueryParam("notice") String notice,
                                          @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
         List<Entry> entries = new ArrayList<>();
@@ -110,6 +148,7 @@ public class AdminSettingsResource {
      */
     @POST
     @Path("/admin/settings")
+    @RolesAllowed("ADMIN")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response save(MultivaluedMap<String, String> form) {
         int saved = 0;

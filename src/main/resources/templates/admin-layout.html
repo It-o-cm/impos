@@ -3,6 +3,21 @@
  ! (same base.css, same --im-* tokens, same chrome): the store's back office
  ! must feel like the valuation and fidelity admins, NOT like the till. The
  ! till's dark touch theme (theme.html) is deliberately absent here.
+ !
+ ! THE layout of the whole back-office surface: every back-office page goes
+ ! through it (parameters AND supervision), which is what makes the two
+ ! screens one application rather than two. As in imvaluation, the layout
+ ! loads base.css plus every area stylesheet, so a page never carries its
+ ! own <style> block. Adding a screen = adding its sheet here and its link
+ ! to the navigation, nowhere else.
+ !
+ ! Insertable blocks: `title` (browser title), `body` (the page) and
+ ! `footer` (the closing note, whose default states what the surface is).
+ !
+ ! The header carries the signed-in operator and the sign-out form. The
+ ! Paramètres entry is hidden from a non-administrator, which is a
+ ! CONVENIENCE only: the guard is the @RolesAllowed on the resource, and
+ ! typing the URL still lands on a refusal.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -11,17 +26,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{#insert title}POS admin{/}</title>
     <link rel="stylesheet" href="/admin/base.css">
+    <link rel="stylesheet" href="/admin/auth.css">
+    <link rel="stylesheet" href="/admin/dashboard.css">
 </head>
 <body>
 <header class="app-header">
-    <a class="app-brand" href="/admin/settings">
+    <a class="app-brand" href="/admin">
         <span class="app-brand-mark"></span>
         <span class="app-brand-text">POS<b>admin</b></span>
     </a>
     <nav class="app-nav">
+        {#if inject:currentUser.admin}
         <a href="/admin/settings">Paramètres</a>
+        {/if}
         <a href="/dashboard">Supervision</a>
     </nav>
+    {#if inject:currentUser.authenticated}
+    <div class="app-identity">
+        <span class="app-identity-name">{inject:currentUser.fullName}</span>
+        <a class="app-identity-link" href="/admin/password">Mot de passe</a>
+        <form method="post" action="/admin/logout" class="app-identity-form">
+            <button class="app-identity-link" type="submit">Se déconnecter</button>
+        </form>
+    </div>
+    {/if}
 </header>
 
 <main class="app-main">
@@ -29,7 +57,7 @@
 </main>
 
 <footer class="app-footer">
-    <span>Les paramètres sont distribués aux caisses par le tirage référentiel (domaine SETTINGS), comme les produits et les prix.</span>
+    <span>{#insert footer}Back-office du magasin : paramétrage des caisses et supervision de la ligne.{/}</span>
 </footer>
 </body>
 </html>
