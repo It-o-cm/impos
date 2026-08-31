@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="/admin/base.css">
     <link rel="stylesheet" href="/admin/auth.css">
     <link rel="stylesheet" href="/admin/dashboard.css">
+    <link rel="stylesheet" href="/admin/profiles.css">
 </head>
 <body>
 <header class="app-header">
@@ -39,12 +40,15 @@
         {#if inject:currentUser.admin}
         <a href="/admin/settings">Paramètres</a>
         <a href="/admin/store">Point de vente</a>
+        <a href="/admin/profiles">Profils</a>
+        <a href="/admin/users">Utilisateurs</a>
         {/if}
         <a href="/dashboard">Supervision</a>
     </nav>
     {#if inject:currentUser.authenticated}
     <div class="app-identity">
         <span class="app-identity-name">{inject:currentUser.fullName}</span>
+        <a class="app-identity-link" href="/admin/favorites">Mes favoris</a>
         <a class="app-identity-link" href="/admin/password">Mot de passe</a>
         <form method="post" action="/admin/logout" class="app-identity-form">
             <button class="app-identity-link" type="submit">Se déconnecter</button>
