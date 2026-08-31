@@ -1,11 +1,15 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityService;
+import com.intermarche.pos.ui.fidelity.FidelityState;
+import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,9 +48,24 @@ class FidelityScanHandlerTest {
      * @return a ready-to-test handler
      */
     private FidelityScanHandler newHandler(FidelityService fidelityService) {
+        return newHandler(fidelityService, true);
+    }
+
+    /**
+     * Builds a handler wired with the fidelity pattern, a mock service and a
+     * back-office parameters mock whose multiple-scan verdict is driven.
+     *
+     * @param fidelityService the fidelity service mock to inject
+     * @param allowMultiple the value returned by {@code fidelityAllowMultipleScan}
+     * @return a ready-to-test handler
+     */
+    private FidelityScanHandler newHandler(FidelityService fidelityService, boolean allowMultiple) {
         FidelityScanHandler handler = new FidelityScanHandler();
         handler.fidelityPattern = FIDELITY_PATTERN;
         handler.fidelityService = fidelityService;
+        PosSettingsService settings = mock(PosSettingsService.class);
+        when(settings.fidelityAllowMultipleScan()).thenReturn(allowMultiple);
+        handler.posSettingsService = settings;
         return handler;
     }
 
@@ -110,5 +129,46 @@ class FidelityScanHandlerTest {
         newHandler(fidelityService).handle(ctx);
         verify(fidelityService, never()).validateCard(state, NON_FIDELITY_CODE);
         assertFalse(ctx.handled);
+    }
+
+    /**
+     * BO-10-03-02: with multiple scans DISALLOWED and a card already attached,
+     * a further scan is refused — the cashier gets the transient error, the
+     * card is not re-validated, and the context is consumed.
+     */
+    @Test
+    void secondCardRefusedWhenMultipleScanDisallowed() {
+        PosState state = mock(PosState.class);
+        when(state.isLocked()).thenReturn(false);
+        FidelityState fidelity = mock(FidelityState.class);
+        fidelity.active = true;
+        state.fidelity = fidelity;
+        TicketState ticket = mock(TicketState.class);
+        state.ticket = ticket;
+        FidelityService fidelityService = mock(FidelityService.class);
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        newHandler(fidelityService, false).handle(ctx);
+        verify(ticket).setError("CARTE FIDÉLITÉ DÉJÀ SCANNÉE");
+        verify(fidelityService, never()).validateCard(any(), any());
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * BO-10-03-02: with multiple scans DISALLOWED but NO card yet attached,
+     * the first card is validated normally — the block only bites once a card
+     * is present.
+     */
+    @Test
+    void firstCardValidatedWhenMultipleScanDisallowed() {
+        PosState state = mock(PosState.class);
+        when(state.isLocked()).thenReturn(false);
+        FidelityState fidelity = mock(FidelityState.class);
+        fidelity.active = false;
+        state.fidelity = fidelity;
+        FidelityService fidelityService = mock(FidelityService.class);
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
+        newHandler(fidelityService, false).handle(ctx);
+        verify(fidelityService).validateCard(state, FIDELITY_CODE);
+        assertTrue(ctx.handled);
     }
 }

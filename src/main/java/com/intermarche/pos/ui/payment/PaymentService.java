@@ -51,6 +51,10 @@ public class PaymentService {
     @Inject
     HardwareService hardwareService;
 
+    /** The back-office parameters (drawer-open rules — BO-10-02-12). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     @Inject
     TicketPersistenceService ticketPersistenceService;
 
@@ -264,8 +268,9 @@ public class PaymentService {
 
         handlePaymentWithChange(state, "CASH", "ESPECES", tendered);
 
-        // Rule: cash = systematic drawer opening (deposit + change)
-        if (!state.trainingMode) hardwareService.openDrawer(); // drawer stays shut in training
+        // Rule: cash = systematic drawer opening (deposit + change), unless the
+        // back office disabled the drawer-open-on-payment rule (BO-10-02-12).
+        if (!state.trainingMode && posSettingsService.drawerOpenOnPayment()) hardwareService.openDrawer(); // drawer stays shut in training
     }
 
     /**
@@ -406,8 +411,9 @@ public class PaymentService {
 
         handlePaymentWithChange(state, "TR", "TICKET", amount);
 
-        // Rule: meal tickets = systematic drawer opening (to store the tickets)
-        if (!state.trainingMode) hardwareService.openDrawer(); // drawer stays shut in training
+        // Rule: meal tickets = systematic drawer opening (to store the tickets),
+        // unless the drawer-open-on-payment rule is disabled (BO-10-02-12).
+        if (!state.trainingMode && posSettingsService.drawerOpenOnPayment()) hardwareService.openDrawer(); // drawer stays shut in training
     }
 
     /**
@@ -422,8 +428,9 @@ public class PaymentService {
 
         handlePaymentWithChange(state, "CHEQUE", "CHEQUE", amount);
 
-        // Rule: cheque = systematic drawer opening (to store the cheque)
-        if (!state.trainingMode) hardwareService.openDrawer(); // drawer stays shut in training
+        // Rule: cheque = systematic drawer opening (to store the cheque),
+        // unless the drawer-open-on-payment rule is disabled (BO-10-02-12).
+        if (!state.trainingMode && posSettingsService.drawerOpenOnPayment()) hardwareService.openDrawer(); // drawer stays shut in training
     }
 
     /**

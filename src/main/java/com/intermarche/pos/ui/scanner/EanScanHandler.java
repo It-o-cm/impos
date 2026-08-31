@@ -28,6 +28,10 @@ public class EanScanHandler implements ScanContext.ScanHandler {
     @jakarta.inject.Inject
     com.intermarche.pos.ui.ticket.TicketService ticketService;
 
+    /** The back-office parameters (EAN13 check-digit control — BO-10-02-21). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
 
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
     @ConfigProperty(name = "pos.vat.default-rate", defaultValue = "0.20")
@@ -46,6 +50,14 @@ public class EanScanHandler implements ScanContext.ScanHandler {
         if (ctx.handled) return;
 
         if (ctx.code.matches("\\d{8,13}")) {
+            // BO-10-02-21: when the check-digit control is active, a 13-digit
+            // code whose EAN13 key is wrong is refused before any lookup.
+            if (posSettingsService.ean13CheckDigitEnabled() && ctx.code.length() == 13
+                    && !hasValidChecksum(ctx.code)) {
+                ctx.state.ticket.setError("CODE EAN INVALIDE");
+                ctx.handled = true;
+                return;
+            }
             Product p = Product.find("ean = ?1 and active = true", ctx.code).firstResult();
             if (p != null) {
                 if (p.forbiddenToSale) {
@@ -74,5 +86,23 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 ctx.handled = true;
             }
         }
+    }
+
+    /**
+     * Verifies the EAN13 check digit of a 13-digit code (same algorithm as the
+     * in-store weighted-label handler): the twelve data digits are weighted
+     * 1-3-1-3..., the complement to the next ten is the expected key.
+     *
+     * @param code the 13-digit code
+     * @return true when the check digit matches
+     */
+    private boolean hasValidChecksum(String code) {
+        int sum = 0;
+        for (int i = 0; i < 12; i++) {
+            int digit = code.charAt(i) - '0';
+            sum += (i % 2 == 0) ? digit : digit * 3;
+        }
+        int expected = (10 - (sum % 10)) % 10;
+        return expected == (code.charAt(12) - '0');
     }
 }

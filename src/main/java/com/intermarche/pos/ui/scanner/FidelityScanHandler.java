@@ -23,6 +23,10 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
     @Inject
     FidelityService fidelityService;
 
+    /** The back-office parameters (multiple-card-scan rule — BO-10-03-02). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /**
      * Attaches a recognized card to the ticket.
      *
@@ -34,6 +38,13 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
 
         // On n'applique la fidélité que si la caisse est déverrouillée
         if (!ctx.state.isLocked() && ctx.code.matches(fidelityPattern)) {
+            // BO-10-03-02: a card already attached blocks any further scan
+            // unless the back office allows multiple scans (last one wins).
+            if (!posSettingsService.fidelityAllowMultipleScan() && ctx.state.fidelity.active) {
+                ctx.state.ticket.setError("CARTE FIDÉLITÉ DÉJÀ SCANNÉE");
+                ctx.handled = true;
+                return;
+            }
             fidelityService.validateCard(ctx.state, ctx.code);
             ctx.handled = true;
         }

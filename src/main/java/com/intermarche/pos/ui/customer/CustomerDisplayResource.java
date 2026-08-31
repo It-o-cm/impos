@@ -90,7 +90,9 @@ public class CustomerDisplayResource {
         result.put("change", state.payment.lastChangeAmount != null
                 ? state.payment.lastChangeAmount.setScale(2, RoundingMode.HALF_UP).toPlainString().replace(".", ",")
                 : "");
-        result.put("digitalPath", digitalPath());
+        // BO-10-07-02: the digital-receipt QR code is emitted only when the
+        // back office activated it; disabled, the display shows no QR code.
+        result.put("digitalPath", posSettingsService.customerQrEnabled() ? digitalPath() : "");
 
         List<Map<String, String>> items = new ArrayList<>();
         for (TicketState.TicketItem item : state.ticket.items) {

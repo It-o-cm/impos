@@ -88,8 +88,11 @@ class TicketPrinterServiceTest {
         TicketPrinterService service = new TicketPrinterService();
         service.hardwareService = mock(HardwareService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
-        // Back-office parameters at their defaults: no EAN on paper.
+        // Back-office parameters at their defaults: no EAN on paper. The
+        // fidelity advantages default to ON, the pre-existing behavior the
+        // loyalty-section cases rely on (BO-10-03-15).
         service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(true);
         return service;
     }
 
@@ -362,6 +365,36 @@ class TicketPrinterServiceTest {
             String out = captureReceipt(service);
             assertTrue(out.contains("LYON\n" + "-".repeat(42)));
             assertTrue(out.trim().endsWith("A BIENTOT"));
+        }
+    }
+
+    /**
+     * BO-10-02-34: with the article-code display ON (display.show-ean), a line
+     * carrying a non-empty EAN prints it under the label, while a null-EAN and
+     * an empty-EAN line print none — the three arms of the
+     * {@code showEan() && ean != null && !ean.isEmpty()} guard.
+     */
+    @Test
+    void printTicketPrintsArticleEanWhenEnabled() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.showEan()).thenReturn(true);
+        Ticket ticket = ticket(0, null);
+        TicketLine withEan = line("U1", "PAIN", "1", "2.00", "2.00");
+        withEan.ean = "3017620422003";
+        TicketLine nullEan = line("U2", "LAIT", "1", "1.00", "1.00");
+        nullEan.ean = null;
+        TicketLine emptyEan = line("U3", "SEL", "1", "0.50", "0.50");
+        emptyEan.ean = "";
+        ticket.lines.add(withEan);
+        ticket.lines.add(nullEan);
+        ticket.lines.add(emptyEan);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("3017620422003"));
         }
     }
 
@@ -942,6 +975,27 @@ class TicketPrinterServiceTest {
             String out = captureReceipt(service);
             assertTrue(out.contains("CAGNOTTE DU JOUR"));
             assertTrue(out.contains("+1,03 E"));
+        }
+    }
+
+    /**
+     * BO-10-03-15: with the fidelity advantages DISABLED, the CAGNOTTE section
+     * is skipped even on a live projection for the current ticket — the
+     * {@code fidelityAdvantagesEnabled()} false arm gates the whole section.
+     */
+    @Test
+    void printTicketSkipsTheLoyaltySectionWhenAdvantagesDisabled() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(false);
+        wireLiveState(service, new BigDecimal("1.03"), 1L, null);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
         }
     }
 

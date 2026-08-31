@@ -275,7 +275,14 @@ class PosSettingsServiceTest {
                     row("discount.enabled", "false"),
                     row("price.show-original-on-force", "false"),
                     row("ticket.header-message", "Promo"),
-                    row("ticket.footer-message", "A bientot")));
+                    row("ticket.footer-message", "A bientot"),
+                    row("customer.qr-enabled", "false"),
+                    row("drawer.open-on-payment", "false"),
+                    row("drawer.open-on-login", "false"),
+                    row("scan.ean13-check-digit", "true"),
+                    row("dashboard.alerts-enabled", "false"),
+                    row("fidelity.advantages-enabled", "false"),
+                    row("fidelity.allow-multiple-scan", "false")));
             assertTrue(service.showEan());
             assertFalse(service.gestureEndorsementRequired());
             assertEquals(30, service.globalMaxDiscountPercent());
@@ -287,6 +294,13 @@ class PosSettingsServiceTest {
             assertFalse(service.priceShowOriginalOnForce());
             assertEquals("Promo", service.ticketHeaderMessage());
             assertEquals("A bientot", service.ticketFooterMessage());
+            assertFalse(service.customerQrEnabled());
+            assertFalse(service.drawerOpenOnPayment());
+            assertFalse(service.drawerOpenOnLogin());
+            assertTrue(service.ean13CheckDigitEnabled());
+            assertFalse(service.dashboardAlertsEnabled());
+            assertFalse(service.fidelityAdvantagesEnabled());
+            assertFalse(service.fidelityAllowMultipleScan());
         }
     }
 }

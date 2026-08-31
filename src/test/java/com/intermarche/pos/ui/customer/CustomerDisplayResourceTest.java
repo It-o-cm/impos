@@ -53,6 +53,9 @@ class CustomerDisplayResourceTest {
         resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(resource.posSettingsService.customerOpenMessage()).thenReturn("Bienvenue");
         when(resource.posSettingsService.customerClosedMessage()).thenReturn("Caisse fermée");
+        // The customer-display QR defaults to ON, the pre-existing behavior the
+        // digital-path cases rely on (BO-10-07-02).
+        when(resource.posSettingsService.customerQrEnabled()).thenReturn(true);
         resource.state = mock(PosState.class);
         resource.state.ticket = mock(TicketState.class);
         resource.state.ticket.items = new ArrayList<>();
@@ -197,6 +200,52 @@ class CustomerDisplayResourceTest {
             assertEquals("x1,25", items.get(2).get("qty"));
             assertEquals("4,00", items.get(2).get("amount"));
         }
+    }
+
+    /**
+     * BO-10-07-02: with the customer-display QR DISABLED, the snapshot carries
+     * an empty digital path — the {@code digitalPath()} helper is
+     * short-circuited by the {@code customerQrEnabled()} false arm, so no
+     * ticket lookup happens.
+     */
+    @Test
+    void customerDataQrDisabledYieldsEmptyDigitalPath() {
+        CustomerDisplayResource resource = newResource();
+        when(resource.posSettingsService.customerQrEnabled()).thenReturn(false);
+        resource.state.version = 1L;
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.state.getRemainingFormatted()).thenReturn("0,00");
+        when(resource.state.ticket.getTotalFormatted()).thenReturn("0,00");
+        resource.state.payment.lastChangeAmount = null;
+        Map<String, Object> result = resource.customerData(null);
+        assertEquals("", result.get("digitalPath"));
+    }
+
+    /**
+     * With the EAN display ON (display.show-ean, BO-10-02-35), a line carrying
+     * an EAN exposes it on the customer screen while a line without one does
+     * not — both arms of the {@code showEan() && item.ean != null} guard.
+     */
+    @Test
+    void customerDataShowsEanOnlyWhenEnabledAndPresent() {
+        CustomerDisplayResource resource = newResource();
+        when(resource.posSettingsService.showEan()).thenReturn(true);
+        resource.state.version = 3L;
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.state.getRemainingFormatted()).thenReturn("0,00");
+        when(resource.state.ticket.getTotalFormatted()).thenReturn("3,00");
+        resource.state.payment.lastChangeAmount = null;
+        TicketState.TicketItem withEan = item(null, new BigDecimal("1"), "PAIN", "2,00");
+        withEan.ean = "3017620422003";
+        TicketState.TicketItem noEan = item(null, new BigDecimal("1"), "LAIT", "1,00");
+        noEan.ean = null;
+        resource.state.ticket.items.add(withEan);
+        resource.state.ticket.items.add(noEan);
+        Map<String, Object> result = resource.customerData(null);
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> items = (List<Map<String, String>>) result.get("items");
+        assertEquals("3017620422003", items.get(0).get("ean"));
+        assertFalse(items.get(1).containsKey("ean"));
     }
 
     // --- digitalPath guards ---

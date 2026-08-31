@@ -46,6 +46,10 @@ class DashboardResourceTest {
         resource.supervisorCallRegistry = mock(SupervisorCallRegistry.class);
         resource.role = "store";
         resource.token = Optional.empty();
+        // The dashboard alerts default to ON, the pre-existing behavior the
+        // call-collecting cases rely on (BO-10-08-01).
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(resource.posSettingsService.dashboardAlertsEnabled()).thenReturn(true);
         return resource;
     }
 
@@ -116,6 +120,26 @@ class DashboardResourceTest {
         assertEquals("Alice", entry.get("operator"));
         assertEquals("no-change", entry.get("reason"));
         assertEquals(call.time, entry.get("time"));
+    }
+
+    /**
+     * BO-10-08-01: with the dashboard alerts DISABLED, the poll carries an
+     * empty calls list and the registry is never consulted (the
+     * {@code dashboardAlertsEnabled()} false arm).
+     */
+    @Test
+    void dashboardDataAlertsDisabledYieldsEmptyCalls() {
+        DashboardResource resource = newResource();
+        when(resource.posSettingsService.dashboardAlertsEnabled()).thenReturn(false);
+        Map<String, Object> data = new HashMap<>();
+        data.put("total", 42);
+        when(resource.dashboardService.buildData()).thenReturn(data);
+        Map<String, Object> result = resource.dashboardData();
+        assertEquals(42, result.get("total"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> calls = (List<Map<String, Object>>) result.get("calls");
+        assertTrue(calls.isEmpty());
+        verify(resource.supervisorCallRegistry, never()).getPending();
     }
 
     /**

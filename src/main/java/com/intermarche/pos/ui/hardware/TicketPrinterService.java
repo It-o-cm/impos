@@ -170,7 +170,10 @@ public class TicketPrinterService {
         // The state is checked for null: this printer is also built BY HAND in
         // unit tests (no CDI), where only the hardware collaborator is wired —
         // an absent register state simply means "no loyalty section".
-        if (posState != null && posState.fidelity.earnTotal != null
+        // BO-10-03-15: the advantage section is printed only when the back
+        // office activated the fidelity advantages; disabled, no section.
+        if (posSettingsService.fidelityAdvantagesEnabled()
+                && posState != null && posState.fidelity.earnTotal != null
                 && posState.fidelity.earnTotal.signum() > 0
                 && ticketId.equals(currentOrLastTicketId())) {
             sb.append(formatLine("CAGNOTTE DU JOUR",

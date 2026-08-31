@@ -51,6 +51,10 @@ class AuthResourceTest {
         resource.cashSessionService = mock(CashSessionService.class);
         resource.main = mock(Template.class);
         resource.lock = mock(Template.class);
+        // The drawer-open-on-login rule defaults to ON, the pre-existing
+        // pulse behavior the success cases rely on (BO-10-02-25).
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(true);
         return resource;
     }
 
@@ -187,6 +191,24 @@ class AuthResourceTest {
         assertEquals("/", response.getLocation().toString());
         verify(resource.hardwareService).openDrawer();
         verify(resource.cashSessionService, never()).getOpenSession();
+    }
+
+    /**
+     * BO-10-02-25: with the drawer-open-on-login rule DISABLED, a successful
+     * unlock still routes normally (session open → home) but leaves the drawer
+     * shut (the {@code drawerOpenOnLogin()} false arm).
+     */
+    @Test
+    void unlockSuccessKeepsDrawerShutWhenRuleDisabled() {
+        AuthResource resource = newResource();
+        when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(false);
+        when(resource.authService.login(resource.state, "alice", "1234"))
+                .thenReturn(AuthService.LoginResult.SUCCESS);
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        Response response = resource.unlock("alice", "1234");
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.hardwareService, never()).openDrawer();
     }
 
     /**

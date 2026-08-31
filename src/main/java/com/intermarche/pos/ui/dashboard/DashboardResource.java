@@ -49,6 +49,9 @@ public class DashboardResource {
     @Inject DashboardService dashboardService;
     @Inject SupervisorCallRegistry supervisorCallRegistry;
 
+    /** The back-office parameters (dashboard-alerts activation — BO-10-08-01). */
+    @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /** The role of this node: "register" (default) or "store". */
     @ConfigProperty(name = "pos.role", defaultValue = "register")
     String role;
@@ -95,14 +98,18 @@ public class DashboardResource {
     public Map<String, Object> dashboardData() {
         Map<String, Object> data = dashboardService.buildData();
         List<Map<String, Object>> calls = new ArrayList<>();
-        for (SupervisorCallRegistry.Call call : supervisorCallRegistry.getPending()) {
-            Map<String, Object> entry = new HashMap<>();
-            entry.put("id", call.id);
-            entry.put("terminal", call.terminalId);
-            entry.put("operator", call.operator);
-            entry.put("reason", call.reason);
-            entry.put("time", call.time);
-            calls.add(entry);
+        // BO-10-08-01: the register alerts are shown only when the back office
+        // activated them; disabled, the poll carries an empty call list.
+        if (posSettingsService.dashboardAlertsEnabled()) {
+            for (SupervisorCallRegistry.Call call : supervisorCallRegistry.getPending()) {
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("id", call.id);
+                entry.put("terminal", call.terminalId);
+                entry.put("operator", call.operator);
+                entry.put("reason", call.reason);
+                entry.put("time", call.time);
+                calls.add(entry);
+            }
         }
         data.put("calls", calls);
         return data;

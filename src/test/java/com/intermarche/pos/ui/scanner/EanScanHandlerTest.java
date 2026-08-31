@@ -80,6 +80,9 @@ class EanScanHandlerTest {
         handler.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
         when(handler.ticketService.suspendForAgeCheck(any(), any(), any(), any(), any()))
                 .thenReturn(parksTheScan);
+        // Back-office parameters: the EAN13 check-digit control defaults to
+        // OFF (mock's false), the pre-existing behavior every other case relies on.
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         return handler;
     }
 
@@ -345,5 +348,65 @@ class EanScanHandlerTest {
             newHandler().handle(ctx);
         }
         assertFalse(added.moneyProduct);
+    }
+
+    /**
+     * BO-10-02-21: with the check-digit control ON, a 13-digit EAN whose key
+     * is wrong is refused before any lookup — the ticket carries the invalid
+     * error, the context is consumed and no catalog read happens.
+     */
+    @Test
+    void invalidEan13RefusedWhenCheckDigitEnabled() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        EanScanHandler handler = newHandler();
+        when(handler.posSettingsService.ean13CheckDigitEnabled()).thenReturn(true);
+        ScanContext ctx = new ScanContext("3017620422000", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(ticket).setError("CODE EAN INVALIDE");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-10-02-21: with the control ON, a 13-digit EAN whose key is CORRECT
+     * passes the gate and proceeds to the catalog lookup (here an unknown
+     * product leaves the context unhandled).
+     */
+    @Test
+    void validEan13PassesCheckDigitGate() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        EanScanHandler handler = newHandler();
+        when(handler.posSettingsService.ean13CheckDigitEnabled()).thenReturn(true);
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubProductFind(panache, null);
+            handler.handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verify(ticket, never()).setError("CODE EAN INVALIDE");
+    }
+
+    /**
+     * BO-10-02-21: with the control ON, a non-13-digit EAN (e.g. an EAN8)
+     * skips the check-digit gate entirely — the key control targets EAN13
+     * only — and proceeds to the lookup.
+     */
+    @Test
+    void shortEanSkipsCheckDigitGateWhenEnabled() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        EanScanHandler handler = newHandler();
+        when(handler.posSettingsService.ean13CheckDigitEnabled()).thenReturn(true);
+        ScanContext ctx = new ScanContext("12345678", state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(null);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "12345678")).thenReturn(query);
+            handler.handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verify(ticket, never()).setError("CODE EAN INVALIDE");
     }
 }

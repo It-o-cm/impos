@@ -79,6 +79,9 @@ class PaymentServiceTest {
     /** The mocked payment-terminal port (decision legs driven by hand). */
     private PaymentTerminalClient terminal;
 
+    /** The back-office parameters mock (drawer-open-on-payment rule). */
+    private com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /** A real POS state carrying real payment and ticket sub-states. */
     private PosState state;
 
@@ -106,6 +109,11 @@ class PaymentServiceTest {
         service.fidEventOutboxService = fidEventOutboxService;
         terminal = mock(PaymentTerminalClient.class);
         service.terminal = terminal;
+        // The drawer-open-on-payment rule defaults to ON, the pre-existing
+        // behavior every physical-tender case here relies on (BO-10-02-12).
+        posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(true);
+        service.posSettingsService = posSettingsService;
         state = new PosState();
     }
 
@@ -357,6 +365,22 @@ class PaymentServiceTest {
         verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
         verify(hardwareService).openDrawer();
         assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * BO-10-02-12: with the drawer-open-on-payment rule DISABLED, an exact
+     * cash payment completes and persists but leaves the drawer shut (the
+     * {@code drawerOpenOnPayment()} false arm at the cash pulse).
+     */
+    @Test
+    void processCashDrawerRuleDisabledKeepsDrawerShut() {
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("20"));
+        verify(hardwareService).displayMessage("ESPECES   20,00 E");
+        verify(hardwareService, never()).openDrawer();
+        assertTrue(state.payment.transactionComplete);
     }
 
     // --------------------------------------------------
@@ -663,6 +687,21 @@ class PaymentServiceTest {
         verify(hardwareService, never()).openDrawer();
     }
 
+    /**
+     * BO-10-02-12: with the drawer-open-on-payment rule DISABLED, a meal
+     * voucher registers but the drawer stays shut (false arm at the TR pulse).
+     */
+    @Test
+    void processTicketRestoDrawerRuleDisabledKeepsDrawerShut() {
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "LOCAL";
+        service.processTicketResto(state, BigDecimal.ZERO);
+        verify(hardwareService).displayMessage("TICKET    20,00 E");
+        verify(hardwareService, never()).openDrawer();
+    }
+
     // --------------------------------------------------
     // processCheque
     // --------------------------------------------------
@@ -709,6 +748,21 @@ class PaymentServiceTest {
         verify(hardwareService).displayMessage("CHEQUE    5,00 E");
         verify(hardwareService, never()).openDrawer();
         assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * BO-10-02-12: with the drawer-open-on-payment rule DISABLED, a cheque
+     * registers but the drawer stays shut (false arm at the cheque pulse).
+     */
+    @Test
+    void processChequeDrawerRuleDisabledKeepsDrawerShut() {
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, BigDecimal.ZERO);
+        verify(hardwareService).displayMessage("CHEQUE    20,00 E");
+        verify(hardwareService, never()).openDrawer();
+        assertTrue(state.payment.transactionComplete);
     }
 
     // --------------------------------------------------

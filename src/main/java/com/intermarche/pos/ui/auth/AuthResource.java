@@ -43,6 +43,9 @@ public class AuthResource {
     @Inject HardwareService hardwareService;
     @Inject com.intermarche.pos.service.CashSessionService cashSessionService;
 
+    /** The back-office parameters (drawer-open-on-login rule — BO-10-02-25). */
+    @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     @Inject
     PosState state;
 
@@ -101,7 +104,11 @@ public class AuthResource {
     ) {
         AuthService.LoginResult result = authService.login(state, login, password);
         if (result == AuthService.LoginResult.SUCCESS) {
-            hardwareService.openDrawer();
+            // The unlock pulse opens the drawer to install the float, unless
+            // the back office disabled the drawer-open-on-login rule (BO-10-02-25).
+            if (posSettingsService.drawerOpenOnLogin()) {
+                hardwareService.openDrawer();
+            }
             // Prise de poste: the drawer just opened to install the float —
             // when no session is open yet, land straight on the session
             // screen so the cashier opens it while the drawer is out

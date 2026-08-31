@@ -91,6 +91,10 @@ public class PosSettingsService {
                 "Message caisse fermée",
                 "Texte affiché sur l'écran client quand la caisse est fermée (LC-10-01-21).",
                 "Caisse fermée", null),
+        new Def("customer.qr-enabled", Type.BOOL, "AFFICHEUR CLIENT",
+                "QR code ticket sur l'afficheur client",
+                "Le QR code de récupération du ticket dématérialisé s'affiche sur l'écran client en fin de transaction. Désactivé : aucun QR code (BO-10-07-02).",
+                "true", null),
         new Def("parking.print-receipt", Type.BOOL, "TICKETS",
                 "Imprimer le ticket de mise en attente",
                 "Un reçu portant le numéro de reprise sort à chaque mise en attente (LC-04-01-02).",
@@ -106,7 +110,31 @@ public class PosSettingsService {
         new Def("ticket.footer-message", Type.TEXT, "MESSAGES TICKET",
                 "Message en fin de ticket",
                 "Texte imprimé en pied du ticket, après la formule de politesse. Vide : aucun message (BO-03-08-03, BO-03-08-05).",
-                "", null));
+                "", null),
+        new Def("drawer.open-on-payment", Type.BOOL, "TIROIR",
+                "Ouverture du tiroir au paiement",
+                "Le tiroir s'ouvre sur les règlements physiques (espèces, chèque, titres-restaurant). Désactivé : le tiroir reste fermé au paiement (BO-10-02-12).",
+                "true", null),
+        new Def("drawer.open-on-login", Type.BOOL, "TIROIR",
+                "Ouverture du tiroir à la prise de poste",
+                "Le tiroir s'ouvre au déverrouillage de la caisse pour installer le fond. Désactivé : le tiroir reste fermé à la connexion (BO-10-02-25).",
+                "true", null),
+        new Def("scan.ean13-check-digit", Type.BOOL, "SCAN",
+                "Contrôle du checkdigit EAN13",
+                "Au scan d'un EAN13, la clé de contrôle est vérifiée et un code invalide est refusé. Désactivé : aucun contrôle de clé (BO-10-02-21).",
+                "false", null),
+        new Def("dashboard.alerts-enabled", Type.BOOL, "SUPERVISION",
+                "Alertes caisses sur le back-office",
+                "Les appels superviseur des caisses s'affichent sur le tableau de bord du back-office. Désactivé : aucune alerte n'est remontée à l'écran (BO-10-08-01).",
+                "true", null),
+        new Def("fidelity.advantages-enabled", Type.BOOL, "FIDÉLITÉ",
+                "Avantages fidélité sur le ticket",
+                "La section « CAGNOTTE DU JOUR » et les avantages fidélité sont imprimés sur le ticket. Désactivé : aucune section fidélité n'est imprimée (BO-10-03-15).",
+                "true", null),
+        new Def("fidelity.allow-multiple-scan", Type.BOOL, "FIDÉLITÉ",
+                "Scan multiple de carte de fidélité",
+                "Plusieurs cartes de fidélité peuvent être scannées pendant la transaction, seule la dernière est retenue. Désactivé : une carte déjà scannée bloque les suivantes (BO-10-03-02).",
+                "true", null));
 
     /** The cached rows, or null when a reload is due. */
     private volatile Map<String, String> cache = null;
@@ -312,4 +340,61 @@ public class PosSettingsService {
      * @return the ticket footer message, possibly empty
      */
     public String ticketFooterMessage() { return value("ticket.footer-message"); }
+
+    /**
+     * Whether the physical-tender payments open the cash drawer (BO-10-02-12):
+     * disabled, the drawer stays shut on cash, cheque and meal-voucher tenders.
+     *
+     * @return true when a physical payment opens the drawer
+     */
+    public boolean drawerOpenOnPayment() { return boolValue("drawer.open-on-payment"); }
+
+    /**
+     * Whether taking the post (unlock) opens the cash drawer to install the
+     * float (BO-10-02-25): disabled, the drawer stays shut at login.
+     *
+     * @return true when the unlock pulse opens the drawer
+     */
+    public boolean drawerOpenOnLogin() { return boolValue("drawer.open-on-login"); }
+
+    /**
+     * Whether a scanned EAN13 has its check digit validated before lookup
+     * (BO-10-02-21): disabled, no key control is performed.
+     *
+     * @return true when the EAN13 check digit is enforced
+     */
+    public boolean ean13CheckDigitEnabled() { return boolValue("scan.ean13-check-digit"); }
+
+    /**
+     * Whether the register alerts (supervisor calls) are shown on the back
+     * office dashboard (BO-10-08-01): disabled, no alert reaches the screen.
+     *
+     * @return true when the dashboard shows the alerts
+     */
+    public boolean dashboardAlertsEnabled() { return boolValue("dashboard.alerts-enabled"); }
+
+    /**
+     * Whether the loyalty advantage section is printed on the sale ticket
+     * (BO-10-03-15): disabled, no fidelity section is printed.
+     *
+     * @return true when the advantage section is printed
+     */
+    public boolean fidelityAdvantagesEnabled() { return boolValue("fidelity.advantages-enabled"); }
+
+    /**
+     * Whether several loyalty cards may be scanned during one transaction
+     * (BO-10-03-02): enabled, the last card wins; disabled, a card already
+     * attached blocks any further scan.
+     *
+     * @return true when multiple card scans are allowed
+     */
+    public boolean fidelityAllowMultipleScan() { return boolValue("fidelity.allow-multiple-scan"); }
+
+    /**
+     * Whether the digital-receipt QR code is shown on the customer display at
+     * the end of a transaction (BO-10-07-02): disabled, no QR code is shown.
+     *
+     * @return true when the customer-display QR code is shown
+     */
+    public boolean customerQrEnabled() { return boolValue("customer.qr-enabled"); }
 }
