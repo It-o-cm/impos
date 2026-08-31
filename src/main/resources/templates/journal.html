@@ -1,0 +1,239 @@
+{!
+ ! Electronic journal search (BO-04-01, lot 4). Two tabs (BO-04-01-52): the
+ ! transactional journal over consolidated tickets and the functional journal
+ ! over technical events. Both forms are GET so the criteria live in the URL
+ ! and the export reruns the same query. `criteria` echoes every field back so
+ ! a submitted search stays filled; `rows`/`events` carry the results. Read
+ ! screen: no POST, no notice cycle. Renders inside the admin gabarit.
+!}
+{#include admin-layout}
+
+{#title}Journal électronique{/title}
+
+{#body}
+<div class="page-head">
+    <div>
+        <h1>Journal électronique</h1>
+        <p class="page-sub">Recherche multicritères sur les documents consolidés de ce nœud.</p>
+    </div>
+</div>
+
+<nav class="journal-tabs">
+    <a href="/admin/journal" class="journal-tab {#if tab == 'transactional'}is-active{/if}">Journal transactionnel</a>
+    <a href="/admin/journal/functional" class="journal-tab {#if tab == 'functional'}is-active{/if}">Journal fonctionnel</a>
+</nav>
+
+{#if tab == 'transactional'}
+<form method="get" action="/admin/journal" class="card journal-form">
+    <div class="field-grid">
+        <div class="field">
+            <label class="field-label" for="f-text">Texte libre</label>
+            <input class="input-control" id="f-text" type="text" name="text" value="{criteria.text ?: ''}" maxlength="120">
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-cashier-min">N° caissière (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-cashier-min" type="text" name="cashierMin" value="{criteria.cashierMin ?: ''}">
+                <input class="input-control" type="text" name="cashierMax" value="{criteria.cashierMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-tpv-min">N° TPV (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-tpv-min" type="text" name="terminalMin" value="{criteria.terminalMin ?: ''}">
+                <input class="input-control" type="text" name="terminalMax" value="{criteria.terminalMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-tx-min">N° transaction (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-tx-min" type="text" name="txMin" value="{criteria.txMin ?: ''}">
+                <input class="input-control" type="text" name="txMax" value="{criteria.txMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-amount-min">Montant (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-amount-min" type="text" name="amountMin" value="{criteria.amountMin ?: ''}">
+                <input class="input-control" type="text" name="amountMax" value="{criteria.amountMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-date-from">Période (du / au)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-date-from" type="datetime-local" name="dateFrom" value="{criteria.dateFrom ?: ''}">
+                <input class="input-control" type="datetime-local" name="dateTo" value="{criteria.dateTo ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-plu-min">N° PLU article (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-plu-min" type="text" name="pluMin" value="{criteria.pluMin ?: ''}">
+                <input class="input-control" type="text" name="pluMax" value="{criteria.pluMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-reduction-min">Réduction manuelle (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-reduction-min" type="text" name="reductionMin" value="{criteria.reductionMin ?: ''}">
+                <input class="input-control" type="text" name="reductionMax" value="{criteria.reductionMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-vat">Taux de TVA</label>
+            <input class="input-control" id="f-vat" type="text" name="vatRate" value="{criteria.vatRate ?: ''}">
+        </div>
+    </div>
+
+    <fieldset class="journal-fieldset">
+        <legend>Mode de règlement</legend>
+        <div class="journal-checks">
+            {#for key in paymentKeys}
+            <label class="journal-check"><input type="checkbox" name="method" value="{key}" {#if criteria.methods.contains(key)}checked{/if}> {key}</label>
+            {/for}
+        </div>
+    </fieldset>
+
+    <fieldset class="journal-fieldset">
+        <legend>Événements</legend>
+        <div class="journal-checks">
+            {#for flag in ticketFlags}
+            <label class="journal-check"><input type="checkbox" name="flag" value="{flag}" {#if criteria.flags.contains(flag)}checked{/if}> {flag}</label>
+            {/for}
+        </div>
+    </fieldset>
+
+    <div class="filter-bar">
+        <div class="filter-field">
+            <label class="filter-label" for="f-sort">Tri</label>
+            <select class="input-control" id="f-sort" name="sort">
+                {#for s in sorts}
+                <option value="{s.key}" {#if criteria.sort == s.key}selected{/if}>{s.key}</option>
+                {/for}
+            </select>
+        </div>
+        <div class="filter-field">
+            <label class="filter-label" for="f-dir">Sens</label>
+            <select class="input-control" id="f-dir" name="dir">
+                <option value="asc" {#if !criteria.descending}selected{/if}>Croissant</option>
+                <option value="desc" {#if criteria.descending}selected{/if}>Décroissant</option>
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-primary" type="submit">Rechercher</button>
+            <button class="btn btn-ghost" type="submit" formaction="/admin/journal/export">Exporter CSV</button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <h2 class="card-title">Résultats ({rows.size})</h2>
+    {#if rows.isEmpty}
+    <p class="col-muted">Aucun ticket ne correspond aux critères.</p>
+    {#else}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>N° TPV</th>
+                <th>N° transaction</th>
+                <th>N° caissière</th>
+                <th>Date</th>
+                <th>Heure</th>
+                <th>Montant</th>
+                <th>Nb articles</th>
+                <th>École</th>
+                <th>Autonome</th>
+                <th class="col-actions">Détail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#for row in rows}
+            <tr>
+                <td>{row.terminal}</td>
+                <td>{row.transaction}</td>
+                <td>{row.cashier}</td>
+                <td>{row.date}</td>
+                <td>{row.time}</td>
+                <td>{row.amount}</td>
+                <td>{row.itemCount}</td>
+                <td>{row.trainingMode}</td>
+                <td>{row.autonomous}</td>
+                <td class="col-actions"><a class="btn btn-small" href="/admin/journal/ticket/{row.id}">Ouvrir</a></td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {/if}
+</div>
+{#else}
+<form method="get" action="/admin/journal/functional" class="card journal-form">
+    <fieldset class="journal-fieldset">
+        <legend>Type d'événement</legend>
+        <div class="journal-checks">
+            {#for type in eventTypes}
+            <label class="journal-check"><input type="checkbox" name="eventType" value="{type}" {#if criteria.eventTypes.contains(type.name)}checked{/if}> {type}</label>
+            {/for}
+        </div>
+    </fieldset>
+
+    <div class="field-grid">
+        <div class="field">
+            <label class="field-label" for="e-tpv-min">N° TPV (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="e-tpv-min" type="text" name="terminalMin" value="{criteria.terminalMin ?: ''}">
+                <input class="input-control" type="text" name="terminalMax" value="{criteria.terminalMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="e-date-from">Période (du / au)</label>
+            <div class="journal-range">
+                <input class="input-control" id="e-date-from" type="datetime-local" name="dateFrom" value="{criteria.dateFrom ?: ''}">
+                <input class="input-control" type="datetime-local" name="dateTo" value="{criteria.dateTo ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="e-text">Détail (texte libre)</label>
+            <input class="input-control" id="e-text" type="text" name="text" value="{criteria.text ?: ''}" maxlength="120">
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <div class="filter-actions">
+            <button class="btn btn-primary" type="submit">Rechercher</button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <h2 class="card-title">Événements ({events.size})</h2>
+    {#if events.isEmpty}
+    <p class="col-muted">Aucun événement ne correspond aux critères.</p>
+    {#else}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>N° TPV</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Heure</th>
+                <th>Détail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#for event in events}
+            <tr>
+                <td>{event.terminal}</td>
+                <td>{event.type}</td>
+                <td>{event.date}</td>
+                <td>{event.time}</td>
+                <td>{event.detail}</td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {/if}
+</div>
+{/if}
+{/body}
+
+{#footer}Le journal ne produit aucune donnée : il ouvre en lecture les documents remontés par l'outbox de consolidation.{/footer}

@@ -1,0 +1,69 @@
+/*
+ * Electronic journal area stylesheet (BO-04-01, lot 4). Loaded by the
+ * back-office layout after base.css. Only the journal-specific bits live
+ * here: the tab strip separating the transactional and functional journals
+ * (BO-04-01-52), the paired range inputs and the criteria check grids. All
+ * colours come from the --im-* tokens; base.css stays untouched.
+ */
+
+.journal-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--im-line);
+}
+
+.journal-tab {
+    padding: 10px 16px;
+    color: var(--im-ink-soft);
+    text-decoration: none;
+    font-weight: 600;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.journal-tab:hover {
+    color: var(--im-ink);
+}
+
+.journal-tab.is-active {
+    color: var(--im-ink);
+    border-bottom-color: var(--im-red);
+}
+
+.journal-form {
+    margin-bottom: 18px;
+}
+
+.journal-range {
+    display: flex;
+    gap: 8px;
+}
+
+.journal-fieldset {
+    border: 1px solid var(--im-line);
+    border-radius: 8px;
+    padding: 10px 14px 14px;
+    margin: 14px 0 0;
+}
+
+.journal-fieldset legend {
+    padding: 0 6px;
+    color: var(--im-ink-soft);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.journal-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+}
+
+.journal-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--im-ink);
+}
