@@ -270,13 +270,15 @@ class PosSettingsServiceTest {
                     row("discount.global-max-percent", "30"),
                     row("customer.message-open", "Bonjour"),
                     row("customer.message-closed", "Fermé"),
-                    row("parking.print-receipt", "false")));
+                    row("parking.print-receipt", "false"),
+                    row("payment.degraded-mode", "true")));
             assertTrue(service.showEan());
             assertFalse(service.gestureEndorsementRequired());
             assertEquals(30, service.globalMaxDiscountPercent());
             assertEquals("Bonjour", service.customerOpenMessage());
             assertEquals("Fermé", service.customerClosedMessage());
             assertFalse(service.parkingPrintReceipt());
+            assertTrue(service.paymentDegradedMode());
         }
     }
 }

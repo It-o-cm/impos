@@ -86,7 +86,11 @@ public class PosSettingsService {
         new Def("parking.print-receipt", Type.BOOL, "TICKETS",
                 "Imprimer le ticket de mise en attente",
                 "Un reçu portant le numéro de reprise sort à chaque mise en attente (LC-04-01-02).",
-                "true", null));
+                "true", null),
+        new Def("payment.degraded-mode", Type.BOOL, "MONÉTIQUE",
+                "Mode dégradé monétique",
+                "Bascule manuelle en cas de coupure vers les serveurs monétique : les paiements carte sont acceptés immédiatement, sans interroger le TPE (BO-03-12-05).",
+                "false", null));
 
     /** The cached rows, or null when a reload is due. */
     private volatile Map<String, String> cache = null;
@@ -251,4 +255,13 @@ public class PosSettingsService {
      * @return true when the parked receipt is printed
      */
     public boolean parkingPrintReceipt() { return boolValue("parking.print-receipt"); }
+
+    /**
+     * Whether the manual monetique degraded mode is active (BO-03-12-05):
+     * card payments bypass the configured terminal and are accepted
+     * immediately.
+     *
+     * @return true when degraded mode is on
+     */
+    public boolean paymentDegradedMode() { return boolValue("payment.degraded-mode"); }
 }

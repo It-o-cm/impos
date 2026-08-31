@@ -72,7 +72,7 @@ class StoreTest {
         store.code = "0034";
         store.name = "Intermarche Lyon Centre";
         store.address = null;
-        int expected = Objects.hash("0034", "Intermarche Lyon Centre", 0);
+        int expected = Objects.hash("0034", "Intermarche Lyon Centre", 0, null, null, null, null);
         Assertions.assertEquals(expected, store.getChecksum());
     }
 
@@ -86,8 +86,13 @@ class StoreTest {
         store.code = "0034";
         store.name = "Intermarche Lyon Centre";
         store.address = sampleAddress();
+        store.vatNumber = "FR123456789";
+        store.siret = "12345678900012";
+        store.phone = "0472000000";
+        store.bankAccountNumber = "FR7612345";
         int expected = Objects.hash("0034", "Intermarche Lyon Centre",
-                sampleAddress().getChecksum());
+                sampleAddress().getChecksum(), "FR123456789", "12345678900012",
+                "0472000000", "FR7612345");
         Assertions.assertEquals(expected, store.getChecksum());
     }
 }

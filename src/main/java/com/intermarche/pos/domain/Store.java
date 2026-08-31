@@ -78,6 +78,34 @@ public class Store extends BaseEntity {
     @jakarta.persistence.Column(name = "theme", length = 20)
     public String theme;
 
+    /**
+     * Intra-community VAT number (BO-03-12-06), or null when not filled in
+     * yet. Node-local like the rest of the Store row.
+     */
+    @jakarta.persistence.Column(name = "vat_number", length = 32)
+    public String vatNumber;
+
+    /**
+     * SIRET business registration number (BO-03-12-06), or null when not
+     * filled in yet. Node-local like the rest of the Store row.
+     */
+    @jakarta.persistence.Column(name = "siret", length = 32)
+    public String siret;
+
+    /**
+     * Store phone number (BO-03-12-06), or null when not filled in yet.
+     * Node-local like the rest of the Store row.
+     */
+    @jakarta.persistence.Column(name = "phone", length = 32)
+    public String phone;
+
+    /**
+     * Bank (cheque) account number (BO-03-12-06), or null when not filled in
+     * yet. Node-local like the rest of the Store row.
+     */
+    @jakarta.persistence.Column(name = "bank_account_number", length = 64)
+    public String bankAccountNumber;
+
     // --------------------------------------------------
     // Panache Active Record Queries
     // --------------------------------------------------
@@ -99,7 +127,7 @@ public class Store extends BaseEntity {
     @Override
     public int getChecksum() {
         int addressChecksum = address == null ? 0 : address.getChecksum();
-        int checksum = Objects.hash(code, name, addressChecksum);
+        int checksum = Objects.hash(code, name, addressChecksum, vatNumber, siret, phone, bankAccountNumber);
         System.out.println("Checksum: " + checksum);
         return checksum;
     }

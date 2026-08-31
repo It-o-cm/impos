@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
+import com.intermarche.pos.service.PosSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -10,7 +11,10 @@ import static org.mockito.Mockito.mock;
 /**
  * Unit tests for {@link TerminalClientProducer}: the mode string selects
  * the implementation, and an unknown mode falls back to the virtual
- * terminal (every switch arm covered).
+ * terminal (every switch arm covered). The produced bean is always a
+ * {@link DegradedModePaymentTerminalClient}; each test unwraps it via
+ * {@link DegradedModePaymentTerminalClient#configured()} to assert the
+ * resolved implementation.
  */
 class TerminalClientProducerTest {
 
@@ -29,36 +33,50 @@ class TerminalClientProducerTest {
         producer = new TerminalClientProducer();
         virtualClient = mock(VirtualTerminalClient.class);
         producer.virtualTerminalClient = virtualClient;
+        producer.posSettingsService = mock(PosSettingsService.class);
         producer.verifoneHost = "127.0.0.1";
         producer.verifonePort = 8200;
         producer.verifoneTimeoutMs = 1000;
     }
 
     /**
-     * Mode {@code virtual} returns the simulator bean (virtual arm).
+     * Unwraps the degraded-mode gate produced for every mode.
+     *
+     * @return the configured (non-degraded) terminal
+     */
+    private PaymentTerminalClient configured() {
+        PaymentTerminalClient produced = producer.paymentTerminalClient();
+        assertTrue(produced instanceof DegradedModePaymentTerminalClient);
+        return ((DegradedModePaymentTerminalClient) produced).configured();
+    }
+
+    /**
+     * Mode {@code virtual} resolves to the simulator bean (virtual arm).
      */
     @Test
     void virtualModeReturnsVirtualBean() {
         producer.mode = "virtual";
-        assertSame(virtualClient, producer.paymentTerminalClient());
+        assertSame(virtualClient, configured());
     }
 
     /**
-     * Mode {@code auto} returns the auto-accept implementation (auto arm).
+     * Mode {@code auto} resolves to the auto-accept implementation (auto
+     * arm).
      */
     @Test
     void autoModeReturnsAutoAccept() {
         producer.mode = "auto";
-        assertTrue(producer.paymentTerminalClient() instanceof AutoAcceptTerminalClient);
+        assertTrue(configured() instanceof AutoAcceptTerminalClient);
     }
 
     /**
-     * Mode {@code verifone} returns the Verifone skeleton (verifone arm).
+     * Mode {@code verifone} resolves to the Verifone skeleton (verifone
+     * arm).
      */
     @Test
     void verifoneModeReturnsVerifoneClient() {
         producer.mode = "verifone";
-        assertTrue(producer.paymentTerminalClient() instanceof VerifoneTerminalClient);
+        assertTrue(configured() instanceof VerifoneTerminalClient);
     }
 
     /**
@@ -67,6 +85,6 @@ class TerminalClientProducerTest {
     @Test
     void unknownModeFallsBackToVirtual() {
         producer.mode = "typo";
-        assertSame(virtualClient, producer.paymentTerminalClient());
+        assertSame(virtualClient, configured());
     }
 }

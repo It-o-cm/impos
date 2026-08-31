@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
+import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
@@ -21,6 +22,12 @@ import org.jboss.logging.Logger;
  * </ul>
  * An unknown mode falls back to {@code virtual} with a warning, so a typo
  * in configuration can never leave the register without a terminal path.
+ * <p>
+ * The resolved implementation is always wrapped in a
+ * {@link DegradedModePaymentTerminalClient} (BO-03-12-05): the manual
+ * degraded-mode toggle needs a live per-transaction check, which only a
+ * wrapper checking {@link PosSettingsService} on every call can give —
+ * the CDI producer itself runs once at bean creation.
  */
 @ApplicationScoped
 public class TerminalClientProducer {
@@ -47,14 +54,29 @@ public class TerminalClientProducer {
     @Inject
     VirtualTerminalClient virtualTerminalClient;
 
+    /** The catalog holding the live value of the degraded-mode toggle. */
+    @Inject
+    PosSettingsService posSettingsService;
+
     /**
-     * Produces the terminal client matching the configured mode.
+     * Produces the terminal client matching the configured mode, wrapped
+     * with the degraded-mode gate.
      *
      * @return the active payment-terminal implementation
      */
     @Produces
     @ApplicationScoped
     public PaymentTerminalClient paymentTerminalClient() {
+        return new DegradedModePaymentTerminalClient(
+                resolveConfigured(), new AutoAcceptTerminalClient(), posSettingsService);
+    }
+
+    /**
+     * Resolves the terminal implementation matching the configured mode.
+     *
+     * @return the configured (non-degraded) payment-terminal implementation
+     */
+    private PaymentTerminalClient resolveConfigured() {
         switch (mode) {
             case "auto":
                 return new AutoAcceptTerminalClient();
