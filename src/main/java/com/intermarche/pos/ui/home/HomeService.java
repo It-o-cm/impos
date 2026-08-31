@@ -265,6 +265,10 @@ public class HomeService {
         if ("QUANTITY".equals(type)) {
             // Multiplying a scanned line is a normal sale action: no endorsement
             applyLineQuantity(uid, value);
+        } else if (isDiscountGesture(type) && !posSettingsService.discountEnabled()) {
+            // BO-03-07-01: remises and rabais deactivated at the back office —
+            // the gesture is refused before any endorsement or application.
+            state.ticket.setError("REMISES DÉSACTIVÉES");
         } else if (posSettingsService.gestureEndorsementRequired()) {
             endorsementService.requestPriceModification(state, type, uid, value);
         } else {
@@ -275,6 +279,19 @@ public class HomeService {
         }
         state.priceModState.clear();
         state.touch();
+    }
+
+    /**
+     * Whether a price-gesture type is a discount or rebate — the family the
+     * back office can deactivate (BO-03-07-01). Price forcing is excluded: it
+     * is not a discount and answers to its own administration.
+     *
+     * @param type the gesture type
+     * @return true for a line or global remise/discount
+     */
+    private boolean isDiscountGesture(String type) {
+        return "REMISE".equals(type) || "DISCOUNT".equals(type)
+                || "GLOBAL_REMISE".equals(type) || "GLOBAL_DISCOUNT".equals(type);
     }
 
     /**

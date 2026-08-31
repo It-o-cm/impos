@@ -271,7 +271,11 @@ class PosSettingsServiceTest {
                     row("customer.message-open", "Bonjour"),
                     row("customer.message-closed", "Fermé"),
                     row("parking.print-receipt", "false"),
-                    row("payment.degraded-mode", "true")));
+                    row("payment.degraded-mode", "true"),
+                    row("discount.enabled", "false"),
+                    row("price.show-original-on-force", "false"),
+                    row("ticket.header-message", "Promo"),
+                    row("ticket.footer-message", "A bientot")));
             assertTrue(service.showEan());
             assertFalse(service.gestureEndorsementRequired());
             assertEquals(30, service.globalMaxDiscountPercent());
@@ -279,6 +283,10 @@ class PosSettingsServiceTest {
             assertEquals("Fermé", service.customerClosedMessage());
             assertFalse(service.parkingPrintReceipt());
             assertTrue(service.paymentDegradedMode());
+            assertFalse(service.discountEnabled());
+            assertFalse(service.priceShowOriginalOnForce());
+            assertEquals("Promo", service.ticketHeaderMessage());
+            assertEquals("A bientot", service.ticketFooterMessage());
         }
     }
 }

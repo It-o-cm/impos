@@ -93,6 +93,9 @@ class TicketServiceTest {
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(service.posSettingsService.lineMaxDiscountPercent()).thenReturn(100);
         when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(100);
+        // Original price shown at its catalog default (BO-10-07-12), so the
+        // historical "Prix initial" assertions on forcePrice hold.
+        when(service.posSettingsService.priceShowOriginalOnForce()).thenReturn(true);
         state = new PosState();
         hardwareService = mock(HardwareService.class);
         ticketPersistenceService = mock(TicketPersistenceService.class);
@@ -551,6 +554,22 @@ class TicketServiceTest {
         service.forcePrice(item, BigDecimal.ZERO);
         assertEquals(0, BigDecimal.ZERO.compareTo(item.unitPrice));
         assertEquals("Prix initial: 0,00€", item.modifierLabel);
+    }
+
+    /**
+     * {@code forcePrice} masks the original price when the back office
+     * deactivated its display (BO-10-07-12, false arm of the ternary): the line
+     * carries no "Prix initial" label, yet it still forces the price and is
+     * marked as a FORCE_PRICE modification.
+     */
+    @Test
+    void forcePriceMasksOriginalWhenAdministeredHidden() {
+        when(service.posSettingsService.priceShowOriginalOnForce()).thenReturn(false);
+        TicketState.TicketItem item = line("X", new BigDecimal("10"), new BigDecimal("2"));
+        service.forcePrice(item, new BigDecimal("30"));
+        assertNull(item.modifierLabel);
+        assertEquals("FORCE_PRICE", item.modifierType);
+        assertEquals(0, new BigDecimal("15").compareTo(item.unitPrice));
     }
 
     /**

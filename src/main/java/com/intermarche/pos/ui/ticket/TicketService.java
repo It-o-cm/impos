@@ -388,7 +388,10 @@ public class TicketService {
         } else {
             item.unitPrice = newTotalPrice;
         }
-        item.modifierLabel = String.format("Prix initial: %.2f€", oldTotalPrice);
+        // BO-10-07-12: the original price is recalled on screen only when the
+        // back office administers it; masked, the line carries no "Prix initial".
+        item.modifierLabel = posSettingsService.priceShowOriginalOnForce()
+                ? String.format("Prix initial: %.2f€", oldTotalPrice) : null;
         item.modifierType = "FORCE_PRICE";
         item.modifierValue = newTotalPrice;
         displayItem(item);

@@ -107,6 +107,12 @@ public class TicketPrinterService {
         sb.append(center("INTERMARCHE", WIDTH)).append("\n");
         sb.append(center(ticket.store.name, WIDTH)).append("\n");
         sb.append(center(ticket.store.address.city, WIDTH)).append("\n");
+        // BO-03-08-03: an administered header message, printed under the store
+        // address; absent or blank, nothing is printed.
+        String headerMessage = posSettingsService.ticketHeaderMessage();
+        if (headerMessage != null && !headerMessage.isBlank()) {
+            sb.append(center(headerMessage, WIDTH)).append("\n");
+        }
         if (duplicata) {
             sb.append("-".repeat(WIDTH)).append("\n");
             sb.append(center(String.format("*** DUPLICATA N°%d ***", duplicataNumber), WIDTH)).append("\n");
@@ -200,6 +206,12 @@ public class TicketPrinterService {
         }
         sb.append(center("MERCI DE VOTRE VISITE", WIDTH)).append("\n");
         sb.append(center("A BIENTOT", WIDTH)).append("\n");
+        // BO-03-08-03 / BO-03-08-05: an administered footer message, printed
+        // after the courtesy line; absent or blank, nothing is printed.
+        String footerMessage = posSettingsService.ticketFooterMessage();
+        if (footerMessage != null && !footerMessage.isBlank()) {
+            sb.append(center(footerMessage, WIDTH)).append("\n");
+        }
 
         // Count the print and journal the duplicata before sending to the printer
         ticket.printCount++;

@@ -87,6 +87,9 @@ class HomeServiceTest {
         // ceremony applies, so the historical routing assertions hold.
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(true);
+        // Discounts and rebates active at their catalog default (BO-03-07-01),
+        // so the historical remise/discount routing assertions hold.
+        when(service.posSettingsService.discountEnabled()).thenReturn(true);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.ticketNumberService = mock(TicketNumberService.class);
         service.syncOutboxService = mock(SyncOutboxService.class);
@@ -658,6 +661,42 @@ class HomeServiceTest {
         verify(service.endorsementService).requestPriceModification(service.state, "REMISE", "A", value);
         verify(service.state.priceModState).clear();
         verify(service.state).touch();
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses every discount and rebate gesture when
+     * the back office deactivated them (BO-03-07-01): each of the four remise /
+     * discount types — line and global (the four operands of
+     * {@code isDiscountGesture}) — sets the deactivation error and never reaches
+     * the endorsement or the ticket service.
+     */
+    @Test
+    void submitPriceModRefusesDiscountGesturesWhenDeactivated() {
+        when(service.posSettingsService.discountEnabled()).thenReturn(false);
+        BigDecimal value = new BigDecimal("5");
+        service.submitPriceMod("REMISE", "A", value);
+        service.submitPriceMod("DISCOUNT", "A", value);
+        service.submitPriceMod("GLOBAL_REMISE", null, value);
+        service.submitPriceMod("GLOBAL_DISCOUNT", null, value);
+        verify(service.state.ticket, times(4)).setError("REMISES DÉSACTIVÉES");
+        verifyNoInteractions(service.endorsementService);
+        verifyNoInteractions(service.ticketService);
+        verify(service.state.priceModState, times(4)).clear();
+    }
+
+    /**
+     * {@code submitPriceMod()} still routes a price forcing normally when
+     * discounts are deactivated (BO-03-07-01): FORCE_PRICE is not a discount
+     * gesture (the false arm of {@code isDiscountGesture}), so it reaches the
+     * endorsement and no deactivation error is raised.
+     */
+    @Test
+    void submitPriceModAllowsForcePriceWhenDiscountsDeactivated() {
+        when(service.posSettingsService.discountEnabled()).thenReturn(false);
+        BigDecimal value = new BigDecimal("9");
+        service.submitPriceMod("FORCE_PRICE", "A", value);
+        verify(service.endorsementService).requestPriceModification(service.state, "FORCE_PRICE", "A", value);
+        verify(service.state.ticket, never()).setError("REMISES DÉSACTIVÉES");
     }
 
     /**

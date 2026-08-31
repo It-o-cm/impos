@@ -317,6 +317,55 @@ class TicketPrinterServiceTest {
     }
 
     /**
+     * Covers the administered ticket messages of {@code printTicket}
+     * (BO-03-08-03 / BO-03-08-05): a non-blank header message is printed under
+     * the store address and a non-blank footer message after the courtesy line
+     * (the true arm of both {@code != null && !isBlank()} guards).
+     */
+    @Test
+    void printTicketPrintsAdministeredHeaderAndFooterMessages() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.ticketHeaderMessage()).thenReturn("PROMO DU JOUR");
+        when(service.posSettingsService.ticketFooterMessage()).thenReturn("SUIVEZ-NOUS EN LIGNE");
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("PROMO DU JOUR"));
+            assertTrue(out.contains("SUIVEZ-NOUS EN LIGNE"));
+            assertTrue(out.trim().endsWith("SUIVEZ-NOUS EN LIGNE"));
+        }
+    }
+
+    /**
+     * Covers the blank-message arm of {@code printTicket} (BO-03-08-03): a
+     * header and a footer message that are non-null but blank are NOT printed
+     * (the false arm of the {@code !isBlank()} operand); the city is followed
+     * directly by the separator and the receipt still ends on the courtesy line.
+     */
+    @Test
+    void printTicketSkipsBlankHeaderAndFooterMessages() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.ticketHeaderMessage()).thenReturn("   ");
+        when(service.posSettingsService.ticketFooterMessage()).thenReturn("   ");
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("LYON\n" + "-".repeat(42)));
+            assertTrue(out.trim().endsWith("A BIENTOT"));
+        }
+    }
+
+    /**
      * Covers the offer-label fallback arm of {@code printTicket}: the valuation
      * has a non-zero delta, a null advantage label and a non-null offer label
      * shorter than 26 characters, so the offer label is printed untruncated.

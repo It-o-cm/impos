@@ -75,6 +75,14 @@ public class PosSettingsService {
                 "Remise ticket : % maximum",
                 "Pourcentage maximal d'une remise ticket (LC-03-02-13).",
                 "100", null),
+        new Def("discount.enabled", Type.BOOL, "GESTES DE PRIX",
+                "Remises et rabais actifs",
+                "Active les gestes remise et rabais en caisse. Désactivé : le caissier ne peut appliquer ni remise ni rabais, ni à la ligne ni au ticket (BO-03-07-01).",
+                "true", null),
+        new Def("price.show-original-on-force", Type.BOOL, "GESTES DE PRIX",
+                "Afficher le prix d'origine au forçage",
+                "Le prix initial de l'article est rappelé à l'écran lors d'un forçage de prix. Désactivé : le prix d'origine est masqué (BO-10-07-12).",
+                "true", null),
         new Def("customer.message-open", Type.TEXT, "AFFICHEUR CLIENT",
                 "Message caisse ouverte",
                 "Texte affiché sur l'écran client en attente de transaction (LC-10-01-20).",
@@ -90,7 +98,15 @@ public class PosSettingsService {
         new Def("payment.degraded-mode", Type.BOOL, "MONÉTIQUE",
                 "Mode dégradé monétique",
                 "Bascule manuelle en cas de coupure vers les serveurs monétique : les paiements carte sont acceptés immédiatement, sans interroger le TPE (BO-03-12-05).",
-                "false", null));
+                "false", null),
+        new Def("ticket.header-message", Type.TEXT, "MESSAGES TICKET",
+                "Message en début de ticket",
+                "Texte imprimé en tête du ticket, sous l'adresse du magasin. Vide : aucun message (BO-03-08-03).",
+                "", null),
+        new Def("ticket.footer-message", Type.TEXT, "MESSAGES TICKET",
+                "Message en fin de ticket",
+                "Texte imprimé en pied du ticket, après la formule de politesse. Vide : aucun message (BO-03-08-03, BO-03-08-05).",
+                "", null));
 
     /** The cached rows, or null when a reload is due. */
     private volatile Map<String, String> cache = null;
@@ -264,4 +280,36 @@ public class PosSettingsService {
      * @return true when degraded mode is on
      */
     public boolean paymentDegradedMode() { return boolValue("payment.degraded-mode"); }
+
+    /**
+     * Whether the line and ticket discount/rebate gestures are offered at the
+     * register (BO-03-07-01): disabled, the cashier can apply none of them.
+     *
+     * @return true when discounts and rebates are active
+     */
+    public boolean discountEnabled() { return boolValue("discount.enabled"); }
+
+    /**
+     * Whether a forced price recalls the article's original price on screen
+     * (BO-10-07-12): disabled, the original price is masked.
+     *
+     * @return true when the original price is shown on a price forcing
+     */
+    public boolean priceShowOriginalOnForce() { return boolValue("price.show-original-on-force"); }
+
+    /**
+     * The message printed at the TOP of the sale ticket, under the store
+     * address (BO-03-08-03); empty when no header message is administered.
+     *
+     * @return the ticket header message, possibly empty
+     */
+    public String ticketHeaderMessage() { return value("ticket.header-message"); }
+
+    /**
+     * The message printed at the BOTTOM of the sale ticket, after the closing
+     * courtesy line (BO-03-08-03, BO-03-08-05); empty when none is administered.
+     *
+     * @return the ticket footer message, possibly empty
+     */
+    public String ticketFooterMessage() { return value("ticket.footer-message"); }
 }
