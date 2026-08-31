@@ -112,9 +112,9 @@ public class GroupGIT {
             "3300000000007", "3300000000010", "3300000000011"
     };
 
-    /** A valid fidelity card ({@code ^789\d{12}$}, 15 digits) for the parking
-     * identity check. */
-    private static final String FIDELITY_CARD = "789000000000007";
+    /** A valid fidelity card ({@code ^299\d{10}$}, 13 digits, imfid seed) for
+     * the parking identity check. */
+    private static final String FIDELITY_CARD = "2990000000033";
 
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright

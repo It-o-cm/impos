@@ -34,9 +34,9 @@ import java.net.URL;
  * there is no {@code [V]}/{@code [N]} residue for this letter.
  * <p>
  * <b>The gesture chain.</b> Every price gesture is a THREE-step screen dance:
- * the cashier picks the gesture button on the sale screen ({@code REMISE} and
- * {@code QUANTITÉ} live in the primary menu, {@code DISCOUNT} and
- * {@code FORÇAGE PRIX} in the secondary one behind {@code AUTRES...}), types
+ * the cashier picks the gesture button on the sale screen (since the menu
+ * rework, {@code REMISE}, {@code DISCOUNT} and {@code FORÇAGE PRIX} all live
+ * in the primary menu), types
  * the value on the {@code #priceKbArea} decimal numpad and validates — which
  * PARKS the gesture into a manager endorsement (nothing is applied yet). A
  * manager then endorses over the cashier's shoulder: the badge is presented on
@@ -449,21 +449,19 @@ public class GroupCIT {
     }
 
     /**
-     * Opens the price-modification modal for a gesture, forcing the menu that
-     * carries its button first (primary for REMISE, secondary — behind
-     * {@code AUTRES...} — for DISCOUNT and FORÇAGE) so a secondary-menu state
-     * leaked from a prior scenario cannot hide the button. Waits until the modal
-     * numpad is ready.
+     * Opens the price-modification modal for a gesture, forcing the PRIMARY
+     * menu first (REMISE, DISCOUNT and FORÇAGE PRIX all live there since the
+     * menu rework) so a secondary-menu state leaked from a prior scenario
+     * cannot hide the button. Waits until the modal numpad is ready.
      *
      * @param page the Playwright page driving the register
      * @param type the price-mod type slug (remise, discount, force_price)
      * @param linkName the exact visible button text
      */
     private void openGesture(Page page, String type, String linkName) {
-        boolean secondary = "discount".equals(type) || "force_price".equals(type);
-        // Deterministically show the right menu (same GET the visible toggle
+        // Deterministically show the primary menu (same GET the visible toggle
         // fires), then tap the now-visible gesture button.
-        page.navigate(base.toString() + "action/menu/" + (secondary ? "secondary" : "main"));
+        page.navigate(base.toString() + "action/menu/main");
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName(linkName).setExact(true)).click();
         page.locator("#priceKbArea").waitFor();
     }

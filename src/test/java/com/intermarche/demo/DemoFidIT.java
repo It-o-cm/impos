@@ -17,6 +17,7 @@ import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
@@ -83,6 +84,31 @@ public class DemoFidIT {
     @InjectPlaywright
     BrowserContext context;
 
+    /** imfid availability, probed once for the whole class run. */
+    private static Boolean imfidUp;
+
+    /**
+     * Skips the WHOLE fidelity leg when imfid is absent: this class is
+     * stack-attached (demo-stack starts imfid before the pre-flight), so an
+     * autonomous run reports every scenario SKIPPED — never failed. The
+     * probe runs once and is cached for the class.
+     */
+    @BeforeEach
+    void assumeImfidUp() {
+        if (imfidUp == null) {
+            try {
+                APIResponse health = context.request().get(IMFID_URL + "/q/health");
+                imfidUp = health.status() == 200;
+            } catch (Exception e) {
+                imfidUp = false;
+            }
+        }
+        Assumptions.assumeTrue(imfidUp,
+                "imfid ne répond pas sur " + IMFID_URL + " — la jambe fidélité du "
+                        + "pre-flight est SAUTÉE. Pour la jouer : démarrer imfid "
+                        + "(quarkus:dev, port 8060) ou utiliser demo-stack.sh.");
+    }
+
     /** The live application base URL, auto-wired by @QuarkusTest. */
     @TestHTTPResource("/")
     URL base;
@@ -109,6 +135,8 @@ public class DemoFidIT {
         public Map<String, String> getConfigOverrides() {
             java.util.Map<String, String> config =
                     new java.util.HashMap<>(super.getConfigOverrides());
+            // Real engine: this demo class runs under the full stack.
+            config.put("pos.valuation.url", "http://localhost:8090");
             config.put("pos.fid.url", IMFID_URL);
             config.put("pos.fid.user", "pos");
             config.put("pos.fid.password", "pos-password");

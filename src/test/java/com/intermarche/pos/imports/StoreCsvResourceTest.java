@@ -121,7 +121,7 @@ class StoreCsvResourceTest {
     @Test
     void importStoresDelegatesToBaseImporterWithSevenColumns() {
         StoreCsvResource resource = new StoreCsvResource();
-        Response response = resource.importStores(stream("code|name|l1|l2|zip|city|country\n"));
+        Response response = resource.importStores(stream("CODE|NAME|STREET_LINE1|STREET_LINE2|POSTAL_CODE|CITY|COUNTRY\n"));
         assertEquals(200, response.getStatus());
         assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
     }
@@ -149,7 +149,7 @@ class StoreCsvResourceTest {
     void processChunkWithFallbackIndexesExistingStores() {
         StoreCsvResource resource = new StoreCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(2, "S1", parts("S1", "Lyon", "", "", "", "", "", "", "")));
+        lines.add(line(2, parts("S1", "Lyon", "", "", "", "", "", "", "")));
         Set<String> targetCodes = new HashSet<>();
         targetCodes.add("S1");
         Store s1 = store("S1");
@@ -170,7 +170,7 @@ class StoreCsvResourceTest {
     void processChunkWithFallbackReturnsEmptyMapWhenNoStoreMatches() {
         StoreCsvResource resource = new StoreCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(2, "S9", parts("S9", "Ghost", "", "", "", "", "", "", "")));
+        lines.add(line(2, parts("S9", "Ghost", "", "", "", "", "", "", "")));
         Set<String> targetCodes = new HashSet<>();
         targetCodes.add("S9");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
@@ -190,8 +190,7 @@ class StoreCsvResourceTest {
     @Test
     void processLineLogicCreatesStoreAndInitializesAddress() {
         StoreCsvResource resource = new StoreCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, "S1",
-                parts("S1", "Lyon Centre", "10 rue A", "Bat B", "69000", "Lyon", "France", "45.5", "4.8"));
+        ImporterCsvResource.LineData data = line(2, parts("S1", "Lyon Centre", "10 rue A", "Bat B", "69000", "Lyon", "France", "45.5", "4.8"));
         Map<String, Object> context = new HashMap<>();
         int[] counters = {0, 0};
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
@@ -226,8 +225,7 @@ class StoreCsvResourceTest {
     @Test
     void processLineLogicUpdatesExistingStoreWhenChecksumDiffers() throws Exception {
         StoreCsvResource resource = new StoreCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, "S1",
-                parts("S1", "New Name", "1 street", "", "75000", "Paris", "France", "48.8", "2.3"));
+        ImporterCsvResource.LineData data = line(2, parts("S1", "New Name", "1 street", "", "75000", "Paris", "France", "48.8", "2.3"));
         Store mapped = store("S1");
         mapped.id = 5L;
         Store fresh = store("S1");
@@ -267,8 +265,7 @@ class StoreCsvResourceTest {
     @Test
     void processLineLogicSkipsUpdateWhenChecksumMatches() throws Exception {
         StoreCsvResource resource = new StoreCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, "S1",
-                parts("S1", "New Name", "1 street", "", "75000", "Paris", "France", "48.8", "2.3"));
+        ImporterCsvResource.LineData data = line(2, parts("S1", "New Name", "1 street", "", "75000", "Paris", "France", "48.8", "2.3"));
         Store mapped = store("S1");
         mapped.id = 7L;
         Store fresh = store("S1");
@@ -295,7 +292,7 @@ class StoreCsvResourceTest {
     @Test
     void findEntityForLineLooksUpStoreByCode() {
         StoreCsvResource resource = new StoreCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, "S1", parts("S1", "Lyon", "", "", "", "", "", "", ""));
+        ImporterCsvResource.LineData data = line(2, parts("S1", "Lyon", "", "", "", "", "", "", ""));
         Store s1 = store("S1");
         @SuppressWarnings("unchecked")
         PanacheQuery<Store> query = mock(PanacheQuery.class);
@@ -305,4 +302,22 @@ class StoreCsvResourceTest {
             assertSame(s1, resource.findEntityForLine(data));
         }
     }
+    /** Header names of the imported feed, in the cell order of the fixtures. */
+    private static final String[] TEST_HEADER = {"CODE", "NAME", "STREET_LINE1", "STREET_LINE2", "POSTAL_CODE", "CITY", "COUNTRY", "LATITUDE", "LONGITUDE"};
+
+    /**
+     * Builds a header-bound row from positional fixture cells: the header
+     * maps TEST_HEADER onto the cell positions and the first name is the
+     * key column.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData line(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
+    }
+
 }

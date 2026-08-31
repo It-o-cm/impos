@@ -9,6 +9,9 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Response;
+
+import java.net.URI;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -62,28 +65,30 @@ public class EndorsementResource {
      *
      * @param login the badge id or login name presented for the endorsement
      * @param password the raw PIN presented for the endorsement
-     * @return the main page
+     * @return a 303 redirect to the main page (PRG pattern, so a browser
+     *         reload never replays the POST); any refusal message travels
+     *         through the shared state
      */
     @POST
     @Path("/action/endorse-validate")
     @Consumes("application/x-www-form-urlencoded")
-    public TemplateInstance validateEndorsement(@FormParam("login") String login, @FormParam("password") String password) {
+    public Response validateEndorsement(@FormParam("login") String login, @FormParam("password") String password) {
         String actionToExecute = state.endorsement.requestedAction;
 
         if (actionToExecute == null) {
             endorsementService.clearRequest(state);
-            return mainView(state);
+            return redirectHome();
         }
 
         if (endorsementService.authorize(login, password, actionToExecute)) {
             executeApprovedAction(actionToExecute);
             endorsementService.clearRequest(state);
             state.touch();
-            return mainView(state);
+            return redirectHome();
         } else {
             state.endorsement.error = "AUTORISATION REFUSÉE";
             state.touch();
-            return mainView(state);
+            return redirectHome();
         }
     }
 
@@ -156,25 +161,27 @@ public class EndorsementResource {
      * executed directly — no second credential is asked. The role check is
      * done server-side here, never trusted from the page.
      *
-     * @return the main page
+     * @return a 303 redirect to the main page (PRG pattern, so a browser
+     *         reload never replays the POST); any refusal message travels
+     *         through the shared state
      */
     @POST
     @Path("/action/endorse-self")
-    public TemplateInstance selfEndorse() {
+    public Response selfEndorse() {
         String actionToExecute = state.endorsement.requestedAction;
         if (actionToExecute == null) {
             endorsementService.clearRequest(state);
-            return mainView(state);
+            return redirectHome();
         }
         if (!endorsementService.operatorIsSupervisor(state)) {
             state.endorsement.error = "AUTORISATION REFUSÉE";
             state.touch();
-            return mainView(state);
+            return redirectHome();
         }
         executeApprovedAction(actionToExecute);
         endorsementService.clearRequest(state);
         state.touch();
-        return mainView(state);
+        return redirectHome();
     }
 
     /**
@@ -200,5 +207,15 @@ public class EndorsementResource {
      */
     private TemplateInstance mainView(PosState state) {
         return main.data("state", state);
+    }
+
+    /**
+     * Builds the 303 redirect to the main page used by every POST action
+     * (PRG pattern, so a browser reload never replays the POST).
+     *
+     * @return a 303 See Other response targeting "/"
+     */
+    private Response redirectHome() {
+        return Response.seeOther(URI.create("/")).build();
     }
 }

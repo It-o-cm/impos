@@ -86,6 +86,8 @@ public class DemoStoreIT {
         @Override
         public Map<String, String> getConfigOverrides() {
             Map<String, String> overrides = new HashMap<>(super.getConfigOverrides());
+            // Real engine: this demo class runs under the full stack.
+            overrides.put("pos.valuation.url", "http://localhost:8090");
             overrides.put("pos.sync.store-url", STORE_URL);
             return overrides;
         }

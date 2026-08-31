@@ -131,6 +131,9 @@ public class GroupOIT {
     /** Seed weighed PLU (Pommes Golden). */
     private static final String PLU_POMMES = "4020";
 
+    /** In-store price label (prefix 21): PLU 4020 at an embedded 1,50 € total. */
+    private static final String PRICE_LABEL = "2104020001509";
+
     /** A PLU absent from the catalogue. */
     private static final String PLU_UNKNOWN = "9999";
 
@@ -164,6 +167,10 @@ public class GroupOIT {
      */
     @Inject
     PaymentService paymentService;
+
+    /** The virtual terminal bean, where the simulator decision is played. */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient virtualTerminal;
 
     // ================================================================= O-A =
     // Ticket message zone (transient — cleared at the next scan).
@@ -272,7 +279,8 @@ public class GroupOIT {
      * messages. Proves {@code AUCUNE LIGNE SÉLECTIONNÉE} (a price gesture with
      * nothing selected), {@code LIGNE INTROUVABLE} (a stale line uid),
      * {@code QUANTITÉ INVALIDE (1-999)} (out-of-bounds on a unit line),
-     * {@code QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE} (a weighed line) and
+     * {@code QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE} (a price-embedded
+     * sticker line) and
      * {@code VALEUR INVALIDE} (an unparseable gesture value), each shown then
      * cleared.
      */
@@ -304,8 +312,18 @@ public class GroupOIT {
         assertSaleErrorShown(page, "QUANTITÉ INVALIDE (1-999)");
         assertSaleErrorClears(page);
 
-        // --- QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE — a weighed line ---
+        // --- A weighed line takes a typed DECIMAL weight in kilograms: applied, no message ---
         postForm("action/price-mod/submit", "type=QUANTITY&uid=" + weighedUid + "&rawValue=2");
+        Assertions.assertEquals(0, weighedLine().quantity.compareTo(new java.math.BigDecimal("2.000")),
+                "a typed quantity on a weighed line is applied as a weight in kilograms");
+        Assertions.assertNull(posState.ticket.transientError,
+                "a valid typed weight on a weighed line raises no message");
+
+        // --- QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE — a price-embedded sticker line ---
+        scan(PRICE_LABEL);
+        String stickerUid = posState.ticket.items.stream()
+                .filter(i -> i.priceEmbedded).findFirst().orElseThrow().uid;
+        postForm("action/price-mod/submit", "type=QUANTITY&uid=" + stickerUid + "&rawValue=2");
         assertSaleErrorShown(page, "QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
         assertSaleErrorClears(page);
 
@@ -360,7 +378,7 @@ public class GroupOIT {
         page.getByText("HUILE D'OLIVE 1L").first().waitFor();
         goPay(page);
         postForm("action/pay-card", "amount=6,00");
-        paymentService.refusePendingCard(posState);
+        virtualTerminal.refuse();
         Assertions.assertEquals("PAIEMENT REFUSÉ PAR LE TPE", posState.ticket.transientError,
                 "a refused virtual TPE must set the refusal message");
         Assertions.assertNull(posState.payment.pendingCardAmount, "the refused card request must be withdrawn");
@@ -633,7 +651,7 @@ public class GroupOIT {
         page.navigate(base.toString() + "pay");
         page.getByText("PAIEMENT CARTE EN COURS").waitFor();
         Assertions.assertNotNull(posState.payment.pendingCardAmount, "the TPE overlay must carry a pending amount");
-        paymentService.confirmPendingCard(posState);
+        virtualTerminal.accept();
         page.navigate(base.toString() + "pay");
         page.getByText("TRANSACTION TERMINÉE").waitFor();
         Assertions.assertTrue(posState.payment.transactionComplete, "an accepted card at par must complete the sale");
@@ -677,7 +695,7 @@ public class GroupOIT {
         page.getByText("HUILE D'OLIVE 1L").first().waitFor();
         goPay(page);
         postForm("action/pay-card", "amount=6,00");
-        paymentService.refusePendingCard(posState);
+        virtualTerminal.refuse();
         Assertions.assertEquals("PAIEMENT REFUSÉ PAR LE TPE", posState.ticket.transientError,
                 "a refused TPE must set the refusal message");
         Assertions.assertNull(posState.payment.pendingCardAmount, "REFUSE must withdraw the card request");

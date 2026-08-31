@@ -28,6 +28,9 @@ import java.util.Optional;
  * the two RAW JSON strings as captured on the valuation path, without any
  * reserialization: {@link #earn(String, String)} builds its body by string
  * composition, not by object mapping.
+ * <p>
+ * Holder lookup contract: docs/addendum-imfid-lookup-v1.1.md (verbatim copy
+ * of the imfid addendum this client implements).
  */
 @ApplicationScoped
 public class ImfidClient {
@@ -159,9 +162,10 @@ public class ImfidClient {
      * Searches cards by holder identity (addendum §3, {@code /api/cards/lookup}).
      * <p>
      * ONE criterion per call, by the addendum's priority: phone, else e-mail,
-     * else name (+ optional firstName). Normalization (phone formats, case,
-     * accents) is imfid's job — the register sends the operator's input as
-     * typed. Outcomes are TYPED, never exceptions for business answers:
+     * else name (+ optional firstName). Matching (addendum v1.1): EXACT for
+     * phone and e-mail, PREFIX for name and firstName ("dur" finds Durand).
+     * Normalization (phone formats, case, accents) is imfid's job — the
+     * register sends the operator's input as typed. Outcomes are TYPED, never exceptions for business answers:
      * 200 = matches (possibly empty, capped at 20 by imfid), 422 with the
      * CRM reason = identity lives in the CRM (addendum §2), any other
      * non-200 throws (the caller's breaker turns it into the degraded
@@ -440,6 +444,13 @@ public class ImfidClient {
         public String lastName;
         /** The holder's first name, for the operator's verbal check only. */
         public String firstName;
+        /**
+         * The holder's phone as registered, or null (addendum v1.1) — shown
+         * to the OPERATOR to discriminate homonyms, never read to the client.
+         */
+        public String phone;
+        /** The holder's e-mail (lowercase), or null (addendum v1.1) — same rule. */
+        public String email;
     }
 
     public static class AccountInfo {

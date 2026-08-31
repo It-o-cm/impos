@@ -1,4 +1,4 @@
-package com.intermarche.pos.service.valuation;
+package com.intermarche.pos.ui.valuation;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

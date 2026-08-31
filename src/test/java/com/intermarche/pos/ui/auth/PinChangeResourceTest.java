@@ -3,8 +3,10 @@ package com.intermarche.pos.ui.auth;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -41,7 +43,8 @@ class PinChangeResourceTest {
 
     /**
      * {@code pinChangePage()} renders the PIN change page when the state is not
-     * locked (guard false).
+     * locked (guard false), chaining the one-shot outcome messages (both null
+     * on a bare GET).
      */
     @Test
     void pinChangePageRendersPinChangeWhenUnlocked() {
@@ -49,43 +52,43 @@ class PinChangeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.pinChange.data("state", resource.state)).thenReturn(view);
-        assertSame(view, resource.pinChangePage());
+        when(view.data("error", null)).thenReturn(view);
+        when(view.data("success", null)).thenReturn(view);
+        assertSame(view, resource.pinChangePage(null, null));
     }
 
     // --- changePin ---
 
     /**
-     * {@code changePin(...)} renders the PIN change page with the service error
-     * when the change fails (guard false, error non-null).
+     * {@code changePin(...)} redirects to the PIN change page carrying the
+     * URL-encoded service error when the change fails (error non-null arm;
+     * PRG pattern).
      */
     @Test
-    void changePinRendersErrorWhenServiceReturnsError() {
+    void changePinRedirectsWithErrorWhenServiceReturnsError() {
         PinChangeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.authService.changePin(resource.state, "1111", "2222", "3333"))
                 .thenReturn("PIN incorrect");
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withError = mock(TemplateInstance.class);
-        when(resource.pinChange.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("error", "PIN incorrect")).thenReturn(withError);
-        assertSame(withError, resource.changePin("1111", "2222", "3333"));
+        Response response = resource.changePin("1111", "2222", "3333");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/pin-change?error=PIN+incorrect", response.getLocation().toString());
     }
 
     /**
-     * {@code changePin(...)} renders the PIN change page with the success
-     * message when the change succeeds (guard false, error null).
+     * {@code changePin(...)} redirects to the PIN change page carrying the
+     * URL-encoded success message when the change succeeds (error null arm;
+     * PRG pattern).
      */
     @Test
-    void changePinRendersSuccessWhenServiceReturnsNull() {
+    void changePinRedirectsWithSuccessWhenServiceReturnsNull() {
         PinChangeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.authService.changePin(resource.state, "1111", "2222", "2222"))
                 .thenReturn(null);
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withSuccess = mock(TemplateInstance.class);
-        when(resource.pinChange.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("success", "Code PIN modifié")).thenReturn(withSuccess);
-        assertSame(withSuccess, resource.changePin("1111", "2222", "2222"));
+        Response response = resource.changePin("1111", "2222", "2222");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/pin-change?success=Code+PIN+modifi%C3%A9", response.getLocation().toString());
         verify(resource.authService).changePin(resource.state, "1111", "2222", "2222");
     }
 }

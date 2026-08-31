@@ -1,4 +1,4 @@
-package com.intermarche.pos.service;
+package com.intermarche.pos.ui.hardware;
 
 import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.domain.ticket.RefundLine;
@@ -8,7 +8,6 @@ import com.intermarche.pos.domain.ticket.TicketLineValuation;
 import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.domain.ticket.TicketPayment;
 import com.intermarche.pos.domain.ticket.VatBreakdown;
-import com.intermarche.pos.ui.hardware.HardwareService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -18,6 +17,9 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.service.TechnicalEventService;
 
 /**
  * Renders and prints receipts from the persisted entities.
@@ -43,6 +45,8 @@ import java.util.Locale;
  * report, refund ticket (with restituted VAT ventilation), refund store
  * voucher (scannable STORE_VOUCHER format when encodable, plain otherwise)
  * and the training receipt.
+ * <p>
+ * Placement: ui.hardware — every consumer is a ui.* screen service and the class drives the printer boundary; pos.service keeps only services serving other services.
  */
 @ApplicationScoped
 public class TicketPrinterService {

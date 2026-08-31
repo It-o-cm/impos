@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.service.TicketParkingService;
+import com.intermarche.pos.ui.ticket.TicketParkingService;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

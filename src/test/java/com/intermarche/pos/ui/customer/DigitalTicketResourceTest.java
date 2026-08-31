@@ -3,7 +3,7 @@ package com.intermarche.pos.ui.customer;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.service.QrCodeService;
+import com.intermarche.pos.ui.customer.QrCodeService;
 import com.intermarche.pos.service.TechnicalEventService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.qute.Template;
@@ -120,7 +120,7 @@ class DigitalTicketResourceTest {
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
-            assertSame(sentinel, resource.view(7L, KEY));
+            assertSame(sentinel, resource.view(7L, KEY, false));
         }
         assertSame(ticket, captured.get("ticket"));
         assertEquals("/t/7/" + KEY, captured.get("path"));
@@ -138,7 +138,7 @@ class DigitalTicketResourceTest {
         DigitalTicketResource resource = newResource(Optional.empty());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(null);
-            assertSame(sentinel, resource.view(1L, KEY));
+            assertSame(sentinel, resource.view(1L, KEY, false));
         }
         assertNull(captured.get("ticket"));
         assertEquals("/t/1/" + KEY, captured.get("path"));
@@ -237,74 +237,80 @@ class DigitalTicketResourceTest {
     // --- sendByEmail: the three-part condition ---
 
     /**
-     * {@code sendByEmail} stores the email, journals the send and reports it
-     * sent when the ticket is present and the email is well-formed (all three
-     * condition arms true).
+     * {@code sendByEmail} stores the email, journals the send and redirects
+     * with the sent flag when the ticket is present and the email is
+     * well-formed (all three condition arms true; PRG pattern, so a reload
+     * never re-sends the email).
      */
     @Test
     void sendByEmailSendsWhenTicketAndEmailValid() {
         DigitalTicketResource resource = newResource(Optional.empty());
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        Response response;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(8L)).thenReturn(ticket);
-            assertSame(sentinel, resource.sendByEmail(8L, KEY, "a@b.co"));
+            response = resource.sendByEmail(8L, KEY, "a@b.co");
         }
         assertEquals("a@b.co", ticket.customerEmail);
         verify(ticket).persist();
         verify(resource.technicalEventService)
                 .log(eq(TechnicalEvent.EventType.DIGITAL_TICKET_SENT), eq("C04-1 -> a@b.co"));
-        assertEquals(Boolean.TRUE, captured.get("sent"));
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/t/8/" + KEY + "?sent=true", response.getLocation().toString());
     }
 
     /**
-     * {@code sendByEmail} does nothing and reports not sent when no ticket is
-     * found (first condition arm false).
+     * {@code sendByEmail} does nothing and redirects without the sent flag
+     * when no ticket is found (first condition arm false).
      */
     @Test
     void sendByEmailNotSentWhenTicketMissing() {
         DigitalTicketResource resource = newResource(Optional.empty());
+        Response response;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(9L)).thenReturn(null);
-            assertSame(sentinel, resource.sendByEmail(9L, KEY, "a@b.co"));
+            response = resource.sendByEmail(9L, KEY, "a@b.co");
         }
-        assertNull(captured.get("ticket"));
-        assertEquals(Boolean.FALSE, captured.get("sent"));
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/t/9/" + KEY, response.getLocation().toString());
         verifyNoInteractions(resource.technicalEventService);
     }
 
     /**
-     * {@code sendByEmail} reports not sent when the email is null (second
-     * condition arm false), leaving the ticket untouched.
+     * {@code sendByEmail} redirects without the sent flag when the email is
+     * null (second condition arm false), leaving the ticket untouched.
      */
     @Test
     void sendByEmailNotSentWhenEmailNull() {
         DigitalTicketResource resource = newResource(Optional.empty());
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        Response response;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(10L)).thenReturn(ticket);
-            assertSame(sentinel, resource.sendByEmail(10L, KEY, null));
+            response = resource.sendByEmail(10L, KEY, null);
         }
         assertNull(ticket.customerEmail);
         verify(ticket, never()).persist();
         verifyNoInteractions(resource.technicalEventService);
-        assertEquals(Boolean.FALSE, captured.get("sent"));
+        assertEquals("/t/10/" + KEY, response.getLocation().toString());
     }
 
     /**
-     * {@code sendByEmail} reports not sent when the email is malformed (third
-     * condition arm false), leaving the ticket untouched.
+     * {@code sendByEmail} redirects without the sent flag when the email is
+     * malformed (third condition arm false), leaving the ticket untouched.
      */
     @Test
     void sendByEmailNotSentWhenEmailMalformed() {
         DigitalTicketResource resource = newResource(Optional.empty());
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        Response response;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(11L)).thenReturn(ticket);
-            assertSame(sentinel, resource.sendByEmail(11L, KEY, "not-an-email"));
+            response = resource.sendByEmail(11L, KEY, "not-an-email");
         }
         assertNull(ticket.customerEmail);
         verify(ticket, never()).persist();
         verifyNoInteractions(resource.technicalEventService);
-        assertEquals(Boolean.FALSE, captured.get("sent"));
+        assertEquals("/t/11/" + KEY, response.getLocation().toString());
     }
 }

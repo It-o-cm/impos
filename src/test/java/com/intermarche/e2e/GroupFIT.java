@@ -52,9 +52,9 @@ import java.util.stream.Collectors;
  * {@code PosHardwareResource}, but under {@code @QuarkusTest} the embedded
  * {@code MockHardwareResource} owns the whole {@code /api/hardware} namespace and
  * implements no {@code /tpe}, so those sub-paths are shadowed (404). The
- * terminal's accept/refuse is therefore played at the service boundary the
- * endpoint merely wraps ({@link PaymentService#confirmPendingCard} /
- * {@link PaymentService#refusePendingCard}) — the same justified scaffolding
+ * terminal's accept/refuse is therefore played at the terminal boundary the
+ * endpoint merely wraps ({@code VirtualTerminalClient.accept()} /
+ * {@code refuse()}) — the same justified scaffolding
  * category as the injected-state and DB-aging oracles, the only step off the
  * HTTP surface. Parking, register cancel and completion all stay on the screen.
  * Completion is closed through the modal's own buttons —
@@ -154,6 +154,10 @@ public class GroupFIT {
     @Inject
     PaymentService paymentService;
 
+    /** The virtual terminal bean, where the simulator decision is played. */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient virtualTerminal;
+
     /**
      * F1 — Espèces exactes &amp; trop-perçu.
      * <p>
@@ -221,7 +225,7 @@ public class GroupFIT {
                 "the parked card request must carry the 4,00 € partial amount");
         // The terminal accepts (the endpoint the simulator would hit is shadowed
         // under test — see the class note — so its wrapped service is called).
-        paymentService.confirmPendingCard(posState);
+        virtualTerminal.accept();
         goPay(page);
         Assertions.assertEquals(1, posState.payment.payments.size(), "the accepted card must be one entry");
         Assertions.assertEquals("CARD", posState.payment.payments.get(0).method,
@@ -257,7 +261,7 @@ public class GroupFIT {
         payThroughScreen(accept, "CARTE BANCAIRE", "cardForm", null, false);
         accept.getByText("PAIEMENT CARTE EN COURS").waitFor();
         Assertions.assertNotNull(posState.payment.pendingCardAmount, "the card request must park an amount");
-        paymentService.confirmPendingCard(posState);
+        virtualTerminal.accept();
         goPay(accept);
         Assertions.assertNull(posState.payment.pendingCardAmount, "the accept must clear the pending amount");
         Assertions.assertTrue(posState.payment.transactionComplete,
@@ -270,7 +274,7 @@ public class GroupFIT {
         goPay(refuse);
         payThroughScreen(refuse, "CARTE BANCAIRE", "cardForm", null, false);
         refuse.getByText("PAIEMENT CARTE EN COURS").waitFor();
-        paymentService.refusePendingCard(posState);
+        virtualTerminal.refuse();
         Assertions.assertNull(posState.payment.pendingCardAmount, "the refuse must clear the pending amount");
         Assertions.assertTrue(posState.payment.payments.isEmpty(),
                 "a refused card must register no payment (cart intact)");
@@ -291,7 +295,7 @@ public class GroupFIT {
                 "cancelling from the register must withdraw the demand");
         // A late terminal accept finds no pending demand: the endpoint would answer
         // 409 and its wrapped service is a guarded no-op — nothing is replayed.
-        paymentService.confirmPendingCard(posState);
+        virtualTerminal.accept();
         Assertions.assertTrue(posState.payment.payments.isEmpty(),
                 "a withdrawn demand must not be replayable into a payment");
         cancel.close();
@@ -402,10 +406,16 @@ public class GroupFIT {
         goPay(page);
         BigDecimal total = posState.getRemaining();
         BigDecimal mealBase = posState.payment.valuationMealEligible;
+        // Self-diagnosing oracle: a null base can be an engine response
+        // WITHOUT the MEAL_VOUCHER advantage (engine-side data) OR a silent
+        // degraded valuation (open circuit breaker) — the failure message
+        // carries the status and the raw engine response to tell them apart.
+        String valuationJson = posState.payment.valuationJson;
         Assertions.assertTrue(mealBase != null && mealBase.signum() > 0,
                 "le moteur doit accorder une assiette TR sur les pommes — assiette = "
-                        + mealBase + " (vérifier le drapeau ticket-restaurant de la "
-                        + "famille côté moteur)");
+                        + mealBase + ", statut = " + posState.payment.valuationStatus
+                        + ", réponse moteur = " + (valuationJson == null ? "null"
+                                : valuationJson.substring(0, Math.min(valuationJson.length(), 1000))));
         // The TR tender is what the engine allows, capped so the cheque keeps
         // something to settle: the scenario proves TWO non-cash tenders.
         BigDecimal trAmount = mealBase.min(total.subtract(new BigDecimal("0.50")))

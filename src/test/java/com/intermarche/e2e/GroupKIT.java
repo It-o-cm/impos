@@ -135,8 +135,8 @@ public class GroupKIT {
     /** The article PLU carried by the weighed line. */
     private static final String PLU_POMMES = "4020";
 
-    /** A valid fidelity card ({@code ^789\\d{12}$}, 15 digits). */
-    private static final String CARD_1 = "789000000000001";
+    /** A valid fidelity card ({@code ^299\\d{10}$}, 13 digits, imfid seed). */
+    private static final String CARD_1 = "2990000000019";
 
     /** The pinned terminal id of the E2E profile. */
     private static final String TERMINAL = "C04";
@@ -176,6 +176,10 @@ public class GroupKIT {
      */
     @Inject
     PaymentService paymentService;
+
+    /** The virtual terminal bean, where the simulator decision is played. */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient virtualTerminal;
 
     /**
      * K1 — Crash en plein panier : panier restauré à l'identique (uids, gestes structurés, fidélité), draft réconcilié, pas de doublon.
@@ -292,7 +296,7 @@ public class GroupKIT {
         // --- Register a PARTIAL card payment (5,00 € of 12,00 €) ---
         payThroughScreen(page, "CARTE BANCAIRE", "cardForm", "5", true);
         page.getByText("PAIEMENT CARTE EN COURS").waitFor();
-        paymentService.confirmPendingCard(posState);
+        virtualTerminal.accept();
         Assertions.assertEquals(1, posState.payment.payments.size(), "the card payment must be registered");
         Assertions.assertEquals("CARD", posState.payment.payments.get(0).method, "the registered payment must be a card");
         Assertions.assertEquals(0, posState.getRemaining().compareTo(new BigDecimal("7.00")),

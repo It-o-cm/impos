@@ -82,6 +82,8 @@ public class DemoFidDegradedIT {
         public Map<String, String> getConfigOverrides() {
             java.util.Map<String, String> config =
                     new java.util.HashMap<>(super.getConfigOverrides());
+            // Real engine: this demo class runs under the full stack.
+            config.put("pos.valuation.url", "http://localhost:8090");
             config.put("pos.fid.url", "http://localhost:59998");
             config.put("pos.fid.user", "pos");
             config.put("pos.fid.password", "pos-password");

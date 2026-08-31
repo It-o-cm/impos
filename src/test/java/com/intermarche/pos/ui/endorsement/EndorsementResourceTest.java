@@ -8,6 +8,7 @@ import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -35,10 +36,11 @@ import static org.mockito.Mockito.when;
  * {@code lock}). Every service and template is a Mockito mock while the two
  * state holders are real objects so their public fields can be driven and read
  * directly. Templates echo a recognizable {@link TemplateInstance} so the
- * returned view can be identified. Tests assert absolute expected values and
- * verify delegation, covering both arms of every guard, ternary and dispatch
- * branch of the resource, including the whole endorsement dispatch registry and
- * both {@code mainView} arms.
+ * returned view can be identified; the POST actions instead return a 303
+ * redirect to "/" (PRG pattern) that the tests assert by status and location.
+ * Tests assert absolute expected values and verify delegation, covering both
+ * arms of every guard, ternary and dispatch branch of the resource, including
+ * the whole endorsement dispatch registry.
  */
 class EndorsementResourceTest {
 
@@ -134,15 +136,16 @@ class EndorsementResourceTest {
     // --- validateEndorsement: no pending action ---
 
     /**
-     * {@code validateEndorsement()} clears the request and renders the main view
-     * without authorizing when no action is pending (null guard true arm).
+     * {@code validateEndorsement()} clears the request and redirects to the main
+     * page without authorizing when no action is pending (null guard true arm).
      */
     @Test
     void validateEndorsementWithNoPendingActionClearsAndReturnsMain() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = null;
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.endorsementService).clearRequest(resource.state);
         verifyNoInteractions(resource.ticketService);
         verifyNoInteractions(resource.refundService);
@@ -152,17 +155,17 @@ class EndorsementResourceTest {
     // --- validateEndorsement: authorization refused ---
 
     /**
-     * {@code validateEndorsement()} sets the refusal error and renders the main
-     * view when the credentials are refused (authorize false arm), also covering
-     * the unlocked {@code mainView} arm.
+     * {@code validateEndorsement()} sets the refusal error and redirects to the
+     * main page when the credentials are refused (authorize false arm).
      */
     @Test
     void validateEndorsementRefusedSetsErrorAndReturnsMain() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "CANCEL_TICKET";
         when(resource.endorsementService.authorize("m", "0000", "CANCEL_TICKET")).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "0000"));
+        Response response = resource.validateEndorsement("m", "0000");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
         verify(resource.state).touch();
         verify(resource.endorsementService, never()).clearRequest(resource.state);
@@ -180,8 +183,9 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "CANCEL_TICKET";
         when(resource.endorsementService.authorize("m", "1234", "CANCEL_TICKET")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).cancelTicket(resource.state);
         verify(resource.endorsementService).clearRequest(resource.state);
         verify(resource.state).touch();
@@ -196,8 +200,9 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "CANCEL_LINE_ABC-42";
         when(resource.endorsementService.authorize("m", "1234", "CANCEL_LINE_ABC-42")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).cancelItemById(resource.state, "ABC-42");
         verify(resource.endorsementService).clearRequest(resource.state);
     }
@@ -215,8 +220,9 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("0.50");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).applyRemise(item, new BigDecimal("0.50"));
         verify(resource.ticketService).recalculateTotal(resource.state);
     }
@@ -236,9 +242,10 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
                 .thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
 
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
 
         verify(resource.ticketService).applyGlobalDiscount(
                 resource.state, "GLOBAL_REMISE", new BigDecimal("1.00"));
@@ -258,7 +265,6 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingValue = new BigDecimal("10");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
                 .thenReturn(true);
-        stubMain(resource);
 
         resource.validateEndorsement("m", "1234");
 
@@ -281,7 +287,6 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
                 .thenReturn(true);
-        stubMain(resource);
 
         resource.validateEndorsement("m", "1234");
 
@@ -302,7 +307,6 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
                 .thenReturn(true);
-        stubMain(resource);
 
         resource.validateEndorsement("m", "1234");
 
@@ -325,7 +329,6 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
                 .thenReturn(true);
-        stubMain(resource);
 
         resource.validateEndorsement("m", "1234");
 
@@ -347,8 +350,9 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("10");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).applyDiscount(item, new BigDecimal("10"));
         verify(resource.ticketService).recalculateTotal(resource.state);
     }
@@ -366,8 +370,9 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("2.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).forcePrice(item, new BigDecimal("2.00"));
         verify(resource.ticketService).recalculateTotal(resource.state);
     }
@@ -386,8 +391,9 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).recalculateTotal(resource.state);
         verify(resource.ticketService, never()).applyRemise(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(resource.ticketService, never()).applyDiscount(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
@@ -407,8 +413,9 @@ class EndorsementResourceTest {
         resource.state.endorsement.pendingTargetUid = "NOPE";
         resource.state.endorsement.pendingValue = new BigDecimal("0.50");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService, never()).recalculateTotal(resource.state);
         verify(resource.endorsementService).clearRequest(resource.state);
     }
@@ -422,8 +429,9 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "TRAINING_TOGGLE";
         when(resource.endorsementService.authorize("m", "1234", "TRAINING_TOGGLE")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).performTrainingToggle();
         verify(resource.endorsementService).clearRequest(resource.state);
     }
@@ -437,8 +445,9 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "REFUND_CARD_77";
         when(resource.endorsementService.authorize("m", "1234", "REFUND_CARD_77")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.refundService).performRefund(resource.state, Refund.RefundMethod.CARD);
         verify(resource.endorsementService).clearRequest(resource.state);
     }
@@ -453,8 +462,9 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "REFUND_BITCOIN_77";
         when(resource.endorsementService.authorize("m", "1234", "REFUND_BITCOIN_77")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         assertEquals("ACTION DE REMBOURSEMENT INCONNUE", resource.state.endorsement.error);
         verifyNoInteractions(resource.refundService);
     }
@@ -468,8 +478,9 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "REFUND_";
         when(resource.endorsementService.authorize("m", "1234", "REFUND_")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         assertEquals("ACTION DE REMBOURSEMENT INCONNUE", resource.state.endorsement.error);
         verifyNoInteractions(resource.refundService);
     }
@@ -486,24 +497,26 @@ class EndorsementResourceTest {
         when(resource.endorsementService.authorize("m", "1234", "REFUND_CASH_5")).thenReturn(true);
         doThrow(new IllegalStateException("blocked"))
                 .when(resource.refundService).performRefund(resource.state, Refund.RefundMethod.CASH);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         assertNull(resource.state.endorsement.error);
         verify(resource.endorsementService).clearRequest(resource.state);
     }
 
     /**
      * {@code validateEndorsement()} matches no dispatch branch for an
-     * unrecognized granted action yet still clears the request and renders the
-     * main view (final else-none arm of the registry).
+     * unrecognized granted action yet still clears the request and redirects to
+     * the main page (final else-none arm of the registry).
      */
     @Test
     void validateEndorsementGrantedUnknownActionClearsOnly() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "SOMETHING_ELSE";
         when(resource.endorsementService.authorize("m", "1234", "SOMETHING_ELSE")).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validateEndorsement("m", "1234"));
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.endorsementService).clearRequest(resource.state);
         verifyNoInteractions(resource.ticketService);
         verifyNoInteractions(resource.refundService);
@@ -529,14 +542,16 @@ class EndorsementResourceTest {
 
     /**
      * {@code selfEndorse} with no pending action clears the request and
-     * re-renders (null-action arm), never consulting the supervisor role.
+     * redirects to the main page (null-action arm), never consulting the
+     * supervisor role.
      */
     @Test
     void selfEndorseWithoutActionClears() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = null;
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.selfEndorse());
+        Response response = resource.selfEndorse();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.endorsementService).clearRequest(resource.state);
         verify(resource.endorsementService, never()).operatorIsSupervisor(any());
         verifyNoInteractions(resource.ticketService);
@@ -544,16 +559,17 @@ class EndorsementResourceTest {
 
     /**
      * {@code selfEndorse} refuses when the logged operator is not a supervisor
-     * (refused arm): it flags the error, touches and re-renders without
-     * executing the action.
+     * (refused arm): it flags the error, touches and redirects to the main page
+     * without executing the action.
      */
     @Test
     void selfEndorseRefusesNonSupervisor() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "CANCEL_TICKET";
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.selfEndorse());
+        Response response = resource.selfEndorse();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         assertEquals("AUTORISATION REFUSÉE", resource.state.endorsement.error);
         verify(resource.state).touch();
         verify(resource.ticketService, never()).cancelTicket(any());
@@ -563,15 +579,16 @@ class EndorsementResourceTest {
     /**
      * {@code selfEndorse} executes the pending action for a supervisor
      * (success arm): it runs the approved action, clears the request and
-     * re-renders.
+     * redirects to the main page.
      */
     @Test
     void selfEndorseExecutesForSupervisor() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "CANCEL_TICKET";
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.selfEndorse());
+        Response response = resource.selfEndorse();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).cancelTicket(resource.state);
         verify(resource.endorsementService).clearRequest(resource.state);
         verify(resource.state).touch();
@@ -587,7 +604,6 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "PRINT_BADGE_5";
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
-        stubMain(resource);
         resource.selfEndorse();
         verify(resource.homeService).printOperatorBadge("5");
         verify(resource.endorsementService).clearRequest(resource.state);

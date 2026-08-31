@@ -53,14 +53,16 @@ public class MockHardwareResource {
     }
 
     /**
-     * Resolves the payment service at call time (same reason as posState()).
+     * Resolves the virtual terminal at call time (same reason as
+     * posState()): the simulator's decisions fire its transaction callback.
      *
-     * @return the managed PaymentService instance
+     * @return the managed VirtualTerminalClient instance
      */
-    private com.intermarche.pos.ui.payment.PaymentService paymentService() {
+    private com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient virtualTerminal() {
         return io.quarkus.arc.Arc.container()
-                .instance(com.intermarche.pos.ui.payment.PaymentService.class).get();
+                .instance(com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient.class).get();
     }
+
 
     private final Random random = new Random();
 
@@ -288,11 +290,9 @@ public class MockHardwareResource {
     @POST
     @Path("/tpe/accept")
     public Response tpeAccept() {
-        com.intermarche.pos.ui.PosState state = posState();
-        if (state.payment.pendingCardAmount == null) {
+        if (!virtualTerminal().accept()) {
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }
-        paymentService().confirmPendingCard(state);
         return Response.ok().build();
     }
 
@@ -304,11 +304,9 @@ public class MockHardwareResource {
     @POST
     @Path("/tpe/refuse")
     public Response tpeRefuse() {
-        com.intermarche.pos.ui.PosState state = posState();
-        if (state.payment.pendingCardAmount == null) {
+        if (!virtualTerminal().refuse()) {
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }
-        paymentService().refusePendingCard(state);
         return Response.ok().build();
     }
 }

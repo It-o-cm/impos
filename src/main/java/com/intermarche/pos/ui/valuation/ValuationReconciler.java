@@ -1,4 +1,4 @@
-package com.intermarche.pos.service.valuation;
+package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +44,8 @@ import java.util.Map;
  * resolved (basket-level offers included) are skipped with a warning.
  * Advantage amounts are treated as deductions on GROSS offer amounts — the
  * assumed engine rule, logged against {@code totalPrice} for verification.
+ * <p>
+ * Placement: ui.valuation — consumed exclusively by the sale screens (consumer-exclusivity rule).
  */
 @ApplicationScoped
 public class ValuationReconciler {

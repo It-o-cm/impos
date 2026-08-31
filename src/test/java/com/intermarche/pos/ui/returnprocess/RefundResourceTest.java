@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -105,27 +106,28 @@ class RefundResourceTest {
     // --- doSearch ---
 
     /**
-     * {@code doSearch()} trims a non-null pattern, runs the search and returns the
-     * search view (ternary true arm).
+     * {@code doSearch()} trims a non-null pattern, runs the search and redirects to
+     * the refund screen (ternary true arm; PRG pattern).
      */
     @Test
     void doSearchTrimsNonNullPattern() {
         RefundResource resource = newResource();
-        TemplateInstance searchView = stubSearch(resource);
-        assertSame(searchView, resource.doSearch("  42  "));
+        Response response = resource.doSearch("  42  ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/return", response.getLocation().toString());
         assertEquals("42", resource.state.refund.searchPattern);
         verify(resource.refundService).searchTickets(resource.state);
     }
 
     /**
      * {@code doSearch()} stores an empty pattern when the raw value is null (ternary
-     * false arm) and still runs the search.
+     * false arm) and still runs the search before redirecting.
      */
     @Test
     void doSearchDefaultsNullPatternToEmpty() {
         RefundResource resource = newResource();
-        TemplateInstance searchView = stubSearch(resource);
-        assertSame(searchView, resource.doSearch(null));
+        Response response = resource.doSearch(null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("", resource.state.refund.searchPattern);
         verify(resource.refundService).searchTickets(resource.state);
     }
@@ -167,26 +169,28 @@ class RefundResourceTest {
     }
 
     /**
-     * {@code submitLine()} applies the typed line quantity and returns the detail
-     * view.
+     * {@code submitLine()} applies the typed line quantity and redirects to the
+     * refund screen (PRG pattern).
      */
     @Test
-    void submitLineAppliesQuantityAndReturnsDetail() {
+    void submitLineAppliesQuantityAndRedirects() {
         RefundResource resource = newResource();
-        TemplateInstance detailView = stubDetail(resource);
-        assertSame(detailView, resource.submitLine(3L, "2"));
+        Response response = resource.submitLine(3L, "2");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/return", response.getLocation().toString());
         verify(resource.refundService).submitLineQuantity(resource.state, 3L, "2");
     }
 
     /**
-     * {@code submitAmount()} applies the typed global amount and returns the detail
-     * view.
+     * {@code submitAmount()} applies the typed global amount and redirects to the
+     * refund screen (PRG pattern).
      */
     @Test
-    void submitAmountAppliesAmountAndReturnsDetail() {
+    void submitAmountAppliesAmountAndRedirects() {
         RefundResource resource = newResource();
-        TemplateInstance detailView = stubDetail(resource);
-        assertSame(detailView, resource.submitAmount("12,50"));
+        Response response = resource.submitAmount("12,50");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/return", response.getLocation().toString());
         verify(resource.refundService).submitManualAmount(resource.state, "12,50");
     }
 

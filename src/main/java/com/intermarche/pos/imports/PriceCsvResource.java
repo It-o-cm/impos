@@ -2,7 +2,6 @@ package com.intermarche.pos.imports;
 
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.annotation.security.RolesAllowed;
@@ -18,7 +17,6 @@ import org.jboss.logging.Logger;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,10 +30,15 @@ import java.util.Set;
  * leverages the base class for the staged transaction management
  * (1000 -> 100 -> 10 -> 1).
  * <p>
- * Expected CSV format (7 columns):
- * EAN|PriceExcludingTax|PriceIncludingTax|VatRate|Priority|StartDateTime|EndDateTime
- * (historical mentions of a "PriceUsage" column and of store-scoped prices
- * date from a previous model and no longer exist).
+ * Consumed columns (resolved by header name; unknown columns of the
+ * shared feed are ignored): EAN (key), PRICE_EXCL_TAX, PRICE_INCL_TAX,
+ * VAT_RATE, PRIORITY, START_DATE, END_DATE — plus the OPTIONAL
+ * PRICE_USAGE discriminator of the union feed: the engine distinguishes
+ * DEFAULT selling prices from discount bases (BASE_FOR_DISCOUNT…) that
+ * share the same composite key, and the register only sells with DEFAULT
+ * ones — when the feed declares the column, every non-DEFAULT row is
+ * SKIPPED here (silently: those rows are for the engine, not for us).
+ * Without the column, every row is a selling price (historical files).
  * <p>
  * Place in the POS architecture since the phase 6 centralized referentials:
  * these CSV endpoints exist on every node, but their proper home is the
@@ -54,6 +57,30 @@ public class PriceCsvResource extends ImporterCsvResource {
     private static final String CTX_PRODUCTS = "__CTX_PRODUCTS__";
     private static final String CTX_PRICES = "__CTX_PRICES__";
 
+    /** Header name of the natural key: the product EAN. */
+    static final String COL_EAN = "EAN";
+    /** Header name of the tax-exclusive price. */
+    static final String COL_PRICE_EXCL_TAX = "PRICE_EXCL_TAX";
+    /** Header name of the tax-inclusive price. */
+    static final String COL_PRICE_INCL_TAX = "PRICE_INCL_TAX";
+    /** Header name of the VAT rate. */
+    static final String COL_VAT_RATE = "VAT_RATE";
+    /** Header name of the price priority (composite-key part). */
+    static final String COL_PRIORITY = "PRIORITY";
+    /** Header name of the validity start (composite-key part). */
+    static final String COL_START_DATE = "START_DATE";
+    /** Header name of the validity end. */
+    static final String COL_END_DATE = "END_DATE";
+    /** Header name of the OPTIONAL engine-side price usage discriminator. */
+    static final String COL_PRICE_USAGE = "PRICE_USAGE";
+    /** The only price usage the register sells with. */
+    static final String USAGE_DEFAULT = "DEFAULT";
+
+    /** The columns this importer cannot work without. */
+    private static final List<String> REQUIRED_COLUMNS = List.of(
+            COL_PRICE_EXCL_TAX, COL_PRICE_INCL_TAX, COL_VAT_RATE,
+            COL_PRIORITY, COL_START_DATE, COL_END_DATE);
+
     /**
      * Imports or updates prices from a CSV stream.
      * Delegates stream reading and chunking to the the abstract base class.
@@ -66,8 +93,18 @@ public class PriceCsvResource extends ImporterCsvResource {
     @Produces(MediaType.APPLICATION_JSON)
     @RolesAllowed("ADMIN")
     public Response importPrices(InputStream inputStream) {
-        // 9 columns expected
-        return this.importCsvStream(inputStream, 7);
+        return this.importCsvStream(inputStream, COL_EAN, REQUIRED_COLUMNS);
+    }
+
+    /**
+     * Names the engine feed captured by this importer: the raw file is
+     * retained verbatim for the valuation engines (single import line).
+     *
+     * @return the PRICES feed code
+     */
+    @Override
+    protected String feedCode() {
+        return "PRICES";
     }
 
     /**
@@ -123,40 +160,6 @@ public class PriceCsvResource extends ImporterCsvResource {
     }
 
     /**
-     * Retrieves a map of Stores based on a set of codes.
-     *
-     * @param targetStoreCodes The set of store codes to search for.
-     * @return A map of store code to Store entity.
-     */
-    private static Map<String, Store> getStoreMap(Set<String> targetStoreCodes) {
-        Map<String, Store> storeMap = new HashMap<>();
-        if (!targetStoreCodes.isEmpty()) {
-            List<Store> stores = Store.list("code IN ?1", targetStoreCodes);
-            for (Store s : stores) {
-                storeMap.put(s.code, s);
-            }
-        }
-        return storeMap;
-    }
-
-    /**
-     * Extracts unique Store codes from the parsed lines.
-     *
-     * @param parsedLines The list of data for the current chunk.
-     * @return A set of unique store codes found in Column 1.
-     */
-    private Set<String> getTargetStoreCodes(List<LineData> parsedLines) {
-        Set<String> targetStoreCodes = new HashSet<>();
-        for (LineData data : parsedLines) {
-            String storeCode = safeGet(data.parts, 1);
-            if (storeCode != null) {
-                targetStoreCodes.add(storeCode);
-            }
-        }
-        return targetStoreCodes;
-    }
-
-    /**
      * Retrieves a map of Products based on a set of EAN codes.
      *
      * @param targetCodes The set of product EANs to search for.
@@ -187,6 +190,16 @@ public class PriceCsvResource extends ImporterCsvResource {
      */
     @Override
     protected void processLineLogic(LineData data, Map<String, Object> entityMap, int[] counters) {
+        // Union-feed discriminator: rows carrying a non-DEFAULT usage are
+        // discount bases meant for the engine — not selling prices — and
+        // share the register's composite key with the DEFAULT row; keeping
+        // them out is what keeps the register's price the SELLING price.
+        if (data.has(COL_PRICE_USAGE)) {
+            String usage = data.get(COL_PRICE_USAGE);
+            if (usage != null && !usage.isEmpty() && !USAGE_DEFAULT.equals(usage)) {
+                return;
+            }
+        }
         // 1. Retrieve or Fetch Dependencies
         @SuppressWarnings("unchecked")
         Map<String, Product> productMap = (Map<String, Product>) entityMap.get(CTX_PRODUCTS);
@@ -208,8 +221,8 @@ public class PriceCsvResource extends ImporterCsvResource {
      * @param product      The Product entity associated with this price.
      */
     private void processPriceLogic(LineData data, int[] counters, Map<String, Price> priceMap, Product product) {
-        LocalDateTime start = safeParseDateTime(data.parts, 6);
-        Integer priority = safeParseInt(data.parts, 5);
+        LocalDateTime start = safeParseDateTime(data, COL_START_DATE);
+        Integer priority = safeParseInt(data, COL_PRIORITY);
         String key = buildPriceKey(data.code, start, priority);
         Price price = priceMap.get(key);
 
@@ -257,31 +270,6 @@ public class PriceCsvResource extends ImporterCsvResource {
     }
 
     /**
-     * Retrieves the Store entity for the current line.
-     * <p>
-     * Looks up the store in the provided map. If the map is null (1-by-1 fallback mode), it fetches the store from the database.
-     *
-     * @param storeMap The map of stores (can be null).
-     * @param storeCode The store code to look for.
-     * @return The Store entity.
-     * @throws IllegalArgumentException if the store is not found.
-     */
-    private static Store getStore(Map<String, Store> storeMap, String storeCode) {
-        if (storeMap == null) {
-            storeMap = new HashMap<>();
-            if (storeCode != null) {
-                Store s = Store.findByCode(storeCode);
-                if (s != null) storeMap.put(s.code, s);
-            }
-        }
-        Store store = storeMap.get(storeCode);
-        if (store == null) {
-            throw new IllegalArgumentException("Store with code " + storeCode + " not found.");
-        }
-        return store;
-    }
-
-    /**
      * Retrieves the Price map for the current line.
      * <p>
      * Returns the map from the context. If the map is missing (1-by-1 fallback mode), it performs a database lookup
@@ -297,8 +285,8 @@ public class PriceCsvResource extends ImporterCsvResource {
         Map<String, Price> priceMap = (Map<String, Price>) entityMap.get(CTX_PRICES);
         if (priceMap == null) {
             // 1-by-1 fallback: look for the specific price in DB
-            LocalDateTime start = safeParseDateTime(data.parts, 5);
-            Integer priority = safeParseInt(data.parts, 4);
+            LocalDateTime start = safeParseDateTime(data, COL_START_DATE);
+            Integer priority = safeParseInt(data, COL_PRIORITY);
             Price existing = Price.find(
                     "product.ean = ?1 and priceUsage = ?2 and startDateTime = ?3 and priority = ?4",
                     data.code, start, priority
@@ -324,8 +312,8 @@ public class PriceCsvResource extends ImporterCsvResource {
      */
     @Override
     protected Object findEntityForLine(LineData data) {
-        LocalDateTime start = safeParseDateTime(data.parts, 5);
-        Integer priority = safeParseInt(data.parts, 4);
+        LocalDateTime start = safeParseDateTime(data, COL_START_DATE);
+        Integer priority = safeParseInt(data, COL_PRIORITY);
 
 
         return Price.find(
@@ -358,13 +346,12 @@ public class PriceCsvResource extends ImporterCsvResource {
      * @param price The Price entity to populate.
      */
     private void feedPrice(LineData data, Price price) {
-        String[] parts = data.parts;
-        price.priceExcludingTax = safeParseBigDecimal(parts, 1);
-        price.priceIncludingTax = safeParseBigDecimal(parts, 2);
-        price.vatRate = safeParseBigDecimal(parts, 3);
-        price.priority = safeParseInt(parts, 4);
-        price.startDateTime = safeParseDateTime(parts, 5);
-        price.endDateTime = safeParseDateTime(parts, 6);
+        price.priceExcludingTax = safeParseBigDecimal(data, COL_PRICE_EXCL_TAX);
+        price.priceIncludingTax = safeParseBigDecimal(data, COL_PRICE_INCL_TAX);
+        price.vatRate = safeParseBigDecimal(data, COL_VAT_RATE);
+        price.priority = safeParseInt(data, COL_PRIORITY);
+        price.startDateTime = safeParseDateTime(data, COL_START_DATE);
+        price.endDateTime = safeParseDateTime(data, COL_END_DATE);
     }
 
     /**
@@ -377,15 +364,14 @@ public class PriceCsvResource extends ImporterCsvResource {
      * @return The integer hash of incoming data.
      */
     private int computeIncomingChecksum(LineData data, Product product) {
-        String[] parts = data.parts;
         return Objects.hash(
                 product.ean,
-                safeParseBigDecimal(parts, 1),
-                safeParseBigDecimal(parts, 2),
-                safeParseBigDecimal(parts, 3),
-                safeParseInt(parts, 4),
-                safeParseDateTime(parts, 5),
-                safeParseDateTime(parts, 6)
+                safeParseBigDecimal(data, COL_PRICE_EXCL_TAX),
+                safeParseBigDecimal(data, COL_PRICE_INCL_TAX),
+                safeParseBigDecimal(data, COL_VAT_RATE),
+                safeParseInt(data, COL_PRIORITY),
+                safeParseDateTime(data, COL_START_DATE),
+                safeParseDateTime(data, COL_END_DATE)
         );
     }
 

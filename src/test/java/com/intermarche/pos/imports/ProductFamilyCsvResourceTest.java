@@ -135,7 +135,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void importProductFamiliesDelegatesToBaseImporterWithFiveColumns() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        Response response = resource.importProductFamilies(stream("code|desc|flags|eans|subs\n"));
+        Response response = resource.importProductFamilies(stream("CODE|DESCRIPTION|FLAGS|PRODUCT_EANS|SUBFAMILY_CODES\n"));
         assertEquals(200, response.getStatus());
         assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
     }
@@ -160,7 +160,7 @@ class ProductFamilyCsvResourceTest {
     void processChunkWithFallbackIndexesFamiliesProductsAndSubFamilies() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "111,222", "S1,S2")));
+        lines.add(line(1, parts("F1", "Fruits", "ORGANIC", "111,222", "S1,S2")));
         Set<String> targetCodes = new HashSet<>();
         targetCodes.add("F1");
         Set<String> eans = new HashSet<>();
@@ -203,7 +203,7 @@ class ProductFamilyCsvResourceTest {
     void processChunkWithFallbackSkipsChildQueriesWhenNoChildCodes() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "", "")));
+        lines.add(line(1, parts("F1", "Fruits", "ORGANIC", "", "")));
         Set<String> targetCodes = new HashSet<>();
         targetCodes.add("F1");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
@@ -230,7 +230,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicCreatesFamilyLinkingProductsAndSubFamilies() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "111,222", "S1,S2"));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Fruits", "ORGANIC", "111,222", "S1,S2"));
         Product p111 = product("111");
         Product p222 = product("222");
         ProductFamily s1 = family("S1");
@@ -277,7 +277,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicUpdatesExistingFamilyWhenChecksumDiffers() throws Exception {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Veggies", "SEASONAL", "", ""));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Veggies", "SEASONAL", "", ""));
         ProductFamily existing = family("F1");
         existing.description = "Old";
         existing.flags = "OLD";
@@ -301,7 +301,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicSkipsUpdateWhenChecksumMatches() throws Exception {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Veggies", "SEASONAL", "", ""));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Veggies", "SEASONAL", "", ""));
         ProductFamily existing = family("F1");
         existing.checksum = incomingChecksum(resource, data);
         Map<String, Object> context = new HashMap<>();
@@ -322,7 +322,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicLooksUpChildrenFromDbInFallbackMode() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "111", "S1"));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Fruits", "ORGANIC", "111", "S1"));
         Product p111 = product("111");
         ProductFamily s1 = family("S1");
         Map<String, Object> context = new HashMap<>();
@@ -354,7 +354,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicThrowsWhenProductEanMissing() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "999", ""));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Fruits", "ORGANIC", "999", ""));
         Map<String, Object> context = new HashMap<>();
         context.put(CTX_PRODUCTS, new HashMap<String, Product>());
         context.put(CTX_SUB_FAMILIES, new HashMap<String, ProductFamily>());
@@ -371,7 +371,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicThrowsWhenSubFamilyMissing() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "", "S9"));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Fruits", "ORGANIC", "", "S9"));
         Map<String, Object> context = new HashMap<>();
         context.put(CTX_PRODUCTS, new HashMap<String, Product>());
         context.put(CTX_SUB_FAMILIES, new HashMap<String, ProductFamily>());
@@ -389,7 +389,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void processLineLogicThrowsOnSelfReference() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "", "F1"));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Fruits", "ORGANIC", "", "F1"));
         ProductFamily selfRef = family("F1");
         Map<String, ProductFamily> subFamilyMap = new HashMap<>();
         subFamilyMap.put("F1", selfRef);
@@ -409,7 +409,7 @@ class ProductFamilyCsvResourceTest {
     @Test
     void findEntityForLineLooksUpFamilyByCode() {
         ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "F1", parts("F1", "Fruits", "ORGANIC", "", ""));
+        ImporterCsvResource.LineData data = line(1, parts("F1", "Fruits", "ORGANIC", "", ""));
         ProductFamily f1 = family("F1");
         @SuppressWarnings("unchecked")
         PanacheQuery<ProductFamily> query = mock(PanacheQuery.class);
@@ -419,4 +419,22 @@ class ProductFamilyCsvResourceTest {
             assertSame(f1, resource.findEntityForLine(data));
         }
     }
+    /** Header names of the imported feed, in the cell order of the fixtures. */
+    private static final String[] TEST_HEADER = {"CODE", "DESCRIPTION", "FLAGS", "PRODUCT_EANS", "SUBFAMILY_CODES"};
+
+    /**
+     * Builds a header-bound row from positional fixture cells: the header
+     * maps TEST_HEADER onto the cell positions and the first name is the
+     * key column.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData line(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
+    }
+
 }

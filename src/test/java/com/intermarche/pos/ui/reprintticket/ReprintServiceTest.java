@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.reprintticket;
 
 import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.service.TicketPrinterService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;

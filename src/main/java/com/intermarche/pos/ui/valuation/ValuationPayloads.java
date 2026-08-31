@@ -1,4 +1,4 @@
-package com.intermarche.pos.service.valuation;
+package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -26,6 +26,8 @@ import java.util.List;
  * decoration (the register derives tax-excluded amounts from its own
  * snapshot rates), and advantages join offers by the {@code offer} type
  * string until a stable {@code offerId} exists.
+ * <p>
+ * Placement: ui.valuation — the engine wire format, used only by this package (consumer-exclusivity rule).
  */
 public final class ValuationPayloads {
 

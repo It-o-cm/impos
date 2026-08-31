@@ -1,9 +1,8 @@
-package com.intermarche.pos.service;
+package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -23,6 +22,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.TechnicalEventService;
+import com.intermarche.pos.service.TicketRecoveryService;
+import com.intermarche.pos.service.TicketPersistenceService;
+import com.intermarche.pos.service.TicketNumberService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 
 /**
  * Unit tests for {@link TicketParkingService}.

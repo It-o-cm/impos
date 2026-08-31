@@ -1,4 +1,4 @@
-package com.intermarche.pos.service.valuation;
+package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.Product;
@@ -42,6 +42,8 @@ import java.util.List;
  * Package placement: consumed exclusively by the sale and payment screen
  * flows and operating on {@code PosState} — per the register's placement
  * rule the whole valuation package lives under ui.
+ * <p>
+ * Placement: ui.valuation — consumed exclusively by the sale screens (ui.ticket, ui.payment); pos.service keeps only services serving other services.
  */
 @ApplicationScoped
 public class ValuationService {
@@ -336,7 +338,8 @@ public class ValuationService {
             LOG.warn("Valorisation interrompue: mode dégradé prix catalogue");
             return new ValuationOutcome("DEGRADED", null, null);
         } catch (Exception e) {
-            LOG.warnf("Valorisation indisponible (%s): mode dégradé prix catalogue", e.getMessage());
+            LOG.warnf("Valorisation indisponible (%s: %s): mode dégradé prix catalogue",
+                    e.getClass().getSimpleName(), e.getMessage());
             return new ValuationOutcome("DEGRADED", null, null);
         }
     }

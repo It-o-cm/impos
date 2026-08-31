@@ -158,6 +158,8 @@ public class RefPullService {
                     this.<RefPayloads.CouponTypeDto>pages(domain, new TypeReference<List<RefPayloads.CouponTypeDto>>() {}));
             case "SETTINGS" -> refApplyService.applySettings(
                     this.<RefPayloads.SettingDto>pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
+            case "ENGINE_FEEDS" -> refApplyService.applyEngineFeeds(
+                    this.<RefPayloads.EngineFeedDto>pages(domain, new TypeReference<List<RefPayloads.EngineFeedDto>>() {}));
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         }
         refApplyService.recordApplied(domain, fingerprint);

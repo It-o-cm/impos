@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -124,6 +126,7 @@ class ImporterCsvResourceTest {
     private TestImporter newImporter() {
         TestImporter importer = new TestImporter();
         importer.tm = mock(TransactionManager.class);
+        importer.engineFeedService = mock(com.intermarche.pos.service.sync.EngineFeedService.class);
         return importer;
     }
 
@@ -137,8 +140,25 @@ class ImporterCsvResourceTest {
         return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Header names of the test rows, in cell order. */
+    private static final String[] TEST_HEADER = {"CODE", "NAME"};
+
     /**
-     * {@code importCsvStream} skips the header, ignores empty and short lines,
+     * Builds a header-bound row for the test importer: the header maps the
+     * TEST_HEADER names onto the cell positions and CODE is the key column.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData line(int lineNumber, String... cells) {
+        Map<String, Integer> header = new LinkedHashMap<>();
+        for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
+    }
+
+    /**
+     * {@code importCsvStream} reads the header, ignores empty and truncated lines,
      * classifies one update and two creations, and emits the (intentionally
      * quote-asymmetric) JSON built by {@code buildAnswer} when errors exist.
      */
@@ -150,9 +170,9 @@ class ImporterCsvResourceTest {
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
             EntityManager em = mock(EntityManager.class);
             panache.when(Panache::getEntityManager).thenReturn(em);
-            Response response = importer.importCsvStream(stream(csv), 2);
+            Response response = importer.importCsvStream(stream(csv), "CODE", List.of("NAME"));
             assertEquals(200, response.getStatus());
-            assertEquals("{\"createdCount\":2, \"updatedCount\":1, \"errors\":[Line 5 ignored (not enough columns): X\"]}", response.getEntity());
+            assertEquals("{\"createdCount\":2, \"updatedCount\":1, \"errors\":[Line 5 ignored (fewer cells than the header): X\"]}", response.getEntity());
             assertEquals(1, importer.chunkCalls);
             verify(em, atLeastOnce()).clear();
         }
@@ -167,12 +187,12 @@ class ImporterCsvResourceTest {
     @Test
     void importCsvStreamFlushesFullChunkAndSkipsEmptyLeftover() {
         TestImporter importer = newImporter();
-        StringBuilder csv = new StringBuilder("HEAD|HEAD\n");
+        StringBuilder csv = new StringBuilder("CODE|NAME\n");
         for (int i = 0; i < 1000; i++) csv.append("c").append(i).append("|v").append(i).append("\n");
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
             EntityManager em = mock(EntityManager.class);
             panache.when(Panache::getEntityManager).thenReturn(em);
-            Response response = importer.importCsvStream(stream(csv.toString()), 2);
+            Response response = importer.importCsvStream(stream(csv.toString()), "CODE", List.of("NAME"));
             assertEquals(200, response.getStatus());
             assertEquals("{\"createdCount\":1000, \"updatedCount\":0}", response.getEntity());
             assertEquals(1, importer.chunkCalls);
@@ -198,7 +218,7 @@ class ImporterCsvResourceTest {
                 throw new IOException("disk");
             }
         };
-        Response response = importer.importCsvStream(failing, 2);
+        Response response = importer.importCsvStream(failing, "CODE", List.of("NAME"));
         assertEquals(500, response.getStatus());
         assertEquals("Error reading file: disk", response.getEntity());
         assertEquals(0, importer.chunkCalls);
@@ -212,7 +232,7 @@ class ImporterCsvResourceTest {
     void importCsvStreamReturnsServerErrorOnUnexpectedThrowable() {
         TestImporter importer = newImporter();
         importer.chunkException = new IllegalStateException("kaboom");
-        Response response = importer.importCsvStream(stream("HEAD|HEAD\nA|foo\n"), 2);
+        Response response = importer.importCsvStream(stream("CODE|NAME\nA|foo\n"), "CODE", List.of("NAME"));
         assertEquals(500, response.getStatus());
         assertEquals("Unexcepted error: kaboom", response.getEntity());
         assertEquals(1, importer.chunkCalls);
@@ -248,8 +268,8 @@ class ImporterCsvResourceTest {
         importer.throwOnCodes.add("b");
         importer.entitiesByCode.put("a", new Object());
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(10, "a", new String[]{"a", "x"}));
-        lines.add(new ImporterCsvResource.LineData(11, "b", new String[]{"b", "y"}));
+        lines.add(line(10, "a", "x"));
+        lines.add(line(11, "b", "y"));
         int[] counters = {0, 0};
         List<String> errors = new ArrayList<>();
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
@@ -274,7 +294,7 @@ class ImporterCsvResourceTest {
         TestImporter importer = newImporter();
         importer.entitiesByCode.put("k", new Object());
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(7, "k", new String[]{"k", "v"}));
+        lines.add(line(7, "k", "v"));
         int[] counters = {0, 0};
         List<String> errors = new ArrayList<>();
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
@@ -296,7 +316,7 @@ class ImporterCsvResourceTest {
         TestImporter importer = newImporter();
         Object entity = new Object();
         importer.entitiesByCode.put("k", entity);
-        Map<String, Object> map = importer.prepareContextForLine(new ImporterCsvResource.LineData(1, "k", new String[]{"k"}));
+        Map<String, Object> map = importer.prepareContextForLine(line(1, "k"));
         assertEquals(1, map.size());
         assertSame(entity, map.get("k"));
     }
@@ -308,7 +328,7 @@ class ImporterCsvResourceTest {
     @Test
     void prepareContextForLineReturnsEmptyMapWhenNotFound() {
         TestImporter importer = newImporter();
-        Map<String, Object> map = importer.prepareContextForLine(new ImporterCsvResource.LineData(1, "missing", new String[]{"missing"}));
+        Map<String, Object> map = importer.prepareContextForLine(line(1, "missing"));
         assertTrue(map.isEmpty());
     }
 
@@ -459,190 +479,310 @@ class ImporterCsvResourceTest {
     }
 
     /**
-     * {@code safeGet} returns null for a negative index (first guard false).
+     * {@code safeGet} returns null for a column absent from the header
+     * (unknown-column arm).
      */
     @Test
-    void safeGetReturnsNullForNegativeIndex() {
-        assertNull(newImporter().safeGet(new String[]{"a"}, -1));
+    void safeGetReturnsNullForUnknownColumn() {
+        assertNull(newImporter().safeGet(line(1, "a"), "NOPE"));
     }
 
     /**
-     * {@code safeGet} returns null for an out-of-bounds index (second guard
-     * false).
+     * {@code safeGet} returns null when the column exists in the header but
+     * the line has no cell at its index (short-line arm).
      */
     @Test
-    void safeGetReturnsNullForOutOfBoundsIndex() {
-        assertNull(newImporter().safeGet(new String[]{"a"}, 5));
+    void safeGetReturnsNullForMissingCell() {
+        assertNull(newImporter().safeGet(line(1, "a"), "NAME"));
     }
 
     /**
-     * {@code safeGet} returns null when the targeted element is null (inner
-     * ternary null arm).
+     * {@code safeGet} returns null when the targeted cell is null (inner
+     * null arm).
      */
     @Test
     void safeGetReturnsNullForNullElement() {
-        assertNull(newImporter().safeGet(new String[]{null, "b"}, 0));
+        assertNull(newImporter().safeGet(line(1, null, "b"), "CODE"));
     }
 
     /**
-     * {@code safeGet} trims and returns a present non-null element (inner
-     * ternary non-null arm).
+     * {@code safeGet} trims and returns a present non-null cell (inner
+     * non-null arm).
      */
     @Test
     void safeGetTrimsPresentElement() {
-        assertEquals("x", newImporter().safeGet(new String[]{"  x  "}, 0));
+        assertEquals("x", newImporter().safeGet(line(1, "  x  "), "CODE"));
     }
 
     /**
-     * {@code safeParseBoolean} returns false for an out-of-bounds index.
+     * {@code safeParseBoolean} returns false for an unknown column.
      */
     @Test
-    void safeParseBooleanFalseWhenOutOfBounds() {
-        assertFalse(newImporter().safeParseBoolean(new String[]{"true"}, 3));
+    void safeParseBooleanFalseWhenUnknownColumn() {
+        assertFalse(newImporter().safeParseBoolean(line(1, "true"), "NOPE"));
     }
 
     /**
-     * {@code safeParseBoolean} returns false for an empty value.
+     * {@code safeParseBoolean} returns false for an empty cell.
      */
     @Test
     void safeParseBooleanFalseWhenEmpty() {
-        assertFalse(newImporter().safeParseBoolean(new String[]{"  "}, 0));
+        assertFalse(newImporter().safeParseBoolean(line(1, "  "), "CODE"));
     }
 
     /**
-     * {@code safeParseBoolean} parses a non-empty value.
+     * {@code safeParseBoolean} parses a non-empty cell.
      */
     @Test
     void safeParseBooleanParsesValue() {
-        assertTrue(newImporter().safeParseBoolean(new String[]{" true "}, 0));
+        assertTrue(newImporter().safeParseBoolean(line(1, " true "), "CODE"));
     }
 
     /**
-     * {@code safeParseBigDecimal} returns null for an out-of-bounds index.
+     * {@code safeParseBigDecimal} returns null for an unknown column.
      */
     @Test
-    void safeParseBigDecimalNullWhenOutOfBounds() {
-        assertNull(newImporter().safeParseBigDecimal(new String[]{"1"}, 3));
+    void safeParseBigDecimalNullWhenUnknownColumn() {
+        assertNull(newImporter().safeParseBigDecimal(line(1, "1"), "NOPE"));
     }
 
     /**
-     * {@code safeParseBigDecimal} returns null for an empty value.
+     * {@code safeParseBigDecimal} returns null for an empty cell.
      */
     @Test
     void safeParseBigDecimalNullWhenEmpty() {
-        assertNull(newImporter().safeParseBigDecimal(new String[]{"  "}, 0));
+        assertNull(newImporter().safeParseBigDecimal(line(1, "  "), "CODE"));
     }
 
     /**
-     * {@code safeParseBigDecimal} returns null for an unparseable value.
+     * {@code safeParseBigDecimal} returns null for an unparseable cell.
      */
     @Test
     void safeParseBigDecimalNullWhenInvalid() {
-        assertNull(newImporter().safeParseBigDecimal(new String[]{"abc"}, 0));
+        assertNull(newImporter().safeParseBigDecimal(line(1, "abc"), "CODE"));
     }
 
     /**
-     * {@code safeParseBigDecimal} parses a valid decimal.
+     * {@code safeParseBigDecimal} parses a trimmed decimal cell.
      */
     @Test
     void safeParseBigDecimalParsesValue() {
-        assertEquals(new BigDecimal("12.50"), newImporter().safeParseBigDecimal(new String[]{" 12.50 "}, 0));
+        assertEquals(new BigDecimal("12.50"), newImporter().safeParseBigDecimal(line(1, " 12.50 "), "CODE"));
     }
 
     /**
-     * {@code safeParseInt} returns null for an out-of-bounds index.
+     * {@code safeParseInt} returns null for an unknown column.
      */
     @Test
-    void safeParseIntNullWhenOutOfBounds() {
-        assertNull(newImporter().safeParseInt(new String[]{"1"}, 3));
+    void safeParseIntNullWhenUnknownColumn() {
+        assertNull(newImporter().safeParseInt(line(1, "1"), "NOPE"));
     }
 
     /**
-     * {@code safeParseInt} returns null for an empty value.
+     * {@code safeParseInt} returns null for an empty cell.
      */
     @Test
     void safeParseIntNullWhenEmpty() {
-        assertNull(newImporter().safeParseInt(new String[]{"  "}, 0));
+        assertNull(newImporter().safeParseInt(line(1, "  "), "CODE"));
     }
 
     /**
-     * {@code safeParseInt} returns null for an unparseable value.
+     * {@code safeParseInt} returns null for an unparseable cell.
      */
     @Test
     void safeParseIntNullWhenInvalid() {
-        assertNull(newImporter().safeParseInt(new String[]{"x"}, 0));
+        assertNull(newImporter().safeParseInt(line(1, "x"), "CODE"));
     }
 
     /**
-     * {@code safeParseInt} parses a valid integer.
+     * {@code safeParseInt} parses a trimmed integer cell.
      */
     @Test
     void safeParseIntParsesValue() {
-        assertEquals(Integer.valueOf(42), newImporter().safeParseInt(new String[]{" 42 "}, 0));
+        assertEquals(Integer.valueOf(42), newImporter().safeParseInt(line(1, " 42 "), "CODE"));
     }
 
     /**
-     * {@code safeParseDouble} returns null for an out-of-bounds index.
+     * {@code safeParseDouble} returns null for an unknown column.
      */
     @Test
-    void safeParseDoubleNullWhenOutOfBounds() {
-        assertNull(newImporter().safeParseDouble(new String[]{"1"}, 3));
+    void safeParseDoubleNullWhenUnknownColumn() {
+        assertNull(newImporter().safeParseDouble(line(1, "1"), "NOPE"));
     }
 
     /**
-     * {@code safeParseDouble} returns null for an empty value.
+     * {@code safeParseDouble} returns null for an empty cell.
      */
     @Test
     void safeParseDoubleNullWhenEmpty() {
-        assertNull(newImporter().safeParseDouble(new String[]{"  "}, 0));
+        assertNull(newImporter().safeParseDouble(line(1, "  "), "CODE"));
     }
 
     /**
-     * {@code safeParseDouble} returns null for an unparseable value.
+     * {@code safeParseDouble} returns null for an unparseable cell.
      */
     @Test
     void safeParseDoubleNullWhenInvalid() {
-        assertNull(newImporter().safeParseDouble(new String[]{"x"}, 0));
+        assertNull(newImporter().safeParseDouble(line(1, "x"), "CODE"));
     }
 
     /**
-     * {@code safeParseDouble} parses a valid double.
+     * {@code safeParseDouble} parses a trimmed double cell.
      */
     @Test
     void safeParseDoubleParsesValue() {
-        assertEquals(Double.valueOf(3.14), newImporter().safeParseDouble(new String[]{" 3.14 "}, 0));
+        assertEquals(Double.valueOf(3.14), newImporter().safeParseDouble(line(1, " 3.14 "), "CODE"));
     }
 
     /**
-     * {@code safeParseDateTime} returns null for an out-of-bounds index.
+     * {@code safeParseDateTime} returns null for an unknown column.
      */
     @Test
-    void safeParseDateTimeNullWhenOutOfBounds() {
-        assertNull(newImporter().safeParseDateTime(new String[]{"x"}, 3));
+    void safeParseDateTimeNullWhenUnknownColumn() {
+        assertNull(newImporter().safeParseDateTime(line(1, "x"), "NOPE"));
     }
 
     /**
-     * {@code safeParseDateTime} returns null for an empty value.
+     * {@code safeParseDateTime} returns null for an empty cell.
      */
     @Test
     void safeParseDateTimeNullWhenEmpty() {
-        assertNull(newImporter().safeParseDateTime(new String[]{"  "}, 0));
+        assertNull(newImporter().safeParseDateTime(line(1, "  "), "CODE"));
     }
 
     /**
-     * {@code safeParseDateTime} returns null and logs for an unparseable value.
+     * {@code safeParseDateTime} returns null for an unparseable cell.
      */
     @Test
     void safeParseDateTimeNullWhenInvalid() {
-        assertNull(newImporter().safeParseDateTime(new String[]{"not-a-date"}, 0));
+        assertNull(newImporter().safeParseDateTime(line(1, "not-a-date"), "CODE"));
     }
 
     /**
-     * {@code safeParseDateTime} parses an ISO local date-time.
+     * {@code safeParseDateTime} parses a trimmed ISO cell.
      */
     @Test
     void safeParseDateTimeParsesValue() {
-        assertEquals(LocalDateTime.of(2020, 1, 2, 3, 4, 5), newImporter().safeParseDateTime(new String[]{" 2020-01-02T03:04:05 "}, 0));
+        assertEquals(LocalDateTime.of(2020, 1, 2, 3, 4, 5), newImporter().safeParseDateTime(line(1, " 2020-01-02T03:04:05 "), "CODE"));
+    }
+
+    /**
+     * An importer naming no engine feed (default {@code feedCode} null)
+     * never touches the feed keeper (capture null arm).
+     */
+    @Test
+    void importCsvStreamWithoutFeedCodeStoresNothing() {
+        TestImporter importer = newImporter();
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            importer.importCsvStream(stream("CODE|NAME\nA|foo\n"), "CODE", List.of("NAME"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(importer.engineFeedService);
+    }
+
+    /**
+     * An importer naming an engine feed stores the file VERBATIM after the
+     * import — row-level errors included, the file is the truth of the
+     * feed (capture non-null arm).
+     */
+    @Test
+    void importCsvStreamWithFeedCodeCapturesVerbatim() {
+        TestImporter importer = new TestImporter() {
+            /**
+             * Names the captured feed for this test.
+             *
+             * @return the OFFERS feed code
+             */
+            @Override
+            protected String feedCode() {
+                return "OFFERS";
+            }
+        };
+        importer.tm = mock(TransactionManager.class);
+        importer.engineFeedService = mock(com.intermarche.pos.service.sync.EngineFeedService.class);
+        String csv = "CODE|NAME\nA|foo\nX\n";
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            importer.importCsvStream(stream(csv), "CODE", List.of("NAME"));
+        }
+        verify(importer.engineFeedService).store("OFFERS", csv);
+    }
+
+    /**
+     * A capture failure never fails the import: the response stays 200 and
+     * the error is only logged (catch arm of {@code captureFeed}).
+     */
+    @Test
+    void importCsvStreamSurvivesCaptureFailure() {
+        TestImporter importer = new TestImporter() {
+            /**
+             * Names the captured feed for this test.
+             *
+             * @return the OFFERS feed code
+             */
+            @Override
+            protected String feedCode() {
+                return "OFFERS";
+            }
+        };
+        importer.tm = mock(TransactionManager.class);
+        importer.engineFeedService = mock(com.intermarche.pos.service.sync.EngineFeedService.class);
+        org.mockito.Mockito.when(importer.engineFeedService.store(any(), any()))
+                .thenThrow(new IllegalStateException("db down"));
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            Response response = importer.importCsvStream(stream("CODE|NAME\nA|foo\n"), "CODE", List.of("NAME"));
+            assertEquals(200, response.getStatus());
+        }
+    }
+
+    /**
+     * A header missing the key column or a required column rejects the file
+     * with a 400 naming the missing names, before any processing.
+     */
+    @Test
+    void importCsvStreamRejectsMissingRequiredColumns() {
+        TestImporter importer = newImporter();
+        Response response = importer.importCsvStream(stream("OTHER|NAME\nA|foo\n"), "CODE", List.of("NAME", "EXTRA"));
+        assertEquals(400, response.getStatus());
+        assertEquals("{\"error\":\"Missing required columns: CODE, EXTRA\"}", response.getEntity());
+        assertEquals(0, importer.chunkCalls);
+    }
+
+    /**
+     * A duplicate header name keeps its first index (first-wins arm): the
+     * value is read from the first occurrence.
+     */
+    @Test
+    void importCsvStreamDuplicateHeaderFirstWins() {
+        TestImporter importer = newImporter();
+        importer.chunkContext.put("A", new Object());
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            Response response = importer.importCsvStream(stream("CODE|CODE\nA|B\n"), "CODE", List.of());
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":0, \"updatedCount\":1}", response.getEntity());
+        }
+    }
+
+    /**
+     * A data line whose key cell is empty is reported and skipped (empty-key
+     * arm), without stopping the import.
+     */
+    @Test
+    void importCsvStreamReportsEmptyKeyLine() {
+        TestImporter importer = newImporter();
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            Response response = importer.importCsvStream(stream("CODE|NAME\n|foo\nB|bar\n"), "CODE", List.of("NAME"));
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":1, \"updatedCount\":0, \"errors\":[Line 2 ignored (empty key 'CODE')\"]}", response.getEntity());
+        }
     }
 
     /**
@@ -694,7 +834,7 @@ class ImporterCsvResourceTest {
         TestImporter importer = newImporter();
         Set<String> unused = new HashSet<>();
         assertTrue(unused.isEmpty());
-        Response response = importer.importCsvStream(stream("HEAD|HEAD\n"), 2);
+        Response response = importer.importCsvStream(stream("CODE|NAME\n"), "CODE", List.of("NAME"));
         assertEquals(200, response.getStatus());
         assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
         assertEquals(0, importer.chunkCalls);

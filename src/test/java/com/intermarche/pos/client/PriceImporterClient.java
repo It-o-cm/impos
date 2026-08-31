@@ -35,7 +35,7 @@ public class PriceImporterClient {
         String startDate = "2026-01-12T00:00:00";
 
         String csvData = """
-            ean|storeCode|priceExcludingTax|priceIncludingTax|vatRate|priceUsage|priority|startDateTime|endDateTime
+            EAN|PRICE_EXCL_TAX|PRICE_INCL_TAX|VAT_RATE|PRIORITY|START_DATE|END_DATE
             3300000000001|1.00|1.20|0.2000|0|<<START_DATE>>|
             3300000000001|0.90|1.08|0.2000|1|<<START_DATE>>|
             3300000000002|2.50|3.00|0.2000|0|<<START_DATE>>|

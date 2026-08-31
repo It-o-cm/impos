@@ -84,13 +84,16 @@ class ProductCsvResourceTest {
      *
      * @param resource the resource under test
      * @param data     the parsed line
-     * @return the checksum of the incoming CSV data
+     * @param existing the product the row would update
+     * @return the checksum of the incoming state
      * @throws Exception on reflection failure
      */
-    private static int incomingChecksum(ProductCsvResource resource, ImporterCsvResource.LineData data) throws Exception {
-        Method method = ProductCsvResource.class.getDeclaredMethod("computeIncomingChecksum", ImporterCsvResource.LineData.class);
+    private static int incomingChecksum(ProductCsvResource resource, ImporterCsvResource.LineData data,
+                                        Product existing) throws Exception {
+        Method method = ProductCsvResource.class.getDeclaredMethod("computeIncomingChecksum",
+                ImporterCsvResource.LineData.class, Product.class);
         method.setAccessible(true);
-        return (Integer) method.invoke(resource, data);
+        return (Integer) method.invoke(resource, data, existing);
     }
 
     /**
@@ -101,7 +104,7 @@ class ProductCsvResourceTest {
     @Test
     void importProductsDelegatesToBaseImporterWithNineColumns() {
         ProductCsvResource resource = new ProductCsvResource();
-        Response response = resource.importProducts(stream("EAN|Name|Desc|Brand|W|V|Type|Unit|Active\n"));
+        Response response = resource.importProducts(stream("EAN|NAME|DESCRIPTION|BRAND|REFERENCE_WEIGHT|REFERENCE_VOLUME|PRODUCT_TYPE|UNIT_NAME|ACTIVE\n"));
         assertEquals(200, response.getStatus());
         assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
     }
@@ -126,7 +129,7 @@ class ProductCsvResourceTest {
     void processChunkWithFallbackIndexesExistingProducts() {
         ProductCsvResource resource = new ProductCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "111", fullParts()));
+        lines.add(line(1, fullParts()));
         Set<String> eans = new HashSet<>();
         eans.add("111");
         Product product = new Product();
@@ -149,7 +152,7 @@ class ProductCsvResourceTest {
     void processChunkWithFallbackHandlesNoExistingProducts() {
         ProductCsvResource resource = new ProductCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "111", fullParts()));
+        lines.add(line(1, fullParts()));
         Set<String> eans = new HashSet<>();
         eans.add("111");
         int[] counters = {0, 0};
@@ -170,7 +173,7 @@ class ProductCsvResourceTest {
     void processChunkWithFallbackSkipsQueryForEmptyEans() {
         ProductCsvResource resource = new ProductCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "111", fullParts()));
+        lines.add(line(1, fullParts()));
         Map<String, Object> context = resource.processChunkWithFallback(lines, new HashSet<>(), new int[]{0, 0}, new ArrayList<>());
         assertTrue(context.isEmpty());
     }
@@ -184,7 +187,7 @@ class ProductCsvResourceTest {
     @Test
     void processLineLogicCreatesNewProductWhenAbsent() {
         ProductCsvResource resource = new ProductCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Map<String, Object> context = new HashMap<>();
         int[] counters = {0, 0};
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
@@ -217,11 +220,11 @@ class ProductCsvResourceTest {
     @Test
     void processLineLogicUpdatesExistingProductWhenChecksumDiffers() throws Exception {
         ProductCsvResource resource = new ProductCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Product existing = new Product();
         existing.id = 42L;
         existing.ean = "111";
-        existing.checksum = incomingChecksum(resource, data) + 1;
+        existing.checksum = incomingChecksum(resource, data, existing) + 1;
         Map<String, Object> context = new HashMap<>();
         context.put("111", existing);
         Product fresh = new Product();
@@ -251,11 +254,11 @@ class ProductCsvResourceTest {
     @Test
     void processLineLogicSkipsUpdateWhenChecksumMatches() throws Exception {
         ProductCsvResource resource = new ProductCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Product existing = new Product();
         existing.id = 42L;
         existing.ean = "111";
-        existing.checksum = incomingChecksum(resource, data);
+        existing.checksum = incomingChecksum(resource, data, existing);
         Map<String, Object> context = new HashMap<>();
         context.put("111", existing);
         int[] counters = {0, 0};
@@ -271,7 +274,7 @@ class ProductCsvResourceTest {
     @Test
     void findEntityForLineLooksUpProductByEan() {
         ProductCsvResource resource = new ProductCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Product product = new Product();
         PanacheQuery<Product> query = mock(PanacheQuery.class);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
@@ -288,7 +291,7 @@ class ProductCsvResourceTest {
     @Test
     void safeParseProductTypeResolvesKnownConstant() {
         ProductCsvResource resource = new ProductCsvResource();
-        assertEquals(ProductType.WEIGHT, resource.safeParseProductType(new String[]{"111", " weight "}, 1));
+        assertEquals(ProductType.WEIGHT, resource.safeParseProductType(line(1, new String[]{"111", null, null, null, null, null, " weight "}), "PRODUCT_TYPE"));
     }
 
     /**
@@ -299,17 +302,17 @@ class ProductCsvResourceTest {
     @Test
     void safeParseProductTypeReturnsNullForUnknownValue() {
         ProductCsvResource resource = new ProductCsvResource();
-        assertNull(resource.safeParseProductType(new String[]{"111", "GAS"}, 1));
+        assertNull(resource.safeParseProductType(line(1, new String[]{"111", null, null, null, null, null, "GAS"}), "PRODUCT_TYPE"));
     }
 
     /**
-     * {@code safeParseProductType} returns null when the index is out of bounds
+     * {@code safeParseProductType} returns null when the line has no cell for the column
      * (the {@code index >= parts.length} true arm).
      */
     @Test
     void safeParseProductTypeReturnsNullForOutOfBoundsIndex() {
         ProductCsvResource resource = new ProductCsvResource();
-        assertNull(resource.safeParseProductType(new String[]{"111"}, 6));
+        assertNull(resource.safeParseProductType(line(1, new String[]{"111"}), "PRODUCT_TYPE"));
     }
 
     /**
@@ -319,7 +322,7 @@ class ProductCsvResourceTest {
     @Test
     void safeParseProductTypeReturnsNullForBlankValue() {
         ProductCsvResource resource = new ProductCsvResource();
-        assertNull(resource.safeParseProductType(new String[]{"111", "   "}, 1));
+        assertNull(resource.safeParseProductType(line(1, new String[]{"111", null, null, null, null, null, "   "}), "PRODUCT_TYPE"));
     }
 
     /**
@@ -331,7 +334,7 @@ class ProductCsvResourceTest {
     void processLineLogicCreatesProductWithBlankOptionalColumns() {
         ProductCsvResource resource = new ProductCsvResource();
         String[] parts = {"222", "Bread", "", "", "", "", "", "", ""};
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "222", parts);
+        ImporterCsvResource.LineData data = line(1, parts);
         Map<String, Object> context = new HashMap<>();
         int[] counters = {0, 0};
         try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
@@ -352,4 +355,22 @@ class ProductCsvResourceTest {
             assertFalse(persisted.active);
         }
     }
+    /** Header names of the imported feed, in the cell order of the fixtures. */
+    private static final String[] TEST_HEADER = {"EAN", "NAME", "DESCRIPTION", "BRAND", "REFERENCE_WEIGHT", "REFERENCE_VOLUME", "PRODUCT_TYPE", "UNIT_NAME", "ACTIVE"};
+
+    /**
+     * Builds a header-bound row from positional fixture cells: the header
+     * maps TEST_HEADER onto the cell positions and the first name is the
+     * key column.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData line(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
+    }
+
 }

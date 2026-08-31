@@ -285,7 +285,8 @@ class RefPullServiceTest {
         }).when(client).send(any(HttpRequest.class), any());
         Map<String, String> versions = Map.of(
                 "FAMILIES", "f1", "PRODUCTS", "f2", "PRICES", "f3",
-                "EMPLOYEES", "f4", "COUPON_TYPES", "f5", "SETTINGS", "f6");
+                "EMPLOYEES", "f4", "COUPON_TYPES", "f5", "SETTINGS", "f6",
+                "ENGINE_FEEDS", "f7");
         doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
@@ -298,12 +299,14 @@ class RefPullServiceTest {
         verify(apply).applyEmployees(any());
         verify(apply).applyCouponTypes(any());
         verify(apply).applySettings(any());
+        verify(apply).applyEngineFeeds(any());
         verify(apply).recordApplied("FAMILIES", "f1");
         verify(apply).recordApplied("PRODUCTS", "f2");
         verify(apply).recordApplied("PRICES", "f3");
         verify(apply).recordApplied("EMPLOYEES", "f4");
         verify(apply).recordApplied("COUPON_TYPES", "f5");
         verify(apply).recordApplied("SETTINGS", "f6");
+        verify(apply).recordApplied("ENGINE_FEEDS", "f7");
     }
 
     /**

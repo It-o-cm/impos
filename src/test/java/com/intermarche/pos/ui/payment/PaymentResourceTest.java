@@ -2,7 +2,7 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.CouponType;
 import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.service.TicketPrinterService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -71,7 +71,6 @@ class PaymentResourceTest {
         // EVERY GET /pay, so it belongs to the fixture, not to a single test.
         resource.fidelityService = mock(com.intermarche.pos.ui.fidelity.FidelityService.class);
         resource.pay = mock(Template.class);
-        resource.main = mock(Template.class);
         return resource;
     }
 
@@ -92,19 +91,6 @@ class PaymentResourceTest {
         when(ti1.data(eq("couponTypes"), any())).thenReturn(ti2);
         when(ti2.data(eq("digitalPath"), any())).thenReturn(ti3);
         return new TemplateInstance[]{ti1, ti2, ti3};
-    }
-
-    /**
-     * Stubs the {@code main} template to return a recognizable view for the
-     * given resource's state.
-     *
-     * @param resource the resource whose {@code main} template is stubbed
-     * @return the view {@code main.data("state", state)} returns
-     */
-    private TemplateInstance stubMain(PaymentResource resource) {
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.main.data("state", resource.state)).thenReturn(view);
-        return view;
     }
 
     /**
@@ -567,75 +553,76 @@ class PaymentResourceTest {
     // --- validatePayment / cancelPayment ---
 
     /**
-     * {@code validatePayment()} finalizes the transaction and returns the main
-     * page.
+     * {@code validatePayment()} finalizes the transaction and redirects to
+     * the main page (replay-safe mutating GET: a reload of the landed URL
+     * must never replay the fiscal close).
      */
     @Test
-    void validatePaymentFinalizesAndReturnsMain() {
+    void validatePaymentFinalizesAndRedirectsHome() {
         PaymentResource resource = newResource();
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.validatePayment());
+        Response response = resource.validatePayment();
         verify(resource.paymentService).finalizeTransaction(resource.state);
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
     }
 
     /**
-     * {@code cancelPayment()} cancels the registered payments and returns the
-     * main page.
+     * {@code cancelPayment()} cancels the registered payments and redirects
+     * to the main page (same replay-safety rule as the finish action).
      */
     @Test
-    void cancelPaymentCancelsAndReturnsMain() {
+    void cancelPaymentCancelsAndRedirectsHome() {
         PaymentResource resource = newResource();
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.cancelPayment());
+        Response response = resource.cancelPayment();
         verify(resource.paymentService).cancelPayments(resource.state);
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
     }
 
     // --- printTicket ---
 
     /**
      * {@code printTicket()} prints the in-memory training receipt in training
-     * mode and returns the main page when the modal is not shown
-     * ({@code trainingMode} true, {@code transactionComplete} false).
+     * mode and redirects to the main page when the modal is not shown
+     * ({@code trainingMode} true, {@code transactionComplete} false; PRG
+     * pattern).
      */
     @Test
-    void printTicketTrainingReturnsMain() {
+    void printTicketTrainingRedirectsHome() {
         PaymentResource resource = newResource();
         resource.state.trainingMode = true;
         resource.state.payment.ticketDbId = 9L;
         resource.state.payment.transactionComplete = false;
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.printTicket());
+        Response response = resource.printTicket();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketPrinterService).printTrainingReceipt(resource.state);
         verify(resource.ticketPrinterService, never()).printTicket(any());
     }
 
     /**
      * {@code printTicket()} prints the draft by id and, when the completion
-     * modal is shown, returns the payment page with its digital path
-     * ({@code trainingMode} false, {@code ticketId != null}, no exception,
-     * {@code transactionComplete} true).
+     * modal is shown, redirects to the payment page ({@code trainingMode}
+     * false, {@code ticketId != null}, no exception,
+     * {@code transactionComplete} true; PRG pattern).
      */
     @Test
-    void printTicketDraftReturnsPayWhenComplete() {
+    void printTicketDraftRedirectsToPayWhenComplete() {
         PaymentResource resource = newResource();
         resource.state.trainingMode = false;
         resource.state.payment.ticketDbId = 9L;
         resource.state.payment.transactionComplete = true;
-        TemplateInstance[] chain = stubPayChain(resource);
-        try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class);
-             MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
-            panache.when(() -> Ticket.findById(9L)).thenReturn(null);
-            assertSame(chain[2], resource.printTicket());
-        }
+        Response response = resource.printTicket();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/pay", response.getLocation().toString());
         verify(resource.ticketPrinterService).printTicket(9L);
         verify(resource.ticketPrinterService, never()).printTrainingReceipt(any());
     }
 
     /**
-     * {@code printTicket()} swallows a printing failure and returns the main
-     * page ({@code trainingMode} false, {@code ticketId != null}, printer
-     * throws, {@code transactionComplete} false).
+     * {@code printTicket()} swallows a printing failure and redirects to the
+     * main page ({@code trainingMode} false, {@code ticketId != null},
+     * printer throws, {@code transactionComplete} false; PRG pattern).
      */
     @Test
     void printTicketSwallowsPrintFailure() {
@@ -645,24 +632,27 @@ class PaymentResourceTest {
         resource.state.payment.transactionComplete = false;
         org.mockito.Mockito.doThrow(new RuntimeException("boom"))
                 .when(resource.ticketPrinterService).printTicket(9L);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.printTicket());
+        Response response = resource.printTicket();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketPrinterService).printTicket(9L);
     }
 
     /**
      * {@code printTicket()} prints nothing when not training and no draft
-     * exists, returning the main page ({@code trainingMode} false,
-     * {@code ticketId != null} false, {@code transactionComplete} false).
+     * exists, redirecting to the main page ({@code trainingMode} false,
+     * {@code ticketId != null} false, {@code transactionComplete} false; PRG
+     * pattern).
      */
     @Test
-    void printTicketNoDraftReturnsMain() {
+    void printTicketNoDraftRedirectsHome() {
         PaymentResource resource = newResource();
         resource.state.trainingMode = false;
         resource.state.payment.ticketDbId = null;
         resource.state.payment.transactionComplete = false;
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.printTicket());
+        Response response = resource.printTicket();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketPrinterService, never()).printTicket(any());
         verify(resource.ticketPrinterService, never()).printTrainingReceipt(any());
     }

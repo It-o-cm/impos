@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.valuation.ValuationReconciler;
-import com.intermarche.pos.service.valuation.ValuationService;
+import com.intermarche.pos.ui.valuation.ValuationReconciler;
+import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -30,18 +30,23 @@ import java.util.Locale;
  * method is a factory subclass plus a thin wrapper here, never new money
  * math. Per-method drawer rules are deliberate: cash, cheque and meal
  * vouchers open it (something physical goes in), card and loyalty never do,
- * and training keeps it shut everywhere. The virtual-terminal branch of
- * {@code processCard} (phase 6) parks the amount instead of registering it:
- * the CardPayment entity only exists after the terminal's accept.
+ * and training keeps it shut everywhere. {@code processCard} parks the
+ * amount and hands the transaction to the {@code PaymentTerminalClient}
+ * port: the CardPayment entity only exists after the terminal's accept
+ * decision, whatever the implementation behind the port.
  */
 @ApplicationScoped
 public class PaymentService {
 
     private static final Logger LOG = Logger.getLogger(PaymentService.class);
 
-    /** True when card payments go through the virtual terminal of the simulator. */
-    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "pos.tpe.virtual", defaultValue = "true")
-    boolean virtualTpe;
+    /**
+     * The payment terminal port (virtual simulator, auto-accept or Verifone
+     * skeleton — selected by {@code pos.tpe.mode}); the card path only ever
+     * talks to this interface.
+     */
+    @Inject
+    com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient terminal;
 
     @Inject
     HardwareService hardwareService;
@@ -54,7 +59,7 @@ public class PaymentService {
      * notes & gift cards).
      */
     @Inject
-    com.intermarche.pos.service.TicketPrinterService ticketPrinterService;
+    com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
 
     /**
      * Technical EAN of the solidarity-rounding line (parameterized).
@@ -97,23 +102,30 @@ public class PaymentService {
      * @param state the current POS state
      */
     public void initPayment(PosState state) {
-        hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
-        state.payment.paymentInProgress = true;
-
-        Long ticketId = ticketPersistenceService.syncDraft(state);
-        if (ticketId == null && !state.trainingMode) {
-            LOG.error("Impossible de créer/synchroniser le ticket (panier vide ou Store/Cashier manquant)");
-        }
-
-        // Phase 7 lot 4: final revaluation at payment entry — the cart was
-        // already revalued after each mutation, this fixes the figure the
-        // customer pays (fresh call, circuit permitting) and refreshes the
-        // meal-voucher base and upsell hints.
-        if (!state.trainingMode) {
-            valuationService.revalueForPayment(state);
+        // Single-writer discipline: draft-writing gestures serialize on the
+        // shared state — the pay screen reloads itself on every version bump
+        // and re-enters initPayment (draft sync + revaluation) concurrently
+        // with a payment registration or the terminal callback, which made
+        // two transactions race on the same draft row (optimistic-lock).
+        synchronized (state) {
             hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
-        } else {
-            state.payment.valuationStatus = "LOCAL";
+            state.payment.paymentInProgress = true;
+
+            Long ticketId = ticketPersistenceService.syncDraft(state);
+            if (ticketId == null && !state.trainingMode) {
+                LOG.error("Impossible de créer/synchroniser le ticket (panier vide ou Store/Cashier manquant)");
+            }
+
+            // Phase 7 lot 4: final revaluation at payment entry — the cart was
+            // already revalued after each mutation, this fixes the figure the
+            // customer pays (fresh call, circuit permitting) and refreshes the
+            // meal-voucher base and upsell hints.
+            if (!state.trainingMode) {
+                valuationService.revalueForPayment(state);
+                hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+            } else {
+                state.payment.valuationStatus = "LOCAL";
+            }
         }
     }
 
@@ -156,31 +168,34 @@ public class PaymentService {
      * @param state the current POS state
      */
     public void cancelPayments(PosState state) {
-        Long ticketId = state.payment.ticketDbId;
-        // The fidelity lease dies with the payments (imfid spec §5.3);
-        // failure-tolerant — the TTL is the safety net.
-        fidelityService.releaseLease(state);
-        state.payment.paymentInProgress = false;
-        state.payment.pendingCardAmount = null;
-        // Phase 7: leaving the payment reverts the valuation — the cart goes
-        // back to local totals and will be revalued at the next entry
-        if (state.payment.valuationAdjustment != null || "ENGINE".equals(state.payment.valuationStatus)) {
-            valuationReconciler.revert(state.ticket, ticketId);
-            state.ticket.recomputeTotal();
-        }
-        state.payment.valuationStatus = null;
-        state.payment.valuationJson = null;
-        state.payment.valuationEngineTotal = null;
-        state.payment.valuationAdjustment = null;
-        state.payment.valuationMealEligible = null;
-        state.payment.valuationMealThreshold = null;
-        state.payment.valuationUpsells = new java.util.ArrayList<>();
-        state.clearPayments();
-        // Back to the cart: revalue immediately so the screen shows engine
-        // totals again without waiting for the next mutation
-        valuationService.revalue(state);
-        if (ticketId != null) {
-            ticketPersistenceService.removePaymentsFromTicket(ticketId);
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            Long ticketId = state.payment.ticketDbId;
+            // The fidelity lease dies with the payments (imfid spec §5.3);
+            // failure-tolerant — the TTL is the safety net.
+            fidelityService.releaseLease(state);
+            state.payment.paymentInProgress = false;
+            state.payment.pendingCardAmount = null;
+            // Phase 7: leaving the payment reverts the valuation — the cart goes
+            // back to local totals and will be revalued at the next entry
+            if (state.payment.valuationAdjustment != null || "ENGINE".equals(state.payment.valuationStatus)) {
+                valuationReconciler.revert(state.ticket, ticketId);
+                state.ticket.recomputeTotal();
+            }
+            state.payment.valuationStatus = null;
+            state.payment.valuationJson = null;
+            state.payment.valuationEngineTotal = null;
+            state.payment.valuationAdjustment = null;
+            state.payment.valuationMealEligible = null;
+            state.payment.valuationMealThreshold = null;
+            state.payment.valuationUpsells = new java.util.ArrayList<>();
+            state.clearPayments();
+            // Back to the cart: revalue immediately so the screen shows engine
+            // totals again without waiting for the next mutation
+            valuationService.revalue(state);
+            if (ticketId != null) {
+                ticketPersistenceService.removePaymentsFromTicket(ticketId);
+            }
         }
     }
 
@@ -199,36 +214,39 @@ public class PaymentService {
      * @param tendered the amount handed over by the customer
      */
     private void handlePaymentWithChange(PosState state, String methodKey, String displayName, BigDecimal tendered) {
-        if (tendered == null || tendered.signum() <= 0) return;
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (tendered == null || tendered.signum() <= 0) return;
 
-        state.payment.clearPendingVoucher();
+            state.payment.clearPendingVoucher();
 
-        BigDecimal remaining = state.getRemaining();
-        BigDecimal amountToPay = tendered.min(remaining);
-        BigDecimal change = tendered.subtract(amountToPay).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal remaining = state.getRemaining();
+            BigDecimal amountToPay = tendered.min(remaining);
+            BigDecimal change = tendered.subtract(amountToPay).setScale(2, RoundingMode.HALF_UP);
 
-        // UI state update
-        state.payment.lastChangeAmount = (change.signum() > 0) ? change : BigDecimal.ZERO;
+            // UI state update
+            state.payment.lastChangeAmount = (change.signum() > 0) ? change : BigDecimal.ZERO;
 
-        // In-memory update
-        if ("CASH".equals(methodKey)) {
-            state.payment.addCashPayment(amountToPay, tendered);
-        } else {
-            state.payment.addPayment(methodKey, amountToPay);
+            // In-memory update
+            if ("CASH".equals(methodKey)) {
+                state.payment.addCashPayment(amountToPay, tendered);
+            } else {
+                state.payment.addPayment(methodKey, amountToPay);
+            }
+            state.touch();
+
+            // Database persistence
+            savePayment(state, methodKey);
+
+            // Hardware display
+            if (change.signum() > 0) {
+                hardwareService.displayMessage(String.format("DONNE %s RENDU %s", df.format(tendered), df.format(change)));
+            } else {
+                hardwareService.displayMessage(String.format("%-10s%s E", displayName, df.format(amountToPay)));
+            }
+
+            checkCompletion(state);
         }
-        state.touch();
-
-        // Database persistence
-        savePayment(state, methodKey);
-
-        // Hardware display
-        if (change.signum() > 0) {
-            hardwareService.displayMessage(String.format("DONNE %s RENDU %s", df.format(tendered), df.format(change)));
-        } else {
-            hardwareService.displayMessage(String.format("%-10s%s E", displayName, df.format(amountToPay)));
-        }
-
-        checkCompletion(state);
     }
 
     // --------------------------------------------------
@@ -260,27 +278,62 @@ public class PaymentService {
         if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
         if (amount.signum() <= 0) return;
 
-        if (virtualTpe) {
-            // Phase 6: the amount goes to the virtual terminal; the payment is
-            // registered only on its accept decision (simulator buttons).
-            if (state.payment.pendingCardAmount != null) return; // one request at a time
-            state.payment.pendingCardAmount = amount.setScale(2, RoundingMode.HALF_UP);
-            hardwareService.displayMessage(String.format("CARTE   %s E", df.format(state.payment.pendingCardAmount)));
-            state.touch();
-            return;
-        }
+        // One transaction at a time: the pending amount is the UI-facing
+        // in-flight marker, whatever the terminal implementation.
+        if (state.payment.pendingCardAmount != null) return;
+        BigDecimal requested = amount.setScale(2, RoundingMode.HALF_UP);
+        state.payment.pendingCardAmount = requested;
+        hardwareService.displayMessage(String.format("CARTE   %s E", df.format(requested)));
+        state.touch();
 
-        handlePaymentWithChange(state, "CARD", "CARTE", amount);
+        // The decision arrives asynchronously on the callback: the virtual
+        // terminal fires it from the simulator's accept/refuse endpoint,
+        // the auto mode fires it synchronously, Verifone from its exchange
+        // thread. Exactly one method runs per transaction.
+        terminal.requestDebit(requested,
+                new com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback() {
+            /**
+             * Registers the accepted card payment.
+             *
+             * @param outcome the terminal outcome
+             */
+            @Override
+            public void onAccepted(com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
+                registerAcceptedCard(state);
+            }
+
+            /**
+             * Drops the refused card payment and tells the cashier.
+             *
+             * @param outcome the refusal outcome
+             */
+            @Override
+            public void onRefused(com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
+                dropPendingCard(state, "PAIEMENT REFUSÉ PAR LE TPE");
+            }
+
+            /**
+             * Drops the card payment on a terminal failure with the
+             * terminal's own message.
+             *
+             * @param message the operator-facing failure message
+             */
+            @Override
+            public void onError(String message) {
+                dropPendingCard(state, message);
+            }
+        });
 
         // Rule: card = no drawer opening
     }
 
     /**
-     * Registers the pending card payment on the terminal's accept decision.
+     * Registers the pending card payment — the accept leg of the terminal
+     * callback.
      *
      * @param state the current POS state
      */
-    public void confirmPendingCard(PosState state) {
+    private void registerAcceptedCard(PosState state) {
         BigDecimal amount = state.payment.pendingCardAmount;
         if (amount == null) return;
         state.payment.pendingCardAmount = null;
@@ -289,26 +342,30 @@ public class PaymentService {
     }
 
     /**
-     * Drops the pending card payment on the terminal's refuse decision.
+     * Drops the pending card payment with an operator-facing message — the
+     * refuse and error legs of the terminal callback.
      *
      * @param state the current POS state
+     * @param message the ticket error to show
      */
-    public void refusePendingCard(PosState state) {
+    private void dropPendingCard(PosState state, String message) {
         if (state.payment.pendingCardAmount == null) return;
         state.payment.pendingCardAmount = null;
-        state.ticket.setError("PAIEMENT REFUSÉ PAR LE TPE");
+        state.ticket.setError(message);
         hardwareService.displayMessage("PAIEMENT REFUSE");
         state.touch();
     }
 
     /**
-     * Cancels the pending card payment from the register side.
+     * Cancels the pending card payment from the register side and tells the
+     * terminal to abandon its in-flight transaction.
      *
      * @param state the current POS state
      */
     public void cancelPendingCard(PosState state) {
         if (state.payment.pendingCardAmount == null) return;
         state.payment.pendingCardAmount = null;
+        terminal.abort();
         hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
         state.touch();
     }
@@ -376,30 +433,33 @@ public class PaymentService {
      * @param amount the amount to pay, or zero/negative to use the remaining due
      */
     public void processFidelity(PosState state, BigDecimal amount) {
-        if (state.getRemaining().signum() <= 0) return;
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (state.getRemaining().signum() <= 0) return;
 
-        state.payment.clearPendingVoucher();
+            state.payment.clearPendingVoucher();
 
-        // Reservation protocol (imfid spec §5): the lease is granted for
-        // min(requested, remaining, burnableBase, availableBalance); no euro
-        // moves before the fiscal confirmation. Refusals carry their exact
-        // display message (closed nomenclature mapped by the service).
-        com.intermarche.pos.ui.fidelity.FidelityService.BurnVerdict verdict =
-                fidelityService.reserveLease(state, amount, state.getRemaining());
-        if (verdict.refusalMessage != null) {
-            state.ticket.setError(verdict.refusalMessage);
+            // Reservation protocol (imfid spec §5): the lease is granted for
+            // min(requested, remaining, burnableBase, availableBalance); no euro
+            // moves before the fiscal confirmation. Refusals carry their exact
+            // display message (closed nomenclature mapped by the service).
+            com.intermarche.pos.ui.fidelity.FidelityService.BurnVerdict verdict =
+                    fidelityService.reserveLease(state, amount, state.getRemaining());
+            if (verdict.refusalMessage != null) {
+                state.ticket.setError(verdict.refusalMessage);
+                state.touch();
+                return;
+            }
+            BigDecimal amountToPay = verdict.grantedAmount;
+            state.payment.addPayment("FIDELITY", amountToPay);
             state.touch();
-            return;
+            savePayment(state, "FIDELITY");
+            hardwareService.displayMessage(String.format("FIDELITE  %s E", df.format(amountToPay)));
+
+            // Rule: fidelity = no drawer opening (virtual)
+
+            checkCompletion(state);
         }
-        BigDecimal amountToPay = verdict.grantedAmount;
-        state.payment.addPayment("FIDELITY", amountToPay);
-        state.touch();
-        savePayment(state, "FIDELITY");
-        hardwareService.displayMessage(String.format("FIDELITE  %s E", df.format(amountToPay)));
-
-        // Rule: fidelity = no drawer opening (virtual)
-
-        checkCompletion(state);
     }
 
     /**
@@ -413,16 +473,19 @@ public class PaymentService {
      * @param amount the paid amount
      */
     public void processVoucher(PosState state, String label, String number, BigDecimal amount) {
-        if (amount == null || amount.signum() <= 0) return;
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (amount == null || amount.signum() <= 0) return;
 
-        state.payment.addVoucherPayment(label, number, amount);
-        state.touch();
-        saveVoucherPayment(state);
-        hardwareService.displayMessage(String.format("%-10s%s E", "BON", df.format(amount)));
+            state.payment.addVoucherPayment(label, number, amount);
+            state.touch();
+            saveVoucherPayment(state);
+            hardwareService.displayMessage(String.format("%-10s%s E", "BON", df.format(amount)));
 
-        // Rule: voucher = no drawer opening (virtual)
+            // Rule: voucher = no drawer opening (virtual)
 
-        checkCompletion(state);
+            checkCompletion(state);
+        }
     }
 
     // --------------------------------------------------
@@ -436,44 +499,47 @@ public class PaymentService {
      * @param state the current POS state
      */
     public void finalizeTransaction(PosState state) {
-        Long ticketId = state.payment.ticketDbId;
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            Long ticketId = state.payment.ticketDbId;
 
-        if (ticketId != null) {
-            ticketPersistenceService.validateTicket(ticketId);
-            state.lastClosedTicketId = ticketId;
-            LOG.info("Ticket validé et fermé en BDD ID: " + ticketId);
-            // Loyalty fiscal sequence (imfid spec §5.2 + §6): confirm the
-            // lease (410 tolerated — the ingestion is authoritative), then
-            // enqueue the ticket-closed event with the verbatim couple. The
-            // outbox drains it; imfid recomputes and the recalcul fait foi.
-            if (state.fidelity.active) {
-                java.time.LocalDate fiscalDate = java.time.LocalDate.now();
-                Long reservationId = fidelityService.confirmLease(state, fiscalDate);
-                com.intermarche.pos.domain.ticket.Ticket closed =
-                        com.intermarche.pos.domain.ticket.Ticket.findById(ticketId);
-                if (closed != null) {
-                    String ticketRef = fiscalDate.getYear() + "-" + closed.ticketNumber;
-                    String payload = fidelityService.buildTicketClosedPayload(
-                            state, ticketRef, state.fidelity.label, fiscalDate, reservationId);
-                    if (payload != null) {
-                        fidEventOutboxService.enqueue(
-                                com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED, payload);
+            if (ticketId != null) {
+                ticketPersistenceService.validateTicket(ticketId);
+                state.lastClosedTicketId = ticketId;
+                LOG.info("Ticket validé et fermé en BDD ID: " + ticketId);
+                // Loyalty fiscal sequence (imfid spec §5.2 + §6): confirm the
+                // lease (410 tolerated — the ingestion is authoritative), then
+                // enqueue the ticket-closed event with the verbatim couple. The
+                // outbox drains it; imfid recomputes and the recalcul fait foi.
+                if (state.fidelity.active) {
+                    java.time.LocalDate fiscalDate = java.time.LocalDate.now();
+                    Long reservationId = fidelityService.confirmLease(state, fiscalDate);
+                    com.intermarche.pos.domain.ticket.Ticket closed =
+                            com.intermarche.pos.domain.ticket.Ticket.findById(ticketId);
+                    if (closed != null) {
+                        String ticketRef = fiscalDate.getYear() + "-" + closed.ticketNumber;
+                        String payload = fidelityService.buildTicketClosedPayload(
+                                state, ticketRef, state.fidelity.label, fiscalDate, reservationId);
+                        if (payload != null) {
+                            fidEventOutboxService.enqueue(
+                                    com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED, payload);
+                        }
                     }
                 }
+                // Gift cards issued by this sale get their printed voucher —
+                // the customer's proof, right after the fiscal moment (phase:
+                // credit notes & gift cards).
+                java.util.List<com.intermarche.pos.domain.StoredValue> issued =
+                        com.intermarche.pos.domain.StoredValue
+                                .find("issuingTicketId", ticketId).list();
+                for (com.intermarche.pos.domain.StoredValue card : issued) {
+                    ticketPrinterService.printGiftCardVoucher(card.number, card.initialAmount);
+                }
             }
-            // Gift cards issued by this sale get their printed voucher —
-            // the customer's proof, right after the fiscal moment (phase:
-            // credit notes & gift cards).
-            java.util.List<com.intermarche.pos.domain.StoredValue> issued =
-                    com.intermarche.pos.domain.StoredValue
-                            .find("issuingTicketId", ticketId).list();
-            for (com.intermarche.pos.domain.StoredValue card : issued) {
-                ticketPrinterService.printGiftCardVoucher(card.number, card.initialAmount);
-            }
-        }
 
-        hardwareService.displayMessage("MERCI A BIENTOT");
-        state.clearTicket();
+            hardwareService.displayMessage("MERCI A BIENTOT");
+            state.clearTicket();
+        }
     }
 
     // --------------------------------------------------

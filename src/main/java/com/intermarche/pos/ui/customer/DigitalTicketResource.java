@@ -4,7 +4,7 @@ import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.domain.ticket.VatBreakdown;
-import com.intermarche.pos.service.QrCodeService;
+import com.intermarche.pos.ui.customer.QrCodeService;
 import com.intermarche.pos.service.TechnicalEventService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -13,7 +13,9 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import java.net.URI;
 import org.jboss.logging.Logger;
 
 /**
@@ -59,14 +61,17 @@ public class DigitalTicketResource {
      *
      * @param id the ticket database id
      * @param key the access key printed on the paper ticket
+     * @param sent true when the PRG redirect of the email action flags a
+     *        just-sent confirmation to display
      * @return the digital receipt page, or its unavailable variant
      */
     @GET
     @Path("/{id}/{key}")
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance view(@PathParam("id") Long id, @PathParam("key") String key) {
+    public TemplateInstance view(@PathParam("id") Long id, @PathParam("key") String key,
+                                 @QueryParam("sent") boolean sent) {
         Ticket ticket = load(id, key);
-        return render(ticket, id, key, false);
+        return render(ticket, id, key, sent);
     }
 
     /**
@@ -76,14 +81,16 @@ public class DigitalTicketResource {
      * @param id the ticket database id
      * @param key the access key printed on the paper ticket
      * @param email the email typed by the customer
-     * @return the digital receipt page with the sent confirmation
+     * @return a 303 redirect to the receipt page (PRG pattern, so a browser
+     *         reload never re-sends the email), flagged with the sent
+     *         confirmation when the delivery was journaled
      */
     @POST
     @Path("/{id}/{key}/email")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
-    public TemplateInstance sendByEmail(@PathParam("id") Long id, @PathParam("key") String key,
-                                        @FormParam("email") String email) {
+    public Response sendByEmail(@PathParam("id") Long id, @PathParam("key") String key,
+                                @FormParam("email") String email) {
         Ticket ticket = load(id, key);
         boolean sent = false;
         if (ticket != null && email != null && email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
@@ -95,7 +102,7 @@ public class DigitalTicketResource {
                     ticket.ticketNumber + " -> " + ticket.customerEmail);
             sent = true;
         }
-        return render(ticket, id, key, sent);
+        return Response.seeOther(URI.create("/t/" + id + "/" + key + (sent ? "?sent=true" : ""))).build();
     }
 
     /**

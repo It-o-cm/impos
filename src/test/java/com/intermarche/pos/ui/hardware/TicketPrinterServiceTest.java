@@ -1,4 +1,4 @@
-package com.intermarche.pos.service;
+package com.intermarche.pos.ui.hardware;
 
 import com.intermarche.pos.domain.Address;
 import com.intermarche.pos.domain.CashSession;
@@ -13,7 +13,6 @@ import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.domain.ticket.TicketLineValuation;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityState;
-import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -40,6 +39,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.service.TechnicalEventService;
 
 /**
  * Unit tests for {@link TicketPrinterService}.

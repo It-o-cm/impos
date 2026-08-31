@@ -1,151 +1,216 @@
-Listening for transport dt_socket at address: 64170
-16:13:08 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-11) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+Listening for transport dt_socket at address: 53497
+17:08:57 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-23) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
 This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
 __  ____  __  _____   ___  __ ____  ______ 
  --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
  -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
 --\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
-16:13:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-16:13:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-16:13:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-16:13:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-16:13:10 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
-16:13:10 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Empty database: seeding the reference data from the embedded CSV files.
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 5, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded stores.csv: {"createdCount":5, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-16:13:10 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-16:13:10 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 4, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded store-groups.csv: {"createdCount":4, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 38, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded products.csv: {"createdCount":38, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 9 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-16:13:10 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 9 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-16:13:10 WARN  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Failed to process chunk of size 9 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 9, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded product-families.csv: {"createdCount":9, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 30, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded product-category-storages.csv: {"createdCount":30, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 104, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded prices.csv: {"createdCount":104, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Starting Bulk Import from InputStream
-16:13:10 INFO  [co.in.va.im.ImporterCsvResource] (Quarkus Main Thread) Import finished. Created: 11, Updated: 0
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Seeded offers.csv: {"createdCount":11, "updatedCount":0}
-16:13:10 INFO  [co.in.va.im.DataInitializer] (Quarkus Main Thread) Reference data seed completed.
-16:13:10 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
-16:13:10 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.484s. Listening on: http://localhost:8090
-16:13:10 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
-16:13:10 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
-16:15:45 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
-16:16:03 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method edit with id: 8
-16:16:09 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
-16:16:20 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method edit with id: 10
-16:16:27 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
-16:16:42 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method edit with id: 1
-16:23:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:23:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:23:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:23:33 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-16:23:33 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-widget - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-16:23:33 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-item-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-16:23:33 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-unit-from - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-16:23:39 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:23:39 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:23:39 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:23:39 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:23:39 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:23:39 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:24:04 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:24:04 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:24:04 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:24:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:24:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:24:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-16:25:26 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:25:26 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:25:26 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 3
-16:26:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:26:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:26:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
-16:26:50 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:26:50 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:26:50 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:27:16 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:27:16 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:27:16 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:27:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:27:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:27:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:28:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:28:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:28:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:28:38 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:28:38 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:28:38 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:28:57 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:28:57 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:28:57 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:29:21 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:29:21 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:29:21 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:29:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:29:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:29:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
-16:30:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:30:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:30:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:31:08 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:31:08 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:31:08 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:31:15 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:31:15 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:31:15 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:34:13 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method list
-16:34:14 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:15 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:16 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:17 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:18 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:19 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:20 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method list
-16:34:21 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:22 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:23 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:24 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:25 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:25 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method detail with id: 18
-16:34:53 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method list
-16:34:54 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:55 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:56 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:57 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:58 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:34:59 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:00 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:02 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:03 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:04 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:05 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:06 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:06 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method detail with id: 17
-16:35:16 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method list
-16:35:17 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:18 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:19 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-16:35:20 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method detail with id: 14
-16:46:41 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
-16:47:02 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
-16:47:06 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method create
-11:56:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-11:56:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-11:56:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-17:10:35 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-5) Purged 18 valuation trace(s) older than 2026-08-26T17:10:35.138975
-17:47:42 INFO  [io.quarkus] (Shutdown thread) imvaluation stopped in 0.056s
+17:08:58 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:08:58 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:08:58 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:08:58 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:08:58 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+17:08:58 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+17:08:59 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+17:08:59 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.288s. Listening on: http://localhost:8090
+17:08:59 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+17:08:59 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+17:09:00 INFO  [io.sm.health] (vert.x-eventloop-thread-0) SRHCK01001: Reporting health down status: {"status":"DOWN","checks":[{"name":"imvaluation-ready","status":"DOWN","data":{"stores":0,"offerSchemas":11,"missing":"stores"}},{"name":"Database connections health check","status":"UP","data":{"<default>":"UP"}}]}
+17:09:20 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1, Updated: 0
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 4, Updated: 0
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 312, Updated: 0
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 48 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 48 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+17:09:21 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 8 with step 10. Retrying with step 1. Error: SubFamily code 'BOEUF_PORC' not found.
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 45, Updated: 3
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 304, Updated: 0
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 365, Updated: 0
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+17:09:21 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 22, Updated: 0
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:13 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+17:10:13 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-widget - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+17:10:13 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-item-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+17:10:13 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-unit-from - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:13 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:16 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:16 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:16 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:28 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 3
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:29 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 5
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:30 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+17:10:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 6
+17:10:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: null
+17:10:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 0
+17:10:40 WARN  [co.in.va.en.ValuationResource] (executor-thread-1) Rejected valuation request: Error validating offer: $.items: doit avoir au moins 1 éléments mais trouvé 0
+17:10:40 ERROR [or.jb.re.re.i18n] (executor-thread-1) RESTEASY002010: Failed to execute: jakarta.ws.rs.WebApplicationException: Error validating offer: $.items: doit avoir au moins 1 éléments mais trouvé 0
+	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:101)
+	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
+	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
+	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
+	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
+	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
+	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
+	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
+	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
+	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
+	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
+	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
+	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
+	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
+	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
+	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
+	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
+	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
+	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
+	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
+	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
+	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
+	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
+
+17:10:42 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:42 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:42 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:44 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:44 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:44 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:44 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:44 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:44 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+17:10:45 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:45 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:45 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
+17:10:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 3
+17:10:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:51 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:51 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:51 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+17:10:55 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 4

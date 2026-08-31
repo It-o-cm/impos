@@ -149,6 +149,22 @@ public class RefundState implements Serializable {
     }
 
     /**
+     * Drops the ticket selection and its staging (quantities, typed amount,
+     * pagination, guard message) while KEEPING the search fields: a new
+     * search must supersede a stale selection, so the redirect-after-search
+     * GET renders the fresh result list and never a leftover detail screen.
+     */
+    public void clearSelection() {
+        selectedTicket = null;
+        returnQuantities.clear();
+        detailPage = 0;
+        selectedLineId = null;
+        isEditingAmount = false;
+        manualTotalAmount = null;
+        errorMessage = null;
+    }
+
+    /**
      * Clears the whole refund state.
      */
     public void clear() {

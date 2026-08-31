@@ -32,7 +32,7 @@ import java.net.URL;
  * <p>
  * <b>The card is scanned on the bus, or typed on the fallback page.</b> A
  * fidelity card is recognized by the {@code scan.pattern.fidelity} regex
- * ({@code ^789\d{12}$}, a 15-digit card) presented on the hardware bus
+ * ({@code ^299\d{10}$}, a 13-digit EAN-13 card) presented on the hardware bus
  * ({@code POST /api/pos/scan}) — the primary path (D1). When the card does not
  * scan, the cashier types it on the {@code /fidelity} fallback page and submits
  * (D2). On the lock screen a card is meaningless and stays inert (D3).
@@ -83,11 +83,11 @@ public class GroupDIT {
     private static final String EAN_HUILE = "3300000000006";
     private static final String LABEL_HUILE = "HUILE D'OLIVE 1L";
 
-    /** A valid fidelity card ({@code ^789\d{12}$}, 15 digits). */
-    private static final String CARD_1 = "789000000000001";
+    /** A valid fidelity card ({@code ^299\d{10}$}, 13 digits, imfid seed). */
+    private static final String CARD_1 = "2990000000019";
 
     /** A second valid fidelity card, to prove last-presented wins (D2). */
-    private static final String CARD_2 = "789000000000002";
+    private static final String CARD_2 = "2990000000026";
 
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
@@ -181,7 +181,7 @@ public class GroupDIT {
      * <p>
      * On the lock screen the register is locked: a fidelity card scanned on the
      * bus is inert on both guards ({@code processScan}'s locked short-circuit and
-     * the handler's {@code !isLocked()}), so nothing is attached. Being 15 digits
+     * the handler's {@code !isLocked()}), so nothing is attached. Being 13 digits
      * it is not a badge either, so the lock overlay never flips to PIN entry —
      * no login prefill, the screen stays on the badge/PIN prompt.
      */
@@ -200,7 +200,7 @@ public class GroupDIT {
                 "a card scanned on the lock screen must not attach");
         Assertions.assertEquals("", posState.fidelity.label,
                 "the inert card must leave no label");
-        // Not a badge (15 digits, not 8): the overlay never flips to PIN entry.
+        // Not a badge (13 digits, not 8): the overlay never flips to PIN entry.
         Assertions.assertEquals(0, page.getByText("Entrez votre code PIN :").count(),
                 "a fidelity card must not prefill the login nor open PIN entry");
         Assertions.assertTrue(posState.isLocked(), "the register must stay locked");

@@ -10,9 +10,10 @@ import java.math.BigDecimal;
  * <p>
  * Semantic contract:
  * <ul>
- *   <li>Registered through {@code PaymentService.processCard}. Since phase 6,
- *       when {@code pos.tpe.virtual} is true (default), the amount first
- *       waits on the virtual payment terminal ({@code pendingCardAmount});
+ *   <li>Registered through {@code PaymentService.processCard}. The amount
+ *       first waits on the payment terminal ({@code pendingCardAmount},
+ *       whatever the {@code pos.tpe.mode} implementation behind the
+ *       {@code PaymentTerminalClient} port);
  *       this entity is only created on the terminal's <em>accept</em>
  *       decision — a refuse or a register-side cancel never creates one.</li>
  *   <li>Card payments never open the drawer (no cash handled).</li>

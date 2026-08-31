@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.service.TicketParkingService;
+import com.intermarche.pos.ui.ticket.TicketParkingService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;

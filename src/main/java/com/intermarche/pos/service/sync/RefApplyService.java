@@ -237,6 +237,38 @@ public class RefApplyService {
     }
 
     /**
+     * Applies the verbatim engine feeds snapshot: upsert by code when the
+     * version differs — the engine acknowledgement columns are PRESERVED,
+     * the local delivery loop owns them — and the codes absent from the
+     * store are deleted locally (a withdrawn feed stops being delivered).
+     *
+     * @param dtos the full engine-feeds snapshot
+     */
+    @Transactional
+    public void applyEngineFeeds(List<RefPayloads.EngineFeedDto> dtos) {
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.EngineFeedDto dto : dtos) {
+            com.intermarche.pos.domain.EngineFeed row =
+                    com.intermarche.pos.domain.EngineFeed.findByCode(dto.code);
+            if (row == null) {
+                row = new com.intermarche.pos.domain.EngineFeed();
+                row.code = dto.code;
+            } else if (dto.version != null && dto.version.equals(row.version)) {
+                seen.add(dto.code);
+                continue;
+            }
+            row.content = dto.content;
+            row.version = dto.version;
+            row.receivedAt = java.time.LocalDateTime.now();
+            row.persist();
+            seen.add(dto.code);
+        }
+        long removed = com.intermarche.pos.domain.EngineFeed.delete(
+                "code not in ?1", seen.isEmpty() ? java.util.List.of("") : seen);
+        LOG.infof("Flux moteur appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
+    }
+
+    /**
      * Records the applied fingerprint of a domain.
      *
      * @param domain the referential domain

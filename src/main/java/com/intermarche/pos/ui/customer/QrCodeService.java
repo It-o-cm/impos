@@ -1,4 +1,4 @@
-package com.intermarche.pos.service;
+package com.intermarche.pos.ui.customer;
 
 import io.nayuki.qrcodegen.QrCode;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -15,6 +15,8 @@ import jakarta.enterprise.context.ApplicationScoped;
  * own access key and shown on the customer display's thank-you screen. The
  * service is deliberately generic (text in, SVG out) so future codes — a
  * refund voucher, for instance — cost one call.
+ * <p>
+ * Placement: ui.customer — sole consumer is DigitalTicketResource (consumer-exclusivity rule).
  */
 @ApplicationScoped
 public class QrCodeService {

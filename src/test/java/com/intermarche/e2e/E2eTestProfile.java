@@ -14,6 +14,13 @@ import java.util.Map;
  * @QuarkusTest port) so peripheral calls hit the embedded simulator
  * (MockHardwareResource, wired into the test classpath from src/mock) and
  * return 200 — no ConnectException/404 stack traces in the logs.
+ * <p>
+ * It also points {@code pos.valuation.url} at the test application itself:
+ * {@code /api/valuation} is the embedded engine simulator
+ * (MockValuationResource, same src/mock classpath), so the e2e campaign is
+ * AUTONOMOUS — no externally running imvaluation — and the engine verdicts
+ * a scenario asserts (the meal-voucher base) come from that simulator. The
+ * stack-attached Demo* profiles override this URL back to the real engine.
  */
 public class E2eTestProfile implements QuarkusTestProfile {
 
@@ -26,6 +33,7 @@ public class E2eTestProfile implements QuarkusTestProfile {
     public Map<String, String> getConfigOverrides() {
         return Map.of(
                 "pos.terminal.id", "C04",
-                "quarkus.rest-client.hardware-api.url", "http://localhost:8081");
+                "quarkus.rest-client.hardware-api.url", "http://localhost:8081",
+                "pos.valuation.url", "http://localhost:8081/api");
     }
 }

@@ -2,7 +2,7 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.CouponType;
 import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.service.TicketPrinterService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
@@ -36,7 +36,6 @@ import jakarta.ws.rs.core.Response;
 public class PaymentResource {
 
     @Inject Template pay;
-    @Inject Template main;
     @Inject PaymentService paymentService;
     @Inject VoucherService voucherService;
     @Inject
@@ -337,38 +336,48 @@ public class PaymentResource {
     }
 
     /**
-     * Finalizes the transaction (closes the ticket) and returns to the main page.
+     * Finalizes the transaction (closes the ticket) and redirects to the
+     * main page.
      *
-     * @return the main page
+     * @return a 303 redirect to the main page — this GET mutates state, so
+     *         it must never RENDER a page the browser then sits on: the sale
+     *         screen reloads itself on a payability flip, and a reload of a
+     *         rendered {@code /action/finish} would replay the fiscal close
+     *         onto the NEXT freshly started draft (same replay class as the
+     *         PRG-converted POSTs)
      */
     @GET
     @Path("/action/finish")
-    public TemplateInstance validatePayment() {
+    public Response validatePayment() {
         paymentService.finalizeTransaction(state);
-        return main.data("state", state);
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
      * Cancels the registered payments (in memory and on the draft) and
-     * returns to the main page.
+     * redirects to the main page.
      *
-     * @return the main page
+     * @return a 303 redirect to the main page (same replay-safety rule as
+     *         {@link #validatePayment()}: a mutating GET never renders the
+     *         page it lands on)
      */
     @GET
     @Path("/action/cancel")
-    public TemplateInstance cancelPayment() {
+    public Response cancelPayment() {
         paymentService.cancelPayments(state);
-        return main.data("state", state);
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
-     * Prints the current ticket and returns to the appropriate page.
+     * Prints the current ticket and redirects to the appropriate page.
      *
-     * @return the payment page while the transaction modal is shown, otherwise the main page
+     * @return a 303 redirect (PRG pattern, so a browser reload never replays
+     *         the POST): to the payment page while the transaction modal is
+     *         shown, otherwise to the main page
      */
     @POST
     @Path("/action/print")
-    public TemplateInstance printTicket() {
+    public Response printTicket() {
         Long ticketId = state.payment.ticketDbId;
         if (state.trainingMode) {
             ticketPrinterService.printTrainingReceipt(state);
@@ -380,11 +389,9 @@ public class PaymentResource {
             }
         }
         if (state.payment.transactionComplete) {
-            return pay.data("state", state)
-                    .data("couponTypes", CouponType.listActivePaymentTypes())
-                    .data("digitalPath", digitalPath());
+            return Response.seeOther(URI.create("/pay")).build();
         }
-        return main.data("state", state);
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

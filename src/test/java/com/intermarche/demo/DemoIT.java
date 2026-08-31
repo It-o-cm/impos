@@ -19,6 +19,8 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
@@ -59,10 +61,32 @@ import java.util.Base64;
  * on stage.
  */
 @QuarkusTest
-@TestProfile(E2eTestProfile.class)
+@TestProfile(DemoIT.RealEngineProfile.class)
 @WithPlaywright(headless = true)
 @TestMethodOrder(MethodOrderer.MethodName.class)
 public class DemoIT {
+
+    /**
+     * The demo profile: everything of {@link E2eTestProfile} but pointed at
+     * the REAL engine — this pre-flight runs under the demo stack and its
+     * scenarios assert genuine engine decisions (2-for-1, aggregation), so
+     * the shared profile's embedded engine simulator must not answer here.
+     */
+    public static class RealEngineProfile extends E2eTestProfile {
+
+        /**
+         * Supplies the shared e2e overrides with the real engine URL.
+         *
+         * @return the configuration overrides applied under this profile
+         */
+        @Override
+        public java.util.Map<String, String> getConfigOverrides() {
+            java.util.Map<String, String> overrides =
+                    new java.util.HashMap<>(super.getConfigOverrides());
+            overrides.put("pos.valuation.url", "http://localhost:8090");
+            return overrides;
+        }
+    }
 
     /** The seed cashier badge (Jean Dupont — demo module I). */
     private static final String CASHIER_BADGE = "12341234";
@@ -91,6 +115,32 @@ public class DemoIT {
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
     BrowserContext context;
+
+    /** Engine availability, probed once for the whole class run. */
+    private static Boolean engineUp;
+
+    /**
+     * Skips the WHOLE demo pre-flight when the engine is absent: this class
+     * is stack-attached (demo-stack starts and feeds imvaluation before the
+     * pre-flight), so an autonomous run reports every scenario SKIPPED —
+     * never failed. When the engine answers, demo00 still performs the
+     * detailed seed/auth check. The probe runs once and is cached.
+     */
+    @BeforeEach
+    void assumeEngineUp() {
+        if (engineUp == null) {
+            try {
+                APIResponse ping = context.request().get(ENGINE_URL + "/q/health");
+                engineUp = ping.status() == 200;
+            } catch (Exception e) {
+                engineUp = false;
+            }
+        }
+        Assumptions.assumeTrue(engineUp,
+                "le valorisateur ne répond pas sur " + ENGINE_URL + " — le pre-flight "
+                        + "de démo est SAUTÉ. Pour le jouer : demo-stack.sh (il démarre "
+                        + "et alimente le moteur avant les tests).");
+    }
 
     /** The live application base URL, auto-wired by @QuarkusTest. */
     @TestHTTPResource("/")
@@ -233,9 +283,14 @@ public class DemoIT {
     @Test
     void demo03_module5_le_2for1_mord_au_second_kilo() {
         Page page = openSaleScreen();
+        String root = base.toString();
         BigDecimal totalBefore = posState.ticket.totalAmount;
-        // First apple kilogram: the typed-PLU path (module II.2's promise).
-        scanCode(APPLES_PLU);
+        // First apple kilogram: the REAL typed-PLU path — /action/add/{plu}
+        // sells the armed scale weight (a PLU is not a barcode: the scan bus
+        // deliberately has no PLU handler).
+        context.request().post(root + "api/hardware/set-weight",
+                RequestOptions.create().setHeader("Content-Type", "text/plain").setData("1,000"));
+        page.navigate(root + "action/add/" + APPLES_PLU);
         page.getByText("POMMES GOLDEN").waitFor();
         BigDecimal afterFirst = posState.ticket.totalAmount;
         BigDecimal firstKiloCost = afterFirst.subtract(totalBefore);
@@ -247,10 +302,16 @@ public class DemoIT {
         page.locator(".receipt-item-link").locator("text=POMMES GOLDEN").nth(1).waitFor();
         BigDecimal afterSecond = posState.ticket.totalAmount;
         BigDecimal secondKiloCost = afterSecond.subtract(afterFirst);
+        // Self-diagnosing oracle: on failure the message carries the raw
+        // engine response, telling an absent offer apart from a portion the
+        // register's reconciler could not read.
+        String valuationJson = posState.payment.valuationJson;
         Assertions.assertTrue(secondKiloCost.compareTo(firstKiloCost) < 0,
                 "module V: the 2FOR1 must bite on the second kilogram (first cost "
                         + firstKiloCost + ", second cost " + secondKiloCost
-                        + ") — engine offer missing? seed mismatch?");
+                        + ", statut " + posState.payment.valuationStatus
+                        + ") — réponse moteur = " + (valuationJson == null ? "null"
+                                : valuationJson.substring(0, Math.min(valuationJson.length(), 1600))));
         page.close();
     }
 
@@ -324,7 +385,8 @@ public class DemoIT {
      * demo05a — Module VI.1 : the meal-voucher cap, proven by the DECREMENT.
      * <p>
      * ENCAISSER shows the green AVANTAGES banner (second live engine proof).
-     * A 10,00 € TR is submitted; the registered amount is read as the drop of
+     * A 999,00 € TR (above any plausible base) is submitted; the registered
+     * amount is read as the drop of
      * the engine-fed meal base ({@code valuationMealEligible} before minus
      * after) — cent-exact, threshold-independent: never more than requested,
      * never more than the base (the demo's "plafonné, et l'assiette
@@ -355,7 +417,7 @@ public class DemoIT {
         org.junit.jupiter.api.Assumptions.assumeTrue(baseBefore != null && baseBefore.signum() > 0,
                 "the engine returned no MEAL_VOUCHER base for this cart — check the "
                         + "engine seed (POMMES family TR flags) before the demo");
-        typeAmountVerified(page, "TICKET RESTO", "#trDisplay", "#trForm", "10", "10");
+        typeAmountVerified(page, "TICKET RESTO", "#trDisplay", "#trForm", "999", "999");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("TICKET RESTO").setExact(true)).waitFor();
         BigDecimal baseAfter = posState.payment.valuationMealEligible;
@@ -373,9 +435,9 @@ public class DemoIT {
                                 .map(p -> p.method + ":" + p.amount).toList());
         Assertions.assertEquals(0, registered.compareTo(baseBefore),
                 "module VI.1: le TR doit être PLAFONNÉ à l'assiette éligible "
-                        + "(demandé 10,00 €, assiette " + baseBefore
+                        + "(demandé 999,00 €, assiette " + baseBefore
                         + ", enregistré " + registered + ")");
-        Assertions.assertTrue(registered.compareTo(new BigDecimal("10.00")) <= 0,
+        Assertions.assertTrue(registered.compareTo(new BigDecimal("999.00")) <= 0,
                 "module VI.1: never more than requested, was " + registered);
         Assertions.assertTrue(registered.compareTo(baseBefore) <= 0,
                 "module VI.1: never more than the eligible base (" + baseBefore
@@ -547,6 +609,10 @@ public class DemoIT {
      * @return a Playwright page sitting on the sale screen
      */
     private Page openSaleScreen() {
+        // Neutralize any page left open by a FAILED previous scenario: its
+        // /endorsement-data or /lock-data poller would steal the next badge
+        // from the one-shot mailbox (the group-A page-close lesson).
+        for (Page open : context.pages()) open.close();
         String root = base.toString();
         Page page = context.newPage();
         // The register is a SHARED server singleton: a previous test may have
@@ -577,6 +643,11 @@ public class DemoIT {
         try {
             page.getByText("TOTAL À PAYER")
                     .waitFor(new Locator.WaitForOptions().setTimeout(5000));
+            // The session-open pulse may land AFTER the in-flow closes (the
+            // click returns before its request completes): shut the drawer
+            // once the sale screen is proven, or the page's self-reload on
+            // the next scan would divert to /drawer-error.
+            closeDrawer();
             return page;
         } catch (Exception stillNotThere) {
             // Remediation, only after the wait really failed: abandon a
@@ -587,6 +658,8 @@ public class DemoIT {
             page.navigate(root);
         }
         page.getByText("TOTAL À PAYER").waitFor();
+        // Same post-proof drawer close as the nominal path above.
+        closeDrawer();
         return page;
     }
 

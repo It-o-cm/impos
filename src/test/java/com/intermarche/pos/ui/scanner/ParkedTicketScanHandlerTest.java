@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.service.TicketParkingService;
+import com.intermarche.pos.ui.ticket.TicketParkingService;
 import com.intermarche.pos.ui.PosState;
 import org.junit.jupiter.api.Test;
 

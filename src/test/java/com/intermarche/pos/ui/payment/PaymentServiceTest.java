@@ -1,14 +1,19 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.valuation.ValuationReconciler;
-import com.intermarche.pos.service.valuation.ValuationService;
+import com.intermarche.pos.ui.valuation.ValuationReconciler;
+import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.service.sync.FidEventOutboxService;
 import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.hardware.terminal.AutoAcceptTerminalClient;
+import com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient;
+import com.intermarche.pos.ui.hardware.terminal.TerminalOutcome;
+import com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -63,7 +68,7 @@ class PaymentServiceTest {
     private ValuationReconciler valuationReconciler;
 
     /** The printer, which issues the gift-card vouchers at the fiscal moment. */
-    private com.intermarche.pos.service.TicketPrinterService ticketPrinterService;
+    private com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
 
     /** The loyalty lease lifecycle: reserve, renew, release, confirm. */
     private FidelityService fidelityService;
@@ -71,12 +76,16 @@ class PaymentServiceTest {
     /** The loyalty fiscal-event outbox, fed at the fiscal moment. */
     private FidEventOutboxService fidEventOutboxService;
 
+    /** The mocked payment-terminal port (decision legs driven by hand). */
+    private PaymentTerminalClient terminal;
+
     /** A real POS state carrying real payment and ticket sub-states. */
     private PosState state;
 
     /**
      * Builds a fresh service with fresh mocks and a fresh real state before
-     * each test, defaulting the virtual terminal on (its production default).
+     * each test; the terminal port is a mock whose callback legs the tests
+     * fire by hand.
      */
     @BeforeEach
     void setUp() {
@@ -87,7 +96,7 @@ class PaymentServiceTest {
         valuationReconciler = mock(ValuationReconciler.class);
         service.hardwareService = hardwareService;
         service.ticketPersistenceService = ticketPersistenceService;
-        ticketPrinterService = mock(com.intermarche.pos.service.TicketPrinterService.class);
+        ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.ticketPrinterService = ticketPrinterService;
         service.valuationService = valuationService;
         service.valuationReconciler = valuationReconciler;
@@ -95,7 +104,8 @@ class PaymentServiceTest {
         fidEventOutboxService = mock(FidEventOutboxService.class);
         service.fidelityService = fidelityService;
         service.fidEventOutboxService = fidEventOutboxService;
-        service.virtualTpe = true;
+        terminal = mock(PaymentTerminalClient.class);
+        service.terminal = terminal;
         state = new PosState();
     }
 
@@ -354,17 +364,18 @@ class PaymentServiceTest {
     // --------------------------------------------------
 
     /**
-     * {@code processCard} with a null amount on the virtual terminal defaults to
-     * the remaining due and parks it as a pending request ({@code amount ==
-     * null} true, defaulted amount positive, {@code virtualTpe} true,
+     * {@code processCard} with a null amount defaults to the remaining due,
+     * parks it as a pending request and hands the debit to the terminal port
+     * ({@code amount == null} true, defaulted amount positive,
      * {@code pendingCardAmount == null} true).
      */
     @Test
-    void processCardVirtualNullAmountParks() {
+    void processCardNullAmountParksAndRequestsDebit() {
         state.ticket.totalAmount = new BigDecimal("15.00");
         service.processCard(state, null);
         assertEquals(0, new BigDecimal("15.00").compareTo(state.payment.pendingCardAmount));
         verify(hardwareService).displayMessage("CARTE   15,00 E");
+        verify(terminal).requestDebit(eq(new BigDecimal("15.00")), any());
         assertTrue(state.payment.payments.isEmpty());
     }
 
@@ -378,35 +389,39 @@ class PaymentServiceTest {
         state.ticket.totalAmount = BigDecimal.ZERO;
         service.processCard(state, BigDecimal.ZERO);
         verifyNoInteractions(hardwareService);
+        verifyNoInteractions(terminal);
         assertNull(state.payment.pendingCardAmount);
     }
 
     /**
-     * {@code processCard} on the virtual terminal ignores a second request while
-     * one is pending ({@code amount == null} false, positive, {@code virtualTpe}
-     * true, {@code pendingCardAmount != null} true).
+     * {@code processCard} ignores a second request while one is pending
+     * ({@code amount == null} false, positive,
+     * {@code pendingCardAmount != null} true).
      */
     @Test
-    void processCardVirtualPendingIgnored() {
+    void processCardPendingIgnored() {
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.pendingCardAmount = new BigDecimal("5.00");
         service.processCard(state, new BigDecimal("10"));
         assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.pendingCardAmount));
         verifyNoInteractions(hardwareService);
+        verifyNoInteractions(terminal);
         assertTrue(state.payment.payments.isEmpty());
     }
 
     /**
-     * {@code processCard} with the virtual terminal off registers the payment
-     * immediately without opening the drawer ({@code virtualTpe} false,
-     * {@code "CASH".equals} false so a plain payment is added).
+     * {@code processCard} behind the auto-accept terminal registers the
+     * payment synchronously without opening the drawer (accept leg fired
+     * before returning, {@code "CASH".equals} false so a plain payment is
+     * added).
      */
     @Test
-    void processCardPhysicalRegistersNoDrawer() {
-        service.virtualTpe = false;
+    void processCardAutoAcceptRegistersNoDrawer() {
+        service.terminal = new AutoAcceptTerminalClient();
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
         service.processCard(state, new BigDecimal("10"));
+        assertNull(state.payment.pendingCardAmount);
         assertEquals(0, new BigDecimal("10").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("CARTE     10,00 E");
         verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
@@ -414,31 +429,34 @@ class PaymentServiceTest {
     }
 
     // --------------------------------------------------
-    // confirmPendingCard / refusePendingCard / cancelPendingCard
+    // terminal callback legs / cancelPendingCard
     // --------------------------------------------------
 
     /**
-     * {@code confirmPendingCard} does nothing when no card request is pending
-     * ({@code amount == null} true arm).
+     * Captures the callback handed to the terminal port by a processCard
+     * call parking the given amount.
+     *
+     * @param amount the amount to request
+     * @return the captured transaction callback
      */
-    @Test
-    void confirmPendingCardNoneReturns() {
-        state.payment.pendingCardAmount = null;
-        service.confirmPendingCard(state);
-        verifyNoInteractions(hardwareService);
-        assertTrue(state.payment.payments.isEmpty());
+    private TerminalTransactionCallback captureCallback(String amount) {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCard(state, new BigDecimal(amount));
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        verify(terminal).requestDebit(any(), captor.capture());
+        return captor.getValue();
     }
 
     /**
-     * {@code confirmPendingCard} registers the parked amount and clears it
-     * ({@code amount == null} false arm).
+     * The accept leg registers the parked amount and clears it
+     * ({@code amount == null} false arm of the registration).
      */
     @Test
-    void confirmPendingCardRegisters() {
-        state.ticket.totalAmount = new BigDecimal("20.00");
-        state.payment.ticketDbId = 3L;
-        state.payment.pendingCardAmount = new BigDecimal("15.00");
-        service.confirmPendingCard(state);
+    void acceptLegRegistersPendingCard() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
         assertNull(state.payment.pendingCardAmount);
         assertEquals(0, new BigDecimal("15.00").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("CARTE     15,00 E");
@@ -446,26 +464,57 @@ class PaymentServiceTest {
     }
 
     /**
-     * {@code refusePendingCard} does nothing when no card request is pending
-     * ({@code pendingCardAmount == null} true arm).
+     * The accept leg does nothing when the pending amount was cleared
+     * meanwhile ({@code amount == null} true arm — ticket cancelled between
+     * the request and the terminal decision).
      */
     @Test
-    void refusePendingCardNoneReturns() {
+    void acceptLegNoneReturns() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
         state.payment.pendingCardAmount = null;
-        service.refusePendingCard(state);
+        org.mockito.Mockito.reset(hardwareService);
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
         verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
     }
 
     /**
-     * {@code refusePendingCard} drops the pending amount, flags the ticket error
-     * and displays the refusal ({@code pendingCardAmount == null} false arm).
+     * The refuse leg drops the pending amount, flags the ticket error and
+     * displays the refusal ({@code pendingCardAmount == null} false arm).
      */
     @Test
-    void refusePendingCardClearsAndFlags() {
-        state.payment.pendingCardAmount = new BigDecimal("15.00");
-        service.refusePendingCard(state);
+    void refuseLegClearsAndFlags() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onRefused(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
         assertNull(state.payment.pendingCardAmount);
         assertEquals("PAIEMENT REFUSÉ PAR LE TPE", state.ticket.transientError);
+        verify(hardwareService).displayMessage("PAIEMENT REFUSE");
+    }
+
+    /**
+     * The refuse leg does nothing when the pending amount was cleared
+     * meanwhile ({@code pendingCardAmount == null} true arm).
+     */
+    @Test
+    void refuseLegNoneReturns() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        state.payment.pendingCardAmount = null;
+        org.mockito.Mockito.reset(hardwareService);
+        cb.onRefused(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        verifyNoInteractions(hardwareService);
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * The error leg drops the pending amount with the terminal's own
+     * message (terminal unreachable, protocol failure).
+     */
+    @Test
+    void errorLegClearsWithTerminalMessage() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onError("CLIENT MONETIQUE INJOIGNABLE");
+        assertNull(state.payment.pendingCardAmount);
+        assertEquals("CLIENT MONETIQUE INJOIGNABLE", state.ticket.transientError);
         verify(hardwareService).displayMessage("PAIEMENT REFUSE");
     }
 
@@ -478,18 +527,21 @@ class PaymentServiceTest {
         state.payment.pendingCardAmount = null;
         service.cancelPendingCard(state);
         verifyNoInteractions(hardwareService);
+        verifyNoInteractions(terminal);
     }
 
     /**
-     * {@code cancelPendingCard} drops the pending amount and redisplays the
-     * total ({@code pendingCardAmount == null} false arm).
+     * {@code cancelPendingCard} drops the pending amount, tells the terminal
+     * to abandon and redisplays the total ({@code pendingCardAmount == null}
+     * false arm).
      */
     @Test
-    void cancelPendingCardClearsAndShowsTotal() {
+    void cancelPendingCardClearsAbortsAndShowsTotal() {
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.pendingCardAmount = new BigDecimal("15.00");
         service.cancelPendingCard(state);
         assertNull(state.payment.pendingCardAmount);
+        verify(terminal).abort();
         verify(hardwareService).displayMessage("TOTAL   20,00 E");
     }
 

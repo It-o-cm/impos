@@ -10,7 +10,6 @@ import org.jboss.logging.Logger;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -46,10 +45,17 @@ import java.util.stream.Collectors;
  * to every register within {@code pos.referential.pull-seconds}, with no
  * bump hook needed anywhere in this hierarchy.
  * <p>
- * Format contract shared by every subclass: pipe-separated columns, first
- * line skipped as header, column 0 is the natural key of the row (EAN,
- * family code, store code) and drives both the bulk pre-fetch and the
- * 1-by-1 fallback lookup. The staged fallback isolates poison lines: a
+ * Format contract shared by every subclass: pipe-separated columns,
+ * HEADER-DRIVEN — the first line names the columns, and every field is
+ * resolved BY NAME from that header, never by position. The shared feed is
+ * a union schema consumed by several tools (impos, imvaluation, imfid):
+ * each importer declares its required column names (validated against the
+ * header, file rejected naming the missing ones) and ignores every column
+ * it does not know, so adding a column for another tool is invisible here
+ * and reordering columns is harmless. The subclass also names its KEY
+ * column (EAN, family code, store code), which drives both the bulk
+ * pre-fetch and the 1-by-1 fallback lookup. The staged fallback isolates
+ * poison lines: a
  * failed 1000-chunk transaction is retried in 100s, then 10s, then line by
  * line in individual transactions — one bad row costs its own error entry,
  * never the batch. The per-line checksum comparison makes re-importing the
@@ -74,38 +80,93 @@ public abstract class ImporterCsvResource {
     TransactionManager tm;
 
     /**
+     * Keeper of the verbatim engine feeds: when {@link #feedCode()} names a
+     * feed, the raw file is retained as a sealed parcel for the valuation
+     * engines after a successful import.
+     */
+    @Inject
+    com.intermarche.pos.service.sync.EngineFeedService engineFeedService;
+
+    /**
+     * Names the engine feed this importer captures, or null when the file
+     * is not part of the engine distribution. Subclasses of the SHARED
+     * feeds (products, prices, families, stores) override this so the
+     * verbatim file is stored while being imported — the single import
+     * line serving both the POS referential and the engine chain.
+     *
+     * @return the feed code from the catalog, or null
+     */
+    protected String feedCode() {
+        return null;
+    }
+
+    /**
      * Main entry point for importing a CSV stream.
      * <p>
-     * Reads the stream line by line, skips the header, and processes the data
-     * in chunks of {@link #STAGE_1_SIZE} (1000). It delegates the actual processing
-     * of each chunk to the abstract method {@link #processChunkWithFallback}.
+     * Reads the first non-empty line as the HEADER, resolves every declared
+     * column by name, validates that the key column and every required
+     * column are present (the file is rejected naming the missing ones),
+     * then processes the data lines in chunks of {@link #STAGE_1_SIZE}
+     * (1000), delegating the actual processing of each chunk to the
+     * abstract method {@link #processChunkWithFallback}. Columns absent
+     * from the required list are resolved when present and read as null
+     * when not; columns unknown to this importer are ignored — that
+     * tolerance is what lets one shared feed serve several tools.
      *
      * @param inputStream The input stream containing CSV data.
-     * @param colNumber   The expected number of columns per line. Lines with fewer columns are ignored.
+     * @param keyColumn   The header name of the natural-key column (EAN, code…).
+     * @param requiredColumns The header names this importer cannot work without.
      * @return A Response containing a JSON summary of created/updated counts and errors.
      */
-    public Response importCsvStream(InputStream inputStream, int colNumber) {
+    public Response importCsvStream(InputStream inputStream, String keyColumn, List<String> requiredColumns) {
         LOGGER.info("Starting Bulk Import from InputStream");
         int[] counters = new int[]{0, 0};
         List<String> errors = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+        // The whole file is buffered first: the import parses it, and when
+        // this importer names an engine feed the SAME bytes are retained
+        // verbatim as the parcel shipped to the valuation engines.
+        String rawContent;
+        try {
+            rawContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            LOGGER.error("Error reading input stream", e);
+            return Response.serverError().entity("Error reading file: " + e.getMessage()).build();
+        }
+        try (BufferedReader reader = new BufferedReader(new java.io.StringReader(rawContent))) {
             String line;
             int lineNumber = 0;
+            Map<String, Integer> header = null;
             List<LineData> parsedLines = new ArrayList<>(STAGE_1_SIZE);
             Set<String> targetCodes = new HashSet<>(STAGE_1_SIZE);
             while ((line = reader.readLine()) != null) {
                 lineNumber++;
                 line = line.trim();
                 if (line.isEmpty()) continue;
-                if (lineNumber == 1) continue; // Skip header
-                String[] parts = line.split("\\|", -1);
-                // Validate column count
-                if (parts.length < colNumber) {
-                    errors.add("Line " + lineNumber + " ignored (not enough columns): " + line);
+                if (header == null) {
+                    header = parseHeader(line);
+                    List<String> missing = missingColumns(header, keyColumn, requiredColumns);
+                    if (!missing.isEmpty()) {
+                        return Response.status(Response.Status.BAD_REQUEST)
+                                .entity("{\"error\":\"Missing required columns: "
+                                        + String.join(", ", missing) + "\"}")
+                                .build();
+                    }
                     continue;
                 }
-                String code = parts[0].trim();
-                parsedLines.add(new LineData(lineNumber, code, parts));
+                String[] parts = line.split("\\|", -1);
+                // A line with fewer cells than the header is a real anomaly
+                // (a truncated row), reported — never silently dropped.
+                if (parts.length < header.size()) {
+                    errors.add("Line " + lineNumber + " ignored (fewer cells than the header): " + line);
+                    continue;
+                }
+                LineData lineData = new LineData(lineNumber, header, parts, keyColumn);
+                String code = lineData.code;
+                if (code == null || code.isEmpty()) {
+                    errors.add("Line " + lineNumber + " ignored (empty key '" + keyColumn + "')");
+                    continue;
+                }
+                parsedLines.add(lineData);
                 targetCodes.add(code);
                 if (parsedLines.size() >= STAGE_1_SIZE) {
                     Map<String, Object> contextMap = processChunkWithFallback(parsedLines, targetCodes, counters, errors);
@@ -126,8 +187,27 @@ public abstract class ImporterCsvResource {
             return Response.serverError().entity("Unexcepted error: " + e.getMessage()).build();
         }
         LOGGER.info("Import finished. Created: " + counters[0] + ", Updated: " + counters[1]);
+        captureFeed(rawContent);
         StringBuilder sb = buildAnswer(counters, errors);
         return Response.ok(sb.toString()).build();
+    }
+
+    /**
+     * Retains the raw file as an engine feed when this importer names one.
+     * Row-level errors do not prevent the capture — the file is the truth
+     * of the feed, and the engine's own importer isolates its bad rows the
+     * same way this one does. A capture failure never fails the import.
+     *
+     * @param rawContent the file exactly as received
+     */
+    private void captureFeed(String rawContent) {
+        String code = feedCode();
+        if (code == null || engineFeedService == null) return;
+        try {
+            engineFeedService.store(code, rawContent);
+        } catch (Exception e) {
+            LOGGER.error("Engine feed capture failed for " + code, e);
+        }
     }
 
     /**
@@ -245,6 +325,48 @@ public abstract class ImporterCsvResource {
         }
         sb.append("}");
         return sb;
+    }
+
+    /**
+     * Parses the header line into an ordered column-name → index map.
+     * Names are trimmed; a duplicate name keeps its FIRST index (and is
+     * logged), so a malformed header cannot silently swap fields.
+     *
+     * @param headerLine the first non-empty line of the file
+     * @return the name → index map, in header order
+     */
+    private static Map<String, Integer> parseHeader(String headerLine) {
+        String[] cells = headerLine.split("\\|", -1);
+        Map<String, Integer> header = new LinkedHashMap<>();
+        for (int i = 0; i < cells.length; i++) {
+            String name = cells[i] == null ? "" : cells[i].trim();
+            if (name.isEmpty()) continue;
+            Integer previous = header.putIfAbsent(name, i);
+            if (previous != null) {
+                LOGGER.warn("Duplicate header column '" + name + "' at index " + i
+                        + " ignored (first occurrence at " + previous + " wins)");
+            }
+        }
+        return header;
+    }
+
+    /**
+     * Lists the declared columns absent from the header: the key column
+     * first, then every required column, in declaration order.
+     *
+     * @param header the parsed header map
+     * @param keyColumn the natural-key column name
+     * @param requiredColumns the importer's required column names
+     * @return the missing names (empty when the file is importable)
+     */
+    private static List<String> missingColumns(Map<String, Integer> header,
+                                               String keyColumn, List<String> requiredColumns) {
+        List<String> missing = new ArrayList<>();
+        if (!header.containsKey(keyColumn)) missing.add(keyColumn);
+        for (String column : requiredColumns) {
+            if (!header.containsKey(column) && !missing.contains(column)) missing.add(column);
+        }
+        return missing;
     }
 
     // --------------------------------------------------
@@ -392,48 +514,42 @@ public abstract class ImporterCsvResource {
     // --------------------------------------------------
 
     /**
-     * Safely retrieves a string from an array by index.
-     * <p>
-     * Handles array index out of bounds exceptions safely. Trims the result.
+     * Retrieves the trimmed value of a column resolved by name.
      *
-     * @param parts The string array.
-     * @param index The index to retrieve.
-     * @return The trimmed string or null if index is out of bounds.
+     * @param data The parsed CSV line.
+     * @param column The header name of the column.
+     * @return The trimmed string, or null when the column or cell is absent.
      */
-    String safeGet(String[] parts, int index) {
-        return index >= 0 && index < parts.length ? (parts[index] == null ? null : parts[index].trim()) : null;
+    String safeGet(LineData data, String column) {
+        return data.get(column);
     }
 
     /**
-     * Safely parses a Boolean from an array by index.
+     * Parses a Boolean column resolved by name.
      * <p>
-     * Handles bounds checking, empty strings, and parsing errors.
-     * Returns {@code false} as a default for any error case.
+     * Returns {@code false} for an absent column, an empty cell or an
+     * unparseable value.
      *
-     * @param parts The string array.
-     * @param index The index to parse.
-     * @return The Boolean value or false if parsing fails or index is out of bounds.
+     * @param data The parsed CSV line.
+     * @param column The header name of the column.
+     * @return The Boolean value, or false on any missing/invalid input.
      */
-    boolean safeParseBoolean(String[] parts, int index) {
-        if (index >= parts.length) return false;
-        String val = parts[index].trim();
-        if (val.isEmpty()) return false;
+    boolean safeParseBoolean(LineData data, String column) {
+        String val = data.get(column);
+        if (val == null || val.isEmpty()) return false;
         return Boolean.parseBoolean(val);
     }
 
     /**
-     * Safely parses a BigDecimal from an array by index.
-     * <p>
-     * Handles bounds checking, empty strings, and number format exceptions.
+     * Parses a BigDecimal column resolved by name.
      *
-     * @param parts The string array.
-     * @param index The index to parse.
-     * @return The BigDecimal value or null if parsing fails or index is out of bounds.
+     * @param data The parsed CSV line.
+     * @param column The header name of the column.
+     * @return The BigDecimal value, or null on any missing/invalid input.
      */
-    BigDecimal safeParseBigDecimal(String[] parts, int index) {
-        if (index >= parts.length) return null;
-        String val = parts[index].trim();
-        if (val.isEmpty()) return null;
+    BigDecimal safeParseBigDecimal(LineData data, String column) {
+        String val = data.get(column);
+        if (val == null || val.isEmpty()) return null;
         try {
             return new BigDecimal(val);
         } catch (NumberFormatException e) {
@@ -442,18 +558,15 @@ public abstract class ImporterCsvResource {
     }
 
     /**
-     * Safely parses an Integer from an array by index.
-     * <p>
-     * Handles bounds checking, empty strings, and number format exceptions.
+     * Parses an Integer column resolved by name.
      *
-     * @param parts The string array.
-     * @param index The index to parse.
-     * @return The Integer value or null if parsing fails or index is out of bounds.
+     * @param data The parsed CSV line.
+     * @param column The header name of the column.
+     * @return The Integer value, or null on any missing/invalid input.
      */
-    Integer safeParseInt(String[] parts, int index) {
-        if (index >= parts.length) return null;
-        String val = parts[index].trim();
-        if (val.isEmpty()) return null;
+    Integer safeParseInt(LineData data, String column) {
+        String val = data.get(column);
+        if (val == null || val.isEmpty()) return null;
         try {
             return Integer.parseInt(val);
         } catch (NumberFormatException e) {
@@ -462,23 +575,20 @@ public abstract class ImporterCsvResource {
     }
 
     /**
-     * Safely parses a LocalDateTime from an array by index.
-     * <p>
-     * Uses ISO format (YYYY-MM-DDTHH:MM:SS). Handles bounds checking,
-     * empty strings, and parsing errors.
+     * Parses a LocalDateTime column resolved by name (ISO format
+     * YYYY-MM-DDTHH:MM:SS).
      *
-     * @param parts The string array.
-     * @param index The index to parse.
-     * @return The LocalDateTime value or null if parsing fails or index is out of bounds.
+     * @param data The parsed CSV line.
+     * @param column The header name of the column.
+     * @return The LocalDateTime value, or null on any missing/invalid input.
      */
-    LocalDateTime safeParseDateTime(String[] parts, int index) {
-        if (index >= parts.length) return null;
-        String val = parts[index].trim();
-        if (val.isEmpty()) return null;
+    LocalDateTime safeParseDateTime(LineData data, String column) {
+        String val = data.get(column);
+        if (val == null || val.isEmpty()) return null;
         try {
             return LocalDateTime.parse(val, DATE_FORMATTER);
         } catch (Exception e) {
-            LOGGER.warn("Invalid date format at index " + index + ": " + val);
+            LOGGER.warn("Invalid date format in column '" + column + "': " + val);
             return null;
         }
     }
@@ -504,38 +614,74 @@ public abstract class ImporterCsvResource {
     }
 
     /**
-     * Safely parses a Double from an array by index.
-     * <p>
-     * Helper method specific to this resource for GPS coordinates.
+     * Parses a Double column resolved by name (GPS coordinates).
      *
-     * @param parts The string array.
-     * @param index The index to parse.
-     * @return The Double value or null if parsing fails or index is out of bounds.
+     * @param data The parsed CSV line.
+     * @param column The header name of the column.
+     * @return The Double value, or null on any missing/invalid input.
      */
-     Double safeParseDouble(String[] parts, int index) {
-        if (index >= parts.length) return null;
-        String val = parts[index].trim();
-        if (val.isEmpty()) return null;
+     Double safeParseDouble(LineData data, String column) {
+        String val = data.get(column);
+        if (val == null || val.isEmpty()) return null;
         try {
-            Double value = Double.parseDouble(val);
-            return value;
+            return Double.parseDouble(val);
         } catch (NumberFormatException e) {
             return null;
         }
     }
 
     /**
-     * Internal Data Transfer Object (DTO) to hold parsed line data.
+     * Internal Data Transfer Object (DTO) to hold one parsed data line and
+     * the header it was read under: every field access goes through
+     * {@link #get(String)}, BY NAME — the row has no notion of positions.
      */
     public static class LineData {
         final int lineNumber;
         final String code;
         final String[] parts;
+        final Map<String, Integer> header;
 
-        public LineData(int lineNumber, String code, String[] parts) {
+        /**
+         * Creates a row bound to its header.
+         *
+         * @param lineNumber the 1-based line number in the file
+         * @param header the column-name → index map of the file
+         * @param parts the raw cells of the line
+         * @param keyColumn the name of the natural-key column
+         */
+        public LineData(int lineNumber, Map<String, Integer> header, String[] parts, String keyColumn) {
             this.lineNumber = lineNumber;
-            this.code = code;
+            this.header = header;
             this.parts = parts;
+            this.code = get(keyColumn);
+        }
+
+        /**
+         * Indicates whether the file's header DECLARES a column — the test
+         * that separates "the feed does not carry this field" (absent
+         * column: leave the local value alone) from "the feed says empty"
+         * (declared column, empty cell: apply the emptiness).
+         *
+         * @param column the header name of the column
+         * @return true when the header declares the column
+         */
+        public boolean has(String column) {
+            return header.containsKey(column);
+        }
+
+        /**
+         * Returns the trimmed value of a column resolved by name, or null
+         * when the column is absent from the header or the cell is beyond
+         * the line's cells.
+         *
+         * @param column the header name of the column
+         * @return the trimmed cell value, or null
+         */
+        public String get(String column) {
+            Integer index = header.get(column);
+            if (index == null || index >= parts.length) return null;
+            String raw = parts[index];
+            return raw == null ? null : raw.trim();
         }
     }
 }

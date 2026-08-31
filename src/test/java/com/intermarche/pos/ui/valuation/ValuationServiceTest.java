@@ -1,4 +1,4 @@
-package com.intermarche.pos.service.valuation;
+package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.Product;

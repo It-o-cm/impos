@@ -38,7 +38,8 @@ public class RefExportService {
 
     /** The referential domains, in register apply order. */
     public static final List<String> DOMAINS =
-            List.of("FAMILIES", "PRODUCTS", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS");
+            List.of("FAMILIES", "PRODUCTS", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS",
+                    "ENGINE_FEEDS");
 
     /** Fingerprint cache TTL in milliseconds. */
     private static final long FINGERPRINT_TTL_MS = 60_000;
@@ -92,6 +93,9 @@ public class RefExportService {
             case "SETTINGS" -> com.intermarche.pos.domain.PosSetting
                     .<com.intermarche.pos.domain.PosSetting>find("order by settingKey")
                     .page(page, size).list().stream().map(this::toDto).toList();
+            case "ENGINE_FEEDS" -> com.intermarche.pos.domain.EngineFeed
+                    .<com.intermarche.pos.domain.EngineFeed>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         };
     }
@@ -106,6 +110,21 @@ public class RefExportService {
         RefPayloads.SettingDto dto = new RefPayloads.SettingDto();
         dto.key = setting.settingKey;
         dto.value = setting.settingValue;
+        return dto;
+    }
+
+    /**
+     * Maps a verbatim engine feed to its snapshot payload (content shipped
+     * unopened).
+     *
+     * @param feed the stored feed row
+     * @return the transport DTO
+     */
+    private RefPayloads.EngineFeedDto toDto(com.intermarche.pos.domain.EngineFeed feed) {
+        RefPayloads.EngineFeedDto dto = new RefPayloads.EngineFeedDto();
+        dto.code = feed.code;
+        dto.version = feed.version;
+        dto.content = feed.content;
         return dto;
     }
 
@@ -163,6 +182,12 @@ public class RefExportService {
         }
         if (row instanceof RefPayloads.SettingDto s) {
             return String.join("|", n(s.key), n(s.value));
+        }
+        if (row instanceof RefPayloads.EngineFeedDto f) {
+            // The version IS the SHA-256 of the content: hashing code and
+            // version covers the whole parcel without streaming its body
+            // through the fingerprint a second time.
+            return String.join("|", n(f.code), n(f.version));
         }
         if (row instanceof RefPayloads.CouponTypeDto c) {
             return String.join("|", n(c.code), n(c.label), n(c.matchPattern), n(c.amountSource),

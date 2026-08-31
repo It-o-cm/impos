@@ -337,12 +337,13 @@ public class HomeResource {
      * @param type the modification type (REMISE, DISCOUNT, FORCE_PRICE)
      * @param uid the uid of the targeted ticket line
      * @param rawValue the raw typed value (French comma tolerated)
-     * @return the home page
+     * @return a 303 redirect to the home page (PRG pattern, so a browser
+     *         reload never replays the POST)
      */
     @POST
     @Path("/action/price-mod/submit")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public TemplateInstance submitPriceMod(
+    public Response submitPriceMod(
             @FormParam("type") String type,
             @FormParam("uid") String uid,
             @FormParam("rawValue") String rawValue) {
@@ -355,11 +356,11 @@ public class HomeResource {
             state.ticket.setError("VALEUR INVALIDE");
             state.priceModState.clear();
             state.touch();
-            return home();
+            return Response.seeOther(URI.create("/")).build();
         }
 
         homeService.submitPriceMod(type, uid, value);
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     // --- Other actions ---
@@ -382,17 +383,18 @@ public class HomeResource {
      *
      * @param ean the EAN code
      * @param quantityStr the typed quantity (defaults to 1)
-     * @return the home page
+     * @return a 303 redirect to the home page (PRG pattern, so a browser
+     *         reload never replays the POST)
      */
     @POST
     @Path("/action/manual-add-known")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public TemplateInstance addManualKnown(@FormParam("ean") String ean, @FormParam("quantity") String quantityStr) {
+    public Response addManualKnown(@FormParam("ean") String ean, @FormParam("quantity") String quantityStr) {
         int qty = 1;
         try { if(quantityStr != null && !quantityStr.isEmpty()) qty = Integer.parseInt(quantityStr); } catch(Exception e) {}
         if(qty <= 0) qty = 1;
         ticketService.addItemByEan(state, ean, BigDecimal.valueOf(qty));
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
@@ -400,14 +402,15 @@ public class HomeResource {
      *
      * @param label the label typed by the cashier
      * @param priceStr the price typed by the cashier
-     * @return the home page
+     * @return a 303 redirect to the home page (PRG pattern, so a browser
+     *         reload never replays the POST)
      */
     @POST
     @Path("/action/manual-add-unknown")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public TemplateInstance addManualUnknown(@FormParam("label") String label, @FormParam("price") String priceStr) {
+    public Response addManualUnknown(@FormParam("label") String label, @FormParam("price") String priceStr) {
         ticketService.addUnknownItem(state, label, priceStr);
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

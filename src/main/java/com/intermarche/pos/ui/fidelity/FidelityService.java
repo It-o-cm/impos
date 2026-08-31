@@ -101,7 +101,8 @@ public class FidelityService {
      * Searches cards by holder identity (addendum §3) and returns a
      * ready-to-render outcome. ONE criterion per call, by the addendum's
      * priority: phone, else e-mail, else name (+ optional first name) —
-     * matching is EXACT after imfid's normalization, never a prefix search.
+     * phone and e-mail match EXACTLY after imfid's normalization, name and
+     * first name by PREFIX (addendum v1.1); "contient" never exists.
      *
      * @param phone the typed phone, or null
      * @param email the typed e-mail, or null

@@ -7,6 +7,9 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Response;
+
+import java.net.URI;
 
 /**
  * JAX-RS resource driving the refund screens: ticket search, line quantity
@@ -48,14 +51,19 @@ public class RefundResource {
      * Runs the ticket search with the typed pattern.
      *
      * @param rawValue the typed number fragment
-     * @return the search page
+     * @return a 303 redirect to the refund screen (PRG pattern, so a browser
+     *         reload never replays the POST); the GET re-renders the search
+     *         results from the refund state
      */
     @POST
     @Path("/search")
-    public TemplateInstance doSearch(@FormParam("rawValue") String rawValue) {
+    public Response doSearch(@FormParam("rawValue") String rawValue) {
+        // A new search supersedes any stale selection (e.g. a refused refund
+        // left its detail open): the PRG GET must render the result list.
+        state.refund.clearSelection();
         state.refund.searchPattern = rawValue != null ? rawValue.trim() : "";
         refundService.searchTickets(state);
-        return returnSearchPage.data("state", state);
+        return redirectReturn();
     }
 
     /**
@@ -101,26 +109,28 @@ public class RefundResource {
      *
      * @param lineId the database id of the line
      * @param rawValue the typed quantity
-     * @return the detail page
+     * @return a 303 redirect to the refund screen (PRG pattern, so a browser
+     *         reload never replays the POST)
      */
     @POST
     @Path("/submit-line")
-    public TemplateInstance submitLine(@FormParam("lineId") Long lineId, @FormParam("rawValue") String rawValue) {
+    public Response submitLine(@FormParam("lineId") Long lineId, @FormParam("rawValue") String rawValue) {
         refundService.submitLineQuantity(state, lineId, rawValue);
-        return returnDetailPage.data("state", state);
+        return redirectReturn();
     }
 
     /**
      * Applies a typed global refund amount.
      *
      * @param rawValue the typed amount
-     * @return the detail page
+     * @return a 303 redirect to the refund screen (PRG pattern, so a browser
+     *         reload never replays the POST)
      */
     @POST
     @Path("/submit-amount")
-    public TemplateInstance submitAmount(@FormParam("rawValue") String rawValue) {
+    public Response submitAmount(@FormParam("rawValue") String rawValue) {
         refundService.submitManualAmount(state, rawValue);
-        return returnDetailPage.data("state", state);
+        return redirectReturn();
     }
 
     /**
@@ -208,5 +218,15 @@ public class RefundResource {
     public TemplateInstance payLoyalty() {
         refundService.requestRefund(state, Refund.RefundMethod.LOYALTY);
         return returnDetailPage.data("state", state);
+    }
+    /**
+     * Builds the 303 redirect to the refund screen used by every POST action
+     * (PRG pattern); GET /return re-renders the search or detail page from
+     * the refund state.
+     *
+     * @return a 303 See Other response targeting "/return"
+     */
+    private Response redirectReturn() {
+        return Response.seeOther(URI.create("/return")).build();
     }
 }

@@ -2,7 +2,6 @@ package com.intermarche.pos.imports;
 
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -14,7 +13,6 @@ import org.mockito.MockedStatic;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -45,13 +43,11 @@ import static org.mockito.Mockito.when;
  * collaborator is a Panache active-record static finder, which under plain
  * {@code mvn test} resolves to {@link PanacheEntityBase}
  * ({@code list}/{@code find}/{@code findById}) or to the declaring entity
- * ({@link Product#findByEan}, {@link Store#findByCode}); each is intercepted
+ * ({@link Product#findByEan}); each is intercepted
  * with {@link org.mockito.Mockito#mockStatic} in a try-with-resources block.
  * The {@code __CTX_PRODUCTS__}/{@code __CTX_PRICES__} constants and the private
  * {@code buildPriceKey}/{@code computeIncomingChecksum} helpers are reached by
- * reflection so context maps carry byte-exact keys; the three otherwise-dead
- * store helpers ({@code getStoreMap}, {@code getTargetStoreCodes},
- * {@code getStore}) are exercised the same way. No database and no Quarkus
+ * reflection so context maps carry byte-exact keys. No database and no Quarkus
  * context is booted, every entity field is set directly, and every branch is
  * asserted against absolute expected values.
  */
@@ -61,8 +57,6 @@ class PriceCsvResourceTest {
     private static final String PRODUCT_LIST_QUERY = "ean IN ?1";
     /** The exact JPQL fragment issued by {@code getPriceMap} (trailing space intentional). */
     private static final String PRICE_LIST_QUERY = "product.ean IN ?1 ";
-    /** The exact JPQL fragment issued by {@code getStoreMap}. */
-    private static final String STORE_LIST_QUERY = "code IN ?1";
     /** The exact JPQL fragment issued by {@code retrievePrices} in fallback mode. */
     private static final String RETRIEVE_QUERY =
             "product.ean = ?1 and priceUsage = ?2 and startDateTime = ?3 and priority = ?4";
@@ -154,27 +148,13 @@ class PriceCsvResourceTest {
     }
 
     /**
-     * Invokes the private static {@code getStore} helper via reflection.
-     *
-     * @param storeMap the store lookup map (may be null to force fallback)
-     * @param code     the store code (may be null)
-     * @return the resolved store
-     * @throws Exception the wrapped {@link InvocationTargetException} on business failure
-     */
-    private static Object invokeGetStore(Map<String, Store> storeMap, String code) throws Exception {
-        Method method = PriceCsvResource.class.getDeclaredMethod("getStore", Map.class, String.class);
-        method.setAccessible(true);
-        return method.invoke(null, new Object[]{storeMap, code});
-    }
-
-    /**
      * {@code importPrices} forwards the stream to the base importer with the
      * 7-column contract; a header-only body produces a zero-count JSON.
      */
     @Test
     void importPricesDelegatesToBaseImporterWithSevenColumns() {
         PriceCsvResource resource = new PriceCsvResource();
-        Response response = resource.importPrices(stream("EAN|HT|TTC|VAT|P|START|END\n"));
+        Response response = resource.importPrices(stream("EAN|PRICE_EXCL_TAX|PRICE_INCL_TAX|VAT_RATE|PRIORITY|START_DATE|END_DATE\n"));
         assertEquals(200, response.getStatus());
         assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
     }
@@ -200,7 +180,7 @@ class PriceCsvResourceTest {
     void processChunkWithFallbackBuildsContextForPopulatedChunk() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "111", fullParts()));
+        lines.add(line(1, fullParts()));
         Set<String> codes = new HashSet<>();
         codes.add("111");
         Product product = new Product();
@@ -240,7 +220,7 @@ class PriceCsvResourceTest {
     void processChunkWithFallbackHandlesEmptyTargetCodes() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "111", fullParts()));
+        lines.add(line(1, fullParts()));
         Set<String> codes = new HashSet<>();
         int[] counters = {0, 0};
         List<String> errors = new ArrayList<>();
@@ -265,7 +245,7 @@ class PriceCsvResourceTest {
     void processLineLogicCreatesNewPriceWhenAbsent() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         String[] parts = fullParts();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", parts);
+        ImporterCsvResource.LineData data = line(1, parts);
         Product product = new Product();
         product.ean = "111";
         Map<String, Object> productMap = new HashMap<>();
@@ -293,7 +273,7 @@ class PriceCsvResourceTest {
     void processLineLogicUpdatesExistingPriceWhenChecksumDiffers() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         String[] parts = fullParts();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", parts);
+        ImporterCsvResource.LineData data = line(1, parts);
         Product product = new Product();
         product.id = 7L;
         product.ean = "111";
@@ -303,7 +283,7 @@ class PriceCsvResourceTest {
         Map<String, Object> productMap = new HashMap<>();
         productMap.put("111", product);
         Map<String, Object> priceMap = new HashMap<>();
-        priceMap.put(buildKey(resource, "111", resource.safeParseDateTime(parts, 6), resource.safeParseInt(parts, 5)), existing);
+        priceMap.put(buildKey(resource, "111", resource.safeParseDateTime(data, "START_DATE"), resource.safeParseInt(data, "PRIORITY")), existing);
         Map<String, Object> context = new HashMap<>();
         context.put(ctxProducts(), productMap);
         context.put(ctxPrices(), priceMap);
@@ -329,7 +309,7 @@ class PriceCsvResourceTest {
     void processLineLogicSkipsUpdateWhenChecksumMatches() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         String[] parts = fullParts();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", parts);
+        ImporterCsvResource.LineData data = line(1, parts);
         Product product = new Product();
         product.id = 7L;
         product.ean = "111";
@@ -339,7 +319,7 @@ class PriceCsvResourceTest {
         Map<String, Object> productMap = new HashMap<>();
         productMap.put("111", product);
         Map<String, Object> priceMap = new HashMap<>();
-        priceMap.put(buildKey(resource, "111", resource.safeParseDateTime(parts, 6), resource.safeParseInt(parts, 5)), existing);
+        priceMap.put(buildKey(resource, "111", resource.safeParseDateTime(data, "START_DATE"), resource.safeParseInt(data, "PRIORITY")), existing);
         Map<String, Object> context = new HashMap<>();
         context.put(ctxProducts(), productMap);
         context.put(ctxPrices(), priceMap);
@@ -357,7 +337,7 @@ class PriceCsvResourceTest {
     @Test
     void processLineLogicThrowsWhenProductMissingFromContext() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Map<String, Object> context = new HashMap<>();
         context.put(ctxProducts(), new HashMap<String, Product>());
         context.put(ctxPrices(), new HashMap<String, Price>());
@@ -373,7 +353,7 @@ class PriceCsvResourceTest {
     @Test
     void processLineLogicFetchesProductByEanWhenContextMissing() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Product product = new Product();
         product.ean = "111";
         Map<String, Object> context = new HashMap<>();
@@ -397,7 +377,7 @@ class PriceCsvResourceTest {
     @Test
     void processLineLogicThrowsWhenEanLookupReturnsNull() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Map<String, Object> context = new HashMap<>();
         context.put(ctxPrices(), new HashMap<String, Price>());
         int[] counters = {0, 0};
@@ -414,7 +394,7 @@ class PriceCsvResourceTest {
     @Test
     void retrievePricesReturnsContextMapWhenPresent() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", fullParts());
+        ImporterCsvResource.LineData data = line(1, fullParts());
         Map<String, Price> inner = new HashMap<>();
         Map<String, Object> context = new HashMap<>();
         context.put(ctxPrices(), inner);
@@ -430,9 +410,9 @@ class PriceCsvResourceTest {
     void retrievePricesFallbackMapsFoundPrice() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         String[] parts = fullParts();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", parts);
-        LocalDateTime start = resource.safeParseDateTime(parts, 5);
-        Integer priority = resource.safeParseInt(parts, 4);
+        ImporterCsvResource.LineData data = line(1, parts);
+        LocalDateTime start = resource.safeParseDateTime(data, "START_DATE");
+        Integer priority = resource.safeParseInt(data, "PRIORITY");
         Price existing = new Price();
         PanacheQuery<Price> query = mock(PanacheQuery.class);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
@@ -452,9 +432,9 @@ class PriceCsvResourceTest {
     void retrievePricesFallbackReturnsEmptyMapWhenNotFound() throws Exception {
         PriceCsvResource resource = new PriceCsvResource();
         String[] parts = fullParts();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", parts);
-        LocalDateTime start = resource.safeParseDateTime(parts, 5);
-        Integer priority = resource.safeParseInt(parts, 4);
+        ImporterCsvResource.LineData data = line(1, parts);
+        LocalDateTime start = resource.safeParseDateTime(data, "START_DATE");
+        Integer priority = resource.safeParseInt(data, "PRIORITY");
         PanacheQuery<Price> query = mock(PanacheQuery.class);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             panache.when(() -> Price.find(RETRIEVE_QUERY, "111", start, priority)).thenReturn(query);
@@ -472,9 +452,9 @@ class PriceCsvResourceTest {
     void findEntityForLineLooksUpPriceByComposite() {
         PriceCsvResource resource = new PriceCsvResource();
         String[] parts = fullParts();
-        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(1, "111", parts);
-        LocalDateTime start = resource.safeParseDateTime(parts, 5);
-        Integer priority = resource.safeParseInt(parts, 4);
+        ImporterCsvResource.LineData data = line(1, parts);
+        LocalDateTime start = resource.safeParseDateTime(data, "START_DATE");
+        Integer priority = resource.safeParseInt(data, "PRIORITY");
         Price existing = new Price();
         PanacheQuery<Price> query = mock(PanacheQuery.class);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
@@ -485,122 +465,72 @@ class PriceCsvResourceTest {
     }
 
     /**
-     * The private {@code getStoreMap} helper fetches and indexes stores when
-     * codes are present (guard true arm, loop entered).
+     * {@code processLineLogic} SKIPS a row whose declared PRICE_USAGE is not
+     * DEFAULT (union-feed discriminator arm): a discount base for the engine
+     * must never overwrite the register's selling price.
      */
-    @Test
-    void getStoreMapIndexesStoresForNonEmptyCodes() throws Exception {
-        Set<String> codes = new HashSet<>();
-        codes.add("S1");
-        codes.add("S2");
-        Store s1 = new Store();
-        s1.code = "S1";
-        Store s2 = new Store();
-        s2.code = "S2";
-        Method method = PriceCsvResource.class.getDeclaredMethod("getStoreMap", Set.class);
-        method.setAccessible(true);
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            panache.when(() -> Store.list(STORE_LIST_QUERY, codes)).thenReturn(List.of(s1, s2));
-            @SuppressWarnings("unchecked")
-            Map<String, Store> map = (Map<String, Store>) method.invoke(null, codes);
-            assertEquals(2, map.size());
-            assertSame(s1, map.get("S1"));
-            assertSame(s2, map.get("S2"));
-        }
-    }
-
-    /**
-     * The private {@code getStoreMap} helper returns an empty map without
-     * querying when the code set is empty (guard false arm).
-     */
-    @Test
-    void getStoreMapReturnsEmptyMapForNoCodes() throws Exception {
-        Method method = PriceCsvResource.class.getDeclaredMethod("getStoreMap", Set.class);
-        method.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Map<String, Store> map = (Map<String, Store>) method.invoke(null, new HashSet<String>());
-        assertTrue(map.isEmpty());
-    }
-
-    /**
-     * The private {@code getTargetStoreCodes} helper collects the non-null
-     * store code in column 1 and skips a row that has no such column (loop plus
-     * both arms of the null guard).
-     */
-    @Test
-    void getTargetStoreCodesCollectsPresentCodesOnly() throws Exception {
+    @org.junit.jupiter.api.Test
+    void processLineLogicSkipsNonDefaultUsageRow() {
         PriceCsvResource resource = new PriceCsvResource();
-        List<ImporterCsvResource.LineData> lines = new ArrayList<>();
-        lines.add(new ImporterCsvResource.LineData(1, "111", new String[]{"111", "S1"}));
-        lines.add(new ImporterCsvResource.LineData(2, "222", new String[]{"222"}));
-        Method method = PriceCsvResource.class.getDeclaredMethod("getTargetStoreCodes", List.class);
-        method.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Set<String> result = (Set<String>) method.invoke(resource, lines);
-        assertEquals(1, result.size());
-        assertTrue(result.contains("S1"));
+        String[] names = {"EAN", "PRICE_EXCL_TAX", "PRICE_INCL_TAX", "VAT_RATE",
+                "PRIORITY", "START_DATE", "END_DATE", "PRICE_USAGE"};
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) header.put(names[i], i);
+        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, header,
+                new String[]{"111", "1.10", "1.32", "0.2000", "0", "2020-12-31T00:00:00", "", "BASE_FOR_DISCOUNT"},
+                "EAN");
+        int[] counters = {0, 0};
+        resource.processLineLogic(data, new HashMap<>(), counters);
+        assertEquals(0, counters[0]);
+        assertEquals(0, counters[1]);
     }
 
     /**
-     * The private {@code getStore} helper returns the mapped store when present
-     * (storeMap non-null arm, store non-null arm).
+     * {@code processLineLogic} still processes a declared DEFAULT usage row
+     * (discriminator false arm): the guard only filters the engine bases.
      */
-    @Test
-    void getStoreReturnsMappedStore() throws Exception {
-        Store store = new Store();
-        store.code = "S1";
-        Map<String, Store> map = new HashMap<>();
-        map.put("S1", store);
-        assertSame(store, invokeGetStore(map, "S1"));
-    }
-
-    /**
-     * The private {@code getStore} helper throws when the store is absent from a
-     * present map (store-null throw arm).
-     */
-    @Test
-    void getStoreThrowsWhenMissingFromMap() {
-        Map<String, Store> map = new HashMap<>();
-        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> invokeGetStore(map, "S1"));
-        assertTrue(thrown.getCause() instanceof IllegalArgumentException);
-    }
-
-    /**
-     * The private {@code getStore} helper fetches a store by code in fallback
-     * mode (storeMap null arm, storeCode non-null arm, s non-null arm).
-     */
-    @Test
-    void getStoreFallbackFetchesByCode() throws Exception {
-        Store store = new Store();
-        store.code = "S1";
-        try (MockedStatic<Store> stores = mockStatic(Store.class)) {
-            stores.when(() -> Store.findByCode("S1")).thenReturn(store);
-            assertSame(store, invokeGetStore(null, "S1"));
+    @org.junit.jupiter.api.Test
+    void processLineLogicKeepsDefaultUsageRow() throws Exception {
+        PriceCsvResource resource = new PriceCsvResource();
+        String[] names = {"EAN", "PRICE_EXCL_TAX", "PRICE_INCL_TAX", "VAT_RATE",
+                "PRIORITY", "START_DATE", "END_DATE", "PRICE_USAGE"};
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) header.put(names[i], i);
+        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, header,
+                new String[]{"111", "1.00", "1.20", "0.2000", "0", "2020-12-31T00:00:00", "", "DEFAULT"},
+                "EAN");
+        Product product = new Product();
+        product.ean = "111";
+        Map<String, Object> productMap = new HashMap<>();
+        productMap.put("111", product);
+        Map<String, Object> context = new HashMap<>();
+        context.put(ctxProducts(), productMap);
+        context.put(ctxPrices(), new HashMap<String, Price>());
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            assertEquals(1, counters[0]);
         }
     }
 
-    /**
-     * The private {@code getStore} helper throws when the fallback code lookup
-     * finds nothing (s-null arm, store-null throw arm).
-     */
-    @Test
-    void getStoreFallbackThrowsWhenCodeLookupReturnsNull() {
-        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> {
-            try (MockedStatic<Store> stores = mockStatic(Store.class)) {
-                stores.when(() -> Store.findByCode("S1")).thenReturn(null);
-                invokeGetStore(null, "S1");
-            }
-        });
-        assertTrue(thrown.getCause() instanceof IllegalArgumentException);
-    }
+    /** Header names of the imported feed, in the cell order of the fixtures. */
+    private static final String[] TEST_HEADER = {"EAN", "PRICE_EXCL_TAX", "PRICE_INCL_TAX", "VAT_RATE", "PRIORITY", "START_DATE", "END_DATE"};
 
     /**
-     * The private {@code getStore} helper throws in fallback mode when the store
-     * code itself is null (storeCode-null arm, store-null throw arm).
+     * Builds a header-bound row from positional fixture cells: the header
+     * maps TEST_HEADER onto the cell positions and the first name is the
+     * key column.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
      */
-    @Test
-    void getStoreFallbackThrowsForNullCode() {
-        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> invokeGetStore(null, null));
-        assertTrue(thrown.getCause() instanceof IllegalArgumentException);
+    private static ImporterCsvResource.LineData line(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
     }
+
 }

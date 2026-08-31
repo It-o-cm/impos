@@ -81,7 +81,7 @@ class HomeServiceTest {
         service.state.priceModState = mock(PriceModState.class);
         service.state.payment = mock(PaymentState.class);
         service.ticketService = mock(TicketService.class);
-        service.ticketPrinterService = mock(com.intermarche.pos.service.TicketPrinterService.class);
+        service.ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.endorsementService = mock(EndorsementService.class);
         // Back-office parameters at their catalog defaults: the endorsement
         // ceremony applies, so the historical routing assertions hold.

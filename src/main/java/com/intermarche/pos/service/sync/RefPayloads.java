@@ -117,6 +117,20 @@ public final class RefPayloads {
     }
 
     /**
+     * A verbatim engine feed (upsert by code): the raw CSV parcel shipped
+     * unopened from the store node to the registers for their local
+     * valuation engine. The version is the SHA-256 of the content.
+     */
+    public static class EngineFeedDto {
+        /** The feed code (upsert key). */
+        public String code;
+        /** The content version (SHA-256 hex). */
+        public String version;
+        /** The raw CSV content, verbatim. */
+        public String content;
+    }
+
+    /**
      * A coupon type (upsert by code).
      */
     public static class CouponTypeDto {

@@ -7,6 +7,9 @@ import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+
+import java.net.URI;
 
 /**
  * JAX-RS resource of the manual fidelity-card entry page — the fallback
@@ -19,19 +22,9 @@ import jakarta.ws.rs.core.MediaType;
 public class FidelityResource {
 
     @Inject Template fidelity;
-    @Inject Template main;
     @Inject FidelityService fidelityService;
     @Inject
     PosState state;
-
-    /**
-     * Returns the home page.
-     *
-     * @return the main page
-     */
-    private TemplateInstance home() {
-        return main.data("state", state);
-    }
 
     // --- Vue ---
 
@@ -45,8 +38,13 @@ public class FidelityResource {
     public TemplateInstance fidelityPage() {
         // In-store consultation (imfid spec §4): balance and history of the
         // attached card, assembled server-side; degraded = a message.
+        // The lookup outcome is read from the state (stored by the POST
+        // before its 303 hop here), so refreshing the page re-renders the
+        // same result list instead of replaying a POST.
         return fidelity.data("state", state)
-                .data("lookup", null)
+                .data("lookup", state.fidelity.lastLookup)
+                .data("searchMode", state.fidelity.lastLookupMode)
+                .data("searchValue", state.fidelity.lastLookupValue)
                 .data("consultation", fidelityService.loadConsultation(state));
     }
 
@@ -56,14 +54,15 @@ public class FidelityResource {
      * Attaches the typed card and returns to the home page.
      *
      * @param card the typed card number
-     * @return the main page
+     * @return a 303 redirect to the main page (PRG pattern, so a browser
+     *         reload never replays the POST)
      */
     @POST
     @Path("/action/fidelity") // Chemin complet
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public TemplateInstance validateFidelity(@FormParam("card") String card) {
+    public Response validateFidelity(@FormParam("card") String card) {
         fidelityService.validateCard(state, card);
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
@@ -76,12 +75,15 @@ public class FidelityResource {
      *
      * @param mode the search mode (tel | email | name)
      * @param value the operator's input, as typed (imfid normalizes)
-     * @return the fidelity page carrying the lookup outcome
+     * @return a 303 redirect to the fidelity page (PRG pattern, so a browser
+     *         refresh never replays the POST); the outcome plus the echoed
+     *         search mode and value travel through the fidelity state and the
+     *         page re-renders in the SAME mode with the criterion displayed
      */
     @POST
     @Path("/action/fidelity-lookup")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public TemplateInstance lookupFidelity(@FormParam("mode") String mode,
+    public Response lookupFidelity(@FormParam("mode") String mode,
                                            @FormParam("value") String value) {
         String phone = null, email = null, name = null, firstName = null;
         String input = value != null ? value.trim() : "";
@@ -100,9 +102,26 @@ public class FidelityResource {
         }
         FidelityService.LookupView lookup =
                 fidelityService.lookupCards(phone, email, name, firstName);
-        return fidelity.data("state", state)
-                .data("lookup", lookup)
-                .data("consultation", fidelityService.loadConsultation(state));
+        state.fidelity.lastLookup = lookup;
+        state.fidelity.lastLookupMode = mode != null ? mode : "name";
+        state.fidelity.lastLookupValue = input;
+        state.fidelity.lastLookupPage = 0;
+        return Response.seeOther(URI.create("/fidelity")).build();
+    }
+
+    /**
+     * Changes the lookup result page (same pattern as the refund detail
+     * pagination) and re-renders the fidelity page; the index is clamped by
+     * the state when the list is read.
+     *
+     * @param page the target 0-based page index
+     * @return the fidelity page on the requested result page
+     */
+    @GET
+    @Path("/fidelity/page/{p}")
+    public TemplateInstance changeLookupPage(@PathParam("p") int page) {
+        state.fidelity.lastLookupPage = Math.max(0, page);
+        return fidelityPage();
     }
 
     /**
@@ -115,23 +134,26 @@ public class FidelityResource {
      * @param lastName the holder's last name, echoed from the lookup
      * @param firstName the holder's first name, echoed from the lookup
      * @param status the account status, echoed from the lookup
-     * @return the main page on success, or the fidelity page with the refusal
+     * @return a 303 redirect (PRG pattern, so a browser reload never replays
+     *         the POST): to the main page on success, or back to the fidelity
+     *         page with the refusal stored in the fidelity state
      */
     @POST
     @Path("/action/fidelity-select")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public TemplateInstance selectFidelity(@FormParam("card") String card,
+    public Response selectFidelity(@FormParam("card") String card,
                                            @FormParam("lastName") String lastName,
                                            @FormParam("firstName") String firstName,
                                            @FormParam("status") String status) {
         String refusal = fidelityService.attachLookedUpCard(state, card, lastName, firstName, status);
         if (refusal != null) {
+            // The refusal replaces the stored result list; the search mode
+            // and criterion are kept so the operator stays in context.
             FidelityService.LookupView lookup = new FidelityService.LookupView();
             lookup.message = refusal;
-            return fidelity.data("state", state)
-                    .data("lookup", lookup)
-                    .data("consultation", fidelityService.loadConsultation(state));
+            state.fidelity.lastLookup = lookup;
+            return Response.seeOther(URI.create("/fidelity")).build();
         }
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 }

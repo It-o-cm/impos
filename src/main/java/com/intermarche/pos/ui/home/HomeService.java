@@ -45,7 +45,7 @@ public class HomeService {
 
     /** Printer service — used by the endorsed operator-badge reprint. */
     @Inject
-    com.intermarche.pos.service.TicketPrinterService ticketPrinterService;
+    com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
 
     @Inject
     EndorsementService endorsementService;

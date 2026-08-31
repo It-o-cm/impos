@@ -1,7 +1,6 @@
 package com.intermarche.pos.ui.home;
 
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.payment.PaymentService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketService;
 import jakarta.ws.rs.core.Response;
@@ -15,18 +14,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Unit tests for {@link PosHardwareResource}.
  * <p>
- * The resource is a thin JAX-RS facade over {@link TicketService},
- * {@link PaymentService} and {@link PosState}. Every collaborator is a Mockito
- * mock, with a real {@link PaymentState} wired onto the mocked {@code PosState}
- * so its {@code pendingCardAmount} public field can be driven directly. Tests
- * assert absolute status codes, JSON payloads and delegation, covering both arms
- * of every {@code null}/empty short-circuit, the pending ternary and the two
- * "no pending request" conflict guards.
+ * The resource is a thin JAX-RS facade over {@link TicketService}, the
+ * virtual terminal client and {@link PosState}. Every collaborator is a
+ * Mockito mock, with a real {@link PaymentState} wired onto the mocked
+ * {@code PosState} so its {@code pendingCardAmount} public field can be
+ * driven directly. Tests assert absolute status codes, JSON payloads and
+ * delegation, covering both arms of every {@code null}/empty short-circuit,
+ * the pending ternary and the two "no pending request" conflict guards.
  */
 class PosHardwareResourceTest {
 
@@ -40,7 +40,8 @@ class PosHardwareResourceTest {
     private PosHardwareResource newResource() {
         PosHardwareResource resource = new PosHardwareResource();
         resource.ticketService = mock(TicketService.class);
-        resource.paymentService = mock(PaymentService.class);
+        resource.virtualTerminalClient =
+                mock(com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient.class);
         resource.state = mock(PosState.class);
         resource.state.payment = new PaymentState();
         return resource;
@@ -153,59 +154,57 @@ class PosHardwareResourceTest {
     // --- tpeAccept ---
 
     /**
-     * {@code tpeAccept()} returns 409 without delegating when no card request is
+     * {@code tpeAccept()} returns 409 when the virtual terminal has nothing
      * pending (guard true arm).
      */
     @Test
     void tpeAcceptConflictsWhenNoPending() {
         PosHardwareResource resource = newResource();
-        resource.state.payment.pendingCardAmount = null;
+        when(resource.virtualTerminalClient.accept()).thenReturn(false);
         Response response = resource.tpeAccept();
         assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
         assertEquals("Aucune demande en attente", response.getEntity());
-        verifyNoInteractions(resource.paymentService);
     }
 
     /**
-     * {@code tpeAccept()} confirms the pending card payment and returns 200 when a
-     * request is pending (guard false arm).
+     * {@code tpeAccept()} fires the virtual terminal's accept and returns
+     * 200 when a request is pending (guard false arm).
      */
     @Test
     void tpeAcceptConfirmsWhenPending() {
         PosHardwareResource resource = newResource();
-        resource.state.payment.pendingCardAmount = new BigDecimal("5.00");
+        when(resource.virtualTerminalClient.accept()).thenReturn(true);
         Response response = resource.tpeAccept();
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        verify(resource.paymentService).confirmPendingCard(resource.state);
+        verify(resource.virtualTerminalClient).accept();
     }
 
     // --- tpeRefuse ---
 
     /**
-     * {@code tpeRefuse()} returns 409 without delegating when no card request is
+     * {@code tpeRefuse()} returns 409 when the virtual terminal has nothing
      * pending (guard true arm).
      */
     @Test
     void tpeRefuseConflictsWhenNoPending() {
         PosHardwareResource resource = newResource();
-        resource.state.payment.pendingCardAmount = null;
+        when(resource.virtualTerminalClient.refuse()).thenReturn(false);
         Response response = resource.tpeRefuse();
         assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
         assertEquals("Aucune demande en attente", response.getEntity());
-        verifyNoInteractions(resource.paymentService);
     }
 
     /**
-     * {@code tpeRefuse()} drops the pending card payment and returns 200 when a
-     * request is pending (guard false arm).
+     * {@code tpeRefuse()} fires the virtual terminal's refuse and returns
+     * 200 when a request is pending (guard false arm).
      */
     @Test
     void tpeRefuseDropsWhenPending() {
         PosHardwareResource resource = newResource();
-        resource.state.payment.pendingCardAmount = new BigDecimal("5.00");
+        when(resource.virtualTerminalClient.refuse()).thenReturn(true);
         Response response = resource.tpeRefuse();
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        verify(resource.paymentService).refusePendingCard(resource.state);
+        verify(resource.virtualTerminalClient).refuse();
     }
 
     /**

@@ -6,6 +6,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -34,12 +35,12 @@ import static org.mockito.Mockito.when;
  * The rendered {@link VoucherBalanceResource.BalanceView} is captured to
  * assert its projection. No database and no Quarkus context is booted.
  * <p>
- * Branch enumeration (every arm exercised — 100%): {@code consult} covers the
- * number null arm, the number-blank arm, an unknown valid number
+ * Branch enumeration (every arm exercised — 100%): {@code voucherBalancePage}
+ * covers the number null arm, the number-blank arm, an unknown valid number
  * (found-false / find-null arm), a found gift card (kind GIFT_CARD arm, status
  * ACTIVE arm) and a found credit note (kind CREDIT_NOTE arm, status EXHAUSTED
- * arm). 3 two-way decision points plus the null/blank short-circuit — every
- * arm exercised.
+ * arm); {@code consult} covers the null and non-null arms of its PRG redirect
+ * (the POST never renders — it 303s the number to the page).
  */
 class VoucherBalanceResourceTest {
 
@@ -83,21 +84,67 @@ class VoucherBalanceResourceTest {
     }
 
     /**
-     * {@code voucherBalancePage} renders the page with a null result.
+     * {@code voucherBalancePage} renders the page with a null result when no
+     * number travels in the query string (null arm), never touching the
+     * registry.
      */
     @Test
     void pageRendersWithoutResult() {
         VoucherBalanceResource resource = newResource();
         TemplateInstance instance = wireTemplate(resource);
-        assertSame(instance, resource.voucherBalancePage());
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertSame(instance, resource.voucherBalancePage(null));
+            ms.verifyNoInteractions();
+        }
+        verify(instance).data("result", null);
     }
 
     /**
-     * {@code consult} on a GIFT_CARD / ACTIVE instrument projects the CARTE
-     * CADEAU kind label, the ACTIVE status label and the French balance.
+     * {@code voucherBalancePage} renders a null result on a blank number
+     * (blank arm), never touching the registry.
      */
     @Test
-    void consultFoundActiveGiftCard() {
+    void pageRendersNullResultOnBlankNumber() {
+        VoucherBalanceResource resource = newResource();
+        TemplateInstance instance = wireTemplate(resource);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertSame(instance, resource.voucherBalancePage("   "));
+            ms.verifyNoInteractions();
+        }
+        verify(instance).data("result", null);
+    }
+
+    /**
+     * {@code consult} 303-redirects the trimmed number to the consultation
+     * page (PRG pattern — the POST never renders).
+     */
+    @Test
+    void consultRedirectsWithNumber() {
+        VoucherBalanceResource resource = newResource();
+        Response response = resource.consult(" 2960001 ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/voucher-balance?number=2960001", response.getLocation().toString());
+    }
+
+    /**
+     * {@code consult} 303-redirects with an empty number when null is posted
+     * (null arm of the encoding ternary).
+     */
+    @Test
+    void consultRedirectsWithEmptyNumberOnNull() {
+        VoucherBalanceResource resource = newResource();
+        Response response = resource.consult(null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/voucher-balance?number=", response.getLocation().toString());
+    }
+
+    /**
+     * {@code voucherBalancePage} on a GIFT_CARD / ACTIVE instrument projects
+     * the CARTE CADEAU kind label, the ACTIVE status label and the French
+     * balance.
+     */
+    @Test
+    void pageFoundActiveGiftCard() {
         VoucherBalanceResource resource = newResource();
         TemplateInstance instance = wireTemplate(resource);
         StoredValue instrument = new StoredValue();
@@ -108,7 +155,7 @@ class VoucherBalanceResourceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> found = query(instrument);
             ms.when(() -> PanacheEntityBase.find("number", "2960001")).thenReturn(found);
-            resource.consult(" 2960001 ");
+            resource.voucherBalancePage(" 2960001 ");
         }
         VoucherBalanceResource.BalanceView view = capturedView(instance);
         assertTrue(view.found);
@@ -119,11 +166,11 @@ class VoucherBalanceResourceTest {
     }
 
     /**
-     * {@code consult} on a CREDIT_NOTE / EXHAUSTED instrument projects the
-     * AVOIR kind label and the ÉPUISÉ status label.
+     * {@code voucherBalancePage} on a CREDIT_NOTE / EXHAUSTED instrument
+     * projects the AVOIR kind label and the ÉPUISÉ status label.
      */
     @Test
-    void consultFoundExhaustedCreditNote() {
+    void pageFoundExhaustedCreditNote() {
         VoucherBalanceResource resource = newResource();
         TemplateInstance instance = wireTemplate(resource);
         StoredValue instrument = new StoredValue();
@@ -134,7 +181,7 @@ class VoucherBalanceResourceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> found = query(instrument);
             ms.when(() -> PanacheEntityBase.find("number", "0007")).thenReturn(found);
-            resource.consult("0007");
+            resource.voucherBalancePage("0007");
         }
         VoucherBalanceResource.BalanceView view = capturedView(instance);
         assertTrue(view.found);
@@ -144,51 +191,21 @@ class VoucherBalanceResourceTest {
     }
 
     /**
-     * {@code consult} on a valid but unknown number returns an unfound view
-     * (find-null arm).
+     * {@code voucherBalancePage} on a valid but unknown number renders an
+     * unfound view (find-null arm).
      */
     @Test
-    void consultUnknownNumber() {
+    void pageUnknownNumber() {
         VoucherBalanceResource resource = newResource();
         TemplateInstance instance = wireTemplate(resource);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> none = query(null);
             ms.when(() -> PanacheEntityBase.find("number", "9999")).thenReturn(none);
-            resource.consult("9999");
+            resource.voucherBalancePage("9999");
         }
         VoucherBalanceResource.BalanceView view = capturedView(instance);
         assertFalse(view.found);
         assertNull(view.number);
-    }
-
-    /**
-     * {@code consult} on a blank number returns an unfound view without ever
-     * touching the registry (blank arm).
-     */
-    @Test
-    void consultBlankNumber() {
-        VoucherBalanceResource resource = newResource();
-        TemplateInstance instance = wireTemplate(resource);
-        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
-            resource.consult("   ");
-            ms.verifyNoInteractions();
-        }
-        assertFalse(capturedView(instance).found);
-    }
-
-    /**
-     * {@code consult} on a null number returns an unfound view without ever
-     * touching the registry (null arm).
-     */
-    @Test
-    void consultNullNumber() {
-        VoucherBalanceResource resource = newResource();
-        TemplateInstance instance = wireTemplate(resource);
-        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
-            resource.consult(null);
-            ms.verifyNoInteractions();
-        }
-        assertFalse(capturedView(instance).found);
     }
 
     /**

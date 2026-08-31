@@ -435,8 +435,9 @@ class HomeResourceTest {
     void submitPriceModSubmitsParsedValue() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.submitPriceMod("REMISE", "u1", "1,5"));
+        Response response = resource.submitPriceMod("REMISE", "u1", "1,5");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).submitPriceMod("REMISE", "u1", new BigDecimal("1.5"));
     }
 
@@ -448,8 +449,9 @@ class HomeResourceTest {
     void submitPriceModDefaultsNullValueToZero() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.submitPriceMod("REMISE", "u1", null));
+        Response response = resource.submitPriceMod("REMISE", "u1", null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).submitPriceMod("REMISE", "u1", new BigDecimal("0"));
     }
 
@@ -461,8 +463,9 @@ class HomeResourceTest {
     void submitPriceModDefaultsEmptyValueToZero() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.submitPriceMod("REMISE", "u1", ""));
+        Response response = resource.submitPriceMod("REMISE", "u1", "");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).submitPriceMod("REMISE", "u1", new BigDecimal("0"));
     }
 
@@ -474,8 +477,9 @@ class HomeResourceTest {
     void submitPriceModRejectsInvalidValue() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.submitPriceMod("REMISE", "u1", "abc"));
+        Response response = resource.submitPriceMod("REMISE", "u1", "abc");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.state.ticket).setError("VALEUR INVALIDE");
         verify(resource.state.priceModState).clear();
         verify(resource.state).touch();
@@ -505,8 +509,9 @@ class HomeResourceTest {
     void addManualKnownAddsParsedQuantity() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.addManualKnown("EAN", "3"));
+        Response response = resource.addManualKnown("EAN", "3");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addItemByEan(resource.state, "EAN", BigDecimal.valueOf(3));
     }
 
@@ -518,8 +523,9 @@ class HomeResourceTest {
     void addManualKnownDefaultsNullQuantityToOne() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.addManualKnown("EAN", null));
+        Response response = resource.addManualKnown("EAN", null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addItemByEan(resource.state, "EAN", BigDecimal.valueOf(1));
     }
 
@@ -531,8 +537,9 @@ class HomeResourceTest {
     void addManualKnownDefaultsEmptyQuantityToOne() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.addManualKnown("EAN", ""));
+        Response response = resource.addManualKnown("EAN", "");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addItemByEan(resource.state, "EAN", BigDecimal.valueOf(1));
     }
 
@@ -543,8 +550,9 @@ class HomeResourceTest {
     void addManualKnownFallsBackOnUnparsableQuantity() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.addManualKnown("EAN", "abc"));
+        Response response = resource.addManualKnown("EAN", "abc");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addItemByEan(resource.state, "EAN", BigDecimal.valueOf(1));
     }
 
@@ -556,21 +564,23 @@ class HomeResourceTest {
     void addManualKnownClampsNonPositiveQuantity() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.addManualKnown("EAN", "0"));
+        Response response = resource.addManualKnown("EAN", "0");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addItemByEan(resource.state, "EAN", BigDecimal.valueOf(1));
     }
 
     /**
-     * {@code addManualUnknown()} adds the unlisted item and returns the home view when
-     * unlocked.
+     * {@code addManualUnknown()} adds the unlisted item and redirects to the home page
+     * when unlocked.
      */
     @Test
     void addManualUnknownAddsWhenUnlocked() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.addManualUnknown("Label", "2,00"));
+        Response response = resource.addManualUnknown("Label", "2,00");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addUnknownItem(resource.state, "Label", "2,00");
     }
 

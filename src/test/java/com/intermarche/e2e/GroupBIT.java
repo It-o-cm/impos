@@ -221,27 +221,57 @@ public class GroupBIT {
     /**
      * B3 — PLU tapé.
      * <p>
-     * A typed PLU ({@code 4020}) sells QUANTITY 1 at the current price and,
-     * being weighed by nature, starts a weighed line (PLU carried) that never
-     * merges — the service-counter shortcut, distinct from the real weighing on
-     * the FRUITS screen.
+     * A PLU is NOT a barcode (the scan bus deliberately has no PLU handler):
+     * the cashier TYPES it on the FRUITS screen's CODE PLU numpad, which
+     * targets {@code /action/add/{code}} and WEIGHS the item — the line
+     * carries the product EAN and the typed PLU at the armed scale weight.
+     * An identical consecutive weight is refused ({@code ERREUR POIDS
+     * IDENTIQUE}, the anti-oubli guard), and a fresh weighing builds its OWN
+     * line: weighed lines never merge.
      */
     @Test
-    void b03_plu_tape_quantite_un() {
+    void b03_plu_tape_pese_le_poids_balance() {
         Page page = freshSale();
-        scan(PLU_POMMES);
+        page.navigate(base.toString() + "fruits");
+        setScaleWeight("0.850");
+        typePluCode(page, PLU_POMMES);
         page.getByText(LABEL_POMMES).waitFor();
         List<TicketState.TicketItem> items = posState.ticket.items;
-        Assertions.assertEquals(1, items.size(), "a typed PLU must create one line");
+        Assertions.assertEquals(1, items.size(), "a typed PLU must create one weighed line");
         TicketState.TicketItem line = items.get(0);
-        Assertions.assertEquals(PLU_POMMES, line.plu, "the line must carry the typed PLU (weighed line)");
-        Assertions.assertEquals(0, line.quantity.compareTo(BigDecimal.ONE),
-                "a typed PLU sells quantity 1 at the current price");
-        // A weighed line never merges: a second typed PLU is its own line.
-        scan(PLU_POMMES);
-        Assertions.assertEquals(2, posState.ticket.items.size(),
-                "weighed (PLU) lines never merge");
+        Assertions.assertEquals(PLU_POMMES, line.plu, "the line must carry the typed PLU");
+        Assertions.assertEquals(EAN_POMMES, line.ean,
+                "the line must carry the product EAN (the engine must see it)");
+        Assertions.assertEquals(0, line.quantity.compareTo(new BigDecimal("0.850")),
+                "the typed PLU must sell the armed scale weight (0,850 kg)");
+        // Same weight again: the anti-oubli guard refuses the re-weighing.
+        page.navigate(base.toString() + "fruits");
+        setScaleWeight("0.850");
+        typePluCode(page, PLU_POMMES);
+        page.getByText("ERREUR POIDS IDENTIQUE").waitFor();
+        Assertions.assertEquals(1, posState.ticket.items.size(),
+                "an identical consecutive weight must add no line");
+        // A fresh weighing: weighed lines never merge — its own line.
+        page.navigate(base.toString() + "fruits");
+        setScaleWeight("0.900");
+        typePluCode(page, PLU_POMMES);
+        page.getByText(LABEL_POMMES).first().waitFor();
+        Assertions.assertEquals(2, posState.ticket.items.size(), "weighed lines never merge");
         page.close();
+    }
+
+    /**
+     * Types a PLU on the FRUITS screen's CODE PLU numpad and validates it —
+     * the register's REAL typed-PLU entry ({@code /action/add/{code}}),
+     * selling the armed scale weight. The page must sit on the FRUITS screen.
+     *
+     * @param page the Playwright page on the FRUITS screen
+     * @param plu the short PLU code to type
+     */
+    private void typePluCode(Page page, String plu) {
+        page.getByText("Saisir un code PLU").click();
+        tapDigits(page.locator("#pluCodeNumpad"), plu);
+        page.locator("#pluCodeValidate").click();
     }
 
     /**
@@ -310,10 +340,11 @@ public class GroupBIT {
      * B6 — Étiquette 2x prix &amp; anti-double-scan.
      * <p>
      * An in-store price label (prefix 21) builds a line at the embedded total,
-     * carrying no code so it never merges; re-scanning the SAME physical
-     * sticker is refused ({@code ÉTIQUETTE DÉJÀ SCANNÉE}). The per-ticket
-     * sticker set is in-memory only, so a fresh ticket (the assumed-limit
-     * "restart") accepts the same sticker again.
+     * carrying its product identity (EAN and PLU, so the valuation engine sees
+     * the line) and flagged price-embedded; it never merges because re-scanning
+     * the SAME physical sticker is refused ({@code ÉTIQUETTE DÉJÀ SCANNÉE}).
+     * The per-ticket sticker set is in-memory only, so a fresh ticket (the
+     * assumed-limit "restart") accepts the same sticker again.
      */
     @Test
     void b06_etiquette_2x_prix_anti_double_scan() {
@@ -321,8 +352,12 @@ public class GroupBIT {
         scan(PRICE_LABEL);
         page.getByText(LABEL_POMMES).waitFor();
         TicketState.TicketItem line = posState.ticket.items.get(0);
-        Assertions.assertNull(line.ean, "a price-embedded sticker carries no EAN");
-        Assertions.assertNull(line.plu, "a price-embedded sticker carries no PLU");
+        Assertions.assertEquals(EAN_POMMES, line.ean,
+                "a sticker line carries its product EAN (the engine must see the line)");
+        Assertions.assertEquals(PLU_POMMES, line.plu,
+                "a sticker line carries its product PLU");
+        Assertions.assertTrue(line.priceEmbedded,
+                "a sticker line is flagged price-embedded (its printed total is the line's truth)");
         Assertions.assertEquals(0, line.getTotalPrice().compareTo(new BigDecimal("1.50")),
                 "the line total must be the embedded price (1,50 €)");
         // Same sticker twice on the same ticket: refused.
@@ -390,7 +425,7 @@ public class GroupBIT {
      * <p>
      * The drill-down root shows only the head families (no branch duplication);
      * drilling to an EAN-only product and validating a quantity adds a unit
-     * line, and the "NON RECONNU" tile at the root adds a code-less line at the
+     * line, and the "NON RECONNU" tile at the root adds a reserved-EAN line at the
      * typed price.
      */
     @Test
@@ -420,7 +455,7 @@ public class GroupBIT {
         Assertions.assertEquals(0, items.get(0).quantity.compareTo(new BigDecimal("2")),
                 "the typed quantity (2) must be applied");
 
-        // Unknown product at a typed price -> a code-less line.
+        // Unknown product at a typed price -> the reserved unknown-item EAN.
         page.close();
         Page page2 = freshSale();
         page2.navigate(base.toString() + "manual");
@@ -430,7 +465,8 @@ public class GroupBIT {
         page2.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("VALIDER").setExact(true)).click();
         page2.getByText("PRODUIT NON RECONNU").waitFor();
         TicketState.TicketItem unknown = posState.ticket.items.get(0);
-        Assertions.assertNull(unknown.ean, "an unknown-price line must carry no EAN");
+        Assertions.assertEquals("3990000000003", unknown.ean,
+                "an unknown-price line carries the reserved unknown-item EAN (pos.ean.unknown-item)");
         Assertions.assertEquals("PRODUIT NON RECONNU", unknown.label, "the typed label must be kept");
         Assertions.assertEquals(0, unknown.unitPrice.compareTo(new BigDecimal("2")),
                 "the typed price must be applied");
@@ -537,8 +573,9 @@ public class GroupBIT {
      * B13 — QUANTITÉ.
      * <p>
      * The QUANTITÉ modal applies a whole quantity (1-999) directly on a unit
-     * line, with no endorsement; it is refused on a weighed line and on a
-     * negative line ({@code QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE}).
+     * line, with no endorsement; on a weighed line the typed value is a
+     * DECIMAL weight in kilograms; it is refused on a negative line
+     * ({@code QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE}).
      */
     @Test
     void b13_quantite() {
@@ -551,15 +588,17 @@ public class GroupBIT {
                 "the typed quantity (3) must be applied on the unit line");
         page.close();
 
-        // --- Refused on a weighed line ---
+        // --- A weighed line takes the typed value as a DECIMAL weight (kg) ---
         Page page2 = freshSale();
-        scan(PLU_POMMES);
+        page2.navigate(base.toString() + "fruits");
+        setScaleWeight("1.250");
+        typePluCode(page2, PLU_POMMES);
         page2.getByText(LABEL_POMMES).waitFor();
         applyQuantityModal(page2, "2");
-        Assertions.assertEquals("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE", posState.ticket.transientError,
-                "a weighed line must refuse a quantity change");
-        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(BigDecimal.ONE),
-                "the weighed line quantity must be unchanged");
+        Assertions.assertNull(posState.ticket.transientError,
+                "a valid typed weight on a weighed line raises no message");
+        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("2.000")),
+                "the typed value must be applied as a weight in kilograms (2,000 kg)");
         page2.close();
 
         // --- Refused on a negative line ---

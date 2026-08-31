@@ -345,6 +345,7 @@ class RefExportServiceTest {
         PanacheQuery<Employee> employees = pagedQuery(List.of());
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
@@ -352,6 +353,7 @@ class RefExportServiceTest {
             mocked.when(() -> Employee.find("order by loginName")).thenReturn(employees);
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
+            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
             Map<String, String> fingerprints = service.getFingerprints();
             assertEquals(RefExportService.DOMAINS, List.copyOf(fingerprints.keySet()));
             assertEquals(EMPTY_SHA256, fingerprints.get("FAMILIES"));
@@ -360,6 +362,7 @@ class RefExportServiceTest {
             assertEquals(EMPTY_SHA256, fingerprints.get("EMPLOYEES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("COUPON_TYPES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("SETTINGS"));
+            assertEquals(EMPTY_SHA256, fingerprints.get("ENGINE_FEEDS"));
         }
     }
 
@@ -401,6 +404,7 @@ class RefExportServiceTest {
         PanacheQuery<Employee> employees = pagedQuery(List.of());
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
@@ -408,6 +412,7 @@ class RefExportServiceTest {
             mocked.when(() -> Employee.find("order by loginName")).thenReturn(employees);
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
+            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
             Map<String, String> fingerprints = service.getFingerprints();
             assertEquals(sha256hex("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT|kg|true|false"
                     + "E2||Poire||||||||false|true"), fingerprints.get("PRODUCTS"));
@@ -416,6 +421,7 @@ class RefExportServiceTest {
             assertEquals(EMPTY_SHA256, fingerprints.get("EMPLOYEES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("COUPON_TYPES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("SETTINGS"));
+            assertEquals(EMPTY_SHA256, fingerprints.get("ENGINE_FEEDS"));
         }
     }
 
@@ -459,6 +465,7 @@ class RefExportServiceTest {
         PanacheQuery<Employee> employees = pagedQuery(List.of());
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
@@ -466,6 +473,7 @@ class RefExportServiceTest {
             mocked.when(() -> Employee.find("order by loginName")).thenReturn(employees);
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
+            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
             Map<String, String> fingerprints = service.getFingerprints();
             for (String domain : RefExportService.DOMAINS) {
                 assertEquals(EMPTY_SHA256, fingerprints.get(domain));

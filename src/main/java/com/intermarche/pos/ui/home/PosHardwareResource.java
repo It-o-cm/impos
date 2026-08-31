@@ -1,7 +1,6 @@
 package com.intermarche.pos.ui.home;
 
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.payment.PaymentService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -33,8 +32,9 @@ public class PosHardwareResource {
     @Inject
     TicketService ticketService;
 
+    /** Simulator decisions land on the virtual terminal implementation. */
     @Inject
-    PaymentService paymentService;
+    com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient virtualTerminalClient;
 
     @Inject
     PosState state;
@@ -93,34 +93,34 @@ public class PosHardwareResource {
     }
 
     /**
-     * Applies the terminal's accept decision: the pending card payment is
-     * registered.
+     * Applies the simulator's accept decision: the virtual terminal fires
+     * the accept leg of the transaction callback, which registers the
+     * pending card payment.
      *
      * @return 200, or 409 when no request is pending
      */
     @POST
     @Path("/api/hardware/tpe/accept")
     public Response tpeAccept() {
-        if (state.payment.pendingCardAmount == null) {
+        if (!virtualTerminalClient.accept()) {
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }
-        paymentService.confirmPendingCard(state);
         return Response.ok().build();
     }
 
     /**
-     * Applies the terminal's refuse decision: the pending card payment is
-     * dropped and the cashier is told.
+     * Applies the simulator's refuse decision: the virtual terminal fires
+     * the refuse leg of the transaction callback, which drops the pending
+     * card payment and tells the cashier.
      *
      * @return 200, or 409 when no request is pending
      */
     @POST
     @Path("/api/hardware/tpe/refuse")
     public Response tpeRefuse() {
-        if (state.payment.pendingCardAmount == null) {
+        if (!virtualTerminalClient.refuse()) {
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }
-        paymentService.refusePendingCard(state);
         return Response.ok().build();
     }
 }

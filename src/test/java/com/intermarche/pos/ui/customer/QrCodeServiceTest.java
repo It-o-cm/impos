@@ -1,4 +1,4 @@
-package com.intermarche.pos.service;
+package com.intermarche.pos.ui.customer;
 
 import org.junit.jupiter.api.Test;
 

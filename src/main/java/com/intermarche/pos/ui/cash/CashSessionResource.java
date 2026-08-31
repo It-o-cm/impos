@@ -4,7 +4,7 @@ import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
-import com.intermarche.pos.service.TicketPrinterService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;

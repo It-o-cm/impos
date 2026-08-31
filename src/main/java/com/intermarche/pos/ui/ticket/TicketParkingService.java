@@ -1,4 +1,4 @@
-package com.intermarche.pos.service;
+package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
@@ -9,6 +9,12 @@ import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.util.List;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.TechnicalEventService;
+import com.intermarche.pos.service.TicketRecoveryService;
+import com.intermarche.pos.service.TicketPersistenceService;
+import com.intermarche.pos.service.TicketNumberService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 
 /**
  * Parks and resumes carts on this register (phase 3, single-register scope).
@@ -25,6 +31,8 @@ import java.util.List;
  * or clears the payments first. In training mode the draft sync returns
  * null, so parking answers "SYNCHRONISATION IMPOSSIBLE": consistent with
  * training persisting nothing (a training cart cannot outlive its session).
+ * <p>
+ * Placement: ui.ticket — consumed only by ParkedTicketResource and the parked-ticket scan handler (consumer-exclusivity rule).
  */
 @ApplicationScoped
 public class TicketParkingService {

@@ -18,7 +18,7 @@ public class StoreImporterClient {
 
     public static void main(String[] args) {
         String csvData = """
-                code|name|streetLine1|streetLine2|postalCode|city|country|latitude|longitude
+                CODE|NAME|STREET_LINE1|STREET_LINE2|POSTAL_CODE|CITY|COUNTRY|LATITUDE|LONGITUDE
                 0101|Intermarché Test 1|1 Rue du Test|ZI Nord|59000|Lille|France|50.63|3.06
                 """;
 

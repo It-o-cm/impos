@@ -58,7 +58,8 @@ public class LockCheckFilter implements ContainerRequestFilter {
             "/products/import",
             "/prices/import",
             "/product-families/import",
-            "/stores/import");
+            "/stores/import",
+            "/feeds/import");
 
     @Inject
     PosState state;

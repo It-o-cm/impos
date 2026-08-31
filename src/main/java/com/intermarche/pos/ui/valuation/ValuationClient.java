@@ -1,4 +1,4 @@
-package com.intermarche.pos.service.valuation;
+package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +26,8 @@ import java.util.Optional;
  * The mapper reads floating numbers as {@code BigDecimal} (money never
  * touches a double) and the DTOs ignore unknown fields (tolerant reader):
  * the engine can grow without breaking a deployed register fleet.
+ * <p>
+ * Placement: ui.valuation — the engine transport, used only by this package (consumer-exclusivity rule).
  */
 @ApplicationScoped
 public class ValuationClient {

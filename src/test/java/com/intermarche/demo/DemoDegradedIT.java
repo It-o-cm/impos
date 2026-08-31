@@ -113,6 +113,10 @@ public class DemoDegradedIT {
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
+        // The session-open pulse re-opened the drawer AFTER the pre-click
+        // close: shut it now that the sale screen is proven, or the page's
+        // self-reload on the first scan would divert to /drawer-error.
+        context.request().post(root + "api/hardware/drawer/close", RequestOptions.create());
         // Two apples: the promo CANNOT bite — catalog math, kilo for kilo.
         scanCode(APPLES_EAN);
         page.getByText("POMMES GOLDEN").waitFor();
