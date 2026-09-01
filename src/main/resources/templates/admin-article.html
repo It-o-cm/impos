@@ -1,10 +1,10 @@
 {!
- ! Back-office ARTICLE fiche edit form (BO-02-03-*): the checkout label, the
- ! internal code, the forbidden-to-sale flag, the age restriction and the
- ! declared attributes that drive register behaviour. `product` is null when
- ! the id is unknown. POST -> 303 -> notice, the admin cycle. The commercial
- ! name and EAN are shown read-only: their creation/renaming stays on the
- ! integration surfaces.
+ ! Back-office ARTICLE fiche (BO-02-03-28/29/33/34/35/45): all base data, all
+ ! attributes (well-known toggles, administered custom fields and the read-only
+ ! full map), the register-behaviour flags, the on-screen article-code flag, and
+ ! the offers and sale-price history. `product` is null when the id is unknown.
+ ! The commercial name, EAN, PLU, type and measures are shown read-only: their
+ ! creation stays on the integration surfaces. POST -> 303 -> notice.
 !}
 {#include admin-layout}
 
@@ -14,7 +14,7 @@
 <div class="page-head">
     <div>
         <h1>Fiche article</h1>
-        <p class="page-sub">Données et attributs d'un article du référentiel.</p>
+        <p class="page-sub">Données, attributs, offres et historique des prix d'un article du référentiel.</p>
     </div>
     <div class="page-actions">
         <a class="btn btn-ghost" href="/admin/articles">Retour à la liste</a>
@@ -52,6 +52,48 @@
     </div>
 
     <div class="card">
+        <h2 class="card-title">Caractéristiques</h2>
+        <div class="field-grid">
+            <div class="field">
+                <label class="field-label" for="f-plu">PLU</label>
+                <input class="input-control" id="f-plu" type="text" value="{product.plu ?: '—'}" disabled>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-type">Type</label>
+                <input class="input-control" id="f-type" type="text" value="{product.productType ?: '—'}" disabled>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-unit">Unité de mesure</label>
+                <input class="input-control" id="f-unit" type="text" value="{product.unitName ?: '—'}" disabled>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-weight">Poids de référence (kg)</label>
+                <input class="input-control" id="f-weight" type="text" value="{product.referenceWeight ?: '—'}" disabled>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-volume">Volume de référence (L)</label>
+                <input class="input-control" id="f-volume" type="text" value="{product.referenceVolume ?: '—'}" disabled>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-gift">Carte cadeau (€)</label>
+                <input class="input-control" id="f-gift" type="text" value="{product.giftCardAmount ?: '—'}" disabled>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-brand">Marque</label>
+                <input class="input-control" id="f-brand" type="text" name="brand" value="{product.brand ?: ''}" maxlength="100">
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-desc">Description</label>
+                <input class="input-control" id="f-desc" type="text" name="description" value="{product.description ?: ''}" maxlength="255">
+            </div>
+            <div class="field field-check">
+                <label class="field-label"><input type="checkbox" name="active" {#if product.active}checked{/if}> Article actif</label>
+                <span class="field-hint">Décoché : l'article est désactivé (retiré du référentiel), jamais supprimé.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
         <h2 class="card-title">Comportement en caisse</h2>
         <div class="field-grid">
             <div class="field">
@@ -77,11 +119,113 @@
         </div>
     </div>
 
+    {#if !customAttributes.isEmpty()}
+    <div class="card">
+        <h2 class="card-title">Attributs personnalisés</h2>
+        <div class="field-grid">
+            {#for attr in customAttributes}
+            <div class="field">
+                <label class="field-label" for="c-{attr.code}">{attr.label}</label>
+                <input class="input-control" id="c-{attr.code}" type="text" name="{attr.code}" value="{attr.value}" maxlength="255">
+            </div>
+            {/for}
+        </div>
+    </div>
+    {/if}
+
+    <div class="card">
+        <h2 class="card-title">Présentation</h2>
+        <div class="field-grid">
+            <div class="field field-check">
+                <label class="field-label"><input type="checkbox" name="codeOnScreen" {#if codeOnScreen}checked{/if}> Code article sur l'écran caisse</label>
+                <span class="field-hint">Consommé par l'écran de vente (BO-10-02-35). Réglable en masse depuis la liste.</span>
+            </div>
+        </div>
+    </div>
+
     <div class="page-actions" style="margin-top: 6px;">
         <button class="btn btn-primary" type="submit">Enregistrer</button>
         <a class="btn btn-ghost" href="/admin/articles">Annuler</a>
     </div>
 </form>
+
+<div class="card">
+    <h2 class="card-title">Prix de vente courant</h2>
+    {#if currentPrice}
+    <p class="price-current">{currentPrice.priceIncludingTax} € TTC · {currentPrice.priceExcludingTax} € HT · TVA {currentPrice.vatRate}</p>
+    {#else}
+    <p class="col-muted">Aucun prix courant.</p>
+    {/if}
+</div>
+
+<div class="card">
+    <h2 class="card-title">Offres</h2>
+    {#if offers.isEmpty()}
+    <p class="col-muted">Aucune offre, en cours ou passée.</p>
+    {#else}
+    <table class="data-table">
+        <thead>
+            <tr><th>Prix TTC</th><th>TVA</th><th>Priorité</th><th>Début</th><th>Fin</th><th>État</th></tr>
+        </thead>
+        <tbody>
+            {#for offer in offers}
+            <tr>
+                <td>{offer.priceIncludingTax} €</td>
+                <td class="col-muted">{offer.vatRate}</td>
+                <td class="col-muted">{offer.priority}</td>
+                <td class="col-muted">{offer.startDateTime ?: '—'}</td>
+                <td class="col-muted">{offer.endDateTime ?: '—'}</td>
+                <td>{#if offer.active}<span class="badge badge-ok">En cours</span>{#else}<span class="badge badge-off">Hors période</span>{/if}</td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {/if}
+</div>
+
+<div class="card">
+    <h2 class="card-title">Historique des prix de vente</h2>
+    {#if history.isEmpty()}
+    <p class="col-muted">Aucun prix enregistré.</p>
+    {#else}
+    <table class="data-table">
+        <thead>
+            <tr><th>Prix TTC</th><th>Prix HT</th><th>TVA</th><th>Priorité</th><th>Début</th><th>Fin</th></tr>
+        </thead>
+        <tbody>
+            {#for price in history}
+            <tr>
+                <td>{price.priceIncludingTax} €</td>
+                <td class="col-muted">{price.priceExcludingTax} €</td>
+                <td class="col-muted">{price.vatRate}</td>
+                <td class="col-muted">{price.priority}</td>
+                <td class="col-muted">{price.startDateTime ?: '—'}</td>
+                <td class="col-muted">{price.endDateTime ?: '—'}</td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {/if}
+</div>
+
+{#if !allAttributes.isEmpty()}
+<div class="card">
+    <h2 class="card-title">Tous les attributs</h2>
+    <table class="data-table">
+        <thead>
+            <tr><th>Code</th><th>Valeur</th></tr>
+        </thead>
+        <tbody>
+            {#for entry in allAttributes}
+            <tr>
+                <td class="link-strong">{entry.code}</td>
+                <td class="col-muted">{entry.value}</td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+</div>
+{/if}
 {#else}
 <div class="card">
     <p>Article introuvable. <a class="link-strong" href="/admin/articles">Retour à la liste</a>.</p>

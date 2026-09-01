@@ -1,8 +1,13 @@
 package com.intermarche.pos.ui.admin;
 
+import com.intermarche.pos.domain.ArticleAttributeDefinition;
+import com.intermarche.pos.domain.ArticleSelection;
+import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.ProductType;
 import com.intermarche.pos.domain.attribute.ProductAttributeCatalog;
 import com.intermarche.pos.domain.attribute.ProductAttributeDef;
+import com.intermarche.pos.domain.attribute.ProductAttributes;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -15,36 +20,54 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * The ARTICLE FILE back-office screen ({@code /admin/articles}, BO-02-03-*):
- * lists the referential articles and edits, on an existing fiche, the base data
- * and the declared attributes that drive register behaviour — VAT exemption
- * (BO-02-03-26/27), discount ban (BO-02-03-09), recall (BO-02-03-11),
- * meal-voucher eligibility (BO-02-03-06), bulky flag (BO-02-03-25) — plus the
- * checkout label (BO-02-03-02), the internal code (BO-02-03-04), the
- * forbidden-to-sale flag (BO-02-03-07) and the age restriction (BO-02-03-08).
+ * lists and searches the referential articles (BO-02-03-30), edits on an
+ * existing fiche the base data (BO-02-03-28/33) and the declared attributes
+ * (BO-02-03-29/32), reads the sale-price history and the offers
+ * (BO-02-03-34/35), and administers the on-screen article-code flag one fiche
+ * at a time or in bulk (BO-02-03-45).
  * <p>
  * Only EXISTING fiches are edited here: the creation of an article stays on the
  * integration surfaces (CSV import, GraphQL), matching the "intégration en
  * provenance de la Gestion Commerciale" the requirements describe and the same
  * doctrine as {@code AdminStoreResource}. What is edited here is referential
  * data: on a store node it flows to every register at the next draw, which is
- * how the attributes reach the till.
+ * how the attributes reach the till. This screen carries NO sale behaviour — it
+ * reads and administers; the register consumption of what it sets (the on-screen
+ * article code, BO-10-02-35) lives on the sale surface, in its own lot.
+ * <p>
+ * "Deleting" an article is a deactivation (BO-02-03-33): the {@code active}
+ * flag is cleared, never a row removed, because sold ticket lines hold product
+ * foreign keys — the same contract the referential pull honours.
  * <p>
  * Access reserved to ADMIN, like every parameter screen. POST&nbsp;→&nbsp;303&nbsp;→&nbsp;notice.
  */
 @Path("/admin/articles")
 public class AdminArticleResource {
+
+    /**
+     * The attribute code under which the on-screen article-code flag is stored
+     * (BO-02-03-45). A presentation attribute carried in the open
+     * {@link Product#attributes} map, so it is distributed by the draw like any
+     * other article datum without a dedicated column; the sale surface reads it
+     * in its own lot (BO-10-02-35).
+     */
+    public static final String CODE_ON_SCREEN = "CODE_ARTICLE_ON_SCREEN";
 
     /** The article list template. */
     @Inject
@@ -72,24 +95,73 @@ public class AdminArticleResource {
     }
 
     /**
-     * Shows the article list, ordered by EAN.
+     * A rendered custom-attribute row of the fiche form (BO-02-03-32): an
+     * administered {@link ArticleAttributeDefinition} with its current text
+     * value, captured as free text.
+     */
+    public static class CustomAttrRow {
+        /** The attribute code (posted field name). */
+        public String code;
+        /** The operator-facing label. */
+        public String label;
+        /** The current text value, empty when unset. */
+        public String value;
+    }
+
+    /**
+     * A rendered raw attribute entry of the fiche (BO-02-03-29): one code&nbsp;→&nbsp;value
+     * pair of the article's full attribute map, shown read-only so nothing an
+     * article carries is hidden.
+     */
+    public static class AttrEntry {
+        /** The attribute code. */
+        public String code;
+        /** The stored text value. */
+        public String value;
+    }
+
+    /**
+     * Shows the article list, filtered by the multi-criteria search
+     * (BO-02-03-30) or by an applied saved selection (BO-02-03-31), ordered by
+     * EAN.
      *
+     * @param uriInfo the request URI carrying the search criteria
      * @param notice the one-shot outcome message, or null
      * @param noticeOk whether the message reports a success
      * @return the list page
      */
     @GET
     @RolesAllowed("ADMIN")
-    public TemplateInstance list(@QueryParam("notice") String notice,
+    public TemplateInstance list(@Context UriInfo uriInfo,
+                                 @QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
-        List<Product> products = Product.find("order by ean").list();
-        return adminArticles.data("products", products)
+        MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+        String selectionName = ArticleSearchCriteria.blankToNull(params.getFirst("selection"));
+        ArticleSelection selection = selectionName != null
+                ? ArticleSelection.findByName(selectionName) : null;
+        ArticleSearchCriteria criteria = selection != null
+                ? ArticleSearchCriteria.fromQueryString(selection.criteria)
+                : ArticleSearchCriteria.fromParams(params);
+        List<Product> matches = new ArrayList<>();
+        for (Product product : Product.<Product>find("order by ean").list()) {
+            if (criteria.matches(product)) {
+                matches.add(product);
+            }
+        }
+        return adminArticles.data("products", matches)
+                .data("criteria", criteria)
+                .data("selectedSelection", selection != null ? selection.name : null)
+                .data("types", ProductType.values())
+                .data("attributeDefs", ProductAttributeCatalog.CATALOG)
+                .data("selections", ArticleSelection.listAllOrdered())
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
     }
 
     /**
-     * Shows the edit form of one article fiche.
+     * Shows the edit form of one article fiche, with all its base data
+     * (BO-02-03-28), all its attributes (BO-02-03-29), and its offers and
+     * sale-price history (BO-02-03-34/35).
      *
      * @param id the product id
      * @return the form page; {@code product} is null when the id is unknown
@@ -99,12 +171,27 @@ public class AdminArticleResource {
     @RolesAllowed("ADMIN")
     public TemplateInstance edit(@QueryParam("id") Long id) {
         Product product = id != null ? Product.<Product>findById(id) : null;
+        List<Price> history = product != null ? Price.findByProduct(product.id) : List.of();
+        List<Price> offers = new ArrayList<>();
+        for (Price price : history) {
+            if (price.priority != null && price.priority > 0) {
+                offers.add(price);
+            }
+        }
+        Price currentPrice = product != null ? Price.findCurrentPrice(product.id) : null;
         return adminArticle.data("product", product)
-                .data("attributes", product != null ? attributeRows(product) : List.of());
+                .data("attributes", product != null ? attributeRows(product) : List.of())
+                .data("customAttributes", product != null ? customAttributeRows(product) : List.of())
+                .data("allAttributes", allAttributes(product))
+                .data("codeOnScreen", product != null && ProductAttributes.flag(product, CODE_ON_SCREEN))
+                .data("currentPrice", currentPrice)
+                .data("offers", offers)
+                .data("history", history);
     }
 
     /**
-     * Saves the editable fields and declared attributes of an existing fiche.
+     * Saves the editable fields, the declared attributes and the presentation
+     * flag of an existing fiche.
      *
      * @param form the posted form
      * @return a 303 redirect to the list with the notice
@@ -122,18 +209,59 @@ public class AdminArticleResource {
         }
         product.checkoutLabel = blankToNull(form.getFirst("checkoutLabel"));
         product.internalCode = blankToNull(form.getFirst("internalCode"));
+        product.description = blankToNull(form.getFirst("description"));
+        product.brand = blankToNull(form.getFirst("brand"));
+        product.active = form.getFirst("active") != null;
         product.forbiddenToSale = form.getFirst("forbiddenToSale") != null;
         product.ageRestriction = parseAge(form.getFirst("ageRestriction"));
         for (ProductAttributeDef def : ProductAttributeCatalog.CATALOG) {
             product.attributes.put(def.code(),
                     form.getFirst(def.code()) != null ? "true" : "false");
         }
+        for (ArticleAttributeDefinition def : ArticleAttributeDefinition.listAllOrdered()) {
+            String value = blankToNull(form.getFirst(def.code));
+            if (value != null) {
+                product.attributes.put(def.code, value);
+            } else {
+                product.attributes.remove(def.code);
+            }
+        }
+        product.attributes.put(CODE_ON_SCREEN,
+                form.getFirst("codeOnScreen") != null ? "true" : "false");
         return redirect("Fiche article « " + product.ean + " » enregistrée.", true);
     }
 
     /**
-     * Builds the attribute rows of the form from the catalog and the product's
-     * current values.
+     * Sets or clears the on-screen article-code flag in bulk (BO-02-03-45),
+     * over every article matching the posted search criteria — an empty
+     * criteria applies to the whole referential.
+     *
+     * @param form the posted form (a {@code value} of {@code on} to set, plus
+     *        the search criteria scoping the batch)
+     * @return a 303 redirect to the list with the notice
+     */
+    @POST
+    @Path("/bulk-code")
+    @RolesAllowed("ADMIN")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Transactional
+    public Response bulkCodeOnScreen(MultivaluedMap<String, String> form) {
+        boolean value = form.getFirst("value") != null;
+        ArticleSearchCriteria criteria = ArticleSearchCriteria.fromParams(form);
+        int count = 0;
+        for (Product product : Product.<Product>find("order by ean").list()) {
+            if (criteria.matches(product)) {
+                product.attributes.put(CODE_ON_SCREEN, value ? "true" : "false");
+                count++;
+            }
+        }
+        return redirect("Code article à l'écran " + (value ? "activé" : "désactivé")
+                + " sur " + count + " article(s).", true);
+    }
+
+    /**
+     * Builds the well-known attribute rows of the form from the catalog and the
+     * product's current values.
      *
      * @param product the edited product
      * @return the rendered rows, in catalog order
@@ -150,6 +278,49 @@ public class AdminArticleResource {
             rows.add(row);
         }
         return rows;
+    }
+
+    /**
+     * Builds the custom-attribute rows of the form from the administered
+     * definitions and the product's current values (BO-02-03-32).
+     *
+     * @param product the edited product
+     * @return the rendered rows, in code order
+     */
+    List<CustomAttrRow> customAttributeRows(Product product) {
+        List<CustomAttrRow> rows = new ArrayList<>();
+        for (ArticleAttributeDefinition def : ArticleAttributeDefinition.listAllOrdered()) {
+            CustomAttrRow row = new CustomAttrRow();
+            row.code = def.code;
+            row.label = def.label;
+            String raw = product.attributes != null ? product.attributes.get(def.code) : null;
+            row.value = raw != null ? raw : "";
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /**
+     * Builds the read-only view of the article's full attribute map, sorted by
+     * code (BO-02-03-29), so nothing an article carries is hidden.
+     *
+     * @param product the edited product, or null
+     * @return the entries in code order; empty when the product is null or bears
+     *         no attribute
+     */
+    List<AttrEntry> allAttributes(Product product) {
+        List<AttrEntry> entries = new ArrayList<>();
+        if (product == null || product.attributes == null) {
+            return entries;
+        }
+        Map<String, String> sorted = new TreeMap<>(product.attributes);
+        for (Map.Entry<String, String> entry : sorted.entrySet()) {
+            AttrEntry row = new AttrEntry();
+            row.code = entry.getKey();
+            row.value = entry.getValue();
+            entries.add(row);
+        }
+        return entries;
     }
 
     /**

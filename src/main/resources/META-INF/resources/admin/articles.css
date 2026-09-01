@@ -26,3 +26,47 @@
     accent-color: var(--im-accent);
     cursor: pointer;
 }
+
+/* Bulk on-screen-code bar above the filtered article list (BO-02-03-45). */
+.bulk-code-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--im-line);
+}
+
+.bulk-code-label {
+    font-size: 13px;
+    color: var(--im-ink-soft);
+}
+
+.bulk-code-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* Inline attribute-definition edit row (BO-02-03-32). */
+.attr-edit {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.attr-edit .input-control {
+    max-width: 240px;
+}
+
+/* Current sale price line on the fiche (BO-02-03-35). */
+.price-current {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--im-ink);
+}

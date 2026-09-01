@@ -36,6 +36,12 @@ class PriceTest {
                     + "order by priority DESC";
 
     /**
+     * The exact JPQL query string built by {@link Price#findByProduct}.
+     */
+    private static final String HISTORY_QUERY =
+            "product.id = ?1 order by startDateTime desc, priority desc";
+
+    /**
      * Builds a price with the given validity bounds, leaving other fields at
      * their declared defaults.
      *
@@ -107,6 +113,20 @@ class PriceTest {
             when(query.firstResult()).thenReturn(expected);
             panache.when(() -> Price.find(QUERY, 99L, now)).thenReturn(query);
             Assertions.assertSame(expected, Price.findCurrentPrice(99L));
+        }
+    }
+
+    /**
+     * findByProduct delegates to the most-recent-first history list finder and
+     * returns its rows verbatim.
+     */
+    @Test
+    void findByProductListsHistoryMostRecentFirst() {
+        Price price = new Price();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Price.list(HISTORY_QUERY, 42L))
+                    .thenReturn(java.util.List.of(price));
+            Assertions.assertEquals(java.util.List.of(price), Price.findByProduct(42L));
         }
     }
 

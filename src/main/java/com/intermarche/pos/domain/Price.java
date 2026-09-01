@@ -7,6 +7,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -148,6 +149,22 @@ public class Price extends BaseEntity {
      */
     public static Price findCurrentPrice(Long productId) {
         return findActivePriceAtDate(productId, DateTimeProvider.now());
+    }
+
+    /**
+     * Lists EVERY price row of a product, most recent window first
+     * (BO-02-03-34/35): the article fiche reads this to render both the sale
+     * price history (all rows) and the offers (the {@code priority > 0} rows
+     * that overlay the base price for a window). A read-only projection — no
+     * row is ever mutated here — so it never rewrites a sold line, consistent
+     * with the price-resolution contract of this entity.
+     *
+     * @param productId the product id
+     * @return the price rows, most recent start first, then priority; empty
+     *         when the product has no price
+     */
+    public static List<Price> findByProduct(Long productId) {
+        return list("product.id = ?1 order by startDateTime desc, priority desc", productId);
     }
 
     /**
