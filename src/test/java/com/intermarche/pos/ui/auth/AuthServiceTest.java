@@ -160,13 +160,15 @@ class AuthServiceTest {
 
     /**
      * A wrong PIN below the threshold increments the counter, leaves the
-     * account unlocked and journals nothing (threshold condition false).
+     * account unlocked, journals the failed attempt by badge (BO-04-01-30) but
+     * NOT a lockout (threshold condition false).
      */
     @Test
     void checkCredentialsWrongPinBelowThresholdIncrements() {
         AuthService service = newService();
         Employee employee = mock(Employee.class);
         employee.failedAttempts = 0;
+        employee.badgeId = "12341234";
         when(employee.isCurrentlyLocked()).thenReturn(false);
         when(employee.verifyPassword("0000")).thenReturn(false);
         try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
@@ -178,7 +180,8 @@ class AuthServiceTest {
             assertEquals(1, employee.failedAttempts);
             assertNull(employee.lockedUntil);
             verify(employee).persist();
-            verify(service.technicalEventService, never()).log(any(), any());
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.PASSWORD_FAILED, null, "12341234");
+            verify(service.technicalEventService, never()).log(TechnicalEvent.EventType.AUTH_LOCKED, "alice (5 min)", "12341234");
         }
     }
 
@@ -192,6 +195,7 @@ class AuthServiceTest {
         AuthService service = newService();
         Employee employee = mock(Employee.class);
         employee.failedAttempts = 2;
+        employee.badgeId = "12341234";
         when(employee.isCurrentlyLocked()).thenReturn(false);
         when(employee.verifyPassword("0000")).thenReturn(false);
         try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
@@ -203,7 +207,8 @@ class AuthServiceTest {
             assertEquals(0, employee.failedAttempts);
             assertTrue(employee.lockedUntil.isAfter(LocalDateTime.now()));
             verify(employee).persist();
-            verify(service.technicalEventService).log(TechnicalEvent.EventType.AUTH_LOCKED, "alice (5 min)");
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.PASSWORD_FAILED, null, "12341234");
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.AUTH_LOCKED, "alice (5 min)", "12341234");
         }
     }
 
@@ -219,6 +224,7 @@ class AuthServiceTest {
         PosState state = newState();
         Employee employee = mock(Employee.class);
         employee.id = 42L;
+        employee.badgeId = "12341234";
         when(employee.isCurrentlyLocked()).thenReturn(false);
         when(employee.verifyPassword("1234")).thenReturn(true);
         when(employee.getFullName()).thenReturn("Alice Martin");
@@ -226,7 +232,8 @@ class AuthServiceTest {
             emp.when(() -> Employee.findActiveLogin("alice")).thenReturn(employee);
             AuthService.LoginResult result = service.login(state, "alice", "1234");
             assertEquals(AuthService.LoginResult.SUCCESS, result);
-            verify(state.auth).login(42L, "Alice Martin");
+            verify(state.auth).login(42L, "Alice Martin", "12341234");
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.REGISTER_UNLOCKED, null, "12341234");
         }
     }
 
@@ -245,7 +252,7 @@ class AuthServiceTest {
             emp.when(() -> Employee.findActiveLogin("alice")).thenReturn(employee);
             AuthService.LoginResult result = service.login(state, "alice", "1234");
             assertEquals(AuthService.LoginResult.LOCKED, result);
-            verify(state.auth, never()).login(any(), any());
+            verify(state.auth, never()).login(any(), any(), any());
         }
     }
 
@@ -265,7 +272,7 @@ class AuthServiceTest {
             emp.when(() -> Employee.findActiveLogin("alice")).thenReturn(employee);
             AuthService.LoginResult result = service.login(state, "alice", "0000");
             assertEquals(AuthService.LoginResult.INVALID, result);
-            verify(state.auth, never()).login(any(), any());
+            verify(state.auth, never()).login(any(), any(), any());
         }
     }
 
@@ -406,6 +413,7 @@ class AuthServiceTest {
         PosState state = newState();
         state.auth.operatorId = 7L;
         Employee employee = mock(Employee.class);
+        employee.badgeId = "12341234";
         when(employee.verifyPassword("1111")).thenReturn(true);
         try (MockedStatic<PanacheEntityBase> pe = mockStatic(PanacheEntityBase.class);
              MockedStatic<Employee> emp = mockStatic(Employee.class)) {
@@ -414,6 +422,7 @@ class AuthServiceTest {
             assertNull(service.changePin(state, "1111", "1234", "1234"));
             assertEquals("HASH", employee.password);
             verify(employee).persist();
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.PASSWORD_CHANGED, null, "12341234");
         }
     }
 }

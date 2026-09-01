@@ -52,11 +52,12 @@ class TechnicalEventTest {
     }
 
     /**
-     * The nested EventType enum exposes exactly its eighteen declared constants.
+     * The nested EventType enum exposes exactly its twenty-four declared
+     * constants (twenty NF525 types plus the four operator-security events).
      */
     @Test
-    void eventTypeEnumHasEighteenConstants() {
-        Assertions.assertEquals(20, TechnicalEvent.EventType.values().length);
+    void eventTypeEnumHasTwentyFourConstants() {
+        Assertions.assertEquals(24, TechnicalEvent.EventType.values().length);
     }
 
     /**
@@ -94,7 +95,11 @@ class TechnicalEventTest {
                 TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
                 TechnicalEvent.EventType.SUPERVISOR_CALLED,
                 TechnicalEvent.EventType.TRAINING_STARTED,
-                TechnicalEvent.EventType.TRAINING_ENDED
+                TechnicalEvent.EventType.TRAINING_ENDED,
+                TechnicalEvent.EventType.REGISTER_LOCKED,
+                TechnicalEvent.EventType.REGISTER_UNLOCKED,
+                TechnicalEvent.EventType.PASSWORD_CHANGED,
+                TechnicalEvent.EventType.PASSWORD_FAILED
         };
         Assertions.assertArrayEquals(expected, TechnicalEvent.EventType.values());
     }

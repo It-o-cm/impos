@@ -242,6 +242,7 @@ public class SyncIngestService {
         event.terminalId = dto.terminalId;
         event.eventType = TechnicalEvent.EventType.valueOf(dto.type);
         event.detail = dto.detail;
+        event.operatorBadgeId = dto.operatorBadgeId;
         event.eventDate = parse(dto.eventDate);
         event.persist();
     }

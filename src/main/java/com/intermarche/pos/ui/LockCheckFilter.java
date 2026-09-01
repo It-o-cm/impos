@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui;
 
+import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import jakarta.annotation.Priority;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Priorities;
@@ -65,6 +66,15 @@ public class LockCheckFilter implements ContainerRequestFilter {
     PosState state;
 
     /**
+     * The journal emitter. The automatic idle pause (LC-01-03-02) is the
+     * "départ en pause" gesture (BO-04-01-27): it is recorded here, naming the
+     * operator being paused, through the single event mechanism — the enqueue
+     * is asynchronous, so a network-severed register still pauses and sells.
+     */
+    @Inject
+    com.intermarche.pos.service.TechnicalEventService technicalEventService;
+
+    /**
      * The back-office parameters — the idle-lockout delay (LC-01-03-02)
      * now lives there, administered on {@code /admin/settings} and pulled
      * by the registers; the historical configuration key remains its
@@ -92,6 +102,9 @@ public class LockCheckFilter implements ContainerRequestFilter {
             long idleLockoutSeconds = posSettingsService.idleLockoutSeconds();
             if (idleLockoutSeconds > 0 && last > 0
                     && System.currentTimeMillis() - last > idleLockoutSeconds * 1000L) {
+                String pausedBadge = state.auth.operatorBadgeId;
+                technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
+                        null, pausedBadge);
                 state.auth.logout();
                 state.touch();
             }

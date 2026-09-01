@@ -44,6 +44,16 @@ public class AuthState implements Serializable {
     /** The database id of the logged-in operator, or null when locked. */
     public Long operatorId = null;
 
+    /**
+     * The badge (N° caissière) of the logged-in operator, or null when locked.
+     * <p>
+     * Held here so the lock filter can name the operator being paused when it
+     * journals a {@code REGISTER_LOCKED} event, without a database read. Like
+     * the rest of {@link AuthState}, it is purely in-memory register state:
+     * never persisted, never carried by the referential pull.
+     */
+    public String operatorBadgeId = null;
+
     /** The last badge scanned while locked, or null (one-shot mailbox). */
     public String scannedBadgeId = null;
 
@@ -59,10 +69,12 @@ public class AuthState implements Serializable {
      *
      * @param id the database id of the operator
      * @param name the display name of the operator
+     * @param badgeId the badge (N° caissière) of the operator, or null
      */
-    public void login(Long id, String name) {
+    public void login(Long id, String name, String badgeId) {
         this.operatorId = id;
         this.operatorName = name;
+        this.operatorBadgeId = badgeId;
         this.isLocked = false;
         this.scannedBadgeId = null;
         this.lastActivityAt = System.currentTimeMillis();
@@ -75,6 +87,7 @@ public class AuthState implements Serializable {
         this.isLocked = true;
         this.operatorName = "";
         this.operatorId = null; // On nettoie l'ID
+        this.operatorBadgeId = null;
         this.scannedBadgeId = null;
     }
 

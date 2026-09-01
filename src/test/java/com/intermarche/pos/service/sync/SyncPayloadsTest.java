@@ -315,11 +315,13 @@ class SyncPayloadsTest {
         dto.terminalId = "T1";
         dto.type = "DRAWER_OPEN";
         dto.detail = "manual";
+        dto.operatorBadgeId = "12341234";
         dto.eventDate = "2026-01-01T11:00:00";
         assertEquals("EV1", dto.eventUid);
         assertEquals("T1", dto.terminalId);
         assertEquals("DRAWER_OPEN", dto.type);
         assertEquals("manual", dto.detail);
+        assertEquals("12341234", dto.operatorBadgeId);
         assertEquals("2026-01-01T11:00:00", dto.eventDate);
     }
 

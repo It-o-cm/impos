@@ -20,21 +20,23 @@ class AuthStateTest {
         Assertions.assertTrue(state.isLocked);
         Assertions.assertEquals("", state.operatorName);
         Assertions.assertNull(state.operatorId);
+        Assertions.assertNull(state.operatorBadgeId);
         Assertions.assertNull(state.scannedBadgeId);
         Assertions.assertNull(state.getOperatorId());
     }
 
     /**
-     * Verifies that login stores the operator identity, unlocks the register
-     * and clears any previously scanned badge.
+     * Verifies that login stores the operator identity and badge, unlocks the
+     * register and clears any previously scanned badge.
      */
     @Test
     void loginStoresOperatorUnlocksAndClearsBadge() {
         AuthState state = new AuthState();
         state.setScannedBadge("BADGE-42");
-        state.login(7L, "Alice");
+        state.login(7L, "Alice", "12341234");
         Assertions.assertEquals(7L, state.operatorId);
         Assertions.assertEquals("Alice", state.operatorName);
+        Assertions.assertEquals("12341234", state.operatorBadgeId);
         Assertions.assertFalse(state.isLocked);
         Assertions.assertNull(state.scannedBadgeId);
         Assertions.assertEquals(7L, state.getOperatorId());
@@ -47,12 +49,13 @@ class AuthStateTest {
     @Test
     void logoutLocksAndForgetsOperator() {
         AuthState state = new AuthState();
-        state.login(7L, "Alice");
+        state.login(7L, "Alice", "12341234");
         state.setScannedBadge("BADGE-99");
         state.logout();
         Assertions.assertTrue(state.isLocked);
         Assertions.assertEquals("", state.operatorName);
         Assertions.assertNull(state.operatorId);
+        Assertions.assertNull(state.operatorBadgeId);
         Assertions.assertNull(state.scannedBadgeId);
         Assertions.assertNull(state.getOperatorId());
     }
@@ -63,7 +66,7 @@ class AuthStateTest {
     @Test
     void getOperatorIdReturnsLoggedInId() {
         AuthState state = new AuthState();
-        state.login(123L, "Bob");
+        state.login(123L, "Bob", "99999999");
         Assertions.assertEquals(123L, state.getOperatorId());
     }
 

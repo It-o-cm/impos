@@ -602,6 +602,7 @@ class SyncOutboxServiceTest {
         event.terminalId = "T1";
         event.eventType = TechnicalEvent.EventType.TICKET_CLOSED;
         event.detail = "detail";
+        event.operatorBadgeId = "12341234";
         event.eventDate = LocalDateTime.of(2026, 1, 1, 17, 0, 0);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
@@ -612,6 +613,7 @@ class SyncOutboxServiceTest {
             assertEquals("EV1", out.eventUid);
             assertEquals("TICKET_CLOSED", out.type);
             assertEquals("detail", out.detail);
+            assertEquals("12341234", out.operatorBadgeId);
             assertEquals("2026-01-01T17:00:00", out.eventDate);
         }
     }

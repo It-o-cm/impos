@@ -30,18 +30,34 @@ public class TechnicalEventService {
     SyncOutboxService syncOutboxService;
 
     /**
-     * Records a technical event in the journal.
+     * Records a technical event that is about no particular operator.
      *
      * @param type the event type
      * @param detail a short human-readable detail (ticket number, count...)
      */
     @Transactional
     public void log(TechnicalEvent.EventType type, String detail) {
+        log(type, detail, null);
+    }
+
+    /**
+     * Records a technical event in the journal, naming the operator it is
+     * about. The badge is stored in its own column so the journal can search
+     * operator ranges exactly; it never travels inside the free-text detail.
+     *
+     * @param type the event type
+     * @param detail a short human-readable detail (ticket number, count...)
+     * @param operatorBadgeId the badge of the operator the event is about, or
+     *        null when the event has no operator
+     */
+    @Transactional
+    public void log(TechnicalEvent.EventType type, String detail, String operatorBadgeId) {
         TechnicalEvent event = new TechnicalEvent();
         event.eventType = type;
         event.terminalId = ticketNumberService.getTerminalId();
         event.eventDate = LocalDateTime.now();
         event.detail = detail;
+        event.operatorBadgeId = operatorBadgeId;
         event.eventUid = java.util.UUID.randomUUID().toString();
         event.persist();
         syncOutboxService.enqueue(SyncOutbox.EntityType.EVENT, event.id);

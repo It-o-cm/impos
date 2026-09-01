@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
 import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -70,6 +71,14 @@ public class AdminAuthResource {
     /** The identity of the signed-in operator. */
     @Inject
     SecurityIdentity identity;
+
+    /**
+     * The journal emitter. A back-office password change (BO-04-01-29) is
+     * recorded through the single event mechanism, naming the operator by
+     * badge (N° caissière) and never the secret.
+     */
+    @Inject
+    com.intermarche.pos.service.TechnicalEventService technicalEventService;
 
     /**
      * Shows the sign-in page.
@@ -171,6 +180,8 @@ public class AdminAuthResource {
             }
             employee.setBackOfficePassword(renewed);
             employee.mustChangePassword = false;
+            technicalEventService.log(TechnicalEvent.EventType.PASSWORD_CHANGED,
+                    null, employee.badgeId);
             return true;
         });
         if (!applied) {

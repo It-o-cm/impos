@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -69,6 +70,7 @@ class TechnicalEventServiceTest {
             assertEquals(TechnicalEvent.EventType.TICKET_CLOSED, event.eventType);
             assertEquals(TERMINAL, event.terminalId);
             assertEquals("C04-00000123", event.detail);
+            assertNull(event.operatorBadgeId);
             assertNotNull(event.eventDate);
             assertTrue(!event.eventDate.isBefore(before));
             assertNotNull(event.eventUid);
@@ -77,6 +79,27 @@ class TechnicalEventServiceTest {
             verify(service.syncOutboxService, times(1))
                     .enqueue(SyncOutbox.EntityType.EVENT, EVENT_ID);
             verify(service.ticketNumberService, times(1)).getTerminalId();
+        }
+    }
+
+    /**
+     * Covers the operator-bearing overload: the badge is stored in its own
+     * column, never inside the detail, so an operator-range search compares a
+     * badge against badges.
+     */
+    @Test
+    void logStoresTheOperatorBadgeInItsOwnColumn() {
+        TechnicalEventService service = newService();
+        try (MockedConstruction<TechnicalEvent> created = mockConstruction(TechnicalEvent.class,
+                (mock, context) -> mock.id = EVENT_ID)) {
+            service.log(TechnicalEvent.EventType.PASSWORD_FAILED, null, "12341234");
+            TechnicalEvent event = created.constructed().get(0);
+            assertEquals(TechnicalEvent.EventType.PASSWORD_FAILED, event.eventType);
+            assertNull(event.detail);
+            assertEquals("12341234", event.operatorBadgeId);
+            verify(event, times(1)).persist();
+            verify(service.syncOutboxService, times(1))
+                    .enqueue(SyncOutbox.EntityType.EVENT, EVENT_ID);
         }
     }
 

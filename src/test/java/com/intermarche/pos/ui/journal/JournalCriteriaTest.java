@@ -22,7 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * covers null / valid / malformed; {@code parseDateTime} covers null / full
  * datetime / bare date / fully-malformed (both catch arms); {@code addNonBlank}
  * covers the null-list arm and the blank-skip / kept arms; {@code addFlags}
- * covers the null-list arm, blank-skip, valid-add and unknown-catch arms.
+ * covers the null-list arm, blank-skip, valid-add and unknown-catch arms;
+ * {@code parsePage} covers blank / valid / non-positive / malformed.
  */
 class JournalCriteriaTest {
 
@@ -37,6 +38,7 @@ class JournalCriteriaTest {
         assertTrue(criteria.methods.isEmpty());
         assertTrue(criteria.flags.isEmpty());
         assertFalse(criteria.descending);
+        assertEquals(1, criteria.page);
     }
 
     /**
@@ -115,5 +117,30 @@ class JournalCriteriaTest {
         assertTrue(criteria.eventTypes.isEmpty());
         assertTrue(criteria.flags.isEmpty());
         assertFalse(criteria.descending);
+        assertEquals(1, criteria.page);
+    }
+
+    /**
+     * A page parameter is read when it is a positive number (valid arm) and
+     * reaches the criteria through {@code fromParams}.
+     */
+    @Test
+    void positivePageIsRead() {
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.putSingle("page", " 4 ");
+        assertEquals(4, JournalCriteria.fromParams(params).page);
+    }
+
+    /**
+     * A blank, non-positive or malformed page falls back to the first page
+     * (blank arm, below-one arm, catch arm).
+     */
+    @Test
+    void blankNonPositiveAndMalformedPagesFallBackToTheFirst() {
+        assertEquals(1, JournalCriteria.parsePage(null));
+        assertEquals(1, JournalCriteria.parsePage("   "));
+        assertEquals(1, JournalCriteria.parsePage("0"));
+        assertEquals(1, JournalCriteria.parsePage("-3"));
+        assertEquals(1, JournalCriteria.parsePage("abc"));
     }
 }

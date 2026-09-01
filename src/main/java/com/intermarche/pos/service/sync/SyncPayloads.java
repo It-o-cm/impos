@@ -197,6 +197,8 @@ public final class SyncPayloads {
         public String type;
         /** The event detail, or null. */
         public String detail;
+        /** The badge of the operator the event is about, or null. */
+        public String operatorBadgeId;
         /** The event timestamp, ISO-8601. */
         public String eventDate;
     }

@@ -331,6 +331,7 @@ public class SyncOutboxService {
         dto.terminalId = event.terminalId;
         dto.type = event.eventType.name();
         dto.detail = event.detail;
+        dto.operatorBadgeId = event.operatorBadgeId;
         dto.eventDate = iso(event.eventDate);
         return dto;
     }

@@ -72,7 +72,32 @@ public class TechnicalEvent extends PanacheEntity {
         /** The register entered training mode. */
         TRAINING_STARTED,
         /** The register left training mode. */
-        TRAINING_ENDED
+        TRAINING_ENDED,
+        /**
+         * The register entered lock mode (automatic idle pause): the operator
+         * that was working it stepped away and the idle timeout paused the
+         * register. The paused operator is named by {@link #operatorBadgeId},
+         * never by a secret.
+         */
+        REGISTER_LOCKED,
+        /**
+         * The register left lock mode: an operator successfully unlocked it and
+         * resumed selling. The resuming operator is named by
+         * {@link #operatorBadgeId}, never by a secret.
+         */
+        REGISTER_UNLOCKED,
+        /**
+         * An operator changed a password — the register PIN or the back-office
+         * password. The operator is named by {@link #operatorBadgeId}, never by
+         * the old or the new secret, not even truncated.
+         */
+        PASSWORD_CHANGED,
+        /**
+         * A wrong password was entered against a known account (a bad register
+         * PIN). The account is named by {@link #operatorBadgeId}, never by the
+         * attempted secret, not even truncated.
+         */
+        PASSWORD_FAILED
     }
 
     /** The type of the event. */
@@ -90,6 +115,20 @@ public class TechnicalEvent extends PanacheEntity {
     /** A short human-readable detail (ticket number, count...). */
     @Column(name = "detail", length = 255)
     public String detail;
+
+    /**
+     * The badge (N° caissière) of the operator the event is about, or null for
+     * an event that has no operator.
+     * <p>
+     * A first-class column rather than a mention inside {@link #detail}: the
+     * journal searches operator ranges (BO-04-01-27..30), and a range compared
+     * against free text would match any detail that happens to sort between the
+     * bounds. Null never matches a range, so an event without an operator is
+     * excluded rather than wrongly returned. Carried by the store push like the
+     * rest of the event — it describes the event, not this register's state.
+     */
+    @Column(name = "operator_badge_id", length = 20)
+    public String operatorBadgeId;
 
     /** Stable identity of the event across nodes (store-sync upsert key). */
     @Column(name = "event_uid", unique = true, length = 36)

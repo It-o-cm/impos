@@ -2,8 +2,9 @@
  * Electronic journal area stylesheet (BO-04-01, lot 4). Loaded by the
  * back-office layout after base.css. Only the journal-specific bits live
  * here: the tab strip separating the transactional and functional journals
- * (BO-04-01-52), the paired range inputs and the criteria check grids. All
- * colours come from the --im-* tokens; base.css stays untouched.
+ * (BO-04-01-52), the paired range inputs, the criteria check grids and the
+ * result pager with its count line. All colours come from the --im-* tokens;
+ * base.css stays untouched.
  */
 
 .journal-tabs {
@@ -66,4 +67,23 @@
     gap: 6px;
     font-size: 14px;
     color: var(--im-ink);
+}
+
+.journal-count {
+    margin: 0 0 12px;
+    color: var(--im-ink-soft);
+    font-size: 13px;
+}
+
+.journal-pager {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.journal-pager-pos {
+    color: var(--im-ink-soft);
+    font-size: 13px;
 }

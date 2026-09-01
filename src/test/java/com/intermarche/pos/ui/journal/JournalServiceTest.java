@@ -36,8 +36,10 @@ import static org.mockito.Mockito.when;
  * and the PLU/reduction range helpers on their min-only, max-only and
  * both-present shapes. The execution methods ({@code search},
  * {@code searchEvents}, {@code buildDetail}, {@code exportCsv}) run against a
- * mocked entity manager whose typed queries return pre-baked rows. Absolute
- * expected values throughout; no database, no Quarkus context.
+ * mocked entity manager whose typed queries return pre-baked rows: each search
+ * stubs its count query as well, since the list is now paged and always states
+ * its total. Absolute expected values throughout; no database, no Quarkus
+ * context.
  */
 class JournalServiceTest {
 
@@ -65,7 +67,20 @@ class JournalServiceTest {
         TypedQuery<T> query = mock(TypedQuery.class);
         when(query.setParameter(anyString(), any())).thenReturn(query);
         when(query.setMaxResults(anyInt())).thenReturn(query);
+        when(query.setFirstResult(anyInt())).thenReturn(query);
         return query;
+    }
+
+    /**
+     * Stubs the count query of a mocked entity manager.
+     *
+     * @param entityManager the mocked entity manager
+     * @param total the total the count query must return
+     */
+    private void stubCount(EntityManager entityManager, long total) {
+        TypedQuery<Long> query = selfQuery();
+        when(entityManager.createQuery(anyString(), eq(Long.class))).thenReturn(query);
+        when(query.getSingleResult()).thenReturn(total);
     }
 
     // --------------------------------------------------
@@ -240,6 +255,8 @@ class JournalServiceTest {
         JournalService service = serviceWith(mock(EntityManager.class));
         JournalCriteria criteria = new JournalCriteria();
         criteria.eventTypes.add("SESSION_CLOSED");
+        criteria.cashierMin = "100";
+        criteria.cashierMax = "200";
         criteria.terminalMin = "C01";
         criteria.terminalMax = "C09";
         criteria.dateFrom = LocalDateTime.of(2026, 8, 1, 0, 0);
@@ -250,6 +267,10 @@ class JournalServiceTest {
         assertTrue(where.contains("e.eventType in :eventTypes"));
         assertEquals(List.of(TechnicalEvent.EventType.SESSION_CLOSED),
                 query.parameters().get("eventTypes"));
+        assertTrue(where.contains("e.operatorBadgeId >= :cashierMin"));
+        assertTrue(where.contains("e.operatorBadgeId <= :cashierMax"));
+        assertEquals("100", query.parameters().get("cashierMin"));
+        assertEquals("200", query.parameters().get("cashierMax"));
         assertTrue(where.contains("e.terminalId >= :terminalMin"));
         assertTrue(where.contains("e.terminalId <= :terminalMax"));
         assertTrue(where.contains("e.eventDate >= :dateFrom"));
@@ -279,7 +300,8 @@ class JournalServiceTest {
     /**
      * {@code search} maps projected rows, formats the datetime and amount, and
      * turns a null amount into "0,00" (formatAmount null arm); the ascending
-     * direction is applied (descending false arm).
+     * direction is applied (descending false arm), the first page is read from
+     * offset 0 and the page carries the counted total.
      */
     @Test
     void searchMapsRowsAscending() {
@@ -291,18 +313,44 @@ class JournalServiceTest {
                 LocalDateTime.of(2026, 8, 31, 15, 0), null, 0};
         when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
         when(query.getResultList()).thenReturn(List.<Object[]>of(normal, nullAmount));
+        stubCount(em, 2L);
         JournalService service = serviceWith(em);
         ArgumentCaptor<String> jpql = ArgumentCaptor.forClass(String.class);
-        List<JournalRow> rows = service.search(new JournalCriteria());
+        JournalPage<JournalRow> page = service.search(new JournalCriteria());
         org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(Object[].class));
         assertTrue(jpql.getValue().contains("order by t.creationDate asc, t.id asc"));
-        assertEquals(2, rows.size());
-        assertEquals(5L, rows.get(0).id);
-        assertEquals("31/08/2026", rows.get(0).date);
-        assertEquals("14:30", rows.get(0).time);
-        assertEquals("12,50", rows.get(0).amount);
-        assertEquals("N", rows.get(0).trainingMode);
-        assertEquals("0,00", rows.get(1).amount);
+        org.mockito.Mockito.verify(query).setFirstResult(0);
+        org.mockito.Mockito.verify(query).setMaxResults(JournalService.PAGE_SIZE);
+        assertEquals(2, page.rows.size());
+        assertEquals(2L, page.total);
+        assertEquals(1, page.number);
+        assertEquals(5L, page.rows.get(0).id);
+        assertEquals("31/08/2026", page.rows.get(0).date);
+        assertEquals("14:30", page.rows.get(0).time);
+        assertEquals("12,50", page.rows.get(0).amount);
+        assertEquals("N", page.rows.get(0).trainingMode);
+        assertEquals("0,00", page.rows.get(1).amount);
+    }
+
+    /**
+     * {@code search} counts the matching documents with a count query built on
+     * the same where clause as the list.
+     */
+    @Test
+    void searchCountsOverTheSameWhereClause() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<Object[]> query = selfQuery();
+        when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 0L);
+        JournalService service = serviceWith(em);
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.text = "lait";
+        ArgumentCaptor<String> jpql = ArgumentCaptor.forClass(String.class);
+        service.search(criteria);
+        org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(Long.class));
+        assertTrue(jpql.getValue().startsWith("select count(t.id) from Ticket t where "));
+        assertTrue(jpql.getValue().contains("like :text"));
     }
 
     /**
@@ -315,14 +363,74 @@ class JournalServiceTest {
         TypedQuery<Object[]> query = selfQuery();
         when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
         when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 0L);
         JournalService service = serviceWith(em);
         JournalCriteria criteria = new JournalCriteria();
         criteria.sort = "amount";
         criteria.descending = true;
         ArgumentCaptor<String> jpql = ArgumentCaptor.forClass(String.class);
-        assertTrue(service.search(criteria).isEmpty());
+        assertTrue(service.search(criteria).rows.isEmpty());
         org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(Object[].class));
         assertTrue(jpql.getValue().contains("order by t.totalIncludingTax desc, t.id asc"));
+    }
+
+    /**
+     * {@code search} reads the requested page from its offset when that page
+     * exists (clampPage min arm, requested below the page count).
+     */
+    @Test
+    void searchReadsTheRequestedPage() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<Object[]> query = selfQuery();
+        when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 250L);
+        JournalService service = serviceWith(em);
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.page = 2;
+        JournalPage<JournalRow> page = service.search(criteria);
+        org.mockito.Mockito.verify(query).setFirstResult(JournalService.PAGE_SIZE);
+        assertEquals(2, page.number);
+        assertEquals(250L, page.total);
+        assertEquals(3, page.getPageCount());
+    }
+
+    /**
+     * {@code search} clamps a page beyond the last one onto the last page
+     * (clampPage min arm, requested above the page count).
+     */
+    @Test
+    void searchClampsPageBeyondTheLastOne() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<Object[]> query = selfQuery();
+        when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 150L);
+        JournalService service = serviceWith(em);
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.page = 9;
+        JournalPage<JournalRow> page = service.search(criteria);
+        org.mockito.Mockito.verify(query).setFirstResult(JournalService.PAGE_SIZE);
+        assertEquals(2, page.number);
+    }
+
+    /**
+     * {@code search} clamps a non-positive page onto the first one (clampPage
+     * requested-below-one arm).
+     */
+    @Test
+    void searchClampsNonPositivePage() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<Object[]> query = selfQuery();
+        when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 150L);
+        JournalService service = serviceWith(em);
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.page = 0;
+        JournalPage<JournalRow> page = service.search(criteria);
+        org.mockito.Mockito.verify(query).setFirstResult(0);
+        assertEquals(1, page.number);
     }
 
     /**
@@ -337,23 +445,54 @@ class JournalServiceTest {
         event.eventType = TechnicalEvent.EventType.SESSION_CLOSED;
         event.eventDate = LocalDateTime.of(2026, 8, 31, 18, 0);
         event.detail = "Z report";
+        event.operatorBadgeId = "12341234";
         when(em.createQuery(anyString(), eq(TechnicalEvent.class))).thenReturn(query);
         when(query.getResultList()).thenReturn(List.of(event));
+        stubCount(em, 1L);
         JournalService service = serviceWith(em);
         JournalCriteria criteria = new JournalCriteria();
         criteria.eventTypes.add("SESSION_CLOSED");
-        List<JournalEventRow> rows = service.searchEvents(criteria);
-        assertEquals(1, rows.size());
-        assertEquals("C04", rows.get(0).terminal);
-        assertEquals("SESSION_CLOSED", rows.get(0).type);
-        assertEquals("31/08/2026", rows.get(0).date);
-        assertEquals("18:00", rows.get(0).time);
-        assertEquals("Z report", rows.get(0).detail);
+        JournalPage<JournalEventRow> page = service.searchEvents(criteria);
+        assertEquals(1, page.rows.size());
+        assertEquals(1L, page.total);
+        assertEquals(1, page.number);
+        assertEquals("C04", page.rows.get(0).terminal);
+        assertEquals("12341234", page.rows.get(0).cashier);
+        assertEquals("SESSION_CLOSED", page.rows.get(0).type);
+        assertEquals("31/08/2026", page.rows.get(0).date);
+        assertEquals("18:00", page.rows.get(0).time);
+        assertEquals("Z report", page.rows.get(0).detail);
+        org.mockito.Mockito.verify(query).setFirstResult(0);
+        org.mockito.Mockito.verify(query).setMaxResults(JournalService.PAGE_SIZE);
+    }
+
+    /**
+     * {@code searchEvents} reads the requested page of events from its offset
+     * and counts the whole result set.
+     */
+    @Test
+    void searchEventsReadsTheRequestedPage() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<TechnicalEvent> query = selfQuery();
+        when(em.createQuery(anyString(), eq(TechnicalEvent.class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 320L);
+        JournalService service = serviceWith(em);
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.page = 3;
+        ArgumentCaptor<String> jpql = ArgumentCaptor.forClass(String.class);
+        JournalPage<JournalEventRow> page = service.searchEvents(criteria);
+        org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(Long.class));
+        assertEquals("select count(e.id) from TechnicalEvent e", jpql.getValue());
+        org.mockito.Mockito.verify(query).setFirstResult(2 * JournalService.PAGE_SIZE);
+        assertEquals(3, page.number);
+        assertEquals(320L, page.total);
     }
 
     /**
      * {@code exportCsv} renders the header and one line per row, reproducing
-     * the list columns.
+     * the list columns. A partial first chunk ends the read (short-chunk arm),
+     * and the export never goes through a count: it covers the whole set.
      */
     @Test
     void exportCsvReproducesTheList() {
@@ -367,6 +506,49 @@ class JournalServiceTest {
         String csv = service.exportCsv(new JournalCriteria());
         assertEquals("TPV;Transaction;Caissiere;Date;Heure;Montant;Articles;Ecole;Autonome\n"
                 + "C04;C04-00000123;12341234;31/08/2026;14:30;12,50;3;N;N\n", csv);
+        org.mockito.Mockito.verify(query).setMaxResults(JournalService.EXPORT_CHUNK);
+        org.mockito.Mockito.verify(query).setFirstResult(0);
+    }
+
+    /**
+     * {@code exportCsv} keeps reading while the chunks come back full, so an
+     * extract larger than one window is complete rather than truncated
+     * (full-chunk arm, then the exhausted arm).
+     */
+    @Test
+    void exportCsvReadsEveryChunk() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<Object[]> query = selfQuery();
+        Object[] first = {5L, "C04", "C04-00000123", "12341234",
+                LocalDateTime.of(2026, 8, 31, 14, 30), new BigDecimal("12.50"), 3};
+        Object[] second = {6L, "C05", "C05-00000456", "12341234",
+                LocalDateTime.of(2026, 8, 31, 15, 45), new BigDecimal("7.00"), 1};
+        when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(
+                List.<Object[]>of(first), List.<Object[]>of(second), List.<Object[]>of());
+        JournalService service = serviceWith(em);
+        String csv = service.exportCsv(new JournalCriteria(), 1);
+        assertEquals("TPV;Transaction;Caissiere;Date;Heure;Montant;Articles;Ecole;Autonome\n"
+                + "C04;C04-00000123;12341234;31/08/2026;14:30;12,50;3;N;N\n"
+                + "C05;C05-00000456;12341234;31/08/2026;15:45;7,00;1;N;N\n", csv);
+        org.mockito.Mockito.verify(query).setFirstResult(0);
+        org.mockito.Mockito.verify(query).setFirstResult(1);
+        org.mockito.Mockito.verify(query).setFirstResult(2);
+    }
+
+    /**
+     * {@code exportCsv} on a result set matching nothing renders the header
+     * alone (empty first chunk arm).
+     */
+    @Test
+    void exportCsvOnEmptyResultRendersHeaderOnly() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<Object[]> query = selfQuery();
+        when(em.createQuery(anyString(), eq(Object[].class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        JournalService service = serviceWith(em);
+        assertEquals("TPV;Transaction;Caissiere;Date;Heure;Montant;Articles;Ecole;Autonome\n",
+                service.exportCsv(new JournalCriteria()));
     }
 
     // --------------------------------------------------

@@ -106,6 +106,12 @@ public class JournalCriteria {
     public boolean descending;
 
     /**
+     * The 1-based page number of the result list (BO-04-01-13's free search is
+     * paged, never truncated). Defaults to the first page.
+     */
+    public int page = 1;
+
+    /**
      * Default constructor for an empty (match-everything) criteria.
      */
     public JournalCriteria() {
@@ -145,7 +151,29 @@ public class JournalCriteria {
         addFlags(criteria.flags, params.get("flag"));
         criteria.sort = blankToNull(params.getFirst("sort"));
         criteria.descending = "desc".equals(params.getFirst("dir"));
+        criteria.page = parsePage(params.getFirst("page"));
         return criteria;
+    }
+
+    /**
+     * Parses a 1-based page number, falling back to the first page on a blank,
+     * malformed or out-of-range value: a bad page never faults the read screen,
+     * it simply shows the beginning of the list.
+     *
+     * @param raw the raw value
+     * @return the page number, at least 1
+     */
+    static int parsePage(String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return 1;
+        }
+        try {
+            int page = Integer.parseInt(value);
+            return page < 1 ? 1 : page;
+        } catch (NumberFormatException e) {
+            return 1;
+        }
     }
 
     /**

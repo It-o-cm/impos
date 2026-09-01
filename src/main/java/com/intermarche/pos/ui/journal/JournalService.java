@@ -9,6 +9,7 @@ import com.intermarche.pos.domain.ticket.VoucherPayment;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -31,14 +32,19 @@ import java.util.Map;
  * {@link EntityManager} (the same choice the dashboard made): the query is
  * assembled from a {@link JournalCriteria} by pure builders — every criterion
  * is one AND-ed condition, absent criteria contribute nothing (BO-04-01-13,
- * the free combination) — and executed here with a hard result cap so a free
- * search over a year of tickets cannot exhaust memory.
+ * the free combination) — and executed here one page at a time, each search
+ * preceded by its own {@code count}, so a free search over a year of tickets
+ * neither exhausts memory nor drops rows in silence: the screen always states
+ * how many documents matched and which slice of them it shows.
  */
 @ApplicationScoped
 public class JournalService {
 
-    /** The upper bound on rows a single search returns. */
-    static final int MAX_RESULTS = 1000;
+    /** The number of rows one page of a result list shows. */
+    static final int PAGE_SIZE = 100;
+
+    /** The number of rows one export query reads at a time. */
+    static final int EXPORT_CHUNK = 1000;
 
     /** French date format for the list and export. */
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -225,26 +231,45 @@ public class JournalService {
     }
 
     /**
-     * Runs the transactional search and maps the projected rows to
-     * {@link JournalRow}. Ordering is the requested column (BO-04-01-51) with a
-     * stable id tiebreak.
+     * Runs the transactional search and returns the requested page of rows,
+     * with the total number of matching documents. Ordering is the requested
+     * column (BO-04-01-51) with a stable id tiebreak. The journal is a control
+     * surface: the count is always taken, so the list can state what it is not
+     * showing rather than truncating in silence.
      *
-     * @param criteria the parsed search criteria
-     * @return the ordered rows, capped at {@link #MAX_RESULTS}
+     * @param criteria the parsed search criteria, carrying the requested page
+     * @return the requested page of rows and the total row count
      */
-    public List<JournalRow> search(JournalCriteria criteria) {
+    public JournalPage<JournalRow> search(JournalCriteria criteria) {
         JournalQuery query = buildTicketQuery(criteria);
+        long total = count("select count(t.id) from Ticket t" + query.whereClause(), query);
+        int number = clampPage(criteria.page, total, PAGE_SIZE);
+        List<JournalRow> rows = ticketRows(criteria, query, (number - 1) * PAGE_SIZE, PAGE_SIZE);
+        return new JournalPage<>(rows, number, PAGE_SIZE, total);
+    }
+
+    /**
+     * Reads one window of the transactional list and maps the projected rows to
+     * {@link JournalRow}.
+     *
+     * @param criteria the parsed criteria, read for the sort column and direction
+     * @param query the already-built where clause and its parameters
+     * @param offset the 0-based index of the first row to read
+     * @param limit the maximum number of rows to read
+     * @return the mapped rows of that window
+     */
+    private List<JournalRow> ticketRows(JournalCriteria criteria, JournalQuery query,
+                                        int offset, int limit) {
         JournalSort sort = JournalSort.fromKey(criteria.sort);
         String direction = criteria.descending ? "desc" : "asc";
         String jpql = "select t.id, t.terminalId, t.ticketNumber, t.cashier.badgeId,"
                 + " t.creationDate, t.totalIncludingTax, t.itemCount from Ticket t"
                 + query.whereClause()
                 + " order by " + sort.path + " " + direction + ", t.id asc";
-        var typed = entityManager.createQuery(jpql, Object[].class);
-        for (Map.Entry<String, Object> entry : query.parameters().entrySet()) {
-            typed.setParameter(entry.getKey(), entry.getValue());
-        }
-        typed.setMaxResults(MAX_RESULTS);
+        TypedQuery<Object[]> typed = entityManager.createQuery(jpql, Object[].class);
+        bind(typed, query);
+        typed.setFirstResult(offset);
+        typed.setMaxResults(limit);
         List<JournalRow> rows = new ArrayList<>();
         for (Object[] row : typed.getResultList()) {
             LocalDateTime creation = (LocalDateTime) row[4];
@@ -261,6 +286,48 @@ public class JournalService {
                     "N"));
         }
         return rows;
+    }
+
+    /**
+     * Runs a count query over an already-built where clause.
+     *
+     * @param jpql the complete count query
+     * @param query the built query carrying the parameters to bind
+     * @return the number of matching rows
+     */
+    private long count(String jpql, JournalQuery query) {
+        TypedQuery<Long> typed = entityManager.createQuery(jpql, Long.class);
+        bind(typed, query);
+        return typed.getSingleResult();
+    }
+
+    /**
+     * Binds every parameter of a built query onto a typed query.
+     *
+     * @param typed the query to bind the parameters on
+     * @param query the built query carrying the parameters
+     */
+    private void bind(TypedQuery<?> typed, JournalQuery query) {
+        for (Map.Entry<String, Object> entry : query.parameters().entrySet()) {
+            typed.setParameter(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /**
+     * Clamps a requested page number into the pages the result set actually
+     * has, so a stale link or a hand-typed page shows the last page rather than
+     * an empty list.
+     *
+     * @param requested the requested 1-based page number
+     * @param total the total number of matching rows
+     * @param size the page size
+     * @return the page number to read, between 1 and the page count
+     */
+    private int clampPage(int requested, long total, int size) {
+        if (requested < 1) {
+            return 1;
+        }
+        return Math.min(requested, JournalPage.pageCount(total, size));
     }
 
     /**
@@ -317,6 +384,18 @@ public class JournalService {
 
     /**
      * Builds the {@code where} clause of the functional-event search.
+     * <p>
+     * The cashier range (BO-04-01-27/28/29/30) reuses the same
+     * {@code cashierMin}/{@code cashierMax} criteria as the transactional tab,
+     * matched here against {@link TechnicalEvent#operatorBadgeId} — the
+     * first-class badge column, badge compared to badge. The operator-security
+     * events (register lock/unlock, password change and failure) name their
+     * operator by that column, so the range narrows a selected action to a band
+     * of cashiers exactly as the questionnaire asks. Comparing the range against
+     * the free-text {@code detail} column instead would match any detail that
+     * happens to sort between the bounds for the sixteen other event types — a
+     * defect, not a shortcut. An event with no operator has a null badge, which
+     * never matches a range, so it is excluded rather than wrongly returned.
      *
      * @param criteria the parsed criteria
      * @return the assembled query fragment and its parameters
@@ -335,6 +414,14 @@ public class JournalService {
                 query.and("e.eventType in :eventTypes");
                 query.bind("eventTypes", types);
             }
+        }
+        if (criteria.cashierMin != null) {
+            query.and("e.operatorBadgeId >= :cashierMin");
+            query.bind("cashierMin", criteria.cashierMin);
+        }
+        if (criteria.cashierMax != null) {
+            query.and("e.operatorBadgeId <= :cashierMax");
+            query.bind("cashierMax", criteria.cashierMax);
         }
         if (criteria.terminalMin != null) {
             query.and("e.terminalId >= :terminalMin");
@@ -360,30 +447,34 @@ public class JournalService {
     }
 
     /**
-     * Runs the functional-event search, most recent first.
+     * Runs the functional-event search, most recent first, and returns the
+     * requested page with the total number of matching events — the same
+     * no-silent-truncation posture as the transactional list.
      *
-     * @param criteria the parsed criteria
-     * @return the ordered event rows, capped at {@link #MAX_RESULTS}
+     * @param criteria the parsed criteria, carrying the requested page
+     * @return the requested page of event rows and the total row count
      */
-    public List<JournalEventRow> searchEvents(JournalCriteria criteria) {
+    public JournalPage<JournalEventRow> searchEvents(JournalCriteria criteria) {
         JournalQuery query = buildEventQuery(criteria);
+        long total = count("select count(e.id) from TechnicalEvent e" + query.whereClause(), query);
+        int number = clampPage(criteria.page, total, PAGE_SIZE);
         String jpql = "select e from TechnicalEvent e" + query.whereClause()
                 + " order by e.eventDate desc, e.id asc";
-        var typed = entityManager.createQuery(jpql, TechnicalEvent.class);
-        for (Map.Entry<String, Object> entry : query.parameters().entrySet()) {
-            typed.setParameter(entry.getKey(), entry.getValue());
-        }
-        typed.setMaxResults(MAX_RESULTS);
+        TypedQuery<TechnicalEvent> typed = entityManager.createQuery(jpql, TechnicalEvent.class);
+        bind(typed, query);
+        typed.setFirstResult((number - 1) * PAGE_SIZE);
+        typed.setMaxResults(PAGE_SIZE);
         List<JournalEventRow> rows = new ArrayList<>();
         for (TechnicalEvent event : typed.getResultList()) {
             rows.add(new JournalEventRow(
                     event.terminalId,
+                    event.operatorBadgeId,
                     event.eventType.name(),
                     event.eventDate.format(DATE),
                     event.eventDate.format(TIME),
                     event.detail));
         }
-        return rows;
+        return new JournalPage<>(rows, number, PAGE_SIZE, total);
     }
 
     // --------------------------------------------------
@@ -393,25 +484,48 @@ public class JournalService {
     /**
      * Renders the transactional list as a semicolon-separated CSV reproducing
      * the columns of {@link JournalRow} exactly (BO-04-01-50, export à
-     * l'identique). Runs the same search as the screen so the two never
-     * diverge.
+     * l'identique). Runs the same query as the screen so the two never diverge,
+     * but over the WHOLE result set rather than the displayed page: an extract
+     * an auditor works from is complete or it is worthless.
      *
      * @param criteria the parsed search criteria
      * @return the CSV document
      */
     public String exportCsv(JournalCriteria criteria) {
+        return exportCsv(criteria, EXPORT_CHUNK);
+    }
+
+    /**
+     * Renders the CSV export, reading the result set in windows of the given
+     * size so a large extract never materializes a single unbounded query.
+     *
+     * @param criteria the parsed search criteria
+     * @param chunkSize the number of rows read per query, strictly positive
+     * @return the CSV document covering every matching row
+     */
+    String exportCsv(JournalCriteria criteria, int chunkSize) {
+        JournalQuery query = buildTicketQuery(criteria);
         StringBuilder csv = new StringBuilder(
                 "TPV;Transaction;Caissiere;Date;Heure;Montant;Articles;Ecole;Autonome\n");
-        for (JournalRow row : search(criteria)) {
-            csv.append(row.terminal).append(';')
-                    .append(row.transaction).append(';')
-                    .append(row.cashier).append(';')
-                    .append(row.date).append(';')
-                    .append(row.time).append(';')
-                    .append(row.amount).append(';')
-                    .append(row.itemCount).append(';')
-                    .append(row.trainingMode).append(';')
-                    .append(row.autonomous).append('\n');
+        int offset = 0;
+        List<JournalRow> chunk = ticketRows(criteria, query, offset, chunkSize);
+        while (!chunk.isEmpty()) {
+            for (JournalRow row : chunk) {
+                csv.append(row.terminal).append(';')
+                        .append(row.transaction).append(';')
+                        .append(row.cashier).append(';')
+                        .append(row.date).append(';')
+                        .append(row.time).append(';')
+                        .append(row.amount).append(';')
+                        .append(row.itemCount).append(';')
+                        .append(row.trainingMode).append(';')
+                        .append(row.autonomous).append('\n');
+            }
+            if (chunk.size() < chunkSize) {
+                break;
+            }
+            offset += chunkSize;
+            chunk = ticketRows(criteria, query, offset, chunkSize);
         }
         return csv.toString();
     }

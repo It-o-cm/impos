@@ -7,8 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Unit tests for {@link JournalEventRow}.
  * <p>
- * Branch enumeration (100%): the {@code detail == null} guard is exercised on
- * both arms — a null detail becomes the empty string, a present detail is kept.
+ * Branch enumeration (100%): the {@code detail == null} and
+ * {@code cashier == null} guards are exercised on both arms — a null value
+ * becomes the empty string, a present one is kept.
  */
 class JournalEventRowTest {
 
@@ -17,9 +18,10 @@ class JournalEventRowTest {
      */
     @Test
     void presentDetailIsKept() {
-        JournalEventRow row = new JournalEventRow("C04", "SESSION_CLOSED",
+        JournalEventRow row = new JournalEventRow("C04", "12341234", "SESSION_CLOSED",
                 "31/08/2026", "18:00", "Z report");
         assertEquals("C04", row.terminal);
+        assertEquals("12341234", row.cashier);
         assertEquals("SESSION_CLOSED", row.type);
         assertEquals("31/08/2026", row.date);
         assertEquals("18:00", row.time);
@@ -27,12 +29,14 @@ class JournalEventRowTest {
     }
 
     /**
-     * A null detail becomes the empty string (null arm).
+     * A null detail and a null operator badge both become the empty string
+     * (null arms).
      */
     @Test
-    void nullDetailBecomesEmpty() {
-        JournalEventRow row = new JournalEventRow("C04", "AUTH_LOCKED",
+    void nullDetailAndCashierBecomeEmpty() {
+        JournalEventRow row = new JournalEventRow("C04", null, "AUTH_LOCKED",
                 "31/08/2026", "09:00", null);
         assertEquals("", row.detail);
+        assertEquals("", row.cashier);
     }
 }

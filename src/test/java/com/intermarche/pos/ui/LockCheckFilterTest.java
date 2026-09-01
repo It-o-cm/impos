@@ -46,6 +46,7 @@ class LockCheckFilterTest {
         filter.state = state;
         filter.posSettingsService = mock(PosSettingsService.class);
         when(filter.posSettingsService.idleLockoutSeconds()).thenReturn(idleSeconds);
+        filter.technicalEventService = mock(com.intermarche.pos.service.TechnicalEventService.class);
         return filter;
     }
 
@@ -174,14 +175,35 @@ class LockCheckFilterTest {
     void unlockedIdleExpiryLogsOutAndRedirects() throws Exception {
         PosState state = unlocked();
         state.auth.lastActivityAt = System.currentTimeMillis() - 120_000L;
+        state.auth.operatorBadgeId = "12341234";
         long beforeVersion = state.version;
         LockCheckFilter filter = newFilter(state, 60);
         ContainerRequestContext ctx = ctxFor("sale");
         filter.filter(ctx);
         assertTrue(state.isLocked());
         assertTrue(state.version > beforeVersion);
+        verify(filter.technicalEventService).log(
+                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.REGISTER_LOCKED,
+                null, "12341234");
         ArgumentCaptor<Response> captor = ArgumentCaptor.forClass(Response.class);
         verify(ctx).abortWith(captor.capture());
         assertEquals("/lock", captor.getValue().getLocation().toString());
+    }
+
+    /**
+     * A register that is not expired never journals a pause (no-op arm of the
+     * idle guard): the emitter is left untouched on a recent-activity request.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void unlockedNotExpiredNeverLogsPause() throws Exception {
+        PosState state = unlocked();
+        state.auth.lastActivityAt = System.currentTimeMillis() - 1000L;
+        LockCheckFilter filter = newFilter(state, 60);
+        ContainerRequestContext ctx = ctxFor("sale");
+        filter.filter(ctx);
+        verify(filter.technicalEventService, never()).log(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 }

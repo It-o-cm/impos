@@ -119,13 +119,14 @@ public class AuthService {
             return new CredentialStatus(employee, false);
         }
         employee.failedAttempts++;
+        technicalEventService.log(TechnicalEvent.EventType.PASSWORD_FAILED, null, employee.badgeId);
         boolean nowLocked = false;
         if (employee.failedAttempts >= maxAttempts) {
             employee.lockedUntil = LocalDateTime.now().plusMinutes(lockoutMinutes);
             employee.failedAttempts = 0;
             nowLocked = true;
             technicalEventService.log(TechnicalEvent.EventType.AUTH_LOCKED,
-                    loginInfo + " (" + lockoutMinutes + " min)");
+                    loginInfo + " (" + lockoutMinutes + " min)", employee.badgeId);
         }
         employee.persist();
         return new CredentialStatus(null, nowLocked);
@@ -143,7 +144,10 @@ public class AuthService {
     public LoginResult login(PosState state, String loginInfo, String rawPassword) {
         CredentialStatus status = checkCredentials(loginInfo, rawPassword);
         if (status.isSuccess()) {
-            state.auth.login(status.employee.id, status.employee.getFullName());
+            state.auth.login(status.employee.id, status.employee.getFullName(),
+                    status.employee.badgeId);
+            technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
+                    null, status.employee.badgeId);
             return LoginResult.SUCCESS;
         }
         return status.locked ? LoginResult.LOCKED : LoginResult.INVALID;
@@ -192,6 +196,7 @@ public class AuthService {
         }
         employee.password = Employee.hashPassword(newPin);
         employee.persist();
+        technicalEventService.log(TechnicalEvent.EventType.PASSWORD_CHANGED, null, employee.badgeId);
         return null;
     }
 }

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,7 +26,8 @@ import static org.mockito.Mockito.when;
  * {@link JournalCriteria}, delegates to a mocked {@link JournalService}, and
  * wires a mocked Qute template. Each endpoint has a single path (no
  * conditional branches), so one test per endpoint pins the delegation and the
- * response shape. No database, no Quarkus context.
+ * response shape; {@code baseQuery} is exercised separately on its skip-page
+ * and multi-value arms. No database, no Quarkus context.
  */
 class JournalResourceTest {
 
@@ -67,6 +69,16 @@ class JournalResourceTest {
     }
 
     /**
+     * Builds an empty result page of the service's page size.
+     *
+     * @param <T> the row type
+     * @return the empty page
+     */
+    private <T> JournalPage<T> emptyPage() {
+        return new JournalPage<>(List.of(), 1, JournalService.PAGE_SIZE, 0);
+    }
+
+    /**
      * The transactional endpoint runs the ticket search and renders the page
      * with the transactional tab.
      */
@@ -74,9 +86,11 @@ class JournalResourceTest {
     void transactionalRendersTicketSearch() {
         JournalResource resource = newResource();
         TemplateInstance instance = wire(resource.journal);
-        when(resource.journalService.search(any())).thenReturn(List.of());
+        JournalPage<JournalRow> page = emptyPage();
+        when(resource.journalService.search(any())).thenReturn(page);
         assertSame(instance, resource.transactional(emptyUri()));
         verify(resource.journal).data("tab", "transactional");
+        verify(instance).data("tickets", page);
         verify(resource.journalService).search(any());
     }
 
@@ -88,9 +102,11 @@ class JournalResourceTest {
     void functionalRendersEventSearch() {
         JournalResource resource = newResource();
         TemplateInstance instance = wire(resource.journal);
-        when(resource.journalService.searchEvents(any())).thenReturn(List.of());
+        JournalPage<JournalEventRow> page = emptyPage();
+        when(resource.journalService.searchEvents(any())).thenReturn(page);
         assertSame(instance, resource.functional(emptyUri()));
         verify(resource.journal).data("tab", "functional");
+        verify(instance).data("events", page);
         verify(resource.journalService).searchEvents(any());
     }
 
@@ -122,5 +138,35 @@ class JournalResourceTest {
         assertEquals(200, response.getStatus());
         assertEquals("H\nrow\n", response.getEntity());
         assertTrue(response.getHeaderString("Content-Disposition").contains("journal.csv"));
+    }
+
+    /**
+     * {@code baseQuery} is empty when the request carries no criterion (empty
+     * map arm).
+     */
+    @Test
+    void baseQueryIsEmptyWithoutCriteria() {
+        assertEquals("", newResource().baseQuery(emptyUri()));
+    }
+
+    /**
+     * {@code baseQuery} re-encodes every criterion, repeats a multi-valued key
+     * once per value and drops the page parameter, so a pager link keeps the
+     * search and moves only the page (skip arm and kept arm).
+     */
+    @Test
+    void baseQueryKeepsCriteriaAndDropsThePage() {
+        MultivaluedHashMap<String, String> params = new MultivaluedHashMap<>();
+        params.putSingle("text", "lait demi");
+        params.put("method", List.of("CARD", "CASH"));
+        params.putSingle("page", "4");
+        UriInfo uriInfo = mock(UriInfo.class);
+        when(uriInfo.getQueryParameters()).thenReturn(params);
+        String query = newResource().baseQuery(uriInfo);
+        assertTrue(query.contains("text=lait+demi&"));
+        assertTrue(query.contains("method=CARD&"));
+        assertTrue(query.contains("method=CASH&"));
+        assertTrue(query.endsWith("&"));
+        assertFalse(query.contains("page="));
     }
 }

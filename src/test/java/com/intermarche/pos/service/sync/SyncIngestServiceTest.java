@@ -613,6 +613,7 @@ class SyncIngestServiceTest {
         dto.terminalId = "T1";
         dto.type = "TICKET_CLOSED";
         dto.detail = "detail";
+        dto.operatorBadgeId = "12341234";
         dto.eventDate = "2026-01-01T17:00:00";
         PanacheQuery<TechnicalEvent> eventQuery = queryReturning(null);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
@@ -624,6 +625,7 @@ class SyncIngestServiceTest {
             assertEquals("T1", event.terminalId);
             assertEquals(TechnicalEvent.EventType.TICKET_CLOSED, event.eventType);
             assertEquals("detail", event.detail);
+            assertEquals("12341234", event.operatorBadgeId);
             assertEquals(LocalDateTime.of(2026, 1, 1, 17, 0, 0), event.eventDate);
             verify(event, times(1)).persist();
         }
@@ -641,6 +643,7 @@ class SyncIngestServiceTest {
         dto.terminalId = "T2";
         dto.type = "TICKET_CANCELLED";
         dto.detail = null;
+        dto.operatorBadgeId = null;
         dto.eventDate = "2026-02-02T18:00:00";
         TechnicalEvent existing = mock(TechnicalEvent.class);
         PanacheQuery<TechnicalEvent> eventQuery = queryReturning(existing);
@@ -650,6 +653,7 @@ class SyncIngestServiceTest {
             assertEquals("T2", existing.terminalId);
             assertEquals(TechnicalEvent.EventType.TICKET_CANCELLED, existing.eventType);
             assertNull(existing.detail);
+            assertNull(existing.operatorBadgeId);
             assertEquals(LocalDateTime.of(2026, 2, 2, 18, 0, 0), existing.eventDate);
             verify(existing, times(1)).persist();
         }
