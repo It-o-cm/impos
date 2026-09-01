@@ -1,6 +1,7 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.SyncOutbox;
 import com.intermarche.pos.domain.ticket.CashPayment;
@@ -139,6 +140,11 @@ public class SyncOutboxService {
                     yield session == null ? null
                             : new PreparedItem("session", objectMapper.writeValueAsString(toDto(session)));
                 }
+                case MOVEMENT -> {
+                    CashMovement movement = CashMovement.findById(row.entityId);
+                    yield movement == null ? null
+                            : new PreparedItem("movement", objectMapper.writeValueAsString(toDto(movement)));
+                }
                 case TICKET -> {
                     Ticket ticket = Ticket.findById(row.entityId);
                     yield ticket == null ? null
@@ -221,6 +227,27 @@ public class SyncOutboxService {
         dto.variance = session.variance;
         dto.withdrawnAmount = session.withdrawnAmount;
         dto.countDetail = session.countDetail;
+        return dto;
+    }
+
+    /**
+     * Maps a cash movement to its payload; session and cashier are referenced
+     * by natural key.
+     *
+     * @param movement the movement entity
+     * @return the payload
+     */
+    private SyncPayloads.MovementDto toDto(CashMovement movement) {
+        SyncPayloads.MovementDto dto = new SyncPayloads.MovementDto();
+        dto.movementUid = movement.movementUid;
+        dto.terminalId = movement.terminalId;
+        dto.sessionNumber = movement.session != null ? movement.session.sessionNumber : null;
+        dto.cashierLogin = movement.cashier != null ? movement.cashier.loginName : null;
+        dto.type = movement.type.name();
+        dto.amount = movement.amount;
+        dto.reason = movement.reason;
+        dto.movementDate = iso(movement.movementDate);
+        dto.endorsedBy = movement.endorsedBy;
         return dto;
     }
 

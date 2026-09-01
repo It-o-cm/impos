@@ -11,11 +11,11 @@ import java.time.LocalDateTime;
 /**
  * Outbox of the store synchronization (phase 5): one row per entity awaiting
  * push to the store node, written in the same transaction as the business
- * event (ticket closing, session lifecycle, refund creation) so nothing is
- * ever lost. The background push loop drains it in type order (sessions
- * first, then tickets, then refunds) and deletes each row once the store
- * node acknowledged it; failures stay in place with their error and are
- * retried on the next cycle.
+ * event (ticket closing, session lifecycle, refund creation, cash movement)
+ * so nothing is ever lost. The background push loop drains it in type order
+ * (sessions first, then movements, then tickets, then refunds, events last)
+ * and deletes each row once the store node acknowledged it; failures stay in
+ * place with their error and are retried on the next cycle.
  * <p>
  * {@code attempts} and {@code lastError} make a stuck item observable with
  * one query on the register (poison items keep accumulating attempts and
@@ -31,8 +31,15 @@ public class SyncOutbox extends PanacheEntity {
 
     /** Kinds of synchronized entities; the ordinal drives the drain order. */
     public enum EntityType {
-        /** A cash session (pushed first: tickets reference it). */
+        /** A cash session (pushed first: tickets and movements reference it). */
         SESSION,
+        /**
+         * A cash movement (pushed right after sessions): it references its
+         * session and NOTHING else, so it drains as soon as that sole
+         * dependency is guaranteed present, ahead of the tickets and refunds it
+         * is independent of.
+         */
+        MOVEMENT,
         /** A closed or cancelled ticket. */
         TICKET,
         /** A refund (it references a ticket). */

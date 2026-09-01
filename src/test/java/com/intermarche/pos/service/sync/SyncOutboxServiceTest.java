@@ -1,6 +1,7 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Store;
@@ -711,6 +712,109 @@ class SyncOutboxServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
             mocked.when(() -> CashSession.findById(100L)).thenReturn(session);
+            assertNull(service.prepare(1L));
+        }
+    }
+
+    // --------------------------------------------------
+    // prepare — MOVEMENT (lot C5a, BO-04-01-12/33/35/36/37/40/44)
+    // --------------------------------------------------
+
+    /**
+     * Covers the MOVEMENT case of {@code prepare} with a full graph: session
+     * and cashier ternary true arms and the {@code iso} non-null arm; the
+     * payload is serialized to the {@code movement} path and round-trips to the
+     * expected natural keys and values.
+     */
+    @Test
+    void prepareMovementSerializesFullGraph() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.MOVEMENT;
+        row.entityId = 300L;
+        CashMovement movement = new CashMovement();
+        movement.movementUid = "M1";
+        movement.terminalId = "C04";
+        movement.type = CashMovement.MovementType.WITHDRAWAL;
+        movement.amount = new BigDecimal("30.00");
+        movement.reason = "coffre";
+        movement.movementDate = LocalDateTime.of(2026, 9, 1, 15, 42, 0);
+        movement.endorsedBy = "11111111";
+        CashSession session = new CashSession();
+        session.sessionNumber = "C04-S00001";
+        movement.session = session;
+        Employee cashier = new Employee();
+        cashier.loginName = "jdupont";
+        movement.cashier = cashier;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> CashMovement.findById(300L)).thenReturn(movement);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            assertEquals("movement", item.pathSuffix);
+            SyncPayloads.MovementDto out =
+                    new ObjectMapper().readValue(item.json, SyncPayloads.MovementDto.class);
+            assertEquals("M1", out.movementUid);
+            assertEquals("C04", out.terminalId);
+            assertEquals("C04-S00001", out.sessionNumber);
+            assertEquals("jdupont", out.cashierLogin);
+            assertEquals("WITHDRAWAL", out.type);
+            assertEquals(new BigDecimal("30.00"), out.amount);
+            assertEquals("coffre", out.reason);
+            assertEquals("2026-09-01T15:42:00", out.movementDate);
+            assertEquals("11111111", out.endorsedBy);
+        }
+    }
+
+    /**
+     * Covers the MOVEMENT case of {@code prepare} with null session, null
+     * cashier and null date: both natural-key ternary false arms and the
+     * {@code iso} null arm.
+     */
+    @Test
+    void prepareMovementSerializesWithNulls() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.MOVEMENT;
+        row.entityId = 300L;
+        CashMovement movement = new CashMovement();
+        movement.movementUid = "M2";
+        movement.terminalId = "C04";
+        movement.type = CashMovement.MovementType.DECLARATION;
+        movement.amount = new BigDecimal("0.00");
+        movement.reason = null;
+        movement.movementDate = null;
+        movement.session = null;
+        movement.cashier = null;
+        movement.endorsedBy = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> CashMovement.findById(300L)).thenReturn(movement);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            SyncPayloads.MovementDto out =
+                    new ObjectMapper().readValue(item.json, SyncPayloads.MovementDto.class);
+            assertEquals("M2", out.movementUid);
+            assertEquals("DECLARATION", out.type);
+            assertNull(out.sessionNumber);
+            assertNull(out.cashierLogin);
+            assertNull(out.reason);
+            assertNull(out.movementDate);
+            assertNull(out.endorsedBy);
+        }
+    }
+
+    /**
+     * Covers the entity-gone arm of the MOVEMENT case: a vanished movement
+     * yields null.
+     */
+    @Test
+    void prepareMovementReturnsNullWhenMovementGone() {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.MOVEMENT;
+        row.entityId = 300L;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> CashMovement.findById(300L)).thenReturn(null);
             assertNull(service.prepare(1L));
         }
     }

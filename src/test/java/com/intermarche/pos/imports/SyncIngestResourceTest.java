@@ -108,6 +108,22 @@ class SyncIngestResourceTest {
     }
 
     /**
+     * {@code ingestMovement} succeeds with 200 when the node is a store and no
+     * token is configured, running the movement ingestion lambda to completion
+     * (lot C5a).
+     */
+    @Test
+    void movementOkWhenStoreAndNoTokenConfigured() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        SyncPayloads.MovementDto dto = new SyncPayloads.MovementDto();
+        SyncIngestResource resource = resource("store", Optional.empty(), service);
+        Response response = resource.ingestMovement(null, dto);
+        assertEquals(200, response.getStatus());
+        assertEquals("OK", response.getEntity());
+        verify(service).ingestMovement(dto);
+    }
+
+    /**
      * {@code ingestSession} refuses a non-store node with 403 (role-check true
      * arm) and never touches the service.
      */

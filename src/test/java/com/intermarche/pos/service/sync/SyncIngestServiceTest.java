@@ -1,5 +1,6 @@
 package com.intermarche.pos.service.sync;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Product;
@@ -671,6 +672,93 @@ class SyncIngestServiceTest {
             mocked.when(() -> Ticket.find("ticketNumber", "K4")).thenReturn(ticketQuery);
             mocked.when(() -> Refund.find("refundNumber", "R4")).thenReturn(refundQuery);
             assertThrows(IllegalStateException.class, () -> service.ingestRefund(dto));
+        }
+    }
+
+    // --------------------------------------------------
+    // ingestMovement (lot C5a, BO-04-01-12/33/35/36/37/40/44)
+    // --------------------------------------------------
+
+    /**
+     * Covers the insert arm of {@code ingestMovement}: no movement exists for
+     * the uid so one is constructed, its session resolves (session ternary true
+     * arm), its cashier resolves through {@code requireEmployee} (cashier
+     * ternary true arm), and the row is stamped and persisted.
+     */
+    @Test
+    void ingestMovementCreatesWithResolvedSessionAndCashier() {
+        SyncIngestService service = new SyncIngestService();
+        SyncPayloads.MovementDto dto = new SyncPayloads.MovementDto();
+        dto.movementUid = "M1";
+        dto.terminalId = "C04";
+        dto.sessionNumber = "C04-S00001";
+        dto.cashierLogin = "jdupont";
+        dto.type = "WITHDRAWAL";
+        dto.amount = new BigDecimal("30.00");
+        dto.reason = "coffre";
+        dto.movementDate = "2026-09-01T15:42:00";
+        dto.endorsedBy = "11111111";
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        PanacheQuery<CashMovement> movementQuery = queryReturning(null);
+        PanacheQuery<CashSession> sessionQuery = queryReturning(session);
+        PanacheQuery<Employee> cashierQuery = queryReturning(cashier);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            mocked.when(() -> CashMovement.find("movementUid", "M1")).thenReturn(movementQuery);
+            mocked.when(() -> CashSession.find("sessionNumber", "C04-S00001")).thenReturn(sessionQuery);
+            mocked.when(() -> Employee.find("loginName", "jdupont")).thenReturn(cashierQuery);
+            service.ingestMovement(dto);
+            CashMovement movement = created.constructed().get(0);
+            assertEquals("M1", movement.movementUid);
+            assertEquals("C04", movement.terminalId);
+            assertSame(session, movement.session);
+            assertSame(cashier, movement.cashier);
+            assertEquals(CashMovement.MovementType.WITHDRAWAL, movement.type);
+            assertEquals(new BigDecimal("30.00"), movement.amount);
+            assertEquals("coffre", movement.reason);
+            assertEquals(LocalDateTime.of(2026, 9, 1, 15, 42, 0), movement.movementDate);
+            assertEquals("11111111", movement.endorsedBy);
+            verify(movement, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the update arm of {@code ingestMovement} with a null session
+     * (session ternary false arm) and a null cashier (cashier ternary false
+     * arm): a SECOND push of the same uid finds the existing row and refreshes
+     * it — no new row is constructed — which is the upsert-by-uid idempotency
+     * the store consolidation relies on.
+     */
+    @Test
+    void ingestMovementUpdatesExistingWithNullSessionAndCashier() {
+        SyncIngestService service = new SyncIngestService();
+        SyncPayloads.MovementDto dto = new SyncPayloads.MovementDto();
+        dto.movementUid = "M2";
+        dto.terminalId = "C04";
+        dto.sessionNumber = null;
+        dto.cashierLogin = null;
+        dto.type = "DECLARATION";
+        dto.amount = new BigDecimal("250.00");
+        dto.reason = null;
+        dto.movementDate = "2026-09-01T20:00:00";
+        dto.endorsedBy = null;
+        CashMovement existing = mock(CashMovement.class);
+        PanacheQuery<CashMovement> movementQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            mocked.when(() -> CashMovement.find("movementUid", "M2")).thenReturn(movementQuery);
+            service.ingestMovement(dto);
+            assertTrue(created.constructed().isEmpty());
+            assertEquals("C04", existing.terminalId);
+            assertNull(existing.session);
+            assertNull(existing.cashier);
+            assertEquals(CashMovement.MovementType.DECLARATION, existing.type);
+            assertEquals(new BigDecimal("250.00"), existing.amount);
+            assertNull(existing.reason);
+            assertEquals(LocalDateTime.of(2026, 9, 1, 20, 0, 0), existing.movementDate);
+            assertNull(existing.endorsedBy);
+            verify(existing, times(1)).persist();
         }
     }
 

@@ -218,6 +218,31 @@ public final class SyncPayloads {
     }
 
     /**
+     * A cash movement (upsert by uid); references its session and cashier by
+     * natural key (BO-04-01-12/33/35/36/37/40/44).
+     */
+    public static class MovementDto {
+        /** The stable movement uid (upsert key). */
+        public String movementUid;
+        /** The register identifier. */
+        public String terminalId;
+        /** The session number, or null. */
+        public String sessionNumber;
+        /** The login of the cashier, or null. */
+        public String cashierLogin;
+        /** The movement type name. */
+        public String type;
+        /** The movement amount. */
+        public BigDecimal amount;
+        /** The free-text reason, or null. */
+        public String reason;
+        /** The movement timestamp, ISO-8601. */
+        public String movementDate;
+        /** The badge of the endorsing manager, or null. */
+        public String endorsedBy;
+    }
+
+    /**
      * A refunded line.
      */
     public static class RefundLineDto {

@@ -64,17 +64,20 @@ class SyncOutboxTest {
     }
 
     /**
-     * values exposes exactly the four declared constants in declaration order,
-     * the ordinal being the documented drain order.
+     * values exposes exactly the five declared constants in declaration order,
+     * the ordinal being the documented drain order: MOVEMENT drains right after
+     * SESSION (its sole dependency) and ahead of the tickets and refunds it is
+     * independent of (lot C5a).
      */
     @Test
-    void entityTypeValuesHoldsFourConstantsInOrder() {
+    void entityTypeValuesHoldsFiveConstantsInOrder() {
         EntityType[] values = EntityType.values();
-        Assertions.assertEquals(4, values.length);
+        Assertions.assertEquals(5, values.length);
         Assertions.assertEquals(EntityType.SESSION, values[0]);
-        Assertions.assertEquals(EntityType.TICKET, values[1]);
-        Assertions.assertEquals(EntityType.REFUND, values[2]);
-        Assertions.assertEquals(EntityType.EVENT, values[3]);
+        Assertions.assertEquals(EntityType.MOVEMENT, values[1]);
+        Assertions.assertEquals(EntityType.TICKET, values[2]);
+        Assertions.assertEquals(EntityType.REFUND, values[3]);
+        Assertions.assertEquals(EntityType.EVENT, values[4]);
     }
 
     /**
@@ -83,9 +86,10 @@ class SyncOutboxTest {
     @Test
     void entityTypeOrdinalsAreStable() {
         Assertions.assertEquals(0, EntityType.SESSION.ordinal());
-        Assertions.assertEquals(1, EntityType.TICKET.ordinal());
-        Assertions.assertEquals(2, EntityType.REFUND.ordinal());
-        Assertions.assertEquals(3, EntityType.EVENT.ordinal());
+        Assertions.assertEquals(1, EntityType.MOVEMENT.ordinal());
+        Assertions.assertEquals(2, EntityType.TICKET.ordinal());
+        Assertions.assertEquals(3, EntityType.REFUND.ordinal());
+        Assertions.assertEquals(4, EntityType.EVENT.ordinal());
     }
 
     /**
@@ -94,6 +98,7 @@ class SyncOutboxTest {
     @Test
     void entityTypeNamesMatchConstants() {
         Assertions.assertEquals("SESSION", EntityType.SESSION.name());
+        Assertions.assertEquals("MOVEMENT", EntityType.MOVEMENT.name());
         Assertions.assertEquals("TICKET", EntityType.TICKET.name());
         Assertions.assertEquals("REFUND", EntityType.REFUND.name());
         Assertions.assertEquals("EVENT", EntityType.EVENT.name());
@@ -105,6 +110,7 @@ class SyncOutboxTest {
     @Test
     void entityTypeValueOfResolvesEachConstant() {
         Assertions.assertSame(EntityType.SESSION, EntityType.valueOf("SESSION"));
+        Assertions.assertSame(EntityType.MOVEMENT, EntityType.valueOf("MOVEMENT"));
         Assertions.assertSame(EntityType.TICKET, EntityType.valueOf("TICKET"));
         Assertions.assertSame(EntityType.REFUND, EntityType.valueOf("REFUND"));
         Assertions.assertSame(EntityType.EVENT, EntityType.valueOf("EVENT"));

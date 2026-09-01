@@ -1,5 +1,6 @@
 package com.intermarche.pos.service.sync;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.Store;
@@ -261,6 +262,37 @@ public class SyncIngestService {
         event.operatorBadgeId = dto.operatorBadgeId;
         event.eventDate = parse(dto.eventDate);
         event.persist();
+    }
+
+    /**
+     * Upserts a cash movement by its uid; the referenced session, when named,
+     * is resolved by number (a movement whose session has not yet arrived is
+     * tolerated with a null link rather than parked — the movement is a
+     * first-class witness in its own right).
+     *
+     * @param dto the pushed movement payload
+     */
+    @Transactional
+    public void ingestMovement(SyncPayloads.MovementDto dto) {
+        CashMovement movement = CashMovement.find("movementUid", dto.movementUid).firstResult();
+        boolean created = false;
+        if (movement == null) {
+            movement = new CashMovement();
+            movement.movementUid = dto.movementUid;
+            created = true;
+        }
+        movement.terminalId = dto.terminalId;
+        movement.session = dto.sessionNumber != null
+                ? CashSession.<CashSession>find("sessionNumber", dto.sessionNumber).firstResult()
+                : null;
+        movement.cashier = dto.cashierLogin != null ? requireEmployee(dto.cashierLogin) : null;
+        movement.type = CashMovement.MovementType.valueOf(dto.type);
+        movement.amount = dto.amount;
+        movement.reason = dto.reason;
+        movement.movementDate = parse(dto.movementDate);
+        movement.endorsedBy = dto.endorsedBy;
+        movement.persist();
+        LOG.infof("Mouvement %s %s (%s)", dto.movementUid, created ? "créé" : "mis à jour", dto.type);
     }
 
     // --------------------------------------------------

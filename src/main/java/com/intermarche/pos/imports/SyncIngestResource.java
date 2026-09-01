@@ -74,6 +74,22 @@ public class SyncIngestResource {
     }
 
     /**
+     * Ingests a pushed cash movement.
+     *
+     * @param presentedToken the shared token presented by the register
+     * @param dto the movement payload
+     * @return 200 on upsert, 401 on a bad token, 403 off-role, 409 retryable
+     */
+    @POST
+    @Path("/movement")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response ingestMovement(@HeaderParam("X-Sync-Token") String presentedToken,
+                                   SyncPayloads.MovementDto dto) {
+        return handle(presentedToken, () -> syncIngestService.ingestMovement(dto));
+    }
+
+    /**
      * Ingests a pushed refund.
      *
      * @param dto the refund payload

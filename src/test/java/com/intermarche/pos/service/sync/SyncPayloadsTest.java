@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Unit tests for {@link SyncPayloads}.
  * <p>
  * {@code SyncPayloads} is a branch-free data-container class: a non-instantiable
- * outer holder plus seven public DTOs whose only members are public fields,
+ * outer holder plus eight public DTOs whose only members are public fields,
  * implicit no-arg constructors, and two list fields pre-initialized to empty
  * {@link java.util.ArrayList}s. There is no conditional logic, so the tests
  * exercise the private constructor (via reflection) and every DTO's construction,
@@ -388,6 +388,43 @@ class SyncPayloadsTest {
         assertNull(dto.quantity);
         assertNull(dto.price);
         assertNull(dto.vatRate);
+    }
+
+    /**
+     * A {@link SyncPayloads.MovementDto} stores and returns each of its fields,
+     * and a default instance leaves every nullable field null (lot C5a).
+     */
+    @Test
+    void movementDtoHoldsItsFields() {
+        SyncPayloads.MovementDto fresh = new SyncPayloads.MovementDto();
+        assertNull(fresh.movementUid);
+        assertNull(fresh.terminalId);
+        assertNull(fresh.sessionNumber);
+        assertNull(fresh.cashierLogin);
+        assertNull(fresh.type);
+        assertNull(fresh.amount);
+        assertNull(fresh.reason);
+        assertNull(fresh.movementDate);
+        assertNull(fresh.endorsedBy);
+        SyncPayloads.MovementDto dto = new SyncPayloads.MovementDto();
+        dto.movementUid = "M1";
+        dto.terminalId = "C04";
+        dto.sessionNumber = "C04-S00001";
+        dto.cashierLogin = "jdupont";
+        dto.type = "WITHDRAWAL";
+        dto.amount = new BigDecimal("30.00");
+        dto.reason = "coffre";
+        dto.movementDate = "2026-09-01T15:42:00";
+        dto.endorsedBy = "11111111";
+        assertEquals("M1", dto.movementUid);
+        assertEquals("C04", dto.terminalId);
+        assertEquals("C04-S00001", dto.sessionNumber);
+        assertEquals("jdupont", dto.cashierLogin);
+        assertEquals("WITHDRAWAL", dto.type);
+        assertEquals(new BigDecimal("30.00"), dto.amount);
+        assertEquals("coffre", dto.reason);
+        assertEquals("2026-09-01T15:42:00", dto.movementDate);
+        assertEquals("11111111", dto.endorsedBy);
     }
 
     /**
