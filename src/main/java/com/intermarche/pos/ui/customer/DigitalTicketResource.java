@@ -156,6 +156,9 @@ public class DigitalTicketResource {
         VatBreakdown breakdown = new VatBreakdown();
         if (ticket != null) {
             for (TicketLine line : ticket.lines) {
+                // Cancelled articles (lot C4) are outside the sale: excluded
+                // from the online receipt's VAT ventilation as from its lines.
+                if (line.cancelled) continue;
                 breakdown.add(line.vatRate, line.totalPrice);
             }
         }

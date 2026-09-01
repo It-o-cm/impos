@@ -42,6 +42,9 @@ class TicketLineTest {
         Assertions.assertNull(line.totalPrice);
         Assertions.assertNull(line.familyCode);
         Assertions.assertNull(line.familyLabel);
+        Assertions.assertFalse(line.cancelled);
+        Assertions.assertNull(line.cancellationDate);
+        Assertions.assertNull(line.cancelledBy);
     }
 
     /**
@@ -68,6 +71,9 @@ class TicketLineTest {
         line.deposit = true;
         line.familyCode = "FRUITS";
         line.familyLabel = "Rayon Fruits";
+        line.cancelled = true;
+        line.cancellationDate = java.time.LocalDateTime.of(2026, 9, 1, 15, 42);
+        line.cancelledBy = "12341234";
         Assertions.assertEquals(3, line.lineNumber);
         Assertions.assertEquals("uid-1", line.lineUid);
         Assertions.assertSame(product, line.product);
@@ -85,6 +91,9 @@ class TicketLineTest {
         Assertions.assertTrue(line.deposit);
         Assertions.assertEquals("FRUITS", line.familyCode);
         Assertions.assertEquals("Rayon Fruits", line.familyLabel);
+        Assertions.assertTrue(line.cancelled);
+        Assertions.assertEquals(java.time.LocalDateTime.of(2026, 9, 1, 15, 42), line.cancellationDate);
+        Assertions.assertEquals("12341234", line.cancelledBy);
     }
 
     /**

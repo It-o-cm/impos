@@ -212,8 +212,14 @@ public class TicketPersistenceService {
             memoryUids.add(item.uid);
         }
 
-        // Remove lines that no longer exist in memory (cancelled lines)
-        ticket.lines.removeIf(line -> line.lineUid == null || !memoryUids.contains(line.lineUid));
+        // Remove lines that no longer exist in memory, EXCEPT the ones marked
+        // cancelled (campaign lot C4, BO-04-01-16): a cancelled line has left
+        // the live cart on purpose but is kept as a conserved witness, so the
+        // orphan-removal that used to drop it now steps over it. Every other
+        // vanished line (a merge that emptied a uid, a legacy null-uid line) is
+        // still dropped.
+        ticket.lines.removeIf(line -> line.lineUid == null
+                || (!memoryUids.contains(line.lineUid) && !line.cancelled));
 
         Map<String, TicketLine> existingByUid = new HashMap<>();
         for (TicketLine line : ticket.lines) {
@@ -324,6 +330,37 @@ public class TicketPersistenceService {
         }
     }
 
+    /**
+     * Marks a draft line as cancelled instead of letting it be dropped
+     * (campaign lot C4, BO-04-01-16). Called on the article-cancellation
+     * gesture BEFORE the line leaves the in-memory cart, so the subsequent
+     * draft reconciliation keeps the now-marked line (see
+     * {@link #reconcileLines}) as a conserved witness carrying its author and
+     * timestamp. A no-op when the ticket or the line cannot be resolved (the
+     * cancellation still empties the cart in memory; the witness is best-effort
+     * and never blocks the sale). The marking never touches the totals — they
+     * are recomputed from the live cart, which no longer holds the line.
+     *
+     * @param ticketId the database id of the draft ticket, or null (no draft)
+     * @param lineUid the stable uid of the line being cancelled
+     * @param operatorBadgeId the badge of the operator performing the cancellation, or null
+     */
+    @Transactional
+    public void markLineCancelled(Long ticketId, String lineUid, String operatorBadgeId) {
+        if (ticketId == null || lineUid == null) return;
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) return;
+        for (TicketLine line : ticket.lines) {
+            if (lineUid.equals(line.lineUid) && !line.cancelled) {
+                line.cancelled = true;
+                line.cancellationDate = LocalDateTime.now();
+                line.cancelledBy = operatorBadgeId;
+                ticket.persist();
+                return;
+            }
+        }
+    }
+
     // --------------------------------------------------
     // 3. FINALIZATION / CANCELLATION
     // --------------------------------------------------
@@ -384,6 +421,9 @@ public class TicketPersistenceService {
         //     instrument per unit, numbered from its own row id. Issued at
         //     the fiscal moment only — an abandoned cart never creates value.
         for (com.intermarche.pos.domain.ticket.TicketLine line : ticket.lines) {
+            // A cancelled line (lot C4) never sold anything: it must not issue a
+            // gift card, exactly as it contributes nothing to the totals.
+            if (line.cancelled) continue;
             if (line.ean == null) continue;
             com.intermarche.pos.domain.Product product =
                     com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();

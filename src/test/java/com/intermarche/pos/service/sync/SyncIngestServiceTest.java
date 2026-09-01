@@ -255,6 +255,9 @@ class SyncIngestServiceTest {
         byPlu.quantity = new BigDecimal("1");
         byPlu.familyCode = "FRUITS";
         byPlu.familyLabel = "Rayon Fruits";
+        byPlu.cancelled = true;
+        byPlu.cancellationDate = "2026-09-01T15:42:00";
+        byPlu.cancelledBy = "12341234";
         SyncPayloads.LineDto byEan = new SyncPayloads.LineDto();
         byEan.lineNumber = 2;
         byEan.plu = null;
@@ -321,6 +324,15 @@ class SyncIngestServiceTest {
             assertEquals("FRUITS", createdLines.constructed().get(0).familyCode);
             assertEquals("Rayon Fruits", createdLines.constructed().get(0).familyLabel);
             assertNull(createdLines.constructed().get(1).familyCode);
+            // Article-cancellation witness ingested verbatim, ISO string parsed
+            // back to a LocalDateTime (lot C4, BO-04-01-16); a non-cancelled
+            // line reads back false with a null timestamp.
+            assertTrue(createdLines.constructed().get(0).cancelled);
+            assertEquals(java.time.LocalDateTime.of(2026, 9, 1, 15, 42),
+                    createdLines.constructed().get(0).cancellationDate);
+            assertEquals("12341234", createdLines.constructed().get(0).cancelledBy);
+            assertFalse(createdLines.constructed().get(1).cancelled);
+            assertNull(createdLines.constructed().get(1).cancellationDate);
             verify(ticket, times(3)).addLine(any());
             assertEquals("Bon", voucherPayment.voucherLabel);
             assertEquals("V9", voucherPayment.voucherNumber);

@@ -299,6 +299,29 @@ class ReprintStateTest {
     }
 
     /**
+     * {@code getVisibleLines} excludes a cancelled article (lot C4,
+     * BO-04-01-16): a reprint reproduces the ticket as sold, so a cancelled
+     * line — a journal witness only — never appears (the {@code !l.cancelled}
+     * filter true arm).
+     */
+    @Test
+    void visibleLinesExcludesCancelledLines() {
+        Ticket ticket = new Ticket();
+        List<TicketLine> lines = new ArrayList<>();
+        TicketLine sold = new TicketLine();
+        TicketLine cancelled = new TicketLine();
+        cancelled.cancelled = true;
+        lines.add(sold);
+        lines.add(cancelled);
+        ticket.lines = lines;
+        ReprintState state = new ReprintState();
+        state.setViewedTicket(ticket);
+        List<TicketLine> visible = state.getVisibleLines();
+        assertEquals(1, visible.size());
+        assertSame(sold, visible.get(0));
+    }
+
+    /**
      * {@code getVisibleLines} returns the tail slice of the last detail page.
      */
     @Test

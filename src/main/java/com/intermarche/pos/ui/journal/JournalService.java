@@ -74,7 +74,8 @@ public class JournalService {
         query.bind("statuses", List.of(Ticket.TicketStatus.CLOSED, Ticket.TicketStatus.CANCELLED));
         if (criteria.text != null) {
             query.and("(lower(t.ticketNumber) like :text or lower(t.fidelityCard) like :text"
-                    + " or exists (select l from t.lines l where lower(l.productLabel) like :text))");
+                    + " or exists (select l from t.lines l where l.cancelled = false"
+                    + " and lower(l.productLabel) like :text))");
             query.bind("text", "%" + criteria.text.toLowerCase() + "%");
         }
         if (criteria.cashierMin != null) {
@@ -133,12 +134,13 @@ public class JournalService {
         appendPluRange(query, criteria);
         appendFamilyRange(query, criteria);
         if (criteria.vatRate != null) {
-            query.and("exists (select l from t.lines l where l.vatRate = :vatRate)");
+            query.and("exists (select l from t.lines l where l.cancelled = false and l.vatRate = :vatRate)");
             query.bind("vatRate", criteria.vatRate);
         }
         appendReductionRange(query, criteria);
         appendAuthorizationRange(query, criteria);
         appendRefundArticleRange(query, criteria);
+        appendCancelledArticleRange(query, criteria);
         appendFlags(query, criteria);
         return query;
     }
@@ -154,18 +156,16 @@ public class JournalService {
         if (criteria.pluMin == null && criteria.pluMax == null) {
             return;
         }
-        StringBuilder inner = new StringBuilder("exists (select l from t.lines l where ");
-        boolean first = true;
+        // The sold-article PLU search bears on sold lines only: a cancelled
+        // article (lot C4) is a journal witness, not a sale, so it never
+        // matches BO-04-01-10 — hence the leading {@code l.cancelled = false}.
+        StringBuilder inner = new StringBuilder("exists (select l from t.lines l where l.cancelled = false");
         if (criteria.pluMin != null) {
-            inner.append("l.plu >= :pluMin");
+            inner.append(" and l.plu >= :pluMin");
             query.bind("pluMin", criteria.pluMin);
-            first = false;
         }
         if (criteria.pluMax != null) {
-            if (!first) {
-                inner.append(" and ");
-            }
-            inner.append("l.plu <= :pluMax");
+            inner.append(" and l.plu <= :pluMax");
             query.bind("pluMax", criteria.pluMax);
         }
         inner.append(")");
@@ -187,18 +187,15 @@ public class JournalService {
         if (criteria.familyMin == null && criteria.familyMax == null) {
             return;
         }
-        StringBuilder inner = new StringBuilder("exists (select l from t.lines l where ");
-        boolean first = true;
+        // Sold lines only: a cancelled article (lot C4) never matches the
+        // nomenclature search, hence the leading {@code l.cancelled = false}.
+        StringBuilder inner = new StringBuilder("exists (select l from t.lines l where l.cancelled = false");
         if (criteria.familyMin != null) {
-            inner.append("l.familyCode >= :familyMin");
+            inner.append(" and l.familyCode >= :familyMin");
             query.bind("familyMin", criteria.familyMin);
-            first = false;
         }
         if (criteria.familyMax != null) {
-            if (!first) {
-                inner.append(" and ");
-            }
-            inner.append("l.familyCode <= :familyMax");
+            inner.append(" and l.familyCode <= :familyMax");
             query.bind("familyMax", criteria.familyMax);
         }
         inner.append(")");
@@ -227,7 +224,8 @@ public class JournalService {
         }
         StringBuilder inner = new StringBuilder(
                 "exists (select rl from Refund r join r.lines rl, TicketLine ol"
-                        + " where r.originalTicketId = t.id and ol.id = rl.originalLineId");
+                        + " where r.originalTicketId = t.id and ol.id = rl.originalLineId"
+                        + " and ol.cancelled = false");
         if (criteria.refundPluMin != null) {
             inner.append(" and ol.plu >= :refundPluMin");
             query.bind("refundPluMin", criteria.refundPluMin);
@@ -259,8 +257,10 @@ public class JournalService {
         if (criteria.reductionMin == null && criteria.reductionMax == null) {
             return;
         }
+        // Sold lines only: a discounted line later cancelled (lot C4) is not a
+        // manual reduction that stood on the ticket, so it is excluded here.
         StringBuilder inner = new StringBuilder(
-                "exists (select l from t.lines l where l.modifierType is not null");
+                "exists (select l from t.lines l where l.cancelled = false and l.modifierType is not null");
         if (criteria.reductionMin != null) {
             inner.append(" and l.modifierValue >= :reductionMin");
             query.bind("reductionMin", criteria.reductionMin);
@@ -268,6 +268,48 @@ public class JournalService {
         if (criteria.reductionMax != null) {
             inner.append(" and l.modifierValue <= :reductionMax");
             query.bind("reductionMax", criteria.reductionMax);
+        }
+        inner.append(")");
+        query.and(inner.toString());
+    }
+
+    /**
+     * Appends the cancelled-article criterion (BO-04-01-16): the ticket bears at
+     * least one CANCELLED line whose PLU falls in the requested range and whose
+     * line total falls in the requested amount range. Both ranges are optional;
+     * any subset narrows the same single-cancelled-line {@code exists}, so the
+     * two bounds bear on the SAME cancelled article rather than on any two. The
+     * {@code l.cancelled = true} guard is the mirror image of the sold-article
+     * searches: those exclude cancelled lines, this one requires one — the
+     * gisement campaign lot C4 opened by keeping the witness on the line. A
+     * bare "annulation article" with no bound is served by the
+     * {@link JournalCriteria.Flag#CANCELLED_ARTICLE} flag instead.
+     *
+     * @param query the query under construction
+     * @param criteria the parsed criteria
+     */
+    private void appendCancelledArticleRange(JournalQuery query, JournalCriteria criteria) {
+        if (criteria.cancelPluMin == null && criteria.cancelPluMax == null
+                && criteria.cancelAmountMin == null && criteria.cancelAmountMax == null) {
+            return;
+        }
+        StringBuilder inner = new StringBuilder(
+                "exists (select l from t.lines l where l.cancelled = true");
+        if (criteria.cancelPluMin != null) {
+            inner.append(" and l.plu >= :cancelPluMin");
+            query.bind("cancelPluMin", criteria.cancelPluMin);
+        }
+        if (criteria.cancelPluMax != null) {
+            inner.append(" and l.plu <= :cancelPluMax");
+            query.bind("cancelPluMax", criteria.cancelPluMax);
+        }
+        if (criteria.cancelAmountMin != null) {
+            inner.append(" and l.totalPrice >= :cancelAmountMin");
+            query.bind("cancelAmountMin", criteria.cancelAmountMin);
+        }
+        if (criteria.cancelAmountMax != null) {
+            inner.append(" and l.totalPrice <= :cancelAmountMax");
+            query.bind("cancelAmountMax", criteria.cancelAmountMax);
         }
         inner.append(")");
         query.and(inner.toString());
@@ -324,10 +366,14 @@ public class JournalService {
             query.and("t.totalIncludingTax < 0");
         }
         if (criteria.flags.contains(JournalCriteria.Flag.ZERO_PRICE)) {
-            query.and("exists (select l from t.lines l where l.totalPrice = 0)");
+            query.and("exists (select l from t.lines l where l.cancelled = false and l.totalPrice = 0)");
         }
         if (criteria.flags.contains(JournalCriteria.Flag.UNKNOWN_ITEM)) {
-            query.and("exists (select l from t.lines l where l.product is null and l.deposit = false)");
+            query.and("exists (select l from t.lines l"
+                    + " where l.cancelled = false and l.product is null and l.deposit = false)");
+        }
+        if (criteria.flags.contains(JournalCriteria.Flag.CANCELLED_ARTICLE)) {
+            query.and("exists (select l from t.lines l where l.cancelled = true)");
         }
         if (criteria.flags.contains(JournalCriteria.Flag.VOUCHER)) {
             query.and("exists (select p from t.payments p where type(p) = :voucherType)");

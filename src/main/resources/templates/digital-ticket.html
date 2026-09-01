@@ -47,11 +47,13 @@
       </div>
       <hr>
       {#for line in ticket.lines}
+        {#if !line.cancelled}
         <div class="line">
           <span class="qty">{line.formattedQuantity}</span>
           <span class="lbl">{line.productLabel}</span>
           <span class="amt">{line.getTotalFormatted()} €</span>
         </div>
+        {/if}
       {/for}
       <hr>
       <div class="total"><span>TOTAL TTC</span><span>{ticket.getTotalFormatted()} €</span></div>

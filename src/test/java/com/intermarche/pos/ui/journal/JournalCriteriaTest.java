@@ -39,6 +39,10 @@ class JournalCriteriaTest {
         assertNull(criteria.familyMax);
         assertNull(criteria.refundPluMin);
         assertNull(criteria.refundAmountMin);
+        assertNull(criteria.cancelPluMin);
+        assertNull(criteria.cancelPluMax);
+        assertNull(criteria.cancelAmountMin);
+        assertNull(criteria.cancelAmountMax);
         assertTrue(criteria.methods.isEmpty());
         assertTrue(criteria.flags.isEmpty());
         assertFalse(criteria.descending);
@@ -73,6 +77,10 @@ class JournalCriteriaTest {
         params.putSingle("refundPluMax", "60");
         params.putSingle("refundAmountMin", "2,00");
         params.putSingle("refundAmountMax", "20.00");
+        params.putSingle("cancelPluMin", " 70 ");
+        params.putSingle("cancelPluMax", "80");
+        params.putSingle("cancelAmountMin", "3,00");
+        params.putSingle("cancelAmountMax", "30.00");
         params.putSingle("vatRate", "0,2000");
         params.putSingle("reductionMin", "1,00");
         params.putSingle("reductionMax", "5,00");
@@ -103,6 +111,10 @@ class JournalCriteriaTest {
         assertEquals("60", criteria.refundPluMax);
         assertEquals(new BigDecimal("2.00"), criteria.refundAmountMin);
         assertEquals(new BigDecimal("20.00"), criteria.refundAmountMax);
+        assertEquals("70", criteria.cancelPluMin);
+        assertEquals("80", criteria.cancelPluMax);
+        assertEquals(new BigDecimal("3.00"), criteria.cancelAmountMin);
+        assertEquals(new BigDecimal("30.00"), criteria.cancelAmountMax);
         assertEquals(new BigDecimal("0.2000"), criteria.vatRate);
         assertEquals(new BigDecimal("1.00"), criteria.reductionMin);
         assertEquals(new BigDecimal("5.00"), criteria.reductionMax);

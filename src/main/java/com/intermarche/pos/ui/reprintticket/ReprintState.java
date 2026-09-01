@@ -107,7 +107,19 @@ public class ReprintState implements Serializable {
      */
     public boolean isHasDetailNext() {
         if (viewedTicket == null || viewedTicket.lines == null) return false;
-        return (detailPage + 1) * DETAIL_PAGE_SIZE < viewedTicket.lines.size();
+        return (detailPage + 1) * DETAIL_PAGE_SIZE < sellableLines().size();
+    }
+
+    /**
+     * Returns the reprintable lines of the viewed ticket: the sold lines, with
+     * the cancelled articles filtered out (lot C4, BO-04-01-16). A reprint
+     * reproduces the ticket as sold, so a cancelled article — a journal witness
+     * only — never appears on it, nor in its pagination.
+     *
+     * @return the non-cancelled lines of the viewed ticket
+     */
+    private List<TicketLine> sellableLines() {
+        return viewedTicket.lines.stream().filter(l -> !l.cancelled).toList();
     }
 
     /**
@@ -118,7 +130,7 @@ public class ReprintState implements Serializable {
      */
     public List<TicketLine> getVisibleLines() {
         if (viewedTicket == null || viewedTicket.lines == null) return Collections.emptyList();
-        List<TicketLine> allLines = viewedTicket.lines;
+        List<TicketLine> allLines = sellableLines();
 
         int maxPage = Math.max(0, (allLines.size() - 1) / DETAIL_PAGE_SIZE);
         if (detailPage > maxPage) detailPage = maxPage;
@@ -144,7 +156,7 @@ public class ReprintState implements Serializable {
      * @return the detail page count
      */
     public int getDetailTotalPages() {
-        if (viewedTicket == null || viewedTicket.lines == null || viewedTicket.lines.isEmpty()) return 1;
-        return (int) Math.ceil((double) viewedTicket.lines.size() / DETAIL_PAGE_SIZE);
+        if (viewedTicket == null || viewedTicket.lines == null || sellableLines().isEmpty()) return 1;
+        return (int) Math.ceil((double) sellableLines().size() / DETAIL_PAGE_SIZE);
     }
 }

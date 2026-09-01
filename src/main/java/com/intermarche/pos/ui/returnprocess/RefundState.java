@@ -72,7 +72,7 @@ public class RefundState implements Serializable {
      */
     public List<TicketLine> getVisibleLines() {
         if (selectedTicket == null || selectedTicket.lines == null) return Collections.emptyList();
-        List<TicketLine> allLines = selectedTicket.lines;
+        List<TicketLine> allLines = refundableLines();
 
         int maxPage = Math.max(0, (allLines.size() - 1) / PAGE_SIZE);
         if (detailPage > maxPage) detailPage = maxPage;
@@ -83,6 +83,18 @@ public class RefundState implements Serializable {
         int from = detailPage * PAGE_SIZE;
         int to = Math.min(from + PAGE_SIZE, allLines.size());
         return allLines.subList(from, to);
+    }
+
+    /**
+     * Returns the refundable lines of the selected ticket: the sold lines, with
+     * the cancelled articles filtered out (lot C4, BO-04-01-16). A cancelled
+     * article was never sold, so it can never be returned — it is a journal
+     * witness only, invisible to the returns screen and its pagination.
+     *
+     * @return the non-cancelled lines of the selected ticket
+     */
+    private List<TicketLine> refundableLines() {
+        return selectedTicket.lines.stream().filter(l -> !l.cancelled).toList();
     }
 
     /**
@@ -128,7 +140,7 @@ public class RefundState implements Serializable {
         if (selectedTicket == null) return BigDecimal.ZERO;
         BigDecimal total = BigDecimal.ZERO;
 
-        for (TicketLine line : selectedTicket.lines) {
+        for (TicketLine line : refundableLines()) {
             BigDecimal qty = returnQuantities.getOrDefault(line.id, BigDecimal.ZERO);
             if (qty.compareTo(BigDecimal.ZERO) > 0) {
                 total = total.add(line.unitPrice.multiply(qty));
@@ -195,7 +207,7 @@ public class RefundState implements Serializable {
      */
     public boolean isHasDetailNext() {
         if (selectedTicket == null || selectedTicket.lines == null) return false;
-        return (detailPage + 1) * PAGE_SIZE < selectedTicket.lines.size();
+        return (detailPage + 1) * PAGE_SIZE < refundableLines().size();
     }
 
     /**
@@ -213,7 +225,7 @@ public class RefundState implements Serializable {
      * @return the page count
      */
     public int getDetailTotalPages() {
-        if (selectedTicket == null || selectedTicket.lines == null || selectedTicket.lines.isEmpty()) return 1;
-        return (int) Math.ceil((double) selectedTicket.lines.size() / PAGE_SIZE);
+        if (selectedTicket == null || selectedTicket.lines == null || refundableLines().isEmpty()) return 1;
+        return (int) Math.ceil((double) refundableLines().size() / PAGE_SIZE);
     }
 }

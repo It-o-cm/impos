@@ -269,6 +269,12 @@ public class SyncOutboxService {
             lineDto.deposit = line.deposit;
             lineDto.familyCode = line.familyCode;
             lineDto.familyLabel = line.familyLabel;
+            // Article-cancellation witness (lot C4, BO-04-01-16): a cancelled
+            // line IS carried to the consolidated node, marked, so the journal
+            // can search for tickets bearing an annulation article.
+            lineDto.cancelled = line.cancelled;
+            lineDto.cancellationDate = iso(line.cancellationDate);
+            lineDto.cancelledBy = line.cancelledBy;
             dto.lines.add(lineDto);
         }
         for (TicketPayment payment : ticket.payments) {

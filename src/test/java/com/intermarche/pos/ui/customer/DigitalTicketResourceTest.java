@@ -107,6 +107,34 @@ class DigitalTicketResourceTest {
         return ticket;
     }
 
+    /**
+     * A cancelled article (lot C4, BO-04-01-16) is excluded from the online
+     * receipt's VAT ventilation (the {@code line.cancelled} true arm of
+     * {@code render}): a ticket with one sold 20% line and one cancelled 5,5%
+     * line yields a single VAT bucket, the sold one.
+     */
+    @Test
+    void viewOmitsACancelledLineFromTheVatVentilation() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = mock(Ticket.class);
+        ticket.digitalKey = KEY;
+        ticket.status = Ticket.TicketStatus.CLOSED;
+        ticket.ticketNumber = "C04-1";
+        TicketLine sold = new TicketLine();
+        sold.vatRate = new BigDecimal("0.2000");
+        sold.totalPrice = new BigDecimal("12.00");
+        TicketLine cancelled = new TicketLine();
+        cancelled.vatRate = new BigDecimal("0.0550");
+        cancelled.totalPrice = new BigDecimal("5.00");
+        cancelled.cancelled = true;
+        ticket.lines = new ArrayList<>(List.of(sold, cancelled));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            resource.view(7L, KEY, false);
+        }
+        assertEquals(1, ((List<?>) captured.get("buckets")).size());
+    }
+
     // --- view / load happy path + render ticket-present ---
 
     /**

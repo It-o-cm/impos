@@ -189,6 +189,9 @@ class SyncPayloadsTest {
         dto.deposit = true;
         dto.familyCode = "FRUITS";
         dto.familyLabel = "Rayon Fruits";
+        dto.cancelled = true;
+        dto.cancellationDate = "2026-09-01T15:42:00";
+        dto.cancelledBy = "12341234";
         assertEquals(1, dto.lineNumber);
         assertEquals("L-UID", dto.lineUid);
         assertEquals("3760000000001", dto.ean);
@@ -205,11 +208,14 @@ class SyncPayloadsTest {
         assertTrue(dto.deposit);
         assertEquals("FRUITS", dto.familyCode);
         assertEquals("Rayon Fruits", dto.familyLabel);
+        assertTrue(dto.cancelled);
+        assertEquals("2026-09-01T15:42:00", dto.cancellationDate);
+        assertEquals("12341234", dto.cancelledBy);
     }
 
     /**
      * A default {@link SyncPayloads.LineDto} leaves nullable fields null, its
-     * int count zero, and the deposit flag false.
+     * int count zero, and the deposit and cancelled flags false.
      */
     @Test
     void lineDtoDefaults() {
@@ -225,6 +231,9 @@ class SyncPayloadsTest {
         assertNull(dto.familyLabel);
         assertEquals(0, dto.lineNumber);
         assertFalse(dto.deposit);
+        assertFalse(dto.cancelled);
+        assertNull(dto.cancellationDate);
+        assertNull(dto.cancelledBy);
     }
 
     /**

@@ -155,6 +155,12 @@ public class SyncIngestService {
             // history (BO-04-01-11).
             line.familyCode = lineDto.familyCode;
             line.familyLabel = lineDto.familyLabel;
+            // Article-cancellation witness is stored verbatim from the payload
+            // (lot C4, BO-04-01-16): the consolidated node keeps the cancelled
+            // line, marked, so the journal can find the ticket that bore it.
+            line.cancelled = lineDto.cancelled;
+            line.cancellationDate = parse(lineDto.cancellationDate);
+            line.cancelledBy = lineDto.cancelledBy;
             ticket.addLine(line);
         }
 

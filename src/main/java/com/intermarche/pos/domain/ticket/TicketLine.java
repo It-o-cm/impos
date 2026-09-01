@@ -147,6 +147,43 @@ public class TicketLine extends BaseEntity {
     public String familyLabel;
 
     /**
+     * True when the line was cancelled by the cashier during the sale and KEPT
+     * as a witness rather than dropped (campaign lot C4, BO-04-01-16). The
+     * register historically modelled the cart as a state — a cancelled line
+     * simply vanished (orphan removal in the draft reconciliation); this lot
+     * turns the cancellation into a conserved event so the store journal can
+     * look for tickets bearing an article cancellation. A cancelled line is
+     * EXCLUDED from everything that counts what was sold — the ticket totals,
+     * the printed receipt, the customer screen, the day dashboard, the returns
+     * screen, the recovered cart — and INCLUDED only in the consolidated
+     * history the journal reads. Its totals never move a centime (the totals
+     * are recomputed from the live cart, which no longer holds it).
+     */
+    @Column(name = "cancelled", nullable = false)
+    public boolean cancelled;
+
+    /**
+     * Timestamp of the article cancellation (campaign lot C4, BO-04-01-16), or
+     * null when the line was never cancelled. Set once, at the moment the
+     * cashier cancels the line.
+     */
+    @Column(name = "cancellation_date")
+    public java.time.LocalDateTime cancellationDate;
+
+    /**
+     * Badge identifier of the operator who cancelled the line (campaign lot C4,
+     * BO-04-01-16, the "auteur" of the cancellation), or null when the line was
+     * never cancelled. Like {@link #cancelled} and {@link #cancellationDate},
+     * this DESCRIBES THE SALE EVENT — what happened on this ticket — not the
+     * register's local authentication state (unlike {@code failedAttempts} /
+     * {@code lockedUntil} / {@code bo_password}), so the three fields ARE
+     * carried by the store synchronization (see {@code SyncPayloads.LineDto}
+     * and the outbox transport), never a hash or a password.
+     */
+    @Column(name = "cancelled_by", length = 20)
+    public String cancelledBy;
+
+    /**
      * Returns the line total formatted for display (2 decimals, French comma).
      *
      * @return the formatted line total

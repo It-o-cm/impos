@@ -201,7 +201,7 @@ public class RefundService {
         if (state.refund.selectedTicket == null) return;
 
         TicketLine line = state.refund.selectedTicket.lines.stream()
-                .filter(l -> l.id.equals(lineId)).findFirst().orElse(null);
+                .filter(l -> l.id.equals(lineId) && !l.cancelled).findFirst().orElse(null);
 
         if (line != null) {
             // Gift cards are non-returnable: refunding a sold card while the
@@ -316,8 +316,10 @@ public class RefundService {
             BigDecimal qty = entry.getValue();
             if (qty.signum() <= 0) continue;
 
+            // A cancelled article (lot C4) was never sold: it can never back a
+            // refund line, even against a hand-posted line id.
             TicketLine orig = original.lines.stream()
-                    .filter(l -> l.id.equals(lineId)).findFirst().orElse(null);
+                    .filter(l -> l.id.equals(lineId) && !l.cancelled).findFirst().orElse(null);
             if (orig == null) continue;
 
             // Transactional re-check of the double-refund cap

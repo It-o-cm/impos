@@ -125,7 +125,11 @@ public class TicketRecoveryService {
     private void restoreCart(Ticket draft) {
         state.ticket.items.clear();
 
+        // A cancelled article (lot C4, BO-04-01-16) is a conserved witness on
+        // the draft, not part of the live cart: it must never be restored into
+        // memory, otherwise a register restart would resurrect it in the cart.
         List<TicketLine> orderedLines = draft.lines.stream()
+                .filter(l -> !l.cancelled)
                 .sorted(Comparator.comparingInt(l -> l.lineNumber))
                 .toList();
 

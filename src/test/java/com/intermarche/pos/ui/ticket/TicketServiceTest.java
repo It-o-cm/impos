@@ -1384,6 +1384,37 @@ class TicketServiceTest {
         verify(hardwareService).displayMessage("INTERMARCHE");
     }
 
+    /**
+     * {@code cancelItemById} conserves the cancelled article (lot C4,
+     * BO-04-01-16): with a persisted draft (non-null id arm), it marks the draft
+     * line with the operator badge BEFORE removing it from the cart, so the
+     * reconciliation keeps it as a witness.
+     */
+    @Test
+    void cancelItemByIdMarksTheDraftLineWhenDraftExists() {
+        TicketState.TicketItem only = line("A", new BigDecimal("1.00"), BigDecimal.ONE);
+        state.ticket.items.add(only);
+        state.payment.ticketDbId = 5L;
+        state.auth.operatorBadgeId = "12341234";
+        service.cancelItemById(state, only.uid);
+        verify(ticketPersistenceService).markLineCancelled(5L, only.uid, "12341234");
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * {@code cancelItemById} skips the marking when there is no draft yet
+     * (null id arm, e.g. training or pre-first-article), and never touches the
+     * persistence witness.
+     */
+    @Test
+    void cancelItemByIdSkipsMarkingWithoutDraft() {
+        TicketState.TicketItem only = line("A", new BigDecimal("1.00"), BigDecimal.ONE);
+        state.ticket.items.add(only);
+        state.payment.ticketDbId = null;
+        service.cancelItemById(state, only.uid);
+        verify(ticketPersistenceService, never()).markLineCancelled(anyLong(), anyString(), anyString());
+    }
+
     // --- cancelTicket ---
 
     /**

@@ -287,6 +287,35 @@ class TicketPrinterServiceTest {
     }
 
     /**
+     * A cancelled article (lot C4, BO-04-01-16) is kept on the ticket only as a
+     * journal witness: {@code printTicket} skips it in the line list AND in the
+     * per-rate VAT ventilation (the two {@code line.cancelled} true arms), so
+     * its label never prints and it moves no VAT bucket.
+     */
+    @Test
+    void printTicketOmitsACancelledArticle() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        TicketLine cancelled = line("U2", "PRODUIT ANNULE", "1", "5.00", "5.00");
+        cancelled.cancelled = true;
+        cancelled.vatRate = new BigDecimal("0.0550");
+        ticket.lines.add(cancelled);
+        ticket.payments.add(new CashPayment(new BigDecimal("12.00"), new BigDecimal("12.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("PAIN"));
+            assertFalse(out.contains("PRODUIT ANNULE"));
+            assertTrue(out.contains("TVA 20"));
+            assertFalse(out.contains("TVA 5,5"));
+        }
+    }
+
+    /**
      * Covers the numbered-duplicata arm of {@code printTicket}: {@code
      * printCount} is 1 (duplicata n°1), the label is longer than 20 characters
      * (truncation arm), a valuation with a non-zero delta and a non-null
@@ -1161,6 +1190,25 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("LAIT"));
         assertTrue(out.contains("TOTAL EN ATTENTE"));
         assertTrue(out.contains("SCANNEZ CE NUMERO POUR REPRENDRE"));
+    }
+
+    /**
+     * {@code printParkedTicket} omits a cancelled article (lot C4): the parked
+     * receipt shows the live cart only, never a conserved witness (the
+     * {@code line.cancelled} true arm of the parked loop).
+     */
+    @Test
+    void printParkedTicketOmitsACancelledArticle() {
+        TicketPrinterService service = newService();
+        Ticket draft = ticket(0, null);
+        draft.lines.add(line("A", "LAIT", "1", "1.50", "1.50"));
+        TicketLine cancelled = line("B", "PRODUIT ANNULE", "1", "5.00", "5.00");
+        cancelled.cancelled = true;
+        draft.lines.add(cancelled);
+        service.printParkedTicket(draft);
+        String out = captureRaw(service);
+        assertTrue(out.contains("LAIT"));
+        assertFalse(out.contains("PRODUIT ANNULE"));
     }
 
     // --- printOperatorBadge ---

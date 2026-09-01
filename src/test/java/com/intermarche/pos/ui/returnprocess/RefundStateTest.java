@@ -139,6 +139,26 @@ class RefundStateTest {
     }
 
     /**
+     * getVisibleLines excludes a cancelled article (lot C4, BO-04-01-16): a
+     * cancelled line was never sold, so it can never be returned — the
+     * {@code !l.cancelled} filter drops it from the returns screen.
+     */
+    @Test
+    void getVisibleLinesExcludesCancelledLines() {
+        List<TicketLine> lines = new ArrayList<>();
+        TicketLine sold = line(1L, BigDecimal.ONE);
+        TicketLine cancelled = line(2L, BigDecimal.ONE);
+        cancelled.cancelled = true;
+        lines.add(sold);
+        lines.add(cancelled);
+        RefundState s = new RefundState();
+        s.selectedTicket = ticket(lines);
+        List<TicketLine> visible = s.getVisibleLines();
+        assertEquals(1, visible.size());
+        assertSame(sold, visible.get(0));
+    }
+
+    /**
      * getReturnQty returns ZERO when the line id is null.
      */
     @Test

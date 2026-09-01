@@ -534,6 +534,14 @@ public class TicketService {
      * @param uid the uid of the line to cancel
      */
     public void cancelItemById(PosState state, String uid) {
+        // Conserve the cancelled article (lot C4, BO-04-01-16): mark the draft
+        // line BEFORE it leaves the cart, so the reconciliation keeps it as a
+        // witness. Training and pre-draft carts have no id — the marking is
+        // skipped exactly where nothing fiscal is persisted anyway.
+        if (state.payment.ticketDbId != null) {
+            ticketPersistenceService.markLineCancelled(
+                    state.payment.ticketDbId, uid, state.auth.operatorBadgeId);
+        }
         state.ticket.removeItemById(uid);
         recalculateTotal(state);
         state.selectedTicketIndex = -1;

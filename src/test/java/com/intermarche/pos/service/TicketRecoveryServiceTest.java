@@ -190,6 +190,28 @@ class TicketRecoveryServiceTest {
     }
 
     /**
+     * A cancelled article (lot C4, BO-04-01-16) is a conserved witness on the
+     * draft, not part of the live cart: {@code restoreCart} filters it out on
+     * recovery ({@code !l.cancelled} true arm), so a register restart never
+     * resurrects it in the cart — only the sold line comes back.
+     */
+    @Test
+    void recoverDoesNotRestoreACancelledLine() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(7L, Ticket.TicketStatus.OPEN);
+        TicketLine cancelled = line(1, "U1", "4.00", null, null);
+        cancelled.cancelled = true;
+        draft.lines = new ArrayList<>(List.of(cancelled, line(2, "U2", "3.00", null, null)));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(QUERY, Ticket.TicketStatus.OPEN, TERMINAL))
+                    .thenReturn(new ArrayList<>(List.of(draft)));
+            service.recover();
+            assertEquals(1, service.state.ticket.items.size());
+            assertEquals("U2", service.state.ticket.items.get(0).uid);
+        }
+    }
+
+    /**
      * Covers the leftover-cancel loop of {@code recover}: the most recent draft
      * is restored while the two older OPEN leftovers of the same terminal are
      * flipped to CANCELLED and persisted.

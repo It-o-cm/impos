@@ -141,6 +141,12 @@ public final class SyncPayloads {
         public String familyCode;
         /** The nomenclature (family) label snapshotted at sale time (BO-04-01-11), or null. */
         public String familyLabel;
+        /** True when the line was cancelled by the cashier and kept as a witness (BO-04-01-16). */
+        public boolean cancelled;
+        /** The article-cancellation timestamp as an ISO local datetime (BO-04-01-16), or null. */
+        public String cancellationDate;
+        /** The badge of the operator who cancelled the line (BO-04-01-16), or null. */
+        public String cancelledBy;
     }
 
     /**

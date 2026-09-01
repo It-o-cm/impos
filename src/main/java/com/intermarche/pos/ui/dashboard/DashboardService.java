@@ -107,6 +107,7 @@ public class DashboardService {
                         "select l.productLabel, sum(l.quantity)"
                                 + " from Ticket t join t.lines l"
                                 + " where t.status = :status and t.closingDate >= :from and l.totalPrice > 0"
+                                + " and l.cancelled = false"
                                 + " group by l.productLabel order by sum(l.quantity) desc", Object[].class)
                 .setParameter("status", Ticket.TicketStatus.CLOSED)
                 .setParameter("from", from)

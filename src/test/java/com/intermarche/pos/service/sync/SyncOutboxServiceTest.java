@@ -379,6 +379,9 @@ class SyncOutboxServiceTest {
         line.totalPrice = new BigDecimal("12.00");
         line.familyCode = "FRUITS";
         line.familyLabel = "Rayon Fruits";
+        line.cancelled = true;
+        line.cancellationDate = java.time.LocalDateTime.of(2026, 9, 1, 15, 42);
+        line.cancelledBy = "12341234";
         ticket.lines.add(line);
         CashPayment cash = mock(CashPayment.class);
         when(cash.getMethodKey()).thenReturn("CASH");
@@ -410,6 +413,11 @@ class SyncOutboxServiceTest {
             assertEquals("U1", out.lines.get(0).lineUid);
             assertEquals("FRUITS", out.lines.get(0).familyCode);
             assertEquals("Rayon Fruits", out.lines.get(0).familyLabel);
+            // Article-cancellation witness survives the JSON round-trip
+            // (lot C4, BO-04-01-16): timestamp carried as an ISO string.
+            assertTrue(out.lines.get(0).cancelled);
+            assertEquals("2026-09-01T15:42:00", out.lines.get(0).cancellationDate);
+            assertEquals("12341234", out.lines.get(0).cancelledBy);
             assertEquals(2, out.payments.size());
             assertEquals("CASH", out.payments.get(0).methodKey);
             assertEquals(new BigDecimal("10.00"), out.payments.get(0).tenderedAmount);

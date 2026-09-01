@@ -178,6 +178,22 @@ class TicketPersistenceServiceTest {
         return query;
     }
 
+    /**
+     * Builds a Panache query whose {@code list} resolves to the given values,
+     * as the direct-family lookup reads it.
+     *
+     * @param results the values the query must list
+     * @param <T> the queried type
+     * @return the configured mocked query
+     */
+    @SafeVarargs
+    @SuppressWarnings("unchecked")
+    private <T> PanacheQuery<T> queryListing(T... results) {
+        PanacheQuery<T> query = mock(PanacheQuery.class);
+        when(query.list()).thenReturn(java.util.List.of(results));
+        return query;
+    }
+
     // --------------------------------------------------
     // syncDraft
     // --------------------------------------------------
@@ -352,8 +368,8 @@ class TicketPersistenceServiceTest {
         PanacheQuery<Store> storeQuery = queryReturning(store);
         PanacheQuery<Product> eanWith = queryReturning(withFamily);
         PanacheQuery<Product> eanNo = queryReturning(noFamily);
-        PanacheQuery<ProductFamily> familyQuery = queryReturning(family);
-        PanacheQuery<ProductFamily> emptyFamilyQuery = queryReturning(null);
+        PanacheQuery<ProductFamily> familyQuery = queryListing(family);
+        PanacheQuery<ProductFamily> emptyFamilyQuery = queryListing();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
                 MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
                     mock.id = 100L;
@@ -364,10 +380,10 @@ class TicketPersistenceServiceTest {
             mocked.when(() -> Product.find("ean", "3000")).thenReturn(eanWith);
             mocked.when(() -> Product.find("ean", "4000")).thenReturn(eanNo);
             mocked.when(() -> ProductFamily.find(
-                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1", 7L))
                     .thenReturn(familyQuery);
             mocked.when(() -> ProductFamily.find(
-                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 8L))
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1", 8L))
                     .thenReturn(emptyFamilyQuery);
             service.syncDraft(state);
             Ticket ticket = created.constructed().get(0);
@@ -425,7 +441,7 @@ class TicketPersistenceServiceTest {
         ProductFamily family = new ProductFamily();
         family.code = "FRUITS";
         family.description = "Rayon Fruits";
-        PanacheQuery<ProductFamily> familyQuery = queryReturning(withFamily ? family : null);
+        PanacheQuery<ProductFamily> familyQuery = withFamily ? queryListing(family) : queryListing();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
                 MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
                     mock.id = 100L;
@@ -435,7 +451,7 @@ class TicketPersistenceServiceTest {
             mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
             mocked.when(() -> Product.find("ean", "3000")).thenReturn(eanQuery);
             mocked.when(() -> ProductFamily.find(
-                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1", 7L))
                     .thenReturn(familyQuery);
             service.syncDraft(state);
             Ticket ticket = created.constructed().get(0);
@@ -583,6 +599,174 @@ class TicketPersistenceServiceTest {
             assertEquals(3, ticket.itemCount);
             verify(ticket, times(1)).addLine(any(TicketLine.class));
             verify(ticket, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // markLineCancelled / article-cancellation conservation (lot C4, BO-04-01-16)
+    // --------------------------------------------------
+
+    /**
+     * {@code markLineCancelled} stamps the matching line with the flag, a
+     * timestamp and the operator badge, persists once, and leaves the other
+     * lines untouched.
+     */
+    @Test
+    void markLineCancelledMarksTheMatchingLine() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine a = line("U1");
+        TicketLine b = line("U2");
+        ticket.lines.add(a);
+        ticket.lines.add(b);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234");
+            assertTrue(a.cancelled);
+            assertNotNull(a.cancellationDate);
+            assertEquals("12341234", a.cancelledBy);
+            assertFalse(b.cancelled);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * {@code markLineCancelled} is a no-op when the draft is not found (the
+     * cancellation still empties the cart in memory; the witness is
+     * best-effort).
+     */
+    @Test
+    void markLineCancelledNoOpWhenTicketMissing() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
+            service.markLineCancelled(5L, "U1", "12341234");
+        }
+    }
+
+    /**
+     * {@code markLineCancelled} marks nothing and never persists when no line
+     * carries the requested uid (the loop falls through).
+     */
+    @Test
+    void markLineCancelledNoOpWhenUidNotFound() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine b = line("U2");
+        ticket.lines.add(b);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234");
+            assertFalse(b.cancelled);
+            verify(ticket, never()).persist();
+        }
+    }
+
+    /**
+     * {@code markLineCancelled} skips a line that is ALREADY cancelled (the
+     * {@code !line.cancelled} guard), preserving its original author and never
+     * re-persisting.
+     */
+    @Test
+    void markLineCancelledSkipsAnAlreadyCancelledLine() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine a = line("U1");
+        a.cancelled = true;
+        a.cancelledBy = "OLD";
+        ticket.lines.add(a);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234");
+            assertEquals("OLD", a.cancelledBy);
+            verify(ticket, never()).persist();
+        }
+    }
+
+    /**
+     * {@code markLineCancelled} returns before any database access on either leg
+     * of the null guard: a null ticket id (first leg) and a null line uid
+     * (second leg) both short-circuit, so no Panache finder is ever reached.
+     */
+    @Test
+    void markLineCancelledNoOpWhenIdsNull() {
+        TicketPersistenceService service = newService();
+        service.markLineCancelled(null, "U1", "12341234");
+        service.markLineCancelled(5L, null, "12341234");
+    }
+
+    /**
+     * The reconciliation keeps a line marked cancelled even though it left the
+     * in-memory cart (lot C4, BO-04-01-16), while a plain vanished line is
+     * still orphan-removed: the cancelled article is conserved, the totals
+     * count the live cart only.
+     */
+    @Test
+    void syncDraftKeepsACancelledLineAndStillOrphanRemovesAVanishedOne() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        addItem(state, "U2", "4000", null, "1.00", "1", null);
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine cancelled = line("U1");
+        cancelled.cancelled = true;
+        ticket.lines = new ArrayList<>(Arrays.asList(cancelled, line("U2"), line("GONE")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            state.payment.ticketDbId = 5L;
+            service.syncDraft(state);
+            assertEquals(2, ticket.lines.size());
+            assertTrue(ticket.lines.stream().anyMatch(l -> "U1".equals(l.lineUid) && l.cancelled));
+            assertTrue(ticket.lines.stream().anyMatch(l -> "U2".equals(l.lineUid)));
+            assertFalse(ticket.lines.stream().anyMatch(l -> "GONE".equals(l.lineUid)));
+            assertEquals(1, ticket.itemCount);
+        }
+    }
+
+    /**
+     * Totals invariance (campaign rule): a cancelled line kept on the draft
+     * moves no centime. The same live cart yields byte-identical HT, TTC and
+     * VAT totals whether or not a cancelled ghost line sits in the persisted
+     * collection — the totals are recomputed from the cart, never from the
+     * conserved witness.
+     */
+    @Test
+    void aCancelledLineMovesNoCentimeOfTheTotals() {
+        BigDecimal[] withGhost = totalsWithOptionalCancelledGhost(true);
+        BigDecimal[] without = totalsWithOptionalCancelledGhost(false);
+        assertEquals(without[0], withGhost[0]);
+        assertEquals(without[1], withGhost[1]);
+        assertEquals(without[2], withGhost[2]);
+    }
+
+    /**
+     * Reconciles a one-item live cart (2 units at 2,50 €, 20% VAT) against a
+     * draft that optionally already holds a cancelled ghost line of a different
+     * price and rate, and returns the persisted [HT, TTC, VAT] totals. The two
+     * runs differ solely by the presence of the conserved witness.
+     *
+     * @param withGhost whether a cancelled ghost line sits in the collection
+     * @return the three ticket totals of the reconciled draft
+     */
+    private BigDecimal[] totalsWithOptionalCancelledGhost(boolean withGhost) {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        addItem(state, "U2", "4000", null, "2.50", "2", null);
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        List<TicketLine> lines = new ArrayList<>();
+        if (withGhost) {
+            TicketLine ghost = line("U1");
+            ghost.cancelled = true;
+            ghost.totalPrice = new BigDecimal("9.99");
+            ghost.vatRate = new BigDecimal("0.0550");
+            lines.add(ghost);
+        }
+        lines.add(line("U2"));
+        ticket.lines = lines;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            state.payment.ticketDbId = 5L;
+            service.syncDraft(state);
+            return new BigDecimal[]{ticket.totalExcludingTax, ticket.totalIncludingTax, ticket.totalVat};
         }
     }
 
@@ -1209,6 +1393,32 @@ class TicketPersistenceServiceTest {
              MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             stubProduct(mocked, "3400025000001", giftCardProduct("25.00"));
+            service.validateTicket(5L);
+            assertTrue(issued.constructed().isEmpty());
+        }
+    }
+
+    /**
+     * A CANCELLED gift-card line issues nothing at the fiscal close (lot C4):
+     * the {@code line.cancelled} guard skips it before the EAN and product
+     * lookups, exactly as it contributes nothing to the totals — a rung-then-
+     * cancelled card never mints value.
+     */
+    @Test
+    void validateTicketIssuesNothingForACancelledGiftCardLine() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        ticket.totalIncludingTax = new BigDecimal("25.00");
+        ticket.totalVat = BigDecimal.ZERO;
+        TicketLine sold = new TicketLine();
+        sold.ean = "3400025000001";
+        sold.quantity = BigDecimal.ONE;
+        sold.cancelled = true;
+        ticket.lines.add(sold);
+        stubCounter(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<StoredValue> issued = mockConstruction(StoredValue.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.validateTicket(5L);
             assertTrue(issued.constructed().isEmpty());
         }

@@ -131,6 +131,9 @@ public class TicketPrinterService {
             valuations.put(v.lineUid, v);
         }
         for (TicketLine line : ticket.lines) {
+            // A cancelled article (lot C4, BO-04-01-16) is kept in the ticket
+            // only as a journal witness; it never prints on the receipt.
+            if (line.cancelled) continue;
             // Product label (possibly truncated)
             String label = line.productLabel.length() > 20 ? line.productLabel.substring(0, 20) : line.productLabel;
             // Quantity and unit price
@@ -187,6 +190,9 @@ public class TicketPrinterService {
         // Per-rate VAT ventilation (same rule as the persisted totals)
         VatBreakdown breakdown = new VatBreakdown();
         for (TicketLine line : ticket.lines) {
+            // Cancelled articles (lot C4) are outside the sale: excluded from
+            // the per-rate VAT ventilation exactly as from the totals.
+            if (line.cancelled) continue;
             breakdown.add(line.vatRate, line.totalPrice);
         }
         for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
@@ -517,6 +523,8 @@ public class TicketPrinterService {
         sb.append(center(draft.ticketNumber, WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         for (TicketLine line : draft.lines) {
+            // A cancelled article (lot C4) never prints on the parked receipt.
+            if (line.cancelled) continue;
             String label = line.productLabel.length() > 20
                     ? line.productLabel.substring(0, 20) : line.productLabel;
             sb.append(formatLine(label + " x" + DF.format(line.quantity),

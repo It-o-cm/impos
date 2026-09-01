@@ -58,7 +58,15 @@ public class JournalCriteria {
          * {@link #DEGRADED}; both are kept because the questionnaire poses them
          * as two distinct criteria.
          */
-        DEGRADED_MANUAL
+        DEGRADED_MANUAL,
+        /**
+         * The ticket bears at least one cancelled article line (BO-04-01-16):
+         * a line the cashier rang then cancelled, kept as a witness by campaign
+         * lot C4. Selected alone it lists every ticket carrying an article
+         * cancellation; combined with the cancelled-article PLU / amount ranges
+         * it narrows to a specific cancelled article.
+         */
+        CANCELLED_ARTICLE
     }
 
     /** Free text searched in the article labels, ticket number and fidelity card (BO-04-01-01). */
@@ -127,6 +135,15 @@ public class JournalCriteria {
     /** Inclusive upper bound of the manual-reduction amount range (BO-04-01-26), or null. */
     public BigDecimal reductionMax;
 
+    /** Inclusive lower bound of the cancelled-article PLU range (BO-04-01-16), or null. */
+    public String cancelPluMin;
+    /** Inclusive upper bound of the cancelled-article PLU range (BO-04-01-16), or null. */
+    public String cancelPluMax;
+    /** Inclusive lower bound of the cancelled-article amount range (BO-04-01-16), or null. */
+    public BigDecimal cancelAmountMin;
+    /** Inclusive upper bound of the cancelled-article amount range (BO-04-01-16), or null. */
+    public BigDecimal cancelAmountMax;
+
     /** The selected boolean flags (BO-04-01-14/25/31/32/34/46), never null. */
     public Set<Flag> flags = new LinkedHashSet<>();
 
@@ -188,6 +205,10 @@ public class JournalCriteria {
         criteria.authMax = blankToNull(params.getFirst("authMax"));
         criteria.reductionMin = parseAmount(params.getFirst("reductionMin"));
         criteria.reductionMax = parseAmount(params.getFirst("reductionMax"));
+        criteria.cancelPluMin = blankToNull(params.getFirst("cancelPluMin"));
+        criteria.cancelPluMax = blankToNull(params.getFirst("cancelPluMax"));
+        criteria.cancelAmountMin = parseAmount(params.getFirst("cancelAmountMin"));
+        criteria.cancelAmountMax = parseAmount(params.getFirst("cancelAmountMax"));
         addNonBlank(criteria.methods, params.get("method"));
         addNonBlank(criteria.eventTypes, params.get("eventType"));
         addFlags(criteria.flags, params.get("flag"));

@@ -134,7 +134,12 @@ class JournalServiceTest {
         criteria.refundPluMax = "60";
         criteria.refundAmountMin = new BigDecimal("2.00");
         criteria.refundAmountMax = new BigDecimal("20.00");
+        criteria.cancelPluMin = "70";
+        criteria.cancelPluMax = "80";
+        criteria.cancelAmountMin = new BigDecimal("3.00");
+        criteria.cancelAmountMax = new BigDecimal("30.00");
         criteria.flags.add(JournalCriteria.Flag.CANCELLED);
+        criteria.flags.add(JournalCriteria.Flag.CANCELLED_ARTICLE);
         criteria.flags.add(JournalCriteria.Flag.DISCOUNT);
         criteria.flags.add(JournalCriteria.Flag.RETURN);
         criteria.flags.add(JournalCriteria.Flag.NEGATIVE);
@@ -163,6 +168,27 @@ class JournalServiceTest {
         assertTrue(where.contains("t.creationDate <= :dateTo"));
         assertTrue(where.contains("l.plu >= :pluMin and l.plu <= :pluMax"));
         assertTrue(where.contains("l.familyCode >= :familyMin and l.familyCode <= :familyMax"));
+        // Sold-article searches now exclude the cancelled witnesses (lot C4):
+        // every line-scoped sold criterion carries the l.cancelled = false guard.
+        assertTrue(where.contains("l.cancelled = false and l.plu >= :pluMin"));
+        assertTrue(where.contains("l.cancelled = false and l.familyCode >= :familyMin"));
+        assertTrue(where.contains("l.cancelled = false and l.vatRate = :vatRate"));
+        assertTrue(where.contains("l.cancelled = false and lower(l.productLabel) like :text"));
+        assertTrue(where.contains("l.cancelled = false and l.modifierType is not null"));
+        assertTrue(where.contains("l.cancelled = false and l.totalPrice = 0"));
+        assertTrue(where.contains("l.cancelled = false and l.product is null and l.deposit = false"));
+        assertTrue(where.contains("ol.id = rl.originalLineId and ol.cancelled = false"));
+        // The cancelled-article criterion (BO-04-01-16): one exists over the
+        // cancelled witness, both ranges bearing on the same line.
+        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true"
+                + " and l.plu >= :cancelPluMin and l.plu <= :cancelPluMax"
+                + " and l.totalPrice >= :cancelAmountMin and l.totalPrice <= :cancelAmountMax)"));
+        assertEquals("70", params.get("cancelPluMin"));
+        assertEquals("80", params.get("cancelPluMax"));
+        assertEquals(new BigDecimal("3.00"), params.get("cancelAmountMin"));
+        assertEquals(new BigDecimal("30.00"), params.get("cancelAmountMax"));
+        // The bare "annulation article" flag matches any ticket bearing one.
+        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true)"));
         assertEquals("FRUITS", params.get("familyMin"));
         assertEquals("LEGUMES", params.get("familyMax"));
         assertTrue(where.contains("l.vatRate = :vatRate"));
@@ -301,7 +327,7 @@ class JournalServiceTest {
         JournalCriteria criteria = new JournalCriteria();
         criteria.pluMax = "50";
         String where = service.buildTicketQuery(criteria).whereClause();
-        assertTrue(where.contains("where l.plu <= :pluMax)"));
+        assertTrue(where.contains("l.plu <= :pluMax)"));
         assertFalse(where.contains("pluMin"));
     }
 
@@ -330,7 +356,7 @@ class JournalServiceTest {
         JournalCriteria criteria = new JournalCriteria();
         criteria.familyMax = "LEGUMES";
         String where = service.buildTicketQuery(criteria).whereClause();
-        assertTrue(where.contains("where l.familyCode <= :familyMax)"));
+        assertTrue(where.contains("l.familyCode <= :familyMax)"));
         assertFalse(where.contains("familyMin"));
     }
 
@@ -341,6 +367,107 @@ class JournalServiceTest {
     void noFamilyBoundAddsNoClause() {
         JournalService service = serviceWith(mock(EntityManager.class));
         assertFalse(service.buildTicketQuery(new JournalCriteria()).whereClause().contains("familyCode"));
+    }
+
+    /**
+     * A cancelled-article PLU lower bound and an amount upper bound alone append
+     * their two halves only, over the cancelled-witness {@code exists}
+     * (BO-04-01-16, cancelPluMin present / cancelPluMax absent / cancelAmountMin
+     * absent / cancelAmountMax present).
+     */
+    @Test
+    void cancelPluMinAndAmountMaxOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.cancelPluMin = "70";
+        criteria.cancelAmountMax = new BigDecimal("30.00");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true"
+                + " and l.plu >= :cancelPluMin and l.totalPrice <= :cancelAmountMax)"));
+        assertFalse(where.contains("cancelPluMax"));
+        assertFalse(where.contains("cancelAmountMin"));
+        assertEquals("70", query.parameters().get("cancelPluMin"));
+        assertEquals(new BigDecimal("30.00"), query.parameters().get("cancelAmountMax"));
+    }
+
+    /**
+     * A cancelled-article PLU upper bound and an amount lower bound alone append
+     * their two halves only (BO-04-01-16, cancelPluMin absent / cancelPluMax
+     * present / cancelAmountMin present / cancelAmountMax absent).
+     */
+    @Test
+    void cancelPluMaxAndAmountMinOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.cancelPluMax = "80";
+        criteria.cancelAmountMin = new BigDecimal("3.00");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true"
+                + " and l.plu <= :cancelPluMax and l.totalPrice >= :cancelAmountMin)"));
+        assertFalse(where.contains("cancelPluMin"));
+        assertFalse(where.contains("cancelAmountMax"));
+        assertEquals("80", query.parameters().get("cancelPluMax"));
+        assertEquals(new BigDecimal("3.00"), query.parameters().get("cancelAmountMin"));
+    }
+
+    /**
+     * No cancelled-article bound adds no cancelled-witness clause (four-null
+     * early-return arm), and with no CANCELLED_ARTICLE flag either, no
+     * {@code l.cancelled = true} predicate appears at all.
+     */
+    @Test
+    void noCancelledArticleBoundAddsNoClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalQuery query = service.buildTicketQuery(new JournalCriteria());
+        assertFalse(query.whereClause().contains("cancelPluMin"));
+        assertFalse(query.whereClause().contains("l.cancelled = true"));
+    }
+
+    /**
+     * A cancelled-article amount lower bound alone still opens the
+     * cancelled-witness {@code exists} (BO-04-01-16): the four-null early-return
+     * falls through on its {@code cancelAmountMin == null} false arm, with no
+     * PLU clause.
+     */
+    @Test
+    void cancelAmountMinOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.cancelAmountMin = new BigDecimal("3.00");
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("l.cancelled = true and l.totalPrice >= :cancelAmountMin)"));
+        assertFalse(where.contains("cancelPlu"));
+        assertFalse(where.contains("cancelAmountMax"));
+    }
+
+    /**
+     * A cancelled-article amount upper bound alone appends its half only
+     * (BO-04-01-16, the {@code cancelAmountMax == null} false arm).
+     */
+    @Test
+    void cancelAmountMaxOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.cancelAmountMax = new BigDecimal("30.00");
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("l.cancelled = true and l.totalPrice <= :cancelAmountMax)"));
+        assertFalse(where.contains("cancelAmountMin"));
+    }
+
+    /**
+     * The CANCELLED_ARTICLE flag alone lists every ticket bearing an article
+     * cancellation (BO-04-01-16), with no range parameter bound.
+     */
+    @Test
+    void cancelledArticleFlagMatchesAnyCancelledLine() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.flags.add(JournalCriteria.Flag.CANCELLED_ARTICLE);
+        JournalQuery query = service.buildTicketQuery(criteria);
+        assertTrue(query.whereClause().contains("exists (select l from t.lines l where l.cancelled = true)"));
+        assertFalse(query.parameters().containsKey("cancelPluMin"));
     }
 
     /**

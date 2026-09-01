@@ -411,6 +411,24 @@ class RefundServiceTest {
     }
 
     /**
+     * A CANCELLED article (lot C4, BO-04-01-16) is never returnable, even
+     * against a hand-posted line id: the {@code !l.cancelled} filter excludes
+     * it, so the line resolves to null and nothing is staged.
+     */
+    @Test
+    void setReturnQuantityRefusesACancelledLine() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine cancelled = line(1L, "5", "10.00", "0.20", "MILK");
+        cancelled.cancelled = true;
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", cancelled);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            s.setReturnQuantity(state, 1L, BigDecimal.ONE);
+        }
+        assertTrue(state.refund.returnQuantities.isEmpty());
+    }
+
+    /**
      * A line WITHOUT an EAN skips the gift-card lookup entirely (first guard
      * false arm): a weighed PLU line can never be an instrument.
      */
@@ -683,6 +701,36 @@ class RefundServiceTest {
         }
         verifyNoInteractions(s.ticketNumberService, s.cashSessionService, s.technicalEventService,
                 s.syncOutboxService, s.ticketPrinterService, s.hardwareService);
+    }
+
+    /**
+     * A cancelled article (lot C4, BO-04-01-16) never backs a refund line, even
+     * if its id reaches {@code performRefund} through a hand-posted quantity:
+     * the registration filter's {@code !l.cancelled} arm drops it, so the
+     * refund carries no line for it.
+     */
+    @Test
+    void performRefundSkipsACancelledOriginalLine() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine cancelled = line(1L, "3", "10.00", "0.20", "MILK");
+        cancelled.cancelled = true;
+        Ticket original = ticket(10L, "T-1", "100.00", cancelled);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        CashSession session = mock(CashSession.class);
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(session);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            assertTrue(mc.constructed().get(0).lines.isEmpty());
+        }
     }
 
     /**

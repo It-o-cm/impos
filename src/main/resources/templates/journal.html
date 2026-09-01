@@ -116,6 +116,20 @@
                 <input class="input-control" type="text" name="refundAmountMax" value="{criteria.refundAmountMax ?: ''}">
             </div>
         </div>
+        <div class="field">
+            <label class="field-label" for="f-cancel-plu-min">Annulation article - N° PLU (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-cancel-plu-min" type="text" name="cancelPluMin" value="{criteria.cancelPluMin ?: ''}">
+                <input class="input-control" type="text" name="cancelPluMax" value="{criteria.cancelPluMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-cancel-amount-min">Annulation article - Montant (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-cancel-amount-min" type="text" name="cancelAmountMin" value="{criteria.cancelAmountMin ?: ''}">
+                <input class="input-control" type="text" name="cancelAmountMax" value="{criteria.cancelAmountMax ?: ''}">
+            </div>
+        </div>
     </div>
 
     <fieldset class="journal-fieldset">
