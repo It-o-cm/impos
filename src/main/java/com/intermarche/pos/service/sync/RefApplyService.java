@@ -1,7 +1,12 @@
 package com.intermarche.pos.service.sync;
 
 import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.Country;
+import com.intermarche.pos.domain.EchelonLevel;
+import com.intermarche.pos.domain.EchelonSetting;
 import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.Enseigne;
+import com.intermarche.pos.domain.Pdv;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.ProductType;
@@ -11,6 +16,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
@@ -269,6 +275,96 @@ public class RefApplyService {
     }
 
     /**
+     * Applies a country snapshot (store node, route A): the echelon tree is
+     * fully owned by the central node, and nothing on the store references a
+     * country by foreign key, so the table is replaced as a whole — the same
+     * wholesale strategy as prices.
+     *
+     * @param dtos the full countries snapshot
+     */
+    @Transactional
+    public void applyCountries(List<RefPayloads.CountryDto> dtos) {
+        Country.deleteAll();
+        for (RefPayloads.CountryDto dto : dtos) {
+            Country row = new Country();
+            row.code = dto.code;
+            row.name = dto.name;
+            row.defaultLanguage = dto.defaultLanguage;
+            row.persist();
+        }
+        LOG.infof("Référentiel pays appliqué: %d ligne(s)", dtos.size());
+    }
+
+    /**
+     * Applies an enseigne snapshot (store node, route A): wholesale replacement,
+     * like the countries — no foreign key on the store points at an enseigne.
+     *
+     * @param dtos the full enseignes snapshot
+     */
+    @Transactional
+    public void applyEnseignes(List<RefPayloads.EnseigneDto> dtos) {
+        Enseigne.deleteAll();
+        for (RefPayloads.EnseigneDto dto : dtos) {
+            Enseigne row = new Enseigne();
+            row.code = dto.code;
+            row.name = dto.name;
+            row.countryCode = dto.countryCode;
+            row.defaultLanguage = dto.defaultLanguage;
+            row.persist();
+        }
+        LOG.infof("Référentiel enseignes appliqué: %d ligne(s)", dtos.size());
+    }
+
+    /**
+     * Applies a PDV snapshot (store node, route A): wholesale replacement. The
+     * enseigne link and the adhérent grouping travel by code, so a re-parenting
+     * done centrally lands as a plain field change here.
+     *
+     * @param dtos the full PDVs snapshot
+     */
+    @Transactional
+    public void applyPdvs(List<RefPayloads.PdvDto> dtos) {
+        Pdv.deleteAll();
+        for (RefPayloads.PdvDto dto : dtos) {
+            Pdv row = new Pdv();
+            row.pdvNumber = dto.pdvNumber;
+            row.name = dto.name;
+            row.enseigneCode = dto.enseigneCode;
+            row.adherentCode = dto.adherentCode;
+            row.active = dto.active;
+            row.persist();
+        }
+        LOG.infof("Référentiel PDV appliqué: %d ligne(s)", dtos.size());
+    }
+
+    /**
+     * Applies an echelon-parameters snapshot (store node, route A): wholesale
+     * replacement, then the settings cache is dropped so this store re-resolves
+     * its own PDV's effective values on the next read — this is what carries a
+     * value posed at the enseigne down to the registers, and what makes a
+     * future-dated value apply on its own once its day comes (BO-03-12-03/04).
+     * The store's OWN local overrides live in a different table ({@code
+     * pos_settings}) and are untouched, so they survive this apply.
+     *
+     * @param dtos the full echelon-settings snapshot
+     */
+    @Transactional
+    public void applyEchelonSettings(List<RefPayloads.EchelonSettingDto> dtos) {
+        EchelonSetting.deleteAll();
+        for (RefPayloads.EchelonSettingDto dto : dtos) {
+            EchelonSetting row = new EchelonSetting();
+            row.level = EchelonLevel.valueOf(dto.level);
+            row.echelonCode = dto.echelonCode;
+            row.settingKey = dto.settingKey;
+            row.settingValue = dto.settingValue;
+            row.effectiveDate = dto.effectiveDate != null ? LocalDate.parse(dto.effectiveDate) : null;
+            row.persist();
+        }
+        posSettingsService.invalidate();
+        LOG.infof("Paramètres d'échelon appliqués: %d ligne(s)", dtos.size());
+    }
+
+    /**
      * Records the applied fingerprint of a domain.
      *
      * @param domain the referential domain
@@ -288,10 +384,18 @@ public class RefApplyService {
 
     /**
      * Returns the last applied fingerprint of a domain.
+     * <p>
+     * Transactional like every other database method here, and for a reason
+     * that is not cosmetic: the pull loop runs on its own scheduler thread,
+     * where no request context and no transaction exist. This read is the
+     * FIRST database touch of a cycle, so without a transaction of its own the
+     * whole cycle dies before pulling anything — silently for the user, once
+     * every pull interval, in the log only.
      *
      * @param domain the referential domain
      * @return the fingerprint, or null when never applied
      */
+    @Transactional
     public String lastApplied(String domain) {
         RefState state = RefState.find("domain", domain).firstResult();
         return state != null ? state.fingerprint : null;

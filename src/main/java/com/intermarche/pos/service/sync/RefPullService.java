@@ -29,8 +29,15 @@ import java.util.concurrent.TimeUnit;
  * fingerprints from the store node and, for each domain whose fingerprint
  * differs from the last applied one, downloads the full snapshot page by
  * page and applies it. A fresh register bootstraps itself the same way (no
- * fingerprint recorded yet, everything differs). Active only on a register
- * with a configured store URL.
+ * fingerprint recorded yet, everything differs).
+ * <p>
+ * Two-level chain (route A): the SAME loop runs on a store node too, pulling
+ * the echelon domains ({@link RefExportService#ECHELON_DOMAINS}) from the
+ * CENTRAL node instead of the register domains from the store — a register
+ * pulls its store, a store pulls the central, and neither the mechanism nor
+ * the fingerprint form changes, only the upstream URL and the domain set. A
+ * register never learns the echelons exist; it receives the resolved SETTINGS.
+ * A central node runs no pull: it is the top.
  * <p>
  * Consistency note: the pages of one snapshot are fetched without a shared
  * transaction, so an import running on the store node DURING a pull can
@@ -51,13 +58,17 @@ public class RefPullService {
     @ConfigProperty(name = "pos.referential.pull-seconds", defaultValue = "300")
     long pullSeconds;
 
-    /** The role of this node: only registers pull. */
+    /** The role of this node: a register pulls its store, a store pulls the central. */
     @ConfigProperty(name = "pos.role", defaultValue = "register")
     String role;
 
-    /** Shared token sent to the store node; absent = none. */
+    /** Shared token sent to the upstream node; absent = none. */
     @ConfigProperty(name = "pos.sync.token")
     Optional<String> token;
+
+    /** The central node URL a STORE pulls its echelons from; absent = no central chaining. */
+    @ConfigProperty(name = "pos.sync.central-url")
+    Optional<String> centralUrl;
 
     @Inject
     SyncOutboxService syncOutboxService;
@@ -84,8 +95,10 @@ public class RefPullService {
      * @param event the Quarkus startup event
      */
     void onStart(@Observes StartupEvent event) {
-        if (!"register".equalsIgnoreCase(role) || !syncOutboxService.isEnabled()) {
-            LOG.info("Tirage des référentiels désactivé (rôle store ou pos.sync.store-url absent)");
+        boolean registerReady = "register".equalsIgnoreCase(role) && syncOutboxService.isEnabled();
+        boolean storeReady = "store".equalsIgnoreCase(role) && hasCentralUrl();
+        if (!registerReady && !storeReady) {
+            LOG.info("Tirage des référentiels désactivé (rôle central, ou URL amont absente)");
             return;
         }
         executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -95,7 +108,36 @@ public class RefPullService {
         });
         executor.scheduleWithFixedDelay(this::pullSafely, 15, pullSeconds, TimeUnit.SECONDS);
         LOG.infof("Tirage des référentiels actif depuis %s (toutes les %ds)",
-                syncOutboxService.getStoreUrl(), pullSeconds);
+                upstreamUrl(), pullSeconds);
+    }
+
+    /**
+     * Whether a non-blank central URL is configured (a store node's upstream).
+     *
+     * @return true when the central URL is present and non-blank
+     */
+    private boolean hasCentralUrl() {
+        return centralUrl.map(url -> !url.isBlank()).orElse(false);
+    }
+
+    /**
+     * The domains this node pulls: the echelon domains for a store node, the
+     * register domains otherwise.
+     *
+     * @return the domain list to iterate
+     */
+    private List<String> pullDomains() {
+        return "store".equalsIgnoreCase(role) ? RefExportService.ECHELON_DOMAINS : RefExportService.DOMAINS;
+    }
+
+    /**
+     * The upstream base URL this node pulls from: the central URL for a store
+     * node, the store URL otherwise.
+     *
+     * @return the upstream base URL
+     */
+    private String upstreamUrl() {
+        return "store".equalsIgnoreCase(role) ? centralUrl.orElse("") : syncOutboxService.getStoreUrl();
     }
 
     /**
@@ -127,7 +169,7 @@ public class RefPullService {
         Map<String, String> remote = objectMapper.readValue(
                 get("/api/referential/versions"), new TypeReference<Map<String, String>>() {});
 
-        for (String domain : RefExportService.DOMAINS) {
+        for (String domain : pullDomains()) {
             String remoteFingerprint = remote.get(domain);
             if (remoteFingerprint == null || remoteFingerprint.equals(refApplyService.lastApplied(domain))) {
                 continue;
@@ -160,6 +202,14 @@ public class RefPullService {
                     this.<RefPayloads.SettingDto>pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
             case "ENGINE_FEEDS" -> refApplyService.applyEngineFeeds(
                     this.<RefPayloads.EngineFeedDto>pages(domain, new TypeReference<List<RefPayloads.EngineFeedDto>>() {}));
+            case "COUNTRIES" -> refApplyService.applyCountries(
+                    this.<RefPayloads.CountryDto>pages(domain, new TypeReference<List<RefPayloads.CountryDto>>() {}));
+            case "ENSEIGNES" -> refApplyService.applyEnseignes(
+                    this.<RefPayloads.EnseigneDto>pages(domain, new TypeReference<List<RefPayloads.EnseigneDto>>() {}));
+            case "PDVS" -> refApplyService.applyPdvs(
+                    this.<RefPayloads.PdvDto>pages(domain, new TypeReference<List<RefPayloads.PdvDto>>() {}));
+            case "ECHELON_SETTINGS" -> refApplyService.applyEchelonSettings(
+                    this.<RefPayloads.EchelonSettingDto>pages(domain, new TypeReference<List<RefPayloads.EchelonSettingDto>>() {}));
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         }
         refApplyService.recordApplied(domain, fingerprint);
@@ -195,7 +245,7 @@ public class RefPullService {
      */
     private String get(String path) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(syncOutboxService.getStoreUrl() + path))
+                .uri(URI.create(upstreamUrl() + path))
                 .timeout(Duration.ofSeconds(30))
                 .GET();
         String sharedToken = token.orElse("");

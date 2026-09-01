@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link JournalTicketDetail} and its nested {@code Line} and
@@ -23,7 +25,7 @@ class JournalTicketDetailTest {
     @Test
     void detailStoresHeaderAndChildren() {
         JournalTicketDetail.Line line = new JournalTicketDetail.Line(
-                1, "Lait", "3001", "42", "x2", "3,00", "REMISE");
+                1, "Lait", "3001", "42", "x2", "3,00", "REMISE", false);
         JournalTicketDetail.Payment payment = new JournalTicketDetail.Payment("CASH", "3,00");
         JournalTicketDetail detail = new JournalTicketDetail("C04-00000001", "C04", "CLOSED",
                 "31/08/2026", "10:00", "Jean Dupont", "12341234", "IM Lyon", "CARTE1",
@@ -50,7 +52,7 @@ class JournalTicketDetailTest {
     @Test
     void lineKeepsPresentOptionalFields() {
         JournalTicketDetail.Line line = new JournalTicketDetail.Line(
-                2, "Pain", "3002", "43", "x1", "1,20", "FORCAGE");
+                2, "Pain", "3002", "43", "x1", "1,20", "FORCAGE", false);
         assertEquals(2, line.number);
         assertEquals("Pain", line.label);
         assertEquals("3002", line.ean);
@@ -58,6 +60,18 @@ class JournalTicketDetailTest {
         assertEquals("x1", line.quantity);
         assertEquals("1,20", line.total);
         assertEquals("FORCAGE", line.modifier);
+        assertFalse(line.cancelled);
+    }
+
+    /**
+     * A cancelled line carries its flag, so the detail can mark it instead of
+     * showing it as a sold article.
+     */
+    @Test
+    void lineKeepsTheCancelledFlag() {
+        JournalTicketDetail.Line line = new JournalTicketDetail.Line(
+                4, "Annulé", "3004", "44", "x1", "2,00", null, true);
+        assertTrue(line.cancelled);
     }
 
     /**
@@ -67,7 +81,7 @@ class JournalTicketDetailTest {
     @Test
     void lineNullOptionalFieldsBecomeEmpty() {
         JournalTicketDetail.Line line = new JournalTicketDetail.Line(
-                3, "Inconnu", null, null, "x1", "0,00", null);
+                3, "Inconnu", null, null, "x1", "0,00", null, false);
         assertEquals("", line.ean);
         assertEquals("", line.plu);
         assertEquals("", line.modifier);

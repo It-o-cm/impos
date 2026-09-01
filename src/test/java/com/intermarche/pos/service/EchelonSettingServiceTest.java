@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -99,6 +100,20 @@ class EchelonSettingServiceTest {
         EchelonSetting setting = new EchelonSetting();
         setting.settingKey = key;
         setting.settingValue = value;
+        return setting;
+    }
+
+    /**
+     * Builds an echelon-setting row carrying an effect date.
+     *
+     * @param key the catalog key
+     * @param value the value
+     * @param effectiveDate the day the value takes effect, or null for immediate
+     * @return the built row
+     */
+    private EchelonSetting row(String key, String value, LocalDate effectiveDate) {
+        EchelonSetting setting = row(key, value);
+        setting.effectiveDate = effectiveDate;
         return setting;
     }
 
@@ -220,6 +235,72 @@ class EchelonSettingServiceTest {
             assertEquals("cv", resolved.get("countryOnly"));
             assertEquals("ev", resolved.get("ensOnly"));
             assertEquals(3, resolved.size());
+        }
+    }
+
+    /**
+     * The date-aware overload gates each row on its effect date (BO-03-12-03/04):
+     * a row dated in the past and an undated row are in effect, a row dated in
+     * the future is ignored until its day — covering all three arms of the
+     * {@code effectiveDate == null || !isAfter(asOf)} overlay guard.
+     */
+    @Test
+    void resolveForPdvGatesRowsOnEffectiveDate() {
+        EchelonSettingService service = new EchelonSettingService();
+        LocalDate asOf = LocalDate.of(2026, 6, 15);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubPdv(panache, "12345", pdv("12345", null));
+            panache.when(() -> EchelonSetting.list(SETTING_FOR_ECHELON, EchelonLevel.PDV, "12345"))
+                    .thenReturn(List.of(
+                            row("past", "p", LocalDate.of(2026, 1, 1)),
+                            row("undated", "n", null),
+                            row("future", "f", LocalDate.of(2026, 12, 1))));
+            Map<String, String> resolved = service.resolveForPdv("12345", asOf);
+            assertEquals("p", resolved.get("past"));
+            assertEquals("n", resolved.get("undated"));
+            assertFalse(resolved.containsKey("future"));
+            assertEquals(2, resolved.size());
+        }
+    }
+
+    /**
+     * {@code set} with an effect date stores it on the inserted row (insert arm).
+     */
+    @Test
+    void setStoresEffectiveDateOnInsert() {
+        EchelonSettingService service = new EchelonSettingService();
+        LocalDate effect = LocalDate.of(2026, 3, 1);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<EchelonSetting> construction = mockConstruction(EchelonSetting.class)) {
+            PanacheQuery<EchelonSetting> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(null);
+            panache.when(() -> EchelonSetting.find(SETTING_FIND, EchelonLevel.ENSEIGNE, "IF", "k"))
+                    .thenReturn(query);
+            service.set(EchelonLevel.ENSEIGNE, "IF", "k", "v", effect);
+            EchelonSetting created = construction.constructed().get(0);
+            assertEquals(effect, created.effectiveDate);
+            verify(created, times(1)).persist();
+        }
+    }
+
+    /**
+     * {@code set} with an effect date stores it on the updated row (update arm).
+     */
+    @Test
+    void setStoresEffectiveDateOnUpdate() {
+        EchelonSettingService service = new EchelonSettingService();
+        LocalDate effect = LocalDate.of(2026, 3, 1);
+        EchelonSetting existing = row("k", "old");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<EchelonSetting> construction = mockConstruction(EchelonSetting.class)) {
+            PanacheQuery<EchelonSetting> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(existing);
+            panache.when(() -> EchelonSetting.find(SETTING_FIND, EchelonLevel.PDV, "12345", "k"))
+                    .thenReturn(query);
+            service.set(EchelonLevel.PDV, "12345", "k", "new", effect);
+            assertEquals("new", existing.settingValue);
+            assertEquals(effect, existing.effectiveDate);
+            assertTrue(construction.constructed().isEmpty());
         }
     }
 

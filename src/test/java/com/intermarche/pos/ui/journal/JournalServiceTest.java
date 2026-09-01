@@ -1092,6 +1092,13 @@ class JournalServiceTest {
         line.totalPrice = new BigDecimal("3.00");
         line.modifierLabel = "REMISE";
         ticket.lines.add(line);
+        TicketLine witness = new TicketLine();
+        witness.lineNumber = 2;
+        witness.productLabel = "Annulé";
+        witness.quantity = new BigDecimal("1.000");
+        witness.totalPrice = new BigDecimal("2.00");
+        witness.cancelled = true;
+        ticket.lines.add(witness);
         ticket.payments.add(new CardPayment(new BigDecimal("3.00")));
         when(em.find(Ticket.class, 1L)).thenReturn(ticket);
         JournalService service = serviceWith(em);
@@ -1107,9 +1114,11 @@ class JournalServiceTest {
         assertEquals("3,00", detail.totalIncludingTax);
         assertEquals("2,85", detail.totalExcludingTax);
         assertEquals("0,15", detail.totalVat);
-        assertEquals(1, detail.lines.size());
+        assertEquals(2, detail.lines.size());
         assertEquals("2", detail.lines.get(0).quantity);
         assertEquals("REMISE", detail.lines.get(0).modifier);
+        assertFalse(detail.lines.get(0).cancelled);
+        assertTrue(detail.lines.get(1).cancelled);
         assertEquals(1, detail.payments.size());
         assertEquals("CARD", detail.payments.get(0).method);
         assertEquals("3,00", detail.payments.get(0).amount);

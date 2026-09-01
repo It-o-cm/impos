@@ -2,6 +2,7 @@ package com.intermarche.pos.imports;
 
 import com.intermarche.pos.service.sync.RefExportService;
 import jakarta.inject.Inject;
+import java.util.List;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.Path;
@@ -27,7 +28,7 @@ import java.util.Optional;
 @Path("/api/referential")
 public class RefExportResource {
 
-    /** The role of this node: "register" (default) or "store". */
+    /** The role of this node: "register" (default), "store" or "central". */
     @ConfigProperty(name = "pos.role", defaultValue = "register")
     String role;
 
@@ -50,7 +51,10 @@ public class RefExportResource {
     public Response versions(@HeaderParam("X-Sync-Token") String presentedToken) {
         Response gate = gate(presentedToken);
         if (gate != null) return gate;
-        return Response.ok(refExportService.getFingerprints()).build();
+        List<String> domains = "central".equalsIgnoreCase(role)
+                ? RefExportService.ECHELON_DOMAINS
+                : RefExportService.DOMAINS;
+        return Response.ok(refExportService.getFingerprints(domains)).build();
     }
 
     /**
@@ -86,9 +90,9 @@ public class RefExportResource {
      * @return the refusal response, or null when allowed
      */
     private Response gate(String presentedToken) {
-        if (!"store".equalsIgnoreCase(role)) {
+        if (!"store".equalsIgnoreCase(role) && !"central".equalsIgnoreCase(role)) {
             return Response.status(Response.Status.FORBIDDEN)
-                    .entity("Ce nœud n'a pas le rôle store").build();
+                    .entity("Ce nœud n'a pas le rôle store ou central").build();
         }
         String expectedToken = token.orElse("");
         if (!expectedToken.isBlank() && !expectedToken.equals(presentedToken)) {

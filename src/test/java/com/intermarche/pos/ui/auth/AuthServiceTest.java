@@ -279,7 +279,9 @@ class AuthServiceTest {
     // --- logout ---
 
     /**
-     * Logout clears both the session auth and the in-memory ticket.
+     * Logout clears both the session auth and the in-memory ticket, and
+     * journals nothing when no operator was signed in (the null-badge arm:
+     * /lock is also the landing page of an already-locked register).
      */
     @Test
     void logoutClearsSessionAndTicket() {
@@ -288,6 +290,22 @@ class AuthServiceTest {
         service.logout(state);
         verify(state.auth).logout();
         verify(state).clearTicket();
+        verify(service.technicalEventService, never()).log(any(), any(), any());
+    }
+
+    /**
+     * A deliberate lock journals REGISTER_LOCKED with the operator badge, like
+     * the idle timeout does (BO-04-01-27, signed-in arm).
+     */
+    @Test
+    void logoutJournalsTheDeliberateLock() {
+        AuthService service = newService();
+        PosState state = newState();
+        state.auth.operatorBadgeId = "12341234";
+        service.logout(state);
+        verify(service.technicalEventService)
+                .log(TechnicalEvent.EventType.REGISTER_LOCKED, null, "12341234");
+        verify(state.auth).logout();
     }
 
     // --- changePin ---

@@ -120,8 +120,6 @@ public class Address {
                 country,
                 latitude,
                 longitude);
-        System.out.println("Checksum: " + Objects.hash(streetLine1) +" "+ Objects.hash(streetLine2) +" "+ Objects.hash(postalCode) +" "+ Objects.hash(city) +" "+ Objects.hash(country) +" "+ Objects.hash(latitude) +" "+ Objects.hash(longitude));
-        System.out.println("Checksum: " + checksum);
         return checksum;
     }
 }

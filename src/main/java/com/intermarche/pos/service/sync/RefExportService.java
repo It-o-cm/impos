@@ -1,11 +1,17 @@
 package com.intermarche.pos.service.sync;
 
 import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.Country;
+import com.intermarche.pos.domain.EchelonSetting;
 import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.Enseigne;
+import com.intermarche.pos.domain.Pdv;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -36,10 +42,19 @@ import java.util.Map;
 @ApplicationScoped
 public class RefExportService {
 
-    /** The referential domains, in register apply order. */
+    /** The referential domains a REGISTER pulls from its store node, in apply order. */
     public static final List<String> DOMAINS =
             List.of("FAMILIES", "PRODUCTS", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS",
                     "ENGINE_FEEDS");
+
+    /**
+     * The echelon domains a STORE node pulls from the CENTRAL node (route A),
+     * in apply order: the organisation tree top-down (a PDV references its
+     * enseigne, an enseigne its country) then the parameters posed on it. A
+     * register never pulls these — it receives only the resolved SETTINGS.
+     */
+    public static final List<String> ECHELON_DOMAINS =
+            List.of("COUNTRIES", "ENSEIGNES", "PDVS", "ECHELON_SETTINGS");
 
     /** Fingerprint cache TTL in milliseconds. */
     private static final long FINGERPRINT_TTL_MS = 60_000;
@@ -50,15 +65,32 @@ public class RefExportService {
     /** Cache timestamp per domain (epoch millis). */
     private final Map<String, Long> fingerprintCachedAt = new HashMap<>();
 
+    /** Resolves the effective SETTINGS values a store publishes to its registers. */
+    @Inject
+    PosSettingsService posSettingsService;
+
     /**
-     * Returns the fingerprint of every domain, recomputing the expired ones.
+     * Returns the fingerprint of every REGISTER-facing domain, recomputing the
+     * expired ones.
      *
      * @return an ordered map domain to fingerprint
      */
     public synchronized Map<String, String> getFingerprints() {
+        return getFingerprints(DOMAINS);
+    }
+
+    /**
+     * Returns the fingerprint of every domain in the given set, recomputing the
+     * expired ones — the store node passes {@link #DOMAINS}, the central node
+     * passes {@link #ECHELON_DOMAINS}.
+     *
+     * @param domains the domains to fingerprint
+     * @return an ordered map domain to fingerprint
+     */
+    public synchronized Map<String, String> getFingerprints(List<String> domains) {
         Map<String, String> result = new LinkedHashMap<>();
         long now = System.currentTimeMillis();
-        for (String domain : DOMAINS) {
+        for (String domain : domains) {
             Long cachedAt = fingerprintCachedAt.get(domain);
             if (cachedAt == null || now - cachedAt > FINGERPRINT_TTL_MS) {
                 fingerprintCache.put(domain, computeFingerprint(domain));
@@ -90,26 +122,108 @@ public class RefExportService {
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "COUPON_TYPES" -> CouponType.<CouponType>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
-            case "SETTINGS" -> com.intermarche.pos.domain.PosSetting
-                    .<com.intermarche.pos.domain.PosSetting>find("order by settingKey")
-                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "SETTINGS" -> settingsPage(page, size);
             case "ENGINE_FEEDS" -> com.intermarche.pos.domain.EngineFeed
                     .<com.intermarche.pos.domain.EngineFeed>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "COUNTRIES" -> Country.<Country>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "ENSEIGNES" -> Enseigne.<Enseigne>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "PDVS" -> Pdv.<Pdv>find("order by pdvNumber")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "ECHELON_SETTINGS" -> EchelonSetting
+                    .<EchelonSetting>find("order by level, echelonCode, settingKey")
                     .page(page, size).list().stream().map(this::toDto).toList();
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         };
     }
 
     /**
-     * Maps a back-office parameter to its snapshot payload.
+     * Builds one page of the SETTINGS snapshot from the RESOLVED effective
+     * values (route A, BO-02-05-04): the store node publishes the result of the
+     * echelon resolution for its own PDV, not the raw {@code pos_settings} rows,
+     * so a register receives a parameter, never the echelon chain. Ordered by
+     * key, paged in memory (the administered set is small and bounded).
      *
-     * @param setting the stored parameter row
+     * @param page the 0-based page index
+     * @param size the page size
+     * @return the page of setting payloads, empty past the end
+     */
+    private List<RefPayloads.SettingDto> settingsPage(int page, int size) {
+        List<RefPayloads.SettingDto> all = new ArrayList<>();
+        for (Map.Entry<String, String> entry : posSettingsService.administeredValues().entrySet()) {
+            RefPayloads.SettingDto dto = new RefPayloads.SettingDto();
+            dto.key = entry.getKey();
+            dto.value = entry.getValue();
+            all.add(dto);
+        }
+        int from = page * size;
+        if (from >= all.size()) {
+            return List.of();
+        }
+        return all.subList(from, Math.min(from + size, all.size()));
+    }
+
+    /**
+     * Maps a country echelon to its snapshot payload.
+     *
+     * @param country the country entity
      * @return the transport DTO
      */
-    private RefPayloads.SettingDto toDto(com.intermarche.pos.domain.PosSetting setting) {
-        RefPayloads.SettingDto dto = new RefPayloads.SettingDto();
-        dto.key = setting.settingKey;
-        dto.value = setting.settingValue;
+    private RefPayloads.CountryDto toDto(Country country) {
+        RefPayloads.CountryDto dto = new RefPayloads.CountryDto();
+        dto.code = country.code;
+        dto.name = country.name;
+        dto.defaultLanguage = country.defaultLanguage;
+        return dto;
+    }
+
+    /**
+     * Maps an enseigne echelon to its snapshot payload.
+     *
+     * @param enseigne the enseigne entity
+     * @return the transport DTO
+     */
+    private RefPayloads.EnseigneDto toDto(Enseigne enseigne) {
+        RefPayloads.EnseigneDto dto = new RefPayloads.EnseigneDto();
+        dto.code = enseigne.code;
+        dto.name = enseigne.name;
+        dto.countryCode = enseigne.countryCode;
+        dto.defaultLanguage = enseigne.defaultLanguage;
+        return dto;
+    }
+
+    /**
+     * Maps a point de vente to its snapshot payload.
+     *
+     * @param pdv the PDV entity
+     * @return the transport DTO
+     */
+    private RefPayloads.PdvDto toDto(Pdv pdv) {
+        RefPayloads.PdvDto dto = new RefPayloads.PdvDto();
+        dto.pdvNumber = pdv.pdvNumber;
+        dto.name = pdv.name;
+        dto.enseigneCode = pdv.enseigneCode;
+        dto.adherentCode = pdv.adherentCode;
+        dto.active = pdv.active;
+        return dto;
+    }
+
+    /**
+     * Maps an echelon parameter to its snapshot payload, its effect date as an
+     * ISO date string.
+     *
+     * @param setting the echelon setting entity
+     * @return the transport DTO
+     */
+    private RefPayloads.EchelonSettingDto toDto(EchelonSetting setting) {
+        RefPayloads.EchelonSettingDto dto = new RefPayloads.EchelonSettingDto();
+        dto.level = setting.level != null ? setting.level.name() : null;
+        dto.echelonCode = setting.echelonCode;
+        dto.settingKey = setting.settingKey;
+        dto.settingValue = setting.settingValue;
+        dto.effectiveDate = setting.effectiveDate != null ? setting.effectiveDate.toString() : null;
         return dto;
     }
 
@@ -182,6 +296,20 @@ public class RefExportService {
         }
         if (row instanceof RefPayloads.SettingDto s) {
             return String.join("|", n(s.key), n(s.value));
+        }
+        if (row instanceof RefPayloads.CountryDto c) {
+            return String.join("|", n(c.code), n(c.name), n(c.defaultLanguage));
+        }
+        if (row instanceof RefPayloads.EnseigneDto e) {
+            return String.join("|", n(e.code), n(e.name), n(e.countryCode), n(e.defaultLanguage));
+        }
+        if (row instanceof RefPayloads.PdvDto p) {
+            return String.join("|", n(p.pdvNumber), n(p.name), n(p.enseigneCode), n(p.adherentCode),
+                    String.valueOf(p.active));
+        }
+        if (row instanceof RefPayloads.EchelonSettingDto s) {
+            return String.join("|", n(s.level), n(s.echelonCode), n(s.settingKey), n(s.settingValue),
+                    n(s.effectiveDate));
         }
         if (row instanceof RefPayloads.EngineFeedDto f) {
             // The version IS the SHA-256 of the content: hashing code and

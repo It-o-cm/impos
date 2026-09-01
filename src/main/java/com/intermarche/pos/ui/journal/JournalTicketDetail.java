@@ -119,6 +119,17 @@ public class JournalTicketDetail {
         public final String modifier;
 
         /**
+         * Whether the article was cancelled during the sale and kept as a
+         * witness (lot C4, BO-04-01-16).
+         * <p>
+         * The detail SHOWS cancelled lines — a control tool that hides them
+         * cannot answer "what did this cashier do at 15:42" — but it must
+         * never let one pass for a sold article: such a line moved no money,
+         * and the ticket total is the sum of the OTHER lines only.
+         */
+        public final boolean cancelled;
+
+        /**
          * Builds a detail line.
          *
          * @param number the line number
@@ -128,9 +139,10 @@ public class JournalTicketDetail {
          * @param quantity the formatted quantity
          * @param total the formatted total
          * @param modifier the modifier label
+         * @param cancelled whether the article was cancelled during the sale
          */
         public Line(int number, String label, String ean, String plu,
-                    String quantity, String total, String modifier) {
+                    String quantity, String total, String modifier, boolean cancelled) {
             this.number = number;
             this.label = label;
             this.ean = ean == null ? "" : ean;
@@ -138,6 +150,7 @@ public class JournalTicketDetail {
             this.quantity = quantity;
             this.total = total;
             this.modifier = modifier == null ? "" : modifier;
+            this.cancelled = cancelled;
         }
     }
 

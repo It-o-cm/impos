@@ -7,6 +7,7 @@ import com.intermarche.pos.domain.Pdv;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,6 +45,21 @@ public class EchelonSettingService {
      * @return the inherited values, empty when the PDV is unknown or unattached
      */
     public Map<String, String> resolveForPdv(String pdvNumber) {
+        return resolveForPdv(pdvNumber, LocalDate.now());
+    }
+
+    /**
+     * Resolves every inherited parameter of a point de vente AS OF a given day,
+     * so a value whose effect date is still in the future is ignored until the
+     * day comes (BO-03-12-03/04). The public entry uses today; this overload is
+     * the testable, deterministic core.
+     *
+     * @param pdvNumber the point-of-vente number, or null on a node with none
+     * @param asOf the reference day used to gate the effect date
+     * @return the inherited values in effect that day, empty when the PDV is
+     *         unknown or unattached
+     */
+    Map<String, String> resolveForPdv(String pdvNumber, LocalDate asOf) {
         Map<String, String> merged = new HashMap<>();
         if (pdvNumber == null) {
             return merged;
@@ -61,12 +77,12 @@ public class EchelonSettingService {
             }
         }
         if (countryCode != null) {
-            overlay(merged, EchelonLevel.COUNTRY, countryCode);
+            overlay(merged, EchelonLevel.COUNTRY, countryCode, asOf);
         }
         if (enseigneCode != null) {
-            overlay(merged, EchelonLevel.ENSEIGNE, enseigneCode);
+            overlay(merged, EchelonLevel.ENSEIGNE, enseigneCode, asOf);
         }
-        overlay(merged, EchelonLevel.PDV, pdvNumber);
+        overlay(merged, EchelonLevel.PDV, pdvNumber, asOf);
         return merged;
     }
 
@@ -88,10 +104,13 @@ public class EchelonSettingService {
      * @param merged the accumulator being built bottom-agnostic then overlaid
      * @param level the echelon level to overlay
      * @param code the echelon code at that level
+     * @param asOf the reference day: a row dated after it is not yet in effect
      */
-    private void overlay(Map<String, String> merged, EchelonLevel level, String code) {
+    private void overlay(Map<String, String> merged, EchelonLevel level, String code, LocalDate asOf) {
         for (EchelonSetting row : EchelonSetting.listForEchelon(level, code)) {
-            merged.put(row.settingKey, row.settingValue);
+            if (row.effectiveDate == null || !row.effectiveDate.isAfter(asOf)) {
+                merged.put(row.settingKey, row.settingValue);
+            }
         }
     }
 
@@ -105,6 +124,23 @@ public class EchelonSettingService {
      */
     @Transactional
     public void set(EchelonLevel level, String echelonCode, String key, String value) {
+        set(level, echelonCode, key, value, null);
+    }
+
+    /**
+     * Poses (upserts) a value for a key at an echelon WITH an effect date — the
+     * admin save path when a change is scheduled for a future day
+     * (BO-03-12-03/04). A null date means immediate effect.
+     *
+     * @param level the echelon level
+     * @param echelonCode the echelon code at that level
+     * @param key the catalog key
+     * @param value the value to store
+     * @param effectiveDate the day the value takes effect, or null for now
+     */
+    @Transactional
+    public void set(EchelonLevel level, String echelonCode, String key, String value,
+                    LocalDate effectiveDate) {
         EchelonSetting row = EchelonSetting.findValue(level, echelonCode, key);
         if (row == null) {
             row = new EchelonSetting();
@@ -112,9 +148,11 @@ public class EchelonSettingService {
             row.echelonCode = echelonCode;
             row.settingKey = key;
             row.settingValue = value;
+            row.effectiveDate = effectiveDate;
             row.persist();
         } else {
             row.settingValue = value;
+            row.effectiveDate = effectiveDate;
         }
     }
 

@@ -87,3 +87,20 @@
     color: var(--im-ink-soft);
     font-size: 13px;
 }
+
+.data-table tr.is-cancelled td {
+    color: var(--im-ink-soft);
+}
+
+.tag-cancelled {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border: 1px solid var(--im-red);
+    border-radius: 10px;
+    color: var(--im-red);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+}

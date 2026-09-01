@@ -62,6 +62,8 @@
 
 <div class="card">
     <h2 class="card-title">Articles</h2>
+    <p class="col-muted">Les articles annulés en cours de vente sont conservés et
+    signalés : ils n'entrent dans aucun total.</p>
     <table class="data-table">
         <thead>
             <tr>
@@ -76,9 +78,9 @@
         </thead>
         <tbody>
             {#for line in ticket.lines}
-            <tr>
+            <tr{#if line.cancelled} class="is-cancelled"{/if}>
                 <td>{line.number}</td>
-                <td>{line.label}</td>
+                <td>{line.label}{#if line.cancelled} <span class="tag-cancelled">ANNULÉ</span>{/if}</td>
                 <td>{line.ean}</td>
                 <td>{line.plu}</td>
                 <td>{line.quantity}</td>

@@ -27,6 +27,9 @@ class EchelonSettingTest {
         assertNotEquals(base.getChecksum(), setting(EchelonLevel.ENSEIGNE, "NF", "display.show-ean", "true").getChecksum());
         assertNotEquals(base.getChecksum(), setting(EchelonLevel.ENSEIGNE, "IF", "scan.ean13-check-digit", "true").getChecksum());
         assertNotEquals(base.getChecksum(), setting(EchelonLevel.ENSEIGNE, "IF", "display.show-ean", "false").getChecksum());
+        EchelonSetting dated = setting(EchelonLevel.ENSEIGNE, "IF", "display.show-ean", "true");
+        dated.effectiveDate = java.time.LocalDate.of(2026, 3, 1);
+        assertNotEquals(base.getChecksum(), dated.getChecksum());
     }
 
     /**

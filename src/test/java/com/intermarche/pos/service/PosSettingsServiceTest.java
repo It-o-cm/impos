@@ -442,4 +442,79 @@ class PosSettingsServiceTest {
             assertTrue(service.gestureEndorsementRequired());
         }
     }
+
+    /**
+     * {@code administeredValues} publishes the RESOLVED effective values a store
+     * exports to its registers (route A): the echelon-inherited keys overlaid by
+     * the local overrides, the local winning on a shared key (all three legs of
+     * the guard false, echelon-present arm). It resolves fresh on each call so a
+     * crossed effect date is picked up (engine consulted every time), while the
+     * local table is cached ({@code cache == null} then reuse arm).
+     */
+    @Test
+    void administeredValuesMergesLocalOverEchelonResolvingFresh() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        when(engine.resolveForPdv("12345")).thenReturn(Map.of(
+                "shared", "echelon", "ensOnly", "ev"));
+        PosSettingsService service = wired(engine, Optional.of("12345"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("shared", "local"), row("localOnly", "lv")));
+            Map<String, String> first = service.administeredValues();
+            Map<String, String> second = service.administeredValues();
+            assertEquals("local", first.get("shared"));
+            assertEquals("ev", first.get("ensOnly"));
+            assertEquals("lv", first.get("localOnly"));
+            assertEquals(3, first.size());
+            assertEquals(first, second);
+            ms.verify(PanacheEntityBase::listAll, times(1));
+            verify(engine, times(2)).resolveForPdv("12345");
+        }
+    }
+
+    /**
+     * {@code administeredValues} skips the echelon layer when no engine is wired
+     * (echelonSettings-null leg) and returns the local overrides alone.
+     */
+    @Test
+    void administeredValuesSkipsEchelonWhenEngineNull() {
+        PosSettingsService service = wired(null, Optional.of("12345"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("k", "v")));
+            Map<String, String> resolved = service.administeredValues();
+            assertEquals(Map.of("k", "v"), resolved);
+        }
+    }
+
+    /**
+     * {@code administeredValues} skips the echelon layer when this node carries
+     * no PDV number (nodePdvNumber-null leg): the engine is never consulted.
+     */
+    @Test
+    void administeredValuesSkipsEchelonWhenNoPdvNumber() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        PosSettingsService service = wired(engine, null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("k", "v")));
+            Map<String, String> resolved = service.administeredValues();
+            assertEquals(Map.of("k", "v"), resolved);
+            verify(engine, never()).resolveForPdv(org.mockito.ArgumentMatchers.anyString());
+        }
+    }
+
+    /**
+     * {@code administeredValues} skips the echelon layer when the PDV number is
+     * present but blank ({@code isEmpty} leg): the engine is never consulted.
+     */
+    @Test
+    void administeredValuesSkipsEchelonWhenPdvEmpty() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        PosSettingsService service = wired(engine, Optional.empty());
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("k", "v")));
+            Map<String, String> resolved = service.administeredValues();
+            assertEquals(Map.of("k", "v"), resolved);
+            verify(engine, never()).resolveForPdv(org.mockito.ArgumentMatchers.anyString());
+        }
+    }
 }

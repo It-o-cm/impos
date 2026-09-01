@@ -22,8 +22,10 @@ import static org.mockito.Mockito.when;
  * <p>
  * The resource is a thin JAX-RS front for {@link RefExportService}: two GET
  * endpoints ({@code /versions} and {@code /{domain}}) both funnel through the
- * private {@code gate} guard, which enforces the {@code pos.role=store} rule
- * and an optional shared token. The three injected members ({@code role},
+ * private {@code gate} guard, which enforces the {@code pos.role} store-or-central
+ * rule and an optional shared token, and a role ternary that serves the register
+ * domains to a store and the echelon domains to a central. The three injected
+ * members ({@code role},
  * {@code token}, {@code refExportService}) are package-private, so each test
  * sets them directly and mocks the service; no database and no Quarkus context
  * is booted. Every branch of the role gate, the token gate, the page-size
@@ -49,8 +51,8 @@ class RefExportResourceTest {
     }
 
     /**
-     * {@code versions} refuses a non-store node with 403 (gate role-check true
-     * arm) and never touches the service.
+     * {@code versions} refuses a node that is neither store nor central with 403
+     * (gate role-check: both operands true) and never touches the service.
      */
     @Test
     void versionsForbiddenWhenRoleNotStore() {
@@ -58,21 +60,38 @@ class RefExportResourceTest {
         RefExportResource resource = resource("register", Optional.empty(), service);
         Response response = resource.versions(null);
         assertEquals(403, response.getStatus());
-        assertEquals("Ce nœud n'a pas le rôle store", response.getEntity());
+        assertEquals("Ce nœud n'a pas le rôle store ou central", response.getEntity());
         verifyNoInteractions(service);
     }
 
     /**
-     * {@code versions} returns the fingerprints with 200 when the node is a
-     * store and no token is configured (gate role-check false arm, token blank
-     * arm, versions {@code gate == null} arm).
+     * {@code versions} returns the REGISTER-facing fingerprints with 200 when the
+     * node is a store and no token is configured (gate role-check first operand
+     * false, token blank arm, versions {@code gate == null} arm, role ternary
+     * non-central arm).
      */
     @Test
     void versionsReturnsFingerprintsWhenAllowed() {
         RefExportService service = mock(RefExportService.class);
         Map<String, String> fingerprints = Map.of("PRODUCTS", "abc");
-        when(service.getFingerprints()).thenReturn(fingerprints);
+        when(service.getFingerprints(RefExportService.DOMAINS)).thenReturn(fingerprints);
         RefExportResource resource = resource("store", Optional.empty(), service);
+        Response response = resource.versions(null);
+        assertEquals(200, response.getStatus());
+        assertSame(fingerprints, response.getEntity());
+    }
+
+    /**
+     * {@code versions} on a CENTRAL node returns the ECHELON fingerprints (gate
+     * role-check first operand true, second operand false, role ternary central
+     * arm), proving a store node's upstream serves the echelon domains.
+     */
+    @Test
+    void versionsReturnsEchelonFingerprintsForCentralRole() {
+        RefExportService service = mock(RefExportService.class);
+        Map<String, String> fingerprints = Map.of("COUNTRIES", "abc");
+        when(service.getFingerprints(RefExportService.ECHELON_DOMAINS)).thenReturn(fingerprints);
+        RefExportResource resource = resource("central", Optional.empty(), service);
         Response response = resource.versions(null);
         assertEquals(200, response.getStatus());
         assertSame(fingerprints, response.getEntity());
@@ -100,7 +119,7 @@ class RefExportResourceTest {
     void versionsAllowedWhenTokenMatches() {
         RefExportService service = mock(RefExportService.class);
         Map<String, String> fingerprints = Map.of("PRODUCTS", "abc");
-        when(service.getFingerprints()).thenReturn(fingerprints);
+        when(service.getFingerprints(RefExportService.DOMAINS)).thenReturn(fingerprints);
         RefExportResource resource = resource("store", Optional.of("secret"), service);
         Response response = resource.versions("secret");
         assertEquals(200, response.getStatus());
@@ -117,7 +136,7 @@ class RefExportResourceTest {
         RefExportResource resource = resource("register", Optional.empty(), service);
         Response response = resource.page(null, "products", 0, 100);
         assertEquals(403, response.getStatus());
-        assertEquals("Ce nœud n'a pas le rôle store", response.getEntity());
+        assertEquals("Ce nœud n'a pas le rôle store ou central", response.getEntity());
         verifyNoInteractions(service);
     }
 

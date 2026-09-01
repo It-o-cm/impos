@@ -105,35 +105,53 @@ class ProductFamilyTest {
     }
 
     /**
-     * findDirectFamily returns the lowest-code direct family — the single
-     * first result of the ordered join query (both guard arms false).
+     * findDirectFamily returns the direct family when the product has exactly
+     * one (both guard arms false, single-family arm).
      */
     @Test
-    void findDirectFamilyReturnsFirstResult() {
+    void findDirectFamilyReturnsTheSingleFamily() {
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             ProductFamily expected = family(10L, null);
             @SuppressWarnings("unchecked")
             PanacheQuery<ProductFamily> query = mock(PanacheQuery.class);
-            when(query.firstResult()).thenReturn(expected);
+            when(query.list()).thenReturn(List.of(expected));
             panache.when(() -> ProductFamily.find(
-                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1", 7L))
                     .thenReturn(query);
             Assertions.assertSame(expected, ProductFamily.findDirectFamily(product(7L)));
         }
     }
 
     /**
+     * findDirectFamily returns null when the product is attached to SEVERAL
+     * direct families: no rule says which one names the sale, so the line
+     * snapshot is left blank rather than frozen on an invented choice.
+     */
+    @Test
+    void findDirectFamilyReturnsNullWhenAmbiguous() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<ProductFamily> query = mock(PanacheQuery.class);
+            when(query.list()).thenReturn(List.of(family(10L, null), family(11L, null)));
+            panache.when(() -> ProductFamily.find(
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1", 7L))
+                    .thenReturn(query);
+            Assertions.assertNull(ProductFamily.findDirectFamily(product(7L)));
+        }
+    }
+
+    /**
      * findDirectFamily returns null when the product is attached to no family
-     * (query first result null): the snapshot leaves the line's family blank.
+     * (empty list): the snapshot leaves the line's family blank.
      */
     @Test
     void findDirectFamilyNoFamily() {
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             @SuppressWarnings("unchecked")
             PanacheQuery<ProductFamily> query = mock(PanacheQuery.class);
-            when(query.firstResult()).thenReturn(null);
+            when(query.list()).thenReturn(List.of());
             panache.when(() -> ProductFamily.find(
-                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1", 7L))
                     .thenReturn(query);
             Assertions.assertNull(ProductFamily.findDirectFamily(product(7L)));
         }

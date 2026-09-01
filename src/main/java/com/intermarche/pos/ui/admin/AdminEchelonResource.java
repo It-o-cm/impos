@@ -190,9 +190,11 @@ public class AdminEchelonResource {
     }
 
     /**
-     * Poses a value for a key at an echelon.
+     * Poses a value for a key at an echelon, optionally dated to take effect on
+     * a future day (BO-03-12-03/04): a value with an effect date is distributed
+     * at once but applies on its own the day it names.
      *
-     * @param form the posted form (level, echelonCode, key, value)
+     * @param form the posted form (level, echelonCode, key, value, effectiveDate)
      * @return a 303 redirect with the notice
      */
     @POST
@@ -206,7 +208,18 @@ public class AdminEchelonResource {
         if (level == null || echelonCode.isEmpty() || key.isEmpty()) {
             return redirect("Niveau, échelon et paramètre sont obligatoires.", false);
         }
-        echelonSettings.set(level, echelonCode, key, trimmed(form, "value"));
+        String rawDate = trimmed(form, "effectiveDate");
+        java.time.LocalDate effectiveDate;
+        if (rawDate.isEmpty()) {
+            effectiveDate = null;
+        } else {
+            try {
+                effectiveDate = java.time.LocalDate.parse(rawDate);
+            } catch (java.time.format.DateTimeParseException e) {
+                return redirect("Date d'effet invalide (attendu AAAA-MM-JJ).", false);
+            }
+        }
+        echelonSettings.set(level, echelonCode, key, trimmed(form, "value"), effectiveDate);
         return redirect("Paramètre d'échelon enregistré.", true);
     }
 

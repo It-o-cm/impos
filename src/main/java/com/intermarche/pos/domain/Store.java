@@ -128,7 +128,6 @@ public class Store extends BaseEntity {
     public int getChecksum() {
         int addressChecksum = address == null ? 0 : address.getChecksum();
         int checksum = Objects.hash(code, name, addressChecksum, vatNumber, siret, phone, bankAccountNumber);
-        System.out.println("Checksum: " + checksum);
         return checksum;
     }
 }

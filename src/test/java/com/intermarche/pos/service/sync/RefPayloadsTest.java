@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Unit tests for {@link RefPayloads}.
  * <p>
  * {@code RefPayloads} is a branch-free data-container class: a non-instantiable
- * outer holder plus five public DTOs whose only members are public fields and
+ * outer holder plus public DTOs whose only members are public fields and
  * implicit no-arg constructors. There is no conditional logic, so the tests
  * exercise the private constructor (via reflection) and every DTO's construction
  * and field round-trip to reach full instruction coverage.
@@ -209,5 +209,75 @@ class RefPayloadsTest {
         assertNull(dto.amountPattern);
         assertFalse(dto.active);
         assertFalse(dto.depositLine);
+    }
+
+    /**
+     * A {@link RefPayloads.CountryDto} stores and returns its three fields.
+     */
+    @Test
+    void countryDtoHoldsItsFields() {
+        RefPayloads.CountryDto dto = new RefPayloads.CountryDto();
+        dto.code = "FR";
+        dto.name = "France";
+        dto.defaultLanguage = "fr";
+        assertEquals("FR", dto.code);
+        assertEquals("France", dto.name);
+        assertEquals("fr", dto.defaultLanguage);
+    }
+
+    /**
+     * An {@link RefPayloads.EnseigneDto} stores and returns its four fields.
+     */
+    @Test
+    void enseigneDtoHoldsItsFields() {
+        RefPayloads.EnseigneDto dto = new RefPayloads.EnseigneDto();
+        dto.code = "ITM";
+        dto.name = "Intermarché";
+        dto.countryCode = "FR";
+        dto.defaultLanguage = "fr";
+        assertEquals("ITM", dto.code);
+        assertEquals("Intermarché", dto.name);
+        assertEquals("FR", dto.countryCode);
+        assertEquals("fr", dto.defaultLanguage);
+    }
+
+    /**
+     * A {@link RefPayloads.PdvDto} stores and returns each of its fields, and a
+     * default one leaves the active flag false.
+     */
+    @Test
+    void pdvDtoHoldsItsFields() {
+        RefPayloads.PdvDto dto = new RefPayloads.PdvDto();
+        assertFalse(dto.active);
+        dto.pdvNumber = "01234";
+        dto.name = "Lyon";
+        dto.enseigneCode = "ITM";
+        dto.adherentCode = "AD1";
+        dto.active = true;
+        assertEquals("01234", dto.pdvNumber);
+        assertEquals("Lyon", dto.name);
+        assertEquals("ITM", dto.enseigneCode);
+        assertEquals("AD1", dto.adherentCode);
+        assertTrue(dto.active);
+    }
+
+    /**
+     * An {@link RefPayloads.EchelonSettingDto} stores and returns its five
+     * fields, the effect date defaulting to null.
+     */
+    @Test
+    void echelonSettingDtoHoldsItsFields() {
+        RefPayloads.EchelonSettingDto dto = new RefPayloads.EchelonSettingDto();
+        assertNull(dto.effectiveDate);
+        dto.level = "ENSEIGNE";
+        dto.echelonCode = "ITM";
+        dto.settingKey = "discount.enabled";
+        dto.settingValue = "false";
+        dto.effectiveDate = "2026-03-01";
+        assertEquals("ENSEIGNE", dto.level);
+        assertEquals("ITM", dto.echelonCode);
+        assertEquals("discount.enabled", dto.settingKey);
+        assertEquals("false", dto.settingValue);
+        assertEquals("2026-03-01", dto.effectiveDate);
     }
 }

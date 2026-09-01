@@ -61,15 +61,27 @@ public class DataInitializer {
     }
 
     /**
-     * Back-office password given to the seeded accounts that have one.
+     * Back-office password given to the seeded MANAGER account.
      * <p>
      * A bootstrap value, and named like one: it is written in this source
-     * file, so every seeded account carries {@code mustChangePassword} and
-     * is confined to the password screen until someone replaces it. Only
-     * the two supervising accounts get one at all — a cashier has no back
-     * office, and the absence of a password is what says so.
+     * file, so the account carries {@code mustChangePassword} and is
+     * confined to the password screen until someone replaces it. Only the
+     * supervising accounts get a back-office password at all — a cashier
+     * has no back office, and the absence of a password is what says so.
      */
     private static final String BOOTSTRAP_BACK_OFFICE_PASSWORD = "changeme00";
+
+    /**
+     * Back-office password of the seeded ADMIN account.
+     * <p>
+     * A demo convenience, and nothing else: unlike the bootstrap value above
+     * it survives the first sign-in, because the account is seeded WITHOUT
+     * {@code mustChangePassword} so that admin/admin keeps working from one
+     * demo to the next. It is a trivial password on the account that holds
+     * every right — acceptable on a dev/test seed running on a laptop, never
+     * on an exposed instance.
+     */
+    private static final String ADMIN_BACK_OFFICE_PASSWORD = "admin";
 
     /**
      * Seeds the test employees (badge, login, PIN, role, back-office
@@ -84,8 +96,12 @@ public class DataInitializer {
         Employee marie = Employee.find("loginName", "mcurie").firstResult();
         marie.theme = "clair";
         createEmployee("22222222", "aeinstein", "2222", "Albert", "Einstein", Employee.EmployeeRole.PICKER, null);
-        createEmployee("00000000", "manager", "0000", "Le", "Manager", Employee.EmployeeRole.ADMIN,
-                BOOTSTRAP_BACK_OFFICE_PASSWORD);
+        createEmployee("00000000", "admin", "0000", "Le", "Manager", Employee.EmployeeRole.ADMIN,
+                ADMIN_BACK_OFFICE_PASSWORD);
+        // Demo account: its password is deliberately kept, so the forced
+        // change createEmployee derives from a non-null password is undone.
+        Employee admin = Employee.find("loginName", "admin").firstResult();
+        admin.mustChangePassword = false;
         createEmployee("12341234",  "jdupont","1234", "Jean", "Dupont", Employee.EmployeeRole.CASHIER, null);
     }
 

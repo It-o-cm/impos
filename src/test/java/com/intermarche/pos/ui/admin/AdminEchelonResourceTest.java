@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -486,7 +487,8 @@ class AdminEchelonResourceTest {
         form.putSingle("key", "k");
         Response response = resource.saveSetting(form);
         assertTrue(response.getLocation().toString().contains("noticeOk=false"));
-        verify(resource.echelonSettings, never()).set(any(), anyString(), anyString(), anyString());
+        verify(resource.echelonSettings, never())
+                .set(any(), anyString(), anyString(), anyString(), any());
     }
 
     /**
@@ -516,8 +518,9 @@ class AdminEchelonResourceTest {
     }
 
     /**
-     * {@code saveSetting} poses the value when level, echelon and key are all
-     * present (all-ok arm and the match arm of {@code parseLevel}).
+     * {@code saveSetting} poses the value with no effect date when none is
+     * supplied (all-ok arm, the match arm of {@code parseLevel}, and the
+     * empty-date arm passing a null effect date for immediate effect).
      */
     @Test
     void saveSettingPosesValue() {
@@ -529,7 +532,46 @@ class AdminEchelonResourceTest {
         form.putSingle("value", "true");
         Response response = resource.saveSetting(form);
         assertTrue(response.getLocation().toString().contains("noticeOk=true"));
-        verify(resource.echelonSettings).set(EchelonLevel.ENSEIGNE, "IF", "display.show-ean", "true");
+        verify(resource.echelonSettings)
+                .set(EchelonLevel.ENSEIGNE, "IF", "display.show-ean", "true", null);
+    }
+
+    /**
+     * {@code saveSetting} parses a supplied effect date and poses the value with
+     * it (non-empty-date arm, parse-ok arm) so a scheduled change is stored dated.
+     */
+    @Test
+    void saveSettingParsesEffectiveDate() {
+        AdminEchelonResource resource = newResource();
+        MultivaluedMap<String, String> form = form();
+        form.putSingle("level", "ENSEIGNE");
+        form.putSingle("echelonCode", "IF");
+        form.putSingle("key", "display.show-ean");
+        form.putSingle("value", "true");
+        form.putSingle("effectiveDate", "2026-03-01");
+        Response response = resource.saveSetting(form);
+        assertTrue(response.getLocation().toString().contains("noticeOk=true"));
+        verify(resource.echelonSettings)
+                .set(EchelonLevel.ENSEIGNE, "IF", "display.show-ean", "true", LocalDate.of(2026, 3, 1));
+    }
+
+    /**
+     * {@code saveSetting} refuses a malformed effect date (parse-fail catch arm)
+     * without posing anything.
+     */
+    @Test
+    void saveSettingRejectsInvalidEffectiveDate() {
+        AdminEchelonResource resource = newResource();
+        MultivaluedMap<String, String> form = form();
+        form.putSingle("level", "ENSEIGNE");
+        form.putSingle("echelonCode", "IF");
+        form.putSingle("key", "display.show-ean");
+        form.putSingle("value", "true");
+        form.putSingle("effectiveDate", "not-a-date");
+        Response response = resource.saveSetting(form);
+        assertTrue(response.getLocation().toString().contains("noticeOk=false"));
+        verify(resource.echelonSettings, never())
+                .set(any(), anyString(), anyString(), anyString(), any());
     }
 
     /**

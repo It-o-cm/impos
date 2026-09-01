@@ -159,6 +159,16 @@ public class AuthService {
      * @param state the current POS state
      */
     public void logout(PosState state) {
+        // A DELIBERATE lock is journaled exactly like the idle one
+        // (BO-04-01-27): the requirement asks for the registers that went on
+        // pause, and a cashier locking the till on purpose is one of them —
+        // only the automatic timeout was journaled, so the list was silently
+        // incomplete. Nothing is written when no operator was signed in:
+        // /lock is also the landing page of an already-locked register.
+        if (state.auth.operatorBadgeId != null) {
+            technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
+                    null, state.auth.operatorBadgeId);
+        }
         state.auth.logout();
         state.clearTicket();
     }

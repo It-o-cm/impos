@@ -14,6 +14,7 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
@@ -35,8 +36,9 @@ import static org.mockito.Mockito.when;
  * mock constructor bypasses field initializers and the seeder wires the family
  * tree through those sets. A single end-to-end {@code onStart} run exercises
  * every line and every private helper; the assertions pin the absolute number
- * of persisted rows per entity type, the five table wipes and Marie's light
- * theme override. The class carries 0 branches, so branch coverage is 0/0.
+ * of persisted rows per entity type, the five table wipes, Marie's light
+ * theme override and the admin account's exemption from the forced password
+ * change. The class carries 0 branches, so branch coverage is 0/0.
  */
 class DataInitializerTest {
 
@@ -64,6 +66,8 @@ class DataInitializerTest {
     void onStartWipesAndReloadsTheReferential() {
         DataInitializer initializer = new DataInitializer();
         Employee marie = mock(Employee.class);
+        Employee admin = mock(Employee.class);
+        admin.mustChangePassword = true;
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedConstruction<Employee> employees = mockConstruction(Employee.class);
              MockedConstruction<ProductFamily> families = mockConstruction(ProductFamily.class,
@@ -77,6 +81,8 @@ class DataInitializerTest {
              MockedConstruction<Store> stores = mockConstruction(Store.class)) {
             PanacheQuery<Employee> marieQuery = employeeQuery(marie);
             panache.when(() -> Employee.find("loginName", "mcurie")).thenReturn(marieQuery);
+            PanacheQuery<Employee> adminQuery = employeeQuery(admin);
+            panache.when(() -> Employee.find("loginName", "admin")).thenReturn(adminQuery);
             initializer.onStart(null);
             panache.verify(() -> Employee.deleteAll(), times(5));
             assertEquals(4, employees.constructed().size());
@@ -102,6 +108,7 @@ class DataInitializerTest {
             }
             verify(stores.constructed().get(0)).persist();
             assertEquals("clair", marie.theme);
+            assertFalse(admin.mustChangePassword);
         }
     }
 }

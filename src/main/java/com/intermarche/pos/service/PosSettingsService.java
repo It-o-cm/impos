@@ -280,6 +280,40 @@ public class PosSettingsService {
     }
 
     /**
+     * Returns the ADMINISTERED parameters with their EFFECTIVE value on this
+     * node — the keys that carry a local override OR an echelon-inherited value,
+     * each resolved through the precedence (local override &gt; echelon), ordered
+     * by key. This is what the store node PUBLISHES down the SETTINGS pull (route
+     * A, BO-02-05-04): the register receives the resolved result, never the
+     * echelon chain, and a key that only has its catalog default is absent — the
+     * register recomputes the default itself.
+     * <p>
+     * The echelon layer is resolved FRESH here (not from the long-lived cache)
+     * so a value whose effect date has just come is picked up on the next
+     * fingerprint recomputation without any invalidation — this is what makes a
+     * scheduled echelon change apply on its own (BO-03-12-03/04). On a node with
+     * no echelon engine or no PDV number the map is just the local overrides.
+     *
+     * @return the administered key-to-effective-value map, ordered by key
+     */
+    public Map<String, String> administeredValues() {
+        Map<String, String> local = cache;
+        if (local == null) {
+            local = loadAll();
+            cache = local;
+        }
+        Map<String, String> echelon;
+        if (echelonSettings == null || nodePdvNumber == null || nodePdvNumber.isEmpty()) {
+            echelon = Map.of();
+        } else {
+            echelon = echelonSettings.resolveForPdv(nodePdvNumber.get());
+        }
+        java.util.TreeMap<String, String> result = new java.util.TreeMap<>(echelon);
+        result.putAll(local);
+        return result;
+    }
+
+    /**
      * Drops both caches — called after every admin save and pull apply. The
      * echelon cache is dropped too so a re-pulled enseigne default is picked
      * up on the next read.

@@ -723,6 +723,37 @@ class TicketPersistenceServiceTest {
     }
 
     /**
+     * The conserved witnesses are numbered AFTER the sold lines, so no two
+     * lines of one ticket ever share a number: the live lines are renumbered
+     * from the cart at every synchronization, and a witness that kept its
+     * original number would collide with whichever line took its place.
+     */
+    @Test
+    void syncDraftNumbersCancelledWitnessesAfterTheSoldLines() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        addItem(state, "U2", "4000", null, "1.00", "1", null);
+        addItem(state, "U3", "5000", null, "2.00", "1", null);
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine cancelled = line("U1");
+        cancelled.cancelled = true;
+        cancelled.lineNumber = 1;
+        TicketLine second = line("U2");
+        second.lineNumber = 2;
+        TicketLine third = line("U3");
+        third.lineNumber = 3;
+        ticket.lines = new ArrayList<>(Arrays.asList(cancelled, second, third));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            state.payment.ticketDbId = 5L;
+            service.syncDraft(state);
+            assertEquals(1, second.lineNumber);
+            assertEquals(2, third.lineNumber);
+            assertEquals(3, cancelled.lineNumber);
+        }
+    }
+
+    /**
      * Totals invariance (campaign rule): a cancelled line kept on the draft
      * moves no centime. The same live cart yields byte-identical HT, TTC and
      * VAT totals whether or not a cancelled ghost line sits in the persisted

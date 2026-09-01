@@ -1,13 +1,20 @@
 package com.intermarche.pos.service.sync;
 
 import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.Country;
+import com.intermarche.pos.domain.EchelonLevel;
+import com.intermarche.pos.domain.EchelonSetting;
 import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.EngineFeed;
+import com.intermarche.pos.domain.Enseigne;
+import com.intermarche.pos.domain.Pdv;
 import com.intermarche.pos.domain.PosSetting;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.ProductFamily;
 import com.intermarche.pos.domain.ProductType;
 import com.intermarche.pos.domain.RefState;
+import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -15,6 +22,7 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -518,5 +526,254 @@ class RefApplyServiceTest {
                     org.mockito.ArgumentMatchers.eq(List.of(""))));
             verify(service.posSettingsService, times(1)).invalidate();
         }
+    }
+
+    // --------------------------------------------------
+    // applyEngineFeeds
+    // --------------------------------------------------
+
+    /**
+     * Covers every arm of {@code applyEngineFeeds} except the empty-seen guard:
+     * an unknown code is inserted (row-null arm); a known code whose version
+     * differs is re-applied (row-present arm, version-non-null arm,
+     * version-not-equal arm); a known code whose version is identical is skipped
+     * (version-equal arm, no persist); a known code whose incoming version is
+     * null is re-applied (version-null arm). Absent codes are deleted with a
+     * non-empty seen set (non-empty-seen arm).
+     */
+    @Test
+    void applyEngineFeedsInsertsUpdatesSkipsAndDeletes() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.EngineFeedDto insert = feedDto("F1", "v1", "c1");
+        RefPayloads.EngineFeedDto differs = feedDto("F2", "new", "c2");
+        RefPayloads.EngineFeedDto same = feedDto("F3", "same", "c3");
+        RefPayloads.EngineFeedDto nullVersion = feedDto("F4", null, "c4");
+        EngineFeed existingDiffers = mock(EngineFeed.class);
+        existingDiffers.version = "old";
+        EngineFeed existingSame = mock(EngineFeed.class);
+        existingSame.version = "same";
+        EngineFeed existingNull = mock(EngineFeed.class);
+        existingNull.version = "prev";
+        PanacheQuery<EngineFeed> q1 = queryReturning(null);
+        PanacheQuery<EngineFeed> q2 = queryReturning(existingDiffers);
+        PanacheQuery<EngineFeed> q3 = queryReturning(existingSame);
+        PanacheQuery<EngineFeed> q4 = queryReturning(existingNull);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<EngineFeed> created = mockConstruction(EngineFeed.class)) {
+            mocked.when(() -> EngineFeed.find("code", "F1")).thenReturn(q1);
+            mocked.when(() -> EngineFeed.find("code", "F2")).thenReturn(q2);
+            mocked.when(() -> EngineFeed.find("code", "F3")).thenReturn(q3);
+            mocked.when(() -> EngineFeed.find("code", "F4")).thenReturn(q4);
+            mocked.when(() -> EngineFeed.delete(org.mockito.ArgumentMatchers.eq("code not in ?1"),
+                    org.mockito.ArgumentMatchers.any(java.util.Set.class))).thenReturn(1L);
+            service.applyEngineFeeds(List.of(insert, differs, same, nullVersion));
+            EngineFeed inserted = created.constructed().get(0);
+            assertEquals("F1", inserted.code);
+            assertEquals("c1", inserted.content);
+            assertEquals("v1", inserted.version);
+            verify(inserted, times(1)).persist();
+            assertEquals("c2", existingDiffers.content);
+            assertEquals("new", existingDiffers.version);
+            verify(existingDiffers, times(1)).persist();
+            verify(existingSame, never()).persist();
+            assertEquals("c4", existingNull.content);
+            assertNull(existingNull.version);
+            verify(existingNull, times(1)).persist();
+            mocked.verify(() -> EngineFeed.delete(org.mockito.ArgumentMatchers.eq("code not in ?1"),
+                    org.mockito.ArgumentMatchers.any(java.util.Set.class)));
+        }
+    }
+
+    /**
+     * Covers the empty-seen guard of {@code applyEngineFeeds}: with no dto the
+     * delete guards against an empty {@code IN} clause with a single sentinel
+     * (empty-seen arm).
+     */
+    @Test
+    void applyEngineFeedsEmptyPayloadDeletesAll() {
+        RefApplyService service = new RefApplyService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> EngineFeed.delete(org.mockito.ArgumentMatchers.eq("code not in ?1"),
+                    org.mockito.ArgumentMatchers.eq(List.of("")))).thenReturn(3L);
+            service.applyEngineFeeds(List.of());
+            mocked.verify(() -> EngineFeed.delete(org.mockito.ArgumentMatchers.eq("code not in ?1"),
+                    org.mockito.ArgumentMatchers.eq(List.of(""))));
+        }
+    }
+
+    /**
+     * Builds an engine-feed payload.
+     *
+     * @param code the feed code
+     * @param version the content version, or null
+     * @param content the raw content
+     * @return the payload
+     */
+    private RefPayloads.EngineFeedDto feedDto(String code, String version, String content) {
+        RefPayloads.EngineFeedDto dto = new RefPayloads.EngineFeedDto();
+        dto.code = code;
+        dto.version = version;
+        dto.content = content;
+        return dto;
+    }
+
+    // --------------------------------------------------
+    // applyCountries / applyEnseignes / applyPdvs / applyEchelonSettings
+    // --------------------------------------------------
+
+    /**
+     * Covers {@code applyCountries}: the table is cleared wholesale and each dto
+     * is inserted with its fields, the echelon tree being fully owned by the
+     * central node.
+     */
+    @Test
+    void applyCountriesReplacesWholesale() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CountryDto dto = new RefPayloads.CountryDto();
+        dto.code = "FR";
+        dto.name = "France";
+        dto.defaultLanguage = "fr";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Country> created = mockConstruction(Country.class)) {
+            service.applyCountries(List.of(dto));
+            mocked.verify(Country::deleteAll, times(1));
+            assertEquals(1, created.constructed().size());
+            Country row = created.constructed().get(0);
+            assertEquals("FR", row.code);
+            assertEquals("France", row.name);
+            assertEquals("fr", row.defaultLanguage);
+            verify(row, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers {@code applyEnseignes}: wholesale replacement, each dto inserted
+     * with its country up-link by code.
+     */
+    @Test
+    void applyEnseignesReplacesWholesale() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.EnseigneDto dto = new RefPayloads.EnseigneDto();
+        dto.code = "ITM";
+        dto.name = "Intermarché";
+        dto.countryCode = "FR";
+        dto.defaultLanguage = "fr";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Enseigne> created = mockConstruction(Enseigne.class)) {
+            service.applyEnseignes(List.of(dto));
+            mocked.verify(Enseigne::deleteAll, times(1));
+            assertEquals(1, created.constructed().size());
+            Enseigne row = created.constructed().get(0);
+            assertEquals("ITM", row.code);
+            assertEquals("Intermarché", row.name);
+            assertEquals("FR", row.countryCode);
+            assertEquals("fr", row.defaultLanguage);
+            verify(row, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers {@code applyPdvs}: wholesale replacement, each dto inserted with
+     * its enseigne link, adhérent grouping and active flag.
+     */
+    @Test
+    void applyPdvsReplacesWholesale() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.PdvDto dto = new RefPayloads.PdvDto();
+        dto.pdvNumber = "01234";
+        dto.name = "Lyon";
+        dto.enseigneCode = "ITM";
+        dto.adherentCode = "AD1";
+        dto.active = true;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Pdv> created = mockConstruction(Pdv.class)) {
+            service.applyPdvs(List.of(dto));
+            mocked.verify(Pdv::deleteAll, times(1));
+            assertEquals(1, created.constructed().size());
+            Pdv row = created.constructed().get(0);
+            assertEquals("01234", row.pdvNumber);
+            assertEquals("Lyon", row.name);
+            assertEquals("ITM", row.enseigneCode);
+            assertEquals("AD1", row.adherentCode);
+            assertTrue(row.active);
+            verify(row, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers {@code applyEchelonSettings} and both arms of its
+     * {@code effectiveDate != null} ternary: the table is cleared wholesale, a
+     * dated row keeps its parsed effect date and an undated row keeps null, and
+     * the settings cache is dropped so the store re-resolves.
+     */
+    @Test
+    void applyEchelonSettingsReplacesParsesDateAndInvalidates() {
+        RefApplyService service = new RefApplyService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        RefPayloads.EchelonSettingDto dated = new RefPayloads.EchelonSettingDto();
+        dated.level = "ENSEIGNE";
+        dated.echelonCode = "ITM";
+        dated.settingKey = "discount.enabled";
+        dated.settingValue = "false";
+        dated.effectiveDate = "2026-03-01";
+        RefPayloads.EchelonSettingDto immediate = new RefPayloads.EchelonSettingDto();
+        immediate.level = "COUNTRY";
+        immediate.echelonCode = "FR";
+        immediate.settingKey = "display.show-ean";
+        immediate.settingValue = "true";
+        immediate.effectiveDate = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<EchelonSetting> created = mockConstruction(EchelonSetting.class)) {
+            service.applyEchelonSettings(List.of(dated, immediate));
+            mocked.verify(EchelonSetting::deleteAll, times(1));
+            assertEquals(2, created.constructed().size());
+            EchelonSetting first = created.constructed().get(0);
+            assertEquals(EchelonLevel.ENSEIGNE, first.level);
+            assertEquals("ITM", first.echelonCode);
+            assertEquals("discount.enabled", first.settingKey);
+            assertEquals("false", first.settingValue);
+            assertEquals(LocalDate.of(2026, 3, 1), first.effectiveDate);
+            verify(first, times(1)).persist();
+            EchelonSetting second = created.constructed().get(1);
+            assertEquals(EchelonLevel.COUNTRY, second.level);
+            assertNull(second.effectiveDate);
+            verify(second, times(1)).persist();
+            verify(service.posSettingsService, times(1)).invalidate();
+        }
+    }
+
+    // --------------------------------------------------
+    // Transactional boundary
+    // --------------------------------------------------
+
+    /**
+     * Every public method that touches the database carries
+     * {@link jakarta.transaction.Transactional}.
+     * <p>
+     * This is not decoration: the pull loop calls them from its own scheduler
+     * thread, where no request context and no transaction exist. A method that
+     * loses the annotation kills every pull cycle at its first database touch,
+     * and a green {@code mvn verify} does not see it — unit tests never enter a
+     * transaction, so the omission only shows at runtime, in a log line, once
+     * per pull interval. Hence a test that reads the annotations themselves.
+     */
+    @Test
+    void everyDatabaseMethodIsTransactional() {
+        List<String> names = List.of("applyFamilies", "applyProducts", "applyPrices",
+                "applyEmployees", "applyCouponTypes", "applySettings", "applyEngineFeeds",
+                "applyCountries", "applyEnseignes", "applyPdvs", "applyEchelonSettings",
+                "recordApplied", "lastApplied");
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (java.lang.reflect.Method method : RefApplyService.class.getDeclaredMethods()) {
+            if (names.contains(method.getName())) {
+                seen.add(method.getName());
+                assertTrue(method.isAnnotationPresent(jakarta.transaction.Transactional.class),
+                        method.getName() + " must be @Transactional: the pull loop calls it"
+                                + " outside any request context");
+            }
+        }
+        assertEquals(new java.util.HashSet<>(names), seen,
+                "a database method was renamed or removed: review the pull loop's"
+                        + " transactional boundary before updating this list");
     }
 }

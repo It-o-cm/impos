@@ -1,11 +1,17 @@
 package com.intermarche.pos.service.sync;
 
 import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.Country;
+import com.intermarche.pos.domain.EchelonLevel;
+import com.intermarche.pos.domain.EchelonSetting;
 import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.Enseigne;
+import com.intermarche.pos.domain.Pdv;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.ProductFamily;
 import com.intermarche.pos.domain.ProductType;
+import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -16,7 +22,9 @@ import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -136,6 +144,20 @@ class RefExportServiceTest {
         Field atField = RefExportService.class.getDeclaredField("fingerprintCachedAt");
         atField.setAccessible(true);
         ((Map<String, Long>) atField.get(service)).put(domain, cachedAt);
+    }
+
+    /**
+     * Wires a mock {@link PosSettingsService} into a service so the SETTINGS
+     * export resolves against the given effective values (the store publishes
+     * the resolved result, not the raw rows).
+     *
+     * @param service the service to wire
+     * @param resolved the resolved administered values to publish
+     */
+    private void wireSettings(RefExportService service, Map<String, String> resolved) {
+        PosSettingsService posSettings = mock(PosSettingsService.class);
+        when(posSettings.administeredValues()).thenReturn(resolved);
+        service.posSettingsService = posSettings;
     }
 
     // --------------------------------------------------
@@ -327,6 +349,144 @@ class RefExportServiceTest {
         }
     }
 
+    /**
+     * Covers the SETTINGS switch arm and {@code settingsPage}: the store node
+     * publishes the RESOLVED effective values (from {@code administeredValues},
+     * not the raw rows), ordered, with a full in-bounds page returning the
+     * sublist ({@code from >= size} false arm) and a past-the-end page returning
+     * empty ({@code from >= size} true arm).
+     */
+    @Test
+    void getPageMapsSettingsFromResolvedValues() {
+        RefExportService service = new RefExportService();
+        LinkedHashMap<String, String> resolved = new LinkedHashMap<>();
+        resolved.put("a.key", "1");
+        resolved.put("b.key", "2");
+        wireSettings(service, resolved);
+        List<?> firstPage = service.getPage("SETTINGS", 0, 1);
+        assertEquals(1, firstPage.size());
+        RefPayloads.SettingDto dto = (RefPayloads.SettingDto) firstPage.get(0);
+        assertEquals("a.key", dto.key);
+        assertEquals("1", dto.value);
+        List<?> pastEnd = service.getPage("SETTINGS", 5, 10);
+        assertTrue(pastEnd.isEmpty());
+    }
+
+    /**
+     * Covers the COUNTRIES switch arm and {@code toDto(Country)}: the country
+     * fields flow verbatim into the payload.
+     */
+    @Test
+    void getPageMapsCountries() {
+        RefExportService service = new RefExportService();
+        Country country = mock(Country.class);
+        country.code = "FR";
+        country.name = "France";
+        country.defaultLanguage = "fr";
+        PanacheQuery<Country> query = singlePage(0, 10, List.of(country));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Country.find("order by code")).thenReturn(query);
+            List<?> result = service.getPage("COUNTRIES", 0, 10);
+            assertEquals(1, result.size());
+            RefPayloads.CountryDto dto = (RefPayloads.CountryDto) result.get(0);
+            assertEquals("FR", dto.code);
+            assertEquals("France", dto.name);
+            assertEquals("fr", dto.defaultLanguage);
+        }
+    }
+
+    /**
+     * Covers the ENSEIGNES switch arm and {@code toDto(Enseigne)}: the enseigne
+     * fields flow verbatim into the payload.
+     */
+    @Test
+    void getPageMapsEnseignes() {
+        RefExportService service = new RefExportService();
+        Enseigne enseigne = mock(Enseigne.class);
+        enseigne.code = "ITM";
+        enseigne.name = "Intermarché";
+        enseigne.countryCode = "FR";
+        enseigne.defaultLanguage = "fr";
+        PanacheQuery<Enseigne> query = singlePage(0, 10, List.of(enseigne));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Enseigne.find("order by code")).thenReturn(query);
+            List<?> result = service.getPage("ENSEIGNES", 0, 10);
+            assertEquals(1, result.size());
+            RefPayloads.EnseigneDto dto = (RefPayloads.EnseigneDto) result.get(0);
+            assertEquals("ITM", dto.code);
+            assertEquals("Intermarché", dto.name);
+            assertEquals("FR", dto.countryCode);
+            assertEquals("fr", dto.defaultLanguage);
+        }
+    }
+
+    /**
+     * Covers the PDVS switch arm and {@code toDto(Pdv)}: the PDV fields flow
+     * verbatim into the payload.
+     */
+    @Test
+    void getPageMapsPdvs() {
+        RefExportService service = new RefExportService();
+        Pdv pdv = mock(Pdv.class);
+        pdv.pdvNumber = "01234";
+        pdv.name = "Lyon";
+        pdv.enseigneCode = "ITM";
+        pdv.adherentCode = "AD1";
+        pdv.active = true;
+        PanacheQuery<Pdv> query = singlePage(0, 10, List.of(pdv));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Pdv.find("order by pdvNumber")).thenReturn(query);
+            List<?> result = service.getPage("PDVS", 0, 10);
+            assertEquals(1, result.size());
+            RefPayloads.PdvDto dto = (RefPayloads.PdvDto) result.get(0);
+            assertEquals("01234", dto.pdvNumber);
+            assertEquals("Lyon", dto.name);
+            assertEquals("ITM", dto.enseigneCode);
+            assertEquals("AD1", dto.adherentCode);
+            assertTrue(dto.active);
+        }
+    }
+
+    /**
+     * Covers the ECHELON_SETTINGS switch arm and both arms of the two ternaries
+     * in {@code toDto(EchelonSetting)}: the first row has a level and an effect
+     * date (rendered by name and ISO string), the second has neither (both
+     * rendered null).
+     */
+    @Test
+    void getPageMapsEchelonSettingsWithAndWithoutLevelAndDate() {
+        RefExportService service = new RefExportService();
+        EchelonSetting dated = mock(EchelonSetting.class);
+        dated.level = EchelonLevel.ENSEIGNE;
+        dated.echelonCode = "ITM";
+        dated.settingKey = "discount.enabled";
+        dated.settingValue = "false";
+        dated.effectiveDate = LocalDate.of(2026, 3, 1);
+        EchelonSetting bare = mock(EchelonSetting.class);
+        bare.level = null;
+        bare.echelonCode = "FR";
+        bare.settingKey = "display.show-ean";
+        bare.settingValue = "true";
+        bare.effectiveDate = null;
+        PanacheQuery<EchelonSetting> query =
+                singlePage(0, 10, List.of(dated, bare));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> EchelonSetting.find("order by level, echelonCode, settingKey"))
+                    .thenReturn(query);
+            List<?> result = service.getPage("ECHELON_SETTINGS", 0, 10);
+            assertEquals(2, result.size());
+            RefPayloads.EchelonSettingDto first = (RefPayloads.EchelonSettingDto) result.get(0);
+            assertEquals("ENSEIGNE", first.level);
+            assertEquals("ITM", first.echelonCode);
+            assertEquals("discount.enabled", first.settingKey);
+            assertEquals("false", first.settingValue);
+            assertEquals("2026-03-01", first.effectiveDate);
+            RefPayloads.EchelonSettingDto second = (RefPayloads.EchelonSettingDto) result.get(1);
+            assertNull(second.level);
+            assertNull(second.effectiveDate);
+        }
+    }
+
     // --------------------------------------------------
     // getFingerprints — computation, caching, failure
     // --------------------------------------------------
@@ -339,6 +499,7 @@ class RefExportServiceTest {
     @Test
     void getFingerprintsComputesEmptyDomains() {
         RefExportService service = new RefExportService();
+        wireSettings(service, Map.of());
         PanacheQuery<ProductFamily> families = pagedQuery(List.of());
         PanacheQuery<Product> products = pagedQuery(List.of());
         PanacheQuery<Price> prices = pagedQuery(List.of());
@@ -379,6 +540,7 @@ class RefExportServiceTest {
     @Test
     void getFingerprintsFoldsRowsIntoFingerprint() throws Exception {
         RefExportService service = new RefExportService();
+        wireSettings(service, Map.of());
         Product first = mock(Product.class);
         first.ean = "E1";
         first.plu = "100";
@@ -459,6 +621,7 @@ class RefExportServiceTest {
         for (String domain : RefExportService.DOMAINS) {
             seed(service, domain, "STALE-" + domain, expired);
         }
+        wireSettings(service, Map.of());
         PanacheQuery<ProductFamily> families = pagedQuery(List.of());
         PanacheQuery<Product> products = pagedQuery(List.of());
         PanacheQuery<Price> prices = pagedQuery(List.of());
@@ -570,6 +733,40 @@ class RefExportServiceTest {
         type.active = true;
         type.depositLine = false;
         assertEquals("C1|Bon|^9|ENCODED||10|true|false", canonical.invoke(service, type));
+        RefPayloads.SettingDto setting = new RefPayloads.SettingDto();
+        setting.key = "display.show-ean";
+        setting.value = null;
+        assertEquals("display.show-ean|", canonical.invoke(service, setting));
+        RefPayloads.EngineFeedDto feed = new RefPayloads.EngineFeedDto();
+        feed.code = "VAL";
+        feed.version = null;
+        feed.content = "ignored-in-canonical";
+        assertEquals("VAL|", canonical.invoke(service, feed));
+        RefPayloads.CountryDto country = new RefPayloads.CountryDto();
+        country.code = "FR";
+        country.name = "France";
+        country.defaultLanguage = null;
+        assertEquals("FR|France|", canonical.invoke(service, country));
+        RefPayloads.EnseigneDto enseigne = new RefPayloads.EnseigneDto();
+        enseigne.code = "ITM";
+        enseigne.name = "Intermarché";
+        enseigne.countryCode = "FR";
+        enseigne.defaultLanguage = null;
+        assertEquals("ITM|Intermarché|FR|", canonical.invoke(service, enseigne));
+        RefPayloads.PdvDto pdv = new RefPayloads.PdvDto();
+        pdv.pdvNumber = "01234";
+        pdv.name = "Lyon";
+        pdv.enseigneCode = "ITM";
+        pdv.adherentCode = null;
+        pdv.active = true;
+        assertEquals("01234|Lyon|ITM||true", canonical.invoke(service, pdv));
+        RefPayloads.EchelonSettingDto echelon = new RefPayloads.EchelonSettingDto();
+        echelon.level = "ENSEIGNE";
+        echelon.echelonCode = "ITM";
+        echelon.settingKey = "discount.enabled";
+        echelon.settingValue = "false";
+        echelon.effectiveDate = null;
+        assertEquals("ENSEIGNE|ITM|discount.enabled|false|", canonical.invoke(service, echelon));
         assertEquals("RAW", canonical.invoke(service, "RAW"));
     }
 }

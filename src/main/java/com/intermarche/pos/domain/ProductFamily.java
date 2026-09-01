@@ -86,24 +86,30 @@ public class ProductFamily extends BaseEntity {
     }
 
     /**
-     * Returns the single DIRECT family a product belongs to — the family whose
-     * {@code products} collection contains it — deterministically the one with
-     * the lowest {@code code} when the product is directly attached to several
-     * (the model allows a DAG; the sale snapshots one stable nomenclature per
-     * line, campaign lot C3 / BO-04-01-11). Returns null when the product is
-     * null, unpersisted, or attached to no family.
+     * Returns the DIRECT family a product belongs to — the family whose
+     * {@code products} collection contains it — but ONLY when that family is
+     * unambiguous. The model allows a product to be attached directly to
+     * several families, and nothing in the product says which of them names a
+     * sale; picking one would be inventing a rule, and the line snapshot is
+     * permanent, so the invented rule would be frozen into every consolidated
+     * line. An ambiguous product therefore leaves the line's nomenclature blank
+     * until the rule is decided (campaign lot C3 / BO-04-01-11).
+     * <p>
+     * Also returns null when the product is null, unpersisted, or attached to
+     * no family at all.
      *
      * @param product the sold product
-     * @return the direct family with the lowest code, or null
+     * @return the single direct family, or null when there is none or several
      */
     public static ProductFamily findDirectFamily(Product product) {
         if (product == null || product.id == null) {
             return null;
         }
-        return find(
-                "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code",
+        List<ProductFamily> direct = ProductFamily.<ProductFamily>find(
+                "select pf from ProductFamily pf join pf.products p where p.id = ?1",
                 product.id
-        ).firstResult();
+        ).list();
+        return direct.size() == 1 ? direct.get(0) : null;
     }
 
     /**

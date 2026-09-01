@@ -131,6 +131,69 @@ public final class RefPayloads {
     }
 
     /**
+     * A country echelon (upsert by code) pulled by a store node from the
+     * central node (domain COUNTRIES). Top of the organisation tree.
+     */
+    public static class CountryDto {
+        /** The country code (upsert key). */
+        public String code;
+        /** The country name. */
+        public String name;
+        /** The default language, or null. */
+        public String defaultLanguage;
+    }
+
+    /**
+     * An enseigne echelon (upsert by code) pulled by a store node from the
+     * central node (domain ENSEIGNES). Attached to a country by code.
+     */
+    public static class EnseigneDto {
+        /** The enseigne code (upsert key). */
+        public String code;
+        /** The enseigne name. */
+        public String name;
+        /** The code of the country it hangs under, or null. */
+        public String countryCode;
+        /** The default language, or null. */
+        public String defaultLanguage;
+    }
+
+    /**
+     * A point de vente (upsert by number) pulled by a store node from the
+     * central node (domain PDVS). Attached to an enseigne by code.
+     */
+    public static class PdvDto {
+        /** The five-digit PDV number (upsert key). */
+        public String pdvNumber;
+        /** The PDV name. */
+        public String name;
+        /** The code of the enseigne it hangs under, or null. */
+        public String enseigneCode;
+        /** The adhérent grouping code, or null. */
+        public String adherentCode;
+        /** Whether the PDV is active. */
+        public boolean active;
+    }
+
+    /**
+     * A back-office parameter posed at an echelon (upsert by the triplet
+     * level/code/key) pulled by a store node from the central node (domain
+     * ECHELON_SETTINGS). Carries the effect date the value applies from.
+     */
+    public static class EchelonSettingDto {
+        /** The echelon level name (COUNTRY, ENSEIGNE or PDV). */
+        public String level;
+        /** The echelon code at that level (part of the upsert key). */
+        public String echelonCode;
+        /** The catalog key (part of the upsert key). */
+        public String settingKey;
+        /** The value, as text. */
+        public String settingValue;
+        /** The effect date (ISO-8601 yyyy-MM-dd), or null for immediate effect. */
+        public String effectiveDate;
+    }
+
+    /**
      * A coupon type (upsert by code).
      */
     public static class CouponTypeDto {

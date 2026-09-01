@@ -64,6 +64,18 @@ public class EchelonSetting extends BaseEntity {
     public String settingValue;
 
     /**
+     * The date the value takes effect (BO-03-12-03/04): a value dated in the
+     * future is distributed at once but ignored by the resolution until the day
+     * comes, so a scheduled change applies on its own on every node without a
+     * central scheduler. Null means immediate effect.
+     * <p>
+     * This is CENTRAL data, part of the ECHELON_SETTINGS pull — it is not a
+     * piece of node-local operational state, so it travels with the value.
+     */
+    @Column(name = "effective_date")
+    public java.time.LocalDate effectiveDate;
+
+    /**
      * Finds the value posed for a key at a precise echelon.
      *
      * @param level the echelon level
@@ -107,6 +119,6 @@ public class EchelonSetting extends BaseEntity {
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(level, echelonCode, settingKey, settingValue);
+        return Objects.hash(level, echelonCode, settingKey, settingValue, effectiveDate);
     }
 }

@@ -68,11 +68,10 @@ public class DemoStoreIT {
      * office got its identity: it now answers 401 to an anonymous reader.
      * The seed's ADMIN account is used with its BACK-OFFICE password, not
      * its register PIN, and the header is sent explicitly because HTTP Basic
-     * outranks the login form for a request that carries one — which also
-     * exempts this read from the forced-password-change diversion.
+     * outranks the login form for a request that carries one.
      */
     private static final String STORE_AUTH = "Basic " + Base64.getEncoder()
-            .encodeToString("manager:changeme00".getBytes(StandardCharsets.UTF_8));
+            .encodeToString("admin:admin".getBytes(StandardCharsets.UTF_8));
 
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright

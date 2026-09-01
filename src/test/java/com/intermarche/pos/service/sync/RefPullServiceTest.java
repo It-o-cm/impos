@@ -144,6 +144,7 @@ class RefPullServiceTest {
         service.role = "register";
         service.pullSeconds = 300L;
         service.token = Optional.empty();
+        service.centralUrl = Optional.empty();
         setHttpClient(service, client);
         return service;
     }
@@ -199,6 +200,54 @@ class RefPullServiceTest {
         assertTrue(executor != null && !executor.isShutdown());
         service.onStop();
         assertTrue(executor.isShutdown());
+    }
+
+    /**
+     * Covers the store-ready arm of {@code onStart} and the non-blank arm of
+     * {@code hasCentralUrl}: a store node with a configured central URL starts
+     * the same loop (route A, two-level chain). Torn down at once via
+     * {@code onStop}.
+     */
+    @Test
+    void onStartStartsForStoreWithCentralUrl() throws Exception {
+        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "store";
+        service.centralUrl = Optional.of("http://central");
+        service.onStart(null);
+        ScheduledExecutorService executor = getExecutor(service);
+        assertTrue(executor != null && !executor.isShutdown());
+        service.onStop();
+        assertTrue(executor.isShutdown());
+    }
+
+    /**
+     * Covers the blank arm of {@code hasCentralUrl}: a store node whose central
+     * URL is present but blank does not start the loop.
+     */
+    @Test
+    void onStartSkipsForStoreWithBlankCentralUrl() throws Exception {
+        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "store";
+        service.centralUrl = Optional.of("   ");
+        service.onStart(null);
+        assertNull(getExecutor(service));
+    }
+
+    /**
+     * Covers the false-false skip of {@code onStart} for a central node: neither
+     * the register arm (wrong role) nor the store arm (wrong role) is ready, so
+     * the central runs no pull — it is the top of the chain.
+     */
+    @Test
+    void onStartSkipsForCentralRole() throws Exception {
+        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        service.role = "central";
+        service.centralUrl = Optional.of("http://central");
+        service.onStart(null);
+        assertNull(getExecutor(service));
     }
 
     /**
@@ -307,6 +356,50 @@ class RefPullServiceTest {
         verify(apply).recordApplied("COUPON_TYPES", "f5");
         verify(apply).recordApplied("SETTINGS", "f6");
         verify(apply).recordApplied("ENGINE_FEEDS", "f7");
+    }
+
+    /**
+     * Covers the store arm of {@code pullDomains} and {@code upstreamUrl}, and
+     * the four echelon switch arms of {@code applyDomain}: a store node pulls
+     * the echelon domains from the central node and applies each, proving the
+     * two-level chain reuses the same loop unchanged (route A).
+     */
+    @Test
+    void pullOnceAppliesEchelonDomainsForStore() throws Exception {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of(
+                "COUNTRIES", "c1", "ENSEIGNES", "c2", "PDVS", "c3", "ECHELON_SETTINGS", "c4");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        RefPullService service = service(outbox, apply, mapper, client);
+        service.role = "store";
+        service.centralUrl = Optional.of("http://central");
+        service.pullOnce();
+        verify(apply).applyCountries(any());
+        verify(apply).applyEnseignes(any());
+        verify(apply).applyPdvs(any());
+        verify(apply).applyEchelonSettings(any());
+        verify(apply).recordApplied("COUNTRIES", "c1");
+        verify(apply).recordApplied("ENSEIGNES", "c2");
+        verify(apply).recordApplied("PDVS", "c3");
+        verify(apply).recordApplied("ECHELON_SETTINGS", "c4");
     }
 
     /**

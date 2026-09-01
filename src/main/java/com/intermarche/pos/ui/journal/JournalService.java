@@ -515,7 +515,8 @@ public class JournalService {
                     line.plu,
                     formatQuantity(line.quantity),
                     formatAmount(line.totalPrice),
-                    line.modifierLabel));
+                    line.modifierLabel,
+                    line.cancelled));
         }
         List<JournalTicketDetail.Payment> payments = new ArrayList<>();
         for (TicketPayment payment : ticket.payments) {

@@ -249,6 +249,17 @@ public class TicketPersistenceService {
             }
             lineNumber++;
         }
+        // The conserved witnesses (lot C4) are NOT part of the sold sequence:
+        // they would otherwise keep the number they had when they were rung,
+        // and a live line renumbered by this very loop would end up sharing it.
+        // They are numbered after the sold lines, in their existing order, so
+        // no two lines of one ticket ever carry the same number.
+        for (TicketLine line : ticket.lines) {
+            if (line.cancelled) {
+                line.lineNumber = lineNumber;
+                lineNumber++;
+            }
+        }
     }
 
     /**
