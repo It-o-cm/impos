@@ -10,6 +10,7 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -341,6 +343,103 @@ class PosSettingsServiceTest {
             ms.when(PanacheEntityBase::listAll)
                     .thenReturn(List.of(row("cash.movement-reasons", "   ")));
             assertTrue(new PosSettingsService().cashMovementReasons().isEmpty());
+        }
+    }
+
+    /**
+     * Builds a service wired with an echelon engine and a node PDV number.
+     *
+     * @param engine the echelon engine, or null
+     * @param pdvNumber the node PDV number Optional, or null when unset
+     * @return the wired service
+     */
+    private PosSettingsService wired(EchelonSettingService engine, Optional<String> pdvNumber) {
+        PosSettingsService service = new PosSettingsService();
+        service.echelonSettings = engine;
+        service.nodePdvNumber = pdvNumber;
+        return service;
+    }
+
+    /**
+     * {@code value} returns the echelon-inherited value when no local override
+     * exists (inherited-present arm, all three legs of the load guard false),
+     * and the inherited map is resolved once and cached across reads.
+     */
+    @Test
+    void valueUsesInheritedWhenNoLocalOverride() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        when(engine.resolveForPdv("12345")).thenReturn(Map.of("gesture.endorsement-required", "false"));
+        PosSettingsService service = wired(engine, Optional.of("12345"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(service.gestureEndorsementRequired());
+            assertFalse(service.gestureEndorsementRequired());
+            verify(engine, times(1)).resolveForPdv("12345");
+        }
+    }
+
+    /**
+     * A local override wins over the echelon-inherited value and never
+     * consults the echelon engine — the "surcharge locale survit" guarantee:
+     * the stored row is read before the inheritance layer.
+     */
+    @Test
+    void localOverrideWinsOverInheritance() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        when(engine.resolveForPdv("12345")).thenReturn(Map.of("gesture.endorsement-required", "false"));
+        PosSettingsService service = wired(engine, Optional.of("12345"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("gesture.endorsement-required", "true")));
+            assertTrue(service.gestureEndorsementRequired());
+            verify(engine, never()).resolveForPdv(org.mockito.ArgumentMatchers.anyString());
+        }
+    }
+
+    /**
+     * The inheritance layer is skipped when this node carries no PDV number
+     * ({@code nodePdvNumber} null leg): the engine is never consulted and the
+     * catalog default applies.
+     */
+    @Test
+    void inheritanceSkippedWhenNoPdvNumber() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        PosSettingsService service = wired(engine, null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(service.gestureEndorsementRequired());
+            verify(engine, never()).resolveForPdv(org.mockito.ArgumentMatchers.anyString());
+        }
+    }
+
+    /**
+     * The inheritance layer is skipped when the PDV number is present but blank
+     * ({@code isEmpty} leg): the engine is never consulted.
+     */
+    @Test
+    void inheritanceSkippedWhenPdvNumberEmpty() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        PosSettingsService service = wired(engine, Optional.empty());
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(service.gestureEndorsementRequired());
+            verify(engine, never()).resolveForPdv(org.mockito.ArgumentMatchers.anyString());
+        }
+    }
+
+    /**
+     * A failed echelon resolution falls back to the catalog default (the
+     * try/catch exception arm) rather than propagating, so a central hiccup
+     * never stops a node reading its parameters.
+     */
+    @Test
+    void inheritanceSurvivesResolveFailure() {
+        EchelonSettingService engine = mock(EchelonSettingService.class);
+        when(engine.resolveForPdv("12345")).thenThrow(new RuntimeException("central down"));
+        PosSettingsService service = wired(engine, Optional.of("12345"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(service.gestureEndorsementRequired());
         }
     }
 }

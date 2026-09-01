@@ -2,8 +2,10 @@ package com.intermarche.pos.service;
 
 import com.intermarche.pos.domain.PosSetting;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
@@ -11,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The register's BACK-OFFICE PARAMETERS: the typed catalog of known keys
@@ -26,6 +29,17 @@ import java.util.Map;
  * The whole table is cached in memory and invalidated on every admin save
  * and every pull apply — settings are read on hot paths (the lock filter,
  * the polls) and must never cost a query per request.
+ * <p>
+ * Between the node's own overrides and the catalog default sits the ECHELON
+ * inheritance (BO-02-05-04): when this node carries a {@code pos.pdv.number},
+ * a key with no local override is resolved from the PDV's echelon chain
+ * (PDV &rarr; enseigne &rarr; country) through {@link EchelonSettingService}.
+ * A local override therefore always wins and survives a fresh pull of the
+ * echelon defaults — the two live in different tables. The inherited values
+ * are cached alongside the local ones and dropped together, so the echelon
+ * lookup never touches the database on a hot path. On a node with no
+ * {@code pos.pdv.number} the layer is inert and behaviour is unchanged, which
+ * keeps a standalone register selling exactly as before.
  */
 @ApplicationScoped
 public class PosSettingsService {
@@ -146,8 +160,28 @@ public class PosSettingsService {
                 "Motifs proposés au caissier pour un mouvement de caisse, séparés par des points-virgules. Vide : la saisie du motif reste libre (BO-04-01-44).",
                 "Prélèvement coffre;Apport de fond;Achat de timbres;Dépense pharmacie;Erreur de caisse", null));
 
-    /** The cached rows, or null when a reload is due. */
+    /**
+     * The echelon inheritance engine, or null on a node where none is wired
+     * (a plain register constructed without CDI in a unit test): the layer is
+     * then skipped entirely.
+     */
+    @Inject
+    EchelonSettingService echelonSettings;
+
+    /**
+     * This node's own point-of-vente number, absent on a standalone register
+     * or the store node before it is commissioned into the organisation tree.
+     * Absent means no echelon layer applies.
+     */
+    @Inject
+    @ConfigProperty(name = "pos.pdv.number")
+    Optional<String> nodePdvNumber;
+
+    /** The cached local override rows, or null when a reload is due. */
     private volatile Map<String, String> cache = null;
+
+    /** The cached echelon-inherited values for this node, or null when due. */
+    private volatile Map<String, String> inheritedCache = null;
 
     /**
      * Returns the catalog entry of a key.
@@ -179,12 +213,50 @@ public class PosSettingsService {
         if (stored != null) return stored;
         Def d = def(key);
         if (d == null) return null;
+        String inherited = inherited().get(key);
+        if (inherited != null) return inherited;
         if (d.configFallback() != null) {
-            java.util.Optional<String> fromConfig = ConfigProvider.getConfig()
+            Optional<String> fromConfig = ConfigProvider.getConfig()
                     .getOptionalValue(d.configFallback(), String.class);
             if (fromConfig.isPresent()) return fromConfig.get();
         }
         return d.defaultValue();
+    }
+
+    /**
+     * Returns the echelon-inherited values of this node, resolved once and
+     * cached until the next invalidation.
+     *
+     * @return the inherited key-to-value map, never null
+     */
+    private Map<String, String> inherited() {
+        Map<String, String> values = inheritedCache;
+        if (values == null) {
+            values = loadInherited();
+            inheritedCache = values;
+        }
+        return values;
+    }
+
+    /**
+     * Resolves this node's echelon-inherited values, or an empty map when no
+     * echelon layer applies (no engine wired, or no PDV number on this node).
+     *
+     * @return the inherited key-to-value map, never null
+     */
+    private Map<String, String> loadInherited() {
+        if (echelonSettings == null || nodePdvNumber == null || nodePdvNumber.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            return echelonSettings.resolveForPdv(nodePdvNumber.get());
+        } catch (Exception e) {
+            // A failed resolution (boot ordering, missing table) falls back to
+            // the local overrides and defaults; the next access retries.
+            LOG.warnf("Resolution des echelons impossible (%s): valeurs locales", e.getMessage());
+            inheritedCache = null;
+            return Map.of();
+        }
     }
 
     /**
@@ -207,9 +279,14 @@ public class PosSettingsService {
         return values;
     }
 
-    /** Drops the cache — called after every admin save and pull apply. */
+    /**
+     * Drops both caches — called after every admin save and pull apply. The
+     * echelon cache is dropped too so a re-pulled enseigne default is picked
+     * up on the next read.
+     */
     public void invalidate() {
         cache = null;
+        inheritedCache = null;
     }
 
     /**
