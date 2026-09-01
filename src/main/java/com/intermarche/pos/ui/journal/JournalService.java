@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
@@ -634,6 +635,95 @@ public class JournalService {
                     event.eventDate.format(DATE),
                     event.eventDate.format(TIME),
                     event.detail));
+        }
+        return new JournalPage<>(rows, number, PAGE_SIZE, total);
+    }
+
+    // --------------------------------------------------
+    // Movements journal
+    // --------------------------------------------------
+
+    /**
+     * Builds the {@code where} clause of the cash-movements search (the third
+     * tab, BO-04-01-12/33/35/36/37/40/44).
+     * <p>
+     * The selected movement types (BO-04-01-12/33/35/36/37/40/44, one criterion
+     * per type) narrow the set to the requested kinds; several selected types OR
+     * together, exactly like the payment methods and event types of the other
+     * tabs. The cashier range reuses the same {@code cashierMin}/{@code cashierMax}
+     * criteria as the two other tabs, matched here against the movement's own
+     * cashier badge — badge compared to badge — which serves the
+     * "(plage de N° caissière)" of BO-04-01-33/36/37; a movement with no cashier
+     * has a null badge, which never matches a range, so it is excluded rather
+     * than wrongly returned. The terminal range and the date range narrow the
+     * movements the same way they narrow tickets. Every criterion is optional and
+     * simply ANDs in.
+     *
+     * @param criteria the parsed criteria
+     * @return the assembled query fragment and its parameters
+     */
+    JournalQuery buildMovementQuery(JournalCriteria criteria) {
+        JournalQuery query = new JournalQuery();
+        if (!criteria.movementTypes.isEmpty()) {
+            query.and("m.type in :movementTypes");
+            query.bind("movementTypes", new ArrayList<>(criteria.movementTypes));
+        }
+        if (criteria.cashierMin != null) {
+            query.and("m.cashier.badgeId >= :cashierMin");
+            query.bind("cashierMin", criteria.cashierMin);
+        }
+        if (criteria.cashierMax != null) {
+            query.and("m.cashier.badgeId <= :cashierMax");
+            query.bind("cashierMax", criteria.cashierMax);
+        }
+        if (criteria.terminalMin != null) {
+            query.and("m.terminalId >= :terminalMin");
+            query.bind("terminalMin", criteria.terminalMin);
+        }
+        if (criteria.terminalMax != null) {
+            query.and("m.terminalId <= :terminalMax");
+            query.bind("terminalMax", criteria.terminalMax);
+        }
+        if (criteria.dateFrom != null) {
+            query.and("m.movementDate >= :dateFrom");
+            query.bind("dateFrom", criteria.dateFrom);
+        }
+        if (criteria.dateTo != null) {
+            query.and("m.movementDate <= :dateTo");
+            query.bind("dateTo", criteria.dateTo);
+        }
+        return query;
+    }
+
+    /**
+     * Runs the cash-movements search, most recent first, and returns the
+     * requested page with the total number of matching movements — the same
+     * no-silent-truncation posture as the other two tabs.
+     *
+     * @param criteria the parsed criteria, carrying the requested page
+     * @return the requested page of movement rows and the total row count
+     */
+    public JournalPage<JournalMovementRow> searchMovements(JournalCriteria criteria) {
+        JournalQuery query = buildMovementQuery(criteria);
+        long total = count("select count(m.id) from CashMovement m" + query.whereClause(), query);
+        int number = clampPage(criteria.page, total, PAGE_SIZE);
+        String jpql = "select m from CashMovement m" + query.whereClause()
+                + " order by m.movementDate desc, m.id asc";
+        TypedQuery<CashMovement> typed = entityManager.createQuery(jpql, CashMovement.class);
+        bind(typed, query);
+        typed.setFirstResult((number - 1) * PAGE_SIZE);
+        typed.setMaxResults(PAGE_SIZE);
+        List<JournalMovementRow> rows = new ArrayList<>();
+        for (CashMovement movement : typed.getResultList()) {
+            rows.add(new JournalMovementRow(
+                    movement.terminalId,
+                    movement.cashier != null ? movement.cashier.badgeId : null,
+                    movement.type.name(),
+                    movement.movementDate.format(DATE),
+                    movement.movementDate.format(TIME),
+                    formatAmount(movement.amount),
+                    movement.reason,
+                    movement.endorsedBy));
         }
         return new JournalPage<>(rows, number, PAGE_SIZE, total);
     }

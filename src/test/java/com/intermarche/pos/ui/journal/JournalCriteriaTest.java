@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
+import com.intermarche.pos.domain.CashMovement;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * datetime / bare date / fully-malformed (both catch arms); {@code addNonBlank}
  * covers the null-list arm and the blank-skip / kept arms; {@code addFlags}
  * covers the null-list arm, blank-skip, valid-add and unknown-catch arms;
- * {@code parsePage} covers blank / valid / non-positive / malformed.
+ * {@code addMovementTypes} covers the null-list arm, blank-skip, valid-add and
+ * unknown-catch arms; {@code parsePage} covers blank / valid / non-positive /
+ * malformed.
  */
 class JournalCriteriaTest {
 
@@ -45,6 +48,7 @@ class JournalCriteriaTest {
         assertNull(criteria.cancelAmountMax);
         assertTrue(criteria.methods.isEmpty());
         assertTrue(criteria.flags.isEmpty());
+        assertTrue(criteria.movementTypes.isEmpty());
         assertFalse(criteria.descending);
         assertEquals(1, criteria.page);
     }
@@ -89,6 +93,7 @@ class JournalCriteriaTest {
         params.put("method", List.of("CARD", "  "));
         params.put("eventType", List.of("SESSION_CLOSED"));
         params.put("flag", List.of("CARD", "DEGRADED", "DEGRADED_MANUAL", "  ", "XXX"));
+        params.put("movementType", List.of("WITHDRAWAL", "DECLARATION", "  ", "NOPE"));
         params.putSingle("sort", "amount");
         params.putSingle("dir", "desc");
         JournalCriteria criteria = JournalCriteria.fromParams(params);
@@ -126,6 +131,9 @@ class JournalCriteriaTest {
         assertTrue(criteria.flags.contains(JournalCriteria.Flag.CARD));
         assertTrue(criteria.flags.contains(JournalCriteria.Flag.DEGRADED));
         assertTrue(criteria.flags.contains(JournalCriteria.Flag.DEGRADED_MANUAL));
+        assertEquals(2, criteria.movementTypes.size());
+        assertTrue(criteria.movementTypes.contains(CashMovement.MovementType.WITHDRAWAL));
+        assertTrue(criteria.movementTypes.contains(CashMovement.MovementType.DECLARATION));
         assertEquals("amount", criteria.sort);
         assertTrue(criteria.descending);
     }
@@ -134,8 +142,8 @@ class JournalCriteriaTest {
      * Absent, blank and malformed inputs are all dropped: a blank text becomes
      * null (blank arm), a malformed amount and a fully-malformed date become
      * null (catch arms), the absent multi-value keys hit the null-list arms of
-     * {@code addNonBlank}/{@code addFlags}, and an absent {@code dir} leaves
-     * descending false.
+     * {@code addNonBlank}/{@code addFlags}/{@code addMovementTypes}, and an
+     * absent {@code dir} leaves descending false.
      */
     @Test
     void blankAndMalformedInputsAreDropped() {
@@ -150,6 +158,7 @@ class JournalCriteriaTest {
         assertTrue(criteria.methods.isEmpty());
         assertTrue(criteria.eventTypes.isEmpty());
         assertTrue(criteria.flags.isEmpty());
+        assertTrue(criteria.movementTypes.isEmpty());
         assertFalse(criteria.descending);
         assertEquals(1, criteria.page);
     }

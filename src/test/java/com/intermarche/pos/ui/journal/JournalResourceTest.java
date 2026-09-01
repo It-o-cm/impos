@@ -111,6 +111,22 @@ class JournalResourceTest {
     }
 
     /**
+     * The movements endpoint runs the cash-movement search and renders the page
+     * with the movements tab.
+     */
+    @Test
+    void movementsRendersMovementSearch() {
+        JournalResource resource = newResource();
+        TemplateInstance instance = wire(resource.journal);
+        JournalPage<JournalMovementRow> page = emptyPage();
+        when(resource.journalService.searchMovements(any())).thenReturn(page);
+        assertSame(instance, resource.movements(emptyUri()));
+        verify(resource.journal).data("tab", "movements");
+        verify(instance).data("movements", page);
+        verify(resource.journalService).searchMovements(any());
+    }
+
+    /**
      * The detail endpoint materializes the ticket and renders the detail
      * template.
      */

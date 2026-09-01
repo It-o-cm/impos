@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.domain.ticket.CardPayment;
@@ -658,7 +659,54 @@ class JournalServiceTest {
     }
 
     // --------------------------------------------------
-    // search / searchEvents / export
+    // buildMovementQuery
+    // --------------------------------------------------
+
+    /**
+     * An empty criteria produces no movements where clause (all absent arms).
+     */
+    @Test
+    void emptyMovementCriteriaProducesNoClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalQuery query = service.buildMovementQuery(new JournalCriteria());
+        assertEquals("", query.whereClause());
+        assertTrue(query.parameters().isEmpty());
+    }
+
+    /**
+     * A full movements criteria adds every clause (all present arms): the
+     * selected types, the cashier range matched on the movement's own badge, the
+     * terminal range and the date range.
+     */
+    @Test
+    void fullMovementCriteriaAddsEveryClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.movementTypes.add(CashMovement.MovementType.WITHDRAWAL);
+        criteria.movementTypes.add(CashMovement.MovementType.DECLARATION);
+        criteria.cashierMin = "100";
+        criteria.cashierMax = "200";
+        criteria.terminalMin = "C01";
+        criteria.terminalMax = "C09";
+        criteria.dateFrom = LocalDateTime.of(2026, 8, 1, 0, 0);
+        criteria.dateTo = LocalDateTime.of(2026, 8, 31, 0, 0);
+        JournalQuery query = service.buildMovementQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("m.type in :movementTypes"));
+        assertEquals(List.of(CashMovement.MovementType.WITHDRAWAL, CashMovement.MovementType.DECLARATION),
+                query.parameters().get("movementTypes"));
+        assertTrue(where.contains("m.cashier.badgeId >= :cashierMin"));
+        assertTrue(where.contains("m.cashier.badgeId <= :cashierMax"));
+        assertEquals("100", query.parameters().get("cashierMin"));
+        assertEquals("200", query.parameters().get("cashierMax"));
+        assertTrue(where.contains("m.terminalId >= :terminalMin"));
+        assertTrue(where.contains("m.terminalId <= :terminalMax"));
+        assertTrue(where.contains("m.movementDate >= :dateFrom"));
+        assertTrue(where.contains("m.movementDate <= :dateTo"));
+    }
+
+    // --------------------------------------------------
+    // search / searchEvents / searchMovements / export
     // --------------------------------------------------
 
     /**
@@ -848,6 +896,86 @@ class JournalServiceTest {
         JournalPage<JournalEventRow> page = service.searchEvents(criteria);
         org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(Long.class));
         assertEquals("select count(e.id) from TechnicalEvent e", jpql.getValue());
+        org.mockito.Mockito.verify(query).setFirstResult(2 * JournalService.PAGE_SIZE);
+        assertEquals(3, page.number);
+        assertEquals(320L, page.total);
+    }
+
+    /**
+     * {@code searchMovements} maps the cash movements to formatted rows: a first
+     * movement with a cashier, amount, reason and endorsement (all non-null
+     * arms), and a second with a null cashier, null amount, null reason and null
+     * endorsement (all null arms → empty strings, formatAmount "0,00"). Ordered
+     * most-recent-first, first page read from offset 0 with the counted total.
+     */
+    @Test
+    void searchMovementsMapsRows() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<CashMovement> query = selfQuery();
+        CashMovement withCashier = new CashMovement();
+        withCashier.terminalId = "C04";
+        Employee cashier = new Employee();
+        cashier.badgeId = "12341234";
+        withCashier.cashier = cashier;
+        withCashier.type = CashMovement.MovementType.WITHDRAWAL;
+        withCashier.movementDate = LocalDateTime.of(2026, 8, 31, 18, 0);
+        withCashier.amount = new BigDecimal("150.00");
+        withCashier.reason = "Prelevement coffre";
+        withCashier.endorsedBy = "11111111";
+        CashMovement bare = new CashMovement();
+        bare.terminalId = "C05";
+        bare.cashier = null;
+        bare.type = CashMovement.MovementType.DECLARATION;
+        bare.movementDate = LocalDateTime.of(2026, 8, 31, 19, 30);
+        bare.amount = null;
+        bare.reason = null;
+        bare.endorsedBy = null;
+        when(em.createQuery(anyString(), eq(CashMovement.class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of(withCashier, bare));
+        stubCount(em, 2L);
+        JournalService service = serviceWith(em);
+        ArgumentCaptor<String> jpql = ArgumentCaptor.forClass(String.class);
+        JournalPage<JournalMovementRow> page = service.searchMovements(new JournalCriteria());
+        org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(CashMovement.class));
+        assertTrue(jpql.getValue().contains("order by m.movementDate desc, m.id asc"));
+        assertEquals(2, page.rows.size());
+        assertEquals(2L, page.total);
+        assertEquals(1, page.number);
+        assertEquals("C04", page.rows.get(0).terminal);
+        assertEquals("12341234", page.rows.get(0).cashier);
+        assertEquals("WITHDRAWAL", page.rows.get(0).type);
+        assertEquals("31/08/2026", page.rows.get(0).date);
+        assertEquals("18:00", page.rows.get(0).time);
+        assertEquals("150,00", page.rows.get(0).amount);
+        assertEquals("Prelevement coffre", page.rows.get(0).reason);
+        assertEquals("11111111", page.rows.get(0).endorsedBy);
+        assertEquals("", page.rows.get(1).cashier);
+        assertEquals("DECLARATION", page.rows.get(1).type);
+        assertEquals("0,00", page.rows.get(1).amount);
+        assertEquals("", page.rows.get(1).reason);
+        assertEquals("", page.rows.get(1).endorsedBy);
+        org.mockito.Mockito.verify(query).setFirstResult(0);
+        org.mockito.Mockito.verify(query).setMaxResults(JournalService.PAGE_SIZE);
+    }
+
+    /**
+     * {@code searchMovements} reads the requested page of movements from its
+     * offset and counts the whole result set over the same where clause.
+     */
+    @Test
+    void searchMovementsReadsTheRequestedPage() {
+        EntityManager em = mock(EntityManager.class);
+        TypedQuery<CashMovement> query = selfQuery();
+        when(em.createQuery(anyString(), eq(CashMovement.class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of());
+        stubCount(em, 320L);
+        JournalService service = serviceWith(em);
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.page = 3;
+        ArgumentCaptor<String> jpql = ArgumentCaptor.forClass(String.class);
+        JournalPage<JournalMovementRow> page = service.searchMovements(criteria);
+        org.mockito.Mockito.verify(em).createQuery(jpql.capture(), eq(Long.class));
+        assertEquals("select count(m.id) from CashMovement m", jpql.getValue());
         org.mockito.Mockito.verify(query).setFirstResult(2 * JournalService.PAGE_SIZE);
         assertEquals(3, page.number);
         assertEquals(320L, page.total);

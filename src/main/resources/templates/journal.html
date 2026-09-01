@@ -26,6 +26,7 @@
 <nav class="journal-tabs">
     <a href="/admin/journal" class="journal-tab {#if tab == 'transactional'}is-active{/if}">Journal transactionnel</a>
     <a href="/admin/journal/functional" class="journal-tab {#if tab == 'functional'}is-active{/if}">Journal fonctionnel</a>
+    <a href="/admin/journal/movements" class="journal-tab {#if tab == 'movements'}is-active{/if}">Mouvements de caisse</a>
 </nav>
 
 {#if tab == 'transactional'}
@@ -228,7 +229,7 @@
     {/if}
     {/if}
 </div>
-{#else}
+{#else if tab == 'functional'}
 <form method="get" action="/admin/journal/functional" class="card journal-form">
     <fieldset class="journal-fieldset">
         <legend>Type d'événement</legend>
@@ -316,6 +317,99 @@
         <span class="btn btn-small is-disabled">Suivant</span>
         {#else}
         <a class="btn btn-small" href="/admin/journal/functional?{baseQuery}page={events.next}">Suivant</a>
+        {/if}
+    </nav>
+    {/if}
+    {/if}
+</div>
+{#else}
+<form method="get" action="/admin/journal/movements" class="card journal-form">
+    <fieldset class="journal-fieldset">
+        <legend>Type de mouvement</legend>
+        <div class="journal-checks">
+            {#for type in movementTypes}
+            <label class="journal-check"><input type="checkbox" name="movementType" value="{type}" {#if criteria.movementTypes.contains(type)}checked{/if}> {type}</label>
+            {/for}
+        </div>
+    </fieldset>
+
+    <div class="field-grid">
+        <div class="field">
+            <label class="field-label" for="m-cashier-min">N° caissière (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="m-cashier-min" type="text" name="cashierMin" value="{criteria.cashierMin ?: ''}">
+                <input class="input-control" type="text" name="cashierMax" value="{criteria.cashierMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="m-tpv-min">N° TPV (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="m-tpv-min" type="text" name="terminalMin" value="{criteria.terminalMin ?: ''}">
+                <input class="input-control" type="text" name="terminalMax" value="{criteria.terminalMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="m-date-from">Période (du / au)</label>
+            <div class="journal-range">
+                <input class="input-control" id="m-date-from" type="datetime-local" name="dateFrom" value="{criteria.dateFrom ?: ''}">
+                <input class="input-control" type="datetime-local" name="dateTo" value="{criteria.dateTo ?: ''}">
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <div class="filter-actions">
+            <button class="btn btn-primary" type="submit">Rechercher</button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <h2 class="card-title">Mouvements ({movements.total})</h2>
+    {#if movements.empty}
+    <p class="col-muted">Aucun mouvement ne correspond aux critères.</p>
+    {#else}
+    <p class="journal-count">Mouvements {movements.firstIndex} à {movements.lastIndex} sur {movements.total} — page {movements.number} sur {movements.pageCount}.</p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>N° TPV</th>
+                <th>N° caissière</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Heure</th>
+                <th>Montant</th>
+                <th>Motif</th>
+                <th>Aval</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#for movement in movements.rows}
+            <tr>
+                <td>{movement.terminal}</td>
+                <td>{movement.cashier}</td>
+                <td>{movement.type}</td>
+                <td>{movement.date}</td>
+                <td>{movement.time}</td>
+                <td>{movement.amount}</td>
+                <td>{movement.reason}</td>
+                <td>{movement.endorsedBy}</td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {#if movements.pageCount > 1}
+    <nav class="journal-pager">
+        {#if movements.first}
+        <span class="btn btn-small is-disabled">Précédent</span>
+        {#else}
+        <a class="btn btn-small" href="/admin/journal/movements?{baseQuery}page={movements.previous}">Précédent</a>
+        {/if}
+        <span class="journal-pager-pos">Page {movements.number} / {movements.pageCount}</span>
+        {#if movements.last}
+        <span class="btn btn-small is-disabled">Suivant</span>
+        {#else}
+        <a class="btn btn-small" href="/admin/journal/movements?{baseQuery}page={movements.next}">Suivant</a>
         {/if}
     </nav>
     {/if}

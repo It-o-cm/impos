@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -24,8 +25,10 @@ import java.util.Map;
  * The electronic journal back office (BO-04-01, lot 4): a multi-criteria
  * search over the consolidated documents, split into a transactional tab
  * (tickets) and a functional tab (technical events) as BO-04-01-52 requires,
- * a ticket detail view reachable from the list, and a CSV export that
- * reproduces the transactional list to the character (BO-04-01-50).
+ * a third tab for the cash movements (BO-04-01-12/33/35/36/37/40/44, a distinct
+ * consolidated entity that is neither a ticket nor a technical event), a ticket
+ * detail view reachable from the list, and a CSV export that reproduces the
+ * transactional list to the character (BO-04-01-50).
  * <p>
  * Reserved to MANAGER and ADMIN — the journal is a supervision surface, like
  * the dashboard, not a public LAN page. It reads this node's own database, so
@@ -64,8 +67,7 @@ public class JournalResource {
     public TemplateInstance transactional(@Context UriInfo uriInfo) {
         JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
         JournalPage<JournalRow> tickets = journalService.search(criteria);
-        return page("transactional", criteria, uriInfo, tickets,
-                new JournalPage<>(List.of(), 1, JournalService.PAGE_SIZE, 0));
+        return page("transactional", criteria, uriInfo, tickets, emptyPage(), emptyPage());
     }
 
     /**
@@ -82,8 +84,38 @@ public class JournalResource {
     public TemplateInstance functional(@Context UriInfo uriInfo) {
         JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
         JournalPage<JournalEventRow> events = journalService.searchEvents(criteria);
-        return page("functional", criteria, uriInfo,
-                new JournalPage<>(List.of(), 1, JournalService.PAGE_SIZE, 0), events);
+        return page("functional", criteria, uriInfo, emptyPage(), events, emptyPage());
+    }
+
+    /**
+     * Shows the movements journal: the cash-movement search form and its results
+     * (BO-04-01-12/33/35/36/37/40/44). Cash movements are a distinct consolidated
+     * entity, so they get their own tab rather than being grafted onto the
+     * transactional search (whose every clause presumes a ticket) or the
+     * functional one (which reads technical events).
+     *
+     * @param uriInfo the request URI carrying the search criteria
+     * @return the movements tab page
+     */
+    @GET
+    @Path("/movements")
+    @RolesAllowed({"ADMIN", "MANAGER"})
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance movements(@Context UriInfo uriInfo) {
+        JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
+        JournalPage<JournalMovementRow> movements = journalService.searchMovements(criteria);
+        return page("movements", criteria, uriInfo, emptyPage(), emptyPage(), movements);
+    }
+
+    /**
+     * Builds an empty result page of the service's page size, for the two tabs
+     * a request does not search.
+     *
+     * @param <T> the row type of the empty page
+     * @return the empty page
+     */
+    private <T> JournalPage<T> emptyPage() {
+        return new JournalPage<>(List.of(), 1, JournalService.PAGE_SIZE, 0);
     }
 
     /**
@@ -125,25 +157,29 @@ public class JournalResource {
      * to keep the form filled, the result page, the option catalogs and the
      * query string the pager rebuilds its links from.
      *
-     * @param tab the active tab ("transactional" or "functional")
+     * @param tab the active tab ("transactional", "functional" or "movements")
      * @param criteria the parsed criteria to echo
      * @param uriInfo the request URI, read for the pager base query
-     * @param tickets the transactional result page (empty on the functional tab)
-     * @param events the functional result page (empty on the transactional tab)
+     * @param tickets the transactional result page (empty off the transactional tab)
+     * @param events the functional result page (empty off the functional tab)
+     * @param movements the movements result page (empty off the movements tab)
      * @return the wired page instance
      */
     private TemplateInstance page(String tab, JournalCriteria criteria, UriInfo uriInfo,
                                   JournalPage<JournalRow> tickets,
-                                  JournalPage<JournalEventRow> events) {
+                                  JournalPage<JournalEventRow> events,
+                                  JournalPage<JournalMovementRow> movements) {
         return journal.data("tab", tab)
                 .data("criteria", criteria)
                 .data("tickets", tickets)
                 .data("events", events)
+                .data("movements", movements)
                 .data("baseQuery", baseQuery(uriInfo))
                 .data("paymentKeys", PaymentTypes.keys())
                 .data("ticketFlags", JournalCriteria.Flag.values())
                 .data("sorts", JournalSort.values())
-                .data("eventTypes", TechnicalEvent.EventType.values());
+                .data("eventTypes", TechnicalEvent.EventType.values())
+                .data("movementTypes", CashMovement.MovementType.values());
     }
 
     /**

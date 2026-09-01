@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
+import com.intermarche.pos.domain.CashMovement;
 import jakarta.ws.rs.core.MultivaluedMap;
 
 import java.math.BigDecimal;
@@ -23,11 +24,13 @@ import java.util.Set;
  * read screen, a bad filter narrows nothing, it does not fault.
  * <p>
  * Only the criteria backed by consolidated data are modelled. Criteria whose
- * source data does not exist on the consolidated node (cash movements,
- * self-scanning flags...) are deliberately NOT fields here: they are reported
- * as residue rather than rendered as dead controls. The card authorization
- * number and the degraded-mode indicator ARE now modelled (BO-04-01-08/47/49):
- * the card payment carries both since campaign lot C2 opened the gisement.
+ * source data does not exist on the consolidated node (self-scanning flags...)
+ * are deliberately NOT fields here: they are reported as residue rather than
+ * rendered as dead controls. The card authorization number and the
+ * degraded-mode indicator ARE modelled (BO-04-01-08/47/49): the card payment
+ * carries both since campaign lot C2 opened the gisement. The cash-movement
+ * types ARE modelled too ({@link #movementTypes}, BO-04-01-12/33/35/36/37/40/44):
+ * campaign lot C5a/C5b opened that gisement, so the movements tab can search it.
  */
 public class JournalCriteria {
 
@@ -150,6 +153,18 @@ public class JournalCriteria {
     /** The selected functional event types (functional journal tab), never null. */
     public Set<String> eventTypes = new LinkedHashSet<>();
 
+    /**
+     * The selected cash-movement types (movements journal tab), never null. Each
+     * type is one criterion of BO-04-01-12/33/35/36/37/40/44: a withdrawal
+     * (prélèvement, 36/40), a deposit (apport, 37), an expense (dépense, 35), a
+     * customer down-payment (acompte, 12) or a cash-count declaration
+     * (déclaration/comptage, 33/44). Selected together they OR, exactly like
+     * {@link #methods} and {@link #eventTypes}; the cashier range narrows any of
+     * them to a band of cashiers, as the "(plage de N° caissière)" requirements
+     * ask.
+     */
+    public Set<CashMovement.MovementType> movementTypes = new LinkedHashSet<>();
+
     /** The sort column key (one of {@link JournalSort}), or null for the default. */
     public String sort;
 
@@ -212,6 +227,7 @@ public class JournalCriteria {
         addNonBlank(criteria.methods, params.get("method"));
         addNonBlank(criteria.eventTypes, params.get("eventType"));
         addFlags(criteria.flags, params.get("flag"));
+        addMovementTypes(criteria.movementTypes, params.get("movementType"));
         criteria.sort = blankToNull(params.getFirst("sort"));
         criteria.descending = "desc".equals(params.getFirst("dir"));
         criteria.page = parsePage(params.getFirst("page"));
@@ -334,6 +350,31 @@ public class JournalCriteria {
                 target.add(Flag.valueOf(trimmed));
             } catch (IllegalArgumentException e) {
                 // Unknown flag name: ignore rather than fault the read screen.
+            }
+        }
+    }
+
+    /**
+     * Adds the recognized cash-movement type names of a raw list to a target
+     * set, ignoring blank or unknown names — a stale or hand-typed type never
+     * faults the read screen, it simply narrows nothing.
+     *
+     * @param target the set to fill
+     * @param raw the raw values, or null
+     */
+    static void addMovementTypes(Set<CashMovement.MovementType> target, List<String> raw) {
+        if (raw == null) {
+            return;
+        }
+        for (String value : raw) {
+            String trimmed = blankToNull(value);
+            if (trimmed == null) {
+                continue;
+            }
+            try {
+                target.add(CashMovement.MovementType.valueOf(trimmed));
+            } catch (IllegalArgumentException e) {
+                // Unknown movement type: ignore rather than fault the read screen.
             }
         }
     }
