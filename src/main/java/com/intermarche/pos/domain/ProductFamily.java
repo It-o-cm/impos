@@ -48,6 +48,50 @@ public class ProductFamily extends BaseEntity {
     public String flags;
 
     // --------------------------------------------------
+    // Touch configuration (Lot 5F) — administered in the back office,
+    // distributed on the FAMILIES domain, rendered on the SAISIE DIRECTE
+    // group-touch grid.
+    // --------------------------------------------------
+
+    /**
+     * Whether this group is PINNED (BO-03-01-07): a pinned group stays shown at
+     * the register whatever the cashier's navigation — it is prepended to every
+     * page of the group grid and to every drilled-down category level. Bounded
+     * to at most four pinned groups by the back office. Referential data: it
+     * rides the FAMILIES domain and reaches the registers at the next tirage.
+     */
+    @Column(name = "pinned", nullable = false)
+    public boolean pinned = false;
+
+    /**
+     * The touch SIZE of this group (BO-03-01-08): one of {@code SMALL},
+     * {@code NORMAL} or {@code LARGE}, rendered as a differently sized button on
+     * the group grid. Never null (defaults to {@code NORMAL}); an unknown value
+     * renders as the normal size. Referential data on the FAMILIES domain.
+     */
+    @Column(name = "button_size", length = 10, nullable = false)
+    public String buttonSize = "NORMAL";
+
+    /**
+     * The custom rank of this group in the group grid (BO-03-01-11), honoured
+     * when the display-order mode is {@code CUSTOM}: lower comes first, ties
+     * broken by description. Never null (defaults to zero). Referential data on
+     * the FAMILIES domain.
+     */
+    @Column(name = "display_order", nullable = false)
+    public int displayOrder = 0;
+
+    /**
+     * The sales volume of this group (BO-03-01-13), honoured when the
+     * display-order mode is {@code VOLUME}: higher comes first, ties broken by
+     * description. Carried as referential data on the FAMILIES domain (fed from
+     * the gestion commerciale or set in the back office); the POS does not
+     * aggregate sales into it. Defaults to zero.
+     */
+    @Column(name = "sales_volume", nullable = false)
+    public long salesVolume = 0L;
+
+    // --------------------------------------------------
     // Relations: Direct Products
     // --------------------------------------------------
 

@@ -158,7 +158,15 @@ public class PosSettingsService {
         new Def("cash.movement-reasons", Type.TEXT, "MOUVEMENTS DE CAISSE",
                 "Motifs autorisés",
                 "Motifs proposés au caissier pour un mouvement de caisse, séparés par des points-virgules. Vide : la saisie du motif reste libre (BO-04-01-44).",
-                "Prélèvement coffre;Apport de fond;Achat de timbres;Dépense pharmacie;Erreur de caisse", null));
+                "Prélèvement coffre;Apport de fond;Achat de timbres;Dépense pharmacie;Erreur de caisse", null),
+        new Def("touch.groups-per-page", Type.INT, "TOUCHES CAISSE",
+                "Nombre de touches groupe par page",
+                "Nombre de touches de groupe d'articles affichees par page sur l'ecran de saisie directe. En dessous de 1 la valeur par defaut s'applique (BO-03-01-06).",
+                "12", null),
+        new Def("touch.display-order", Type.TEXT, "TOUCHES CAISSE",
+                "Ordre des touches groupe",
+                "Ordre d'affichage des touches groupe sur l'ecran de saisie directe : ALPHA (alphabetique, defaut), CUSTOM (ordre personnalise de la fiche groupe) ou VOLUME (volume de vente decroissant). Une valeur inconnue retombe sur ALPHA (BO-03-01-10/11/13).",
+                "ALPHA", null));
 
     /**
      * The echelon inheritance engine, or null on a node where none is wired
@@ -543,6 +551,33 @@ public class PosSettingsService {
      */
     public BigDecimal cashMovementEndorsementThreshold() {
         return bigDecimalValue("cash.movement-endorsement-threshold");
+    }
+
+    /**
+     * The number of group touches shown per page on the SAISIE DIRECTE grid
+     * (BO-03-01-06): a value below one is treated as unset and the catalog
+     * default applies, so the register never renders a zero-tile page.
+     *
+     * @return the strictly positive page size
+     */
+    public int touchGroupsPerPage() {
+        int configured = intValue("touch.groups-per-page");
+        return configured < 1 ? Integer.parseInt(def("touch.groups-per-page").defaultValue()) : configured;
+    }
+
+    /**
+     * The group-touch display order (BO-03-01-10/11/13): the administered value
+     * normalized to one of {@code ALPHA}, {@code CUSTOM} or {@code VOLUME}, any
+     * other value (including an unexpected one) falling back to {@code ALPHA}.
+     *
+     * @return the normalized order mode, never null
+     */
+    public String touchDisplayOrder() {
+        String raw = value("touch.display-order").trim().toUpperCase();
+        if (raw.equals("CUSTOM") || raw.equals("VOLUME")) {
+            return raw;
+        }
+        return "ALPHA";
     }
 
     /**

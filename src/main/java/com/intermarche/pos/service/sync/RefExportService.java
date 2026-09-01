@@ -279,13 +279,16 @@ public class RefExportService {
      */
     private String canonical(Object row) {
         if (row instanceof RefPayloads.FamilyDto f) {
-            return String.join("|", n(f.code), n(f.description), n(f.flags));
+            return String.join("|", n(f.code), n(f.description), n(f.flags),
+                    String.valueOf(f.pinned), n(f.buttonSize), String.valueOf(f.displayOrder),
+                    String.valueOf(f.salesVolume));
         }
         if (row instanceof RefPayloads.ProductDto p) {
             return String.join("|", n(p.ean), n(p.plu), n(p.name), n(p.description), n(p.icon),
-                    n(p.brand), n(p.referenceWeight), n(p.referenceVolume), n(p.productType),
-                    n(p.unitName), String.valueOf(p.active), String.valueOf(p.forbiddenToSale),
-                    n(p.ageRestriction), n(p.checkoutLabel), n(p.internalCode), attributes(p.attributes));
+                    n(p.imageData), n(p.brand), n(p.referenceWeight), n(p.referenceVolume),
+                    n(p.productType), n(p.unitName), String.valueOf(p.active),
+                    String.valueOf(p.forbiddenToSale), n(p.ageRestriction), n(p.checkoutLabel),
+                    n(p.internalCode), attributes(p.attributes));
         }
         if (row instanceof RefPayloads.PriceDto p) {
             return String.join("|", n(p.productEan), n(p.priceExcludingTax), n(p.priceIncludingTax),
@@ -369,6 +372,10 @@ public class RefExportService {
         dto.code = family.code;
         dto.description = family.description;
         dto.flags = family.flags;
+        dto.pinned = family.pinned;
+        dto.buttonSize = family.buttonSize;
+        dto.displayOrder = family.displayOrder;
+        dto.salesVolume = family.salesVolume;
         return dto;
     }
 
@@ -385,6 +392,7 @@ public class RefExportService {
         dto.name = product.name;
         dto.description = product.description;
         dto.icon = product.icon;
+        dto.imageData = product.imageData;
         dto.brand = product.brand;
         dto.referenceWeight = product.referenceWeight;
         dto.referenceVolume = product.referenceVolume;

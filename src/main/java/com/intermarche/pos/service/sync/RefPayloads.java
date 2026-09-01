@@ -31,6 +31,14 @@ public final class RefPayloads {
         public String description;
         /** The display flags. */
         public String flags;
+        /** Whether the group touch is pinned (BO-03-01-07). */
+        public boolean pinned;
+        /** The touch size SMALL/NORMAL/LARGE (BO-03-01-08), never null. */
+        public String buttonSize;
+        /** The custom display rank (BO-03-01-11). */
+        public int displayOrder;
+        /** The sales volume for the volume order (BO-03-01-13). */
+        public long salesVolume;
     }
 
     /**
@@ -47,6 +55,8 @@ public final class RefPayloads {
         public String description;
         /** The display icon, or null. */
         public String icon;
+        /** The touch image as a base64 data URI, or null (BO-03-01-15). */
+        public String imageData;
         /** The brand, or null. */
         public String brand;
         /** The reference weight, or null. */

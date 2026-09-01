@@ -587,8 +587,8 @@ class RefExportServiceTest {
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
             mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
             Map<String, String> fingerprints = service.getFingerprints();
-            assertEquals(sha256hex("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT|kg|true|false||||"
-                    + "E2||Poire||||||||false|true||||"), fingerprints.get("PRODUCTS"));
+            assertEquals(sha256hex("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT|kg|true|false||||"
+                    + "E2||Poire|||||||||false|true||||"), fingerprints.get("PRODUCTS"));
             assertEquals(EMPTY_SHA256, fingerprints.get("FAMILIES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("PRICES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("EMPLOYEES"));
@@ -696,7 +696,16 @@ class RefExportServiceTest {
         family.code = "F1";
         family.description = "Fruits";
         family.flags = null;
-        assertEquals("F1|Fruits|", canonical.invoke(service, family));
+        assertEquals("F1|Fruits||false||0|0", canonical.invoke(service, family));
+        RefPayloads.FamilyDto pinnedFamily = new RefPayloads.FamilyDto();
+        pinnedFamily.code = "F2";
+        pinnedFamily.description = "Frais";
+        pinnedFamily.flags = "BIO";
+        pinnedFamily.pinned = true;
+        pinnedFamily.buttonSize = "LARGE";
+        pinnedFamily.displayOrder = 3;
+        pinnedFamily.salesVolume = 99L;
+        assertEquals("F2|Frais|BIO|true|LARGE|3|99", canonical.invoke(service, pinnedFamily));
         RefPayloads.ProductDto product = new RefPayloads.ProductDto();
         product.ean = "E1";
         product.plu = "100";
@@ -715,12 +724,17 @@ class RefExportServiceTest {
         product.internalCode = "INT9";
         product.attributes.put("VAT_EXEMPT", "true");
         product.attributes.put("BULKY", "false");
-        assertEquals("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|BULKY=false,VAT_EXEMPT=true",
+        assertEquals("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|BULKY=false,VAT_EXEMPT=true",
                 canonical.invoke(service, product));
+        // A picture renders in its own field, between the icon and the brand.
+        product.imageData = "IMG";
+        assertEquals("E1|100|Pomme|Desc|IC|IMG|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|BULKY=false,VAT_EXEMPT=true",
+                canonical.invoke(service, product));
+        product.imageData = null;
         // A null attribute map renders as the empty trailing field (null arm of
         // the canonical attributes helper).
         product.attributes = null;
-        assertEquals("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|",
+        assertEquals("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|",
                 canonical.invoke(service, product));
         RefPayloads.PriceDto price = new RefPayloads.PriceDto();
         price.productEan = "E1";

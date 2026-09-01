@@ -78,6 +78,14 @@
         .grid-btn.back-btn { border-color: var(--warning); color: var(--warning); background: rgba(255,152,0,0.1); }
         .grid-btn.skip-btn { border-color: var(--danger); color: var(--danger); background: rgba(211,47,47,0.1); }
         .grid-btn.selected { background: rgba(0,85,255,0.2); border-color: var(--primary); color: var(--primary); }
+        .grid-btn.size-large { grid-column: span 2; font-size: 1.05rem; }
+        .grid-btn.size-small { font-size: 0.7rem; }
+        .grid-btn.pinned { border-color: var(--warning); box-shadow: inset 0 0 0 1px var(--warning); }
+
+        .grid-pager { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; flex-shrink: 0; }
+        .grid-pager .btn { padding: 8px 16px; font-size: 0.95rem; }
+        .grid-pager .btn.disabled { background: #333; color: #555; pointer-events: none; box-shadow: none; }
+        .grid-pager .grid-page-info { color: var(--text-muted); font-size: 1rem; font-weight: bold; }
 
         .price-section {
             width: 260px; display: flex; flex-direction: column; gap: 8px;
@@ -124,12 +132,20 @@
 
                     {#for item in items}
                         {#if item.isCategory}
-                            <a href="{item.url}" class="grid-btn">{item.label}</a>
+                            <a href="{item.url}" class="grid-btn {item.sizeClass}{#if item.pinned} pinned{/if}">{item.label}</a>
                         {#else}
                             <button type="button" class="grid-btn" onclick="selectProduct(this, '{item.label}', '{item.ean ?: ''}')">{item.label}</button>
                         {/if}
                     {/for}
                 </div>
+
+                {#if totalPages > 1}
+                <div class="grid-pager">
+                    {#if prevUrl}<a href="{prevUrl}" class="btn btn-primary">PRÉCÉDENT</a>{#else}<span class="btn btn-primary disabled">PRÉCÉDENT</span>{/if}
+                    <span class="grid-page-info">{page} / {totalPages}</span>
+                    {#if nextUrl}<a href="{nextUrl}" class="btn btn-primary">SUIVANT</a>{#else}<span class="btn btn-primary disabled">SUIVANT</span>{/if}
+                </div>
+                {/if}
             </div>
 
             <div class="price-section">

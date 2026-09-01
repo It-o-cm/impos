@@ -90,6 +90,20 @@ public class Product extends BaseEntity {
     public String icon;
 
     /**
+     * The touch image of the article (BO-03-01-15), a base64 {@code data:} URI
+     * of a small resized picture set in the back office and rendered on the
+     * caisse touch grids (FRUITS &amp; LÉGUMES and SAISIE DIRECTE) in place of
+     * the {@link #icon} emoji when present. Referential data: it rides the
+     * PRODUCTS domain of the pull so a picture attached in the back office
+     * reaches the registers at the next tirage. Null when the article carries
+     * no picture. Deliberately EXCLUDED from {@link #getChecksum()}, exactly as
+     * {@link #icon} is, so a picture change does not churn the row version.
+     */
+    @Lob
+    @Column(name = "image_data")
+    public String imageData;
+
+    /**
      * The brand of the product.
      * Optional field to specify the manufacturer or brand name.
      */

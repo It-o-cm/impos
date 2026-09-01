@@ -24,16 +24,23 @@ public class ManualResource {
     @GET
     @Path("/manual")
     /**
-     * Shows the root level of the drill-down.
+     * Shows the root level of the drill-down, on the requested group-grid page.
      *
+     * @param page the 1-based group-grid page, defaulting to the first
      * @return the manual page
      */
-    public TemplateInstance manualPage() {
-        ManualService.ManualViewData viewData = manualService.getManualRootData();
+    public TemplateInstance manualPage(@jakarta.ws.rs.QueryParam("page")
+                                       @jakarta.ws.rs.DefaultValue("1") int page) {
+        ManualService.ManualViewData viewData = manualService.getManualRootData(page);
         return manual.data("state", state)
                 .data("items", viewData.items)
                 .data("breadcrumb", viewData.breadcrumb)
-                .data("isRoot", viewData.isRoot);
+                .data("isRoot", viewData.isRoot)
+                .data("parentUrl", null)
+                .data("page", viewData.page)
+                .data("totalPages", viewData.totalPages)
+                .data("prevUrl", viewData.prevUrl)
+                .data("nextUrl", viewData.nextUrl);
     }
 
     @GET
@@ -50,6 +57,10 @@ public class ManualResource {
                 .data("items", viewData.items)
                 .data("breadcrumb", viewData.breadcrumb)
                 .data("isRoot", viewData.isRoot)
-                .data("parentUrl", viewData.parentUrl);
+                .data("parentUrl", viewData.parentUrl)
+                .data("page", viewData.page)
+                .data("totalPages", viewData.totalPages)
+                .data("prevUrl", viewData.prevUrl)
+                .data("nextUrl", viewData.nextUrl);
     }
 }

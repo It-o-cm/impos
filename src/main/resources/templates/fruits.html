@@ -40,6 +40,8 @@
         .plu-btn { background: var(--bg-row); font-size: 0.9rem; padding: 8px 4px; border: 1px solid var(--border-strong); color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
         .plu-btn:hover { background: #444; border-color: var(--primary); }
         .plu-btn .plu-emoji { font-size: 1.2rem; }
+        .plu-btn .plu-img { max-width: 44px; max-height: 44px; object-fit: contain; }
+        .plu-search-result .psr-img { width: 26px; height: 26px; object-fit: contain; margin-right: 11px; vertical-align: middle; }
         .plu-btn .plu-name { margin: 2px 0; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
         .plu-btn .plu-meta { display: flex; gap: 8px; justify-content: center; }
         .plu-btn .plu-code { display: block; font-size: 0.7rem; color: var(--warning); font-weight: bold; }
@@ -132,7 +134,7 @@
 
     const pluData = [
         {#for p in products}
-        { name: '{p.name}', code: '{p.plu}', icon: '{p.icon}' },
+        { name: '{p.name}', code: '{p.plu}', icon: '{p.icon}', image: '{p.imageData ?: ''}' },
         {/for}
     ];
 
@@ -150,7 +152,7 @@
         for (let i = 0; i < pageItems.length; i++) {
             const p = pageItems[i];
             html += '<a href="/action/add/' + p.code + '" class="plu-btn">';
-            html += '<span class="plu-emoji">' + p.icon + '</span>';
+            html += p.image ? '<img class="plu-img" src="' + p.image + '" alt="">' : '<span class="plu-emoji">' + p.icon + '</span>';
             html += '<span class="plu-name">' + p.name + '</span>';
             html += '<span class="plu-meta"><span class="plu-code">' + p.code + '</span></span>';
             html += '</a>';
@@ -215,7 +217,8 @@
         for(let i=0; i<results.length; i++) {
             const item = results[i];
             html += '<div class="plu-search-result" onclick="window.location.href=\'/action/add/' + item.code + '\'">';
-            html += '<span><span class="psr-emoji">' + item.icon + '</span><span class="psr-name">' + item.name + '</span></span>';
+            const glyph = item.image ? '<img class="psr-img" src="' + item.image + '" alt="">' : '<span class="psr-emoji">' + item.icon + '</span>';
+            html += '<span>' + glyph + '<span class="psr-name">' + item.name + '</span></span>';
             html += '<span class="psr-code">' + item.code + '</span>';
             html += '</div>';
         }

@@ -61,6 +61,10 @@ public class RefApplyService {
             }
             family.description = dto.description;
             family.flags = dto.flags;
+            family.pinned = dto.pinned;
+            family.buttonSize = dto.buttonSize;
+            family.displayOrder = dto.displayOrder;
+            family.salesVolume = dto.salesVolume;
             family.persist();
         }
         LOG.infof("Référentiel familles appliqué: %d ligne(s)", dtos.size());
@@ -84,6 +88,7 @@ public class RefApplyService {
             product.name = dto.name;
             product.description = dto.description;
             product.icon = dto.icon;
+            product.imageData = dto.imageData;
             product.brand = dto.brand;
             product.referenceWeight = dto.referenceWeight;
             product.referenceVolume = dto.referenceVolume;

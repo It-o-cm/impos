@@ -347,6 +347,49 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code touchGroupsPerPage} floors a value below one back to the catalog
+     * default (below-one arm) and keeps a positive value verbatim (positive
+     * arm).
+     */
+    @Test
+    void touchGroupsPerPageFloorsBelowOne() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("touch.groups-per-page", "0")));
+            assertEquals(12, new PosSettingsService().touchGroupsPerPage());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("touch.groups-per-page", "20")));
+            assertEquals(20, new PosSettingsService().touchGroupsPerPage());
+        }
+    }
+
+    /**
+     * {@code touchDisplayOrder} normalizes the administered value: CUSTOM (first
+     * disjunct true), VOLUME (second disjunct true, case-insensitively) and any
+     * other value including the default (both disjuncts false) folding to ALPHA.
+     */
+    @Test
+    void touchDisplayOrderNormalizes() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("touch.display-order", "CUSTOM")));
+            assertEquals("CUSTOM", new PosSettingsService().touchDisplayOrder());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("touch.display-order", " volume ")));
+            assertEquals("VOLUME", new PosSettingsService().touchDisplayOrder());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("touch.display-order", "weird")));
+            assertEquals("ALPHA", new PosSettingsService().touchDisplayOrder());
+        }
+    }
+
+    /**
      * Builds a service wired with an echelon engine and a node PDV number.
      *
      * @param engine the echelon engine, or null
