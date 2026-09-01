@@ -295,6 +295,10 @@ public class TicketPersistenceService {
             voucherPayment.voucherLabel = entry.method;
             voucherPayment.voucherNumber = entry.voucherNumber;
         }
+        if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment cardPayment) {
+            cardPayment.authorizationNumber = entry.authorizationNumber;
+            cardPayment.degradedMode = entry.degradedMode;
+        }
         payment.paymentIndex = ticket.payments.size() + 1;
         ticket.addPayment(payment);
         ticket.persist();

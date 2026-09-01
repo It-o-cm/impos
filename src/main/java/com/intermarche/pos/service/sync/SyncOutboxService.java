@@ -281,6 +281,10 @@ public class SyncOutboxService {
                 paymentDto.voucherLabel = voucher.voucherLabel;
                 paymentDto.voucherNumber = voucher.voucherNumber;
             }
+            if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment card) {
+                paymentDto.authorizationNumber = card.authorizationNumber;
+                paymentDto.degradedMode = card.degradedMode;
+            }
             dto.payments.add(paymentDto);
         }
         return dto;

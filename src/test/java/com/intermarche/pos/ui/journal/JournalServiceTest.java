@@ -126,6 +126,8 @@ class JournalServiceTest {
         criteria.vatRate = new BigDecimal("0.2000");
         criteria.reductionMin = new BigDecimal("1.00");
         criteria.reductionMax = new BigDecimal("5.00");
+        criteria.authMin = "100000";
+        criteria.authMax = "999999";
         criteria.flags.add(JournalCriteria.Flag.CANCELLED);
         criteria.flags.add(JournalCriteria.Flag.DISCOUNT);
         criteria.flags.add(JournalCriteria.Flag.RETURN);
@@ -134,6 +136,8 @@ class JournalServiceTest {
         criteria.flags.add(JournalCriteria.Flag.UNKNOWN_ITEM);
         criteria.flags.add(JournalCriteria.Flag.VOUCHER);
         criteria.flags.add(JournalCriteria.Flag.CARD);
+        criteria.flags.add(JournalCriteria.Flag.DEGRADED);
+        criteria.flags.add(JournalCriteria.Flag.DEGRADED_MANUAL);
         JournalQuery query = service.buildTicketQuery(criteria);
         String where = query.whereClause();
         Map<String, Object> params = query.parameters();
@@ -162,6 +166,96 @@ class JournalServiceTest {
         assertTrue(where.contains("l.product is null and l.deposit = false"));
         assertEquals(CardPayment.class, params.get("cardType"));
         assertTrue(params.containsKey("voucherType"));
+        assertTrue(where.contains("treat(p as CardPayment).authorizationNumber is not null"));
+        assertTrue(where.contains("treat(p as CardPayment).authorizationNumber >= :authMin"));
+        assertTrue(where.contains("treat(p as CardPayment).authorizationNumber <= :authMax"));
+        assertEquals("100000", params.get("authMin"));
+        assertEquals("999999", params.get("authMax"));
+        assertTrue(where.contains("treat(p as CardPayment).degradedMode = true"));
+    }
+
+    /**
+     * A card authorization lower bound alone appends the {@code >=} half only,
+     * guarded by {@code is not null}, without the {@code <=} half
+     * (BO-04-01-08, first-bound arm).
+     */
+    @Test
+    void authMinOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.authMin = "100000";
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("treat(p as CardPayment).authorizationNumber is not null"));
+        assertTrue(where.contains("treat(p as CardPayment).authorizationNumber >= :authMin)"));
+        assertFalse(where.contains("authMax"));
+        assertEquals("100000", query.parameters().get("authMin"));
+    }
+
+    /**
+     * A card authorization upper bound alone appends the {@code <=} half only
+     * (BO-04-01-08, second-bound arm).
+     */
+    @Test
+    void authMaxOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.authMax = "999999";
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("treat(p as CardPayment).authorizationNumber <= :authMax)"));
+        assertFalse(where.contains("authMin"));
+        assertEquals("999999", query.parameters().get("authMax"));
+    }
+
+    /**
+     * No authorization bound adds no authorization clause (both-null early
+     * return arm of the builder).
+     */
+    @Test
+    void noAuthorizationBoundAddsNoClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalQuery query = service.buildTicketQuery(new JournalCriteria());
+        assertFalse(query.whereClause().contains("authorizationNumber"));
+        assertFalse(query.parameters().containsKey("authMin"));
+        assertFalse(query.parameters().containsKey("authMax"));
+    }
+
+    /**
+     * The DEGRADED flag alone adds the degraded-mode existence clause
+     * (BO-04-01-47), and the DEGRADED_MANUAL flag is absent.
+     */
+    @Test
+    void degradedFlagAddsDegradedClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.flags.add(JournalCriteria.Flag.DEGRADED);
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("treat(p as CardPayment).degradedMode = true"));
+    }
+
+    /**
+     * The DEGRADED_MANUAL flag alone adds the same degraded-mode clause
+     * (BO-04-01-49): the register's only degraded mode is manual, so both
+     * criteria match the same rows.
+     */
+    @Test
+    void degradedManualFlagAddsDegradedClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.flags.add(JournalCriteria.Flag.DEGRADED_MANUAL);
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("treat(p as CardPayment).degradedMode = true"));
+    }
+
+    /**
+     * Neither degraded flag adds no degraded-mode clause (both absent arms).
+     */
+    @Test
+    void noDegradedFlagAddsNoDegradedClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        String where = service.buildTicketQuery(new JournalCriteria()).whereClause();
+        assertFalse(where.contains("degradedMode"));
     }
 
     /**

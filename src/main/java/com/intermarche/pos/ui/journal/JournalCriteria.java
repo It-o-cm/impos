@@ -23,9 +23,11 @@ import java.util.Set;
  * read screen, a bad filter narrows nothing, it does not fault.
  * <p>
  * Only the criteria backed by consolidated data are modelled. Criteria whose
- * source data does not exist on the consolidated node (authorization number,
- * cash movements, self-scanning flags...) are deliberately NOT fields here:
- * they are reported as residue rather than rendered as dead controls.
+ * source data does not exist on the consolidated node (cash movements,
+ * self-scanning flags...) are deliberately NOT fields here: they are reported
+ * as residue rather than rendered as dead controls. The card authorization
+ * number and the degraded-mode indicator ARE now modelled (BO-04-01-08/47/49):
+ * the card payment carries both since campaign lot C2 opened the gisement.
  */
 public class JournalCriteria {
 
@@ -46,7 +48,17 @@ public class JournalCriteria {
         /** The ticket was paid, in part, with a store voucher (BO-04-01-32). */
         VOUCHER,
         /** The ticket carries at least one card payment (BO-04-01-46, total monétique). */
-        CARD
+        CARD,
+        /** The ticket carries a card payment accepted in degraded mode (BO-04-01-47). */
+        DEGRADED,
+        /**
+         * The ticket carries a card payment accepted in MANUAL degraded mode
+         * (BO-04-01-49). The register's only degraded mode is the manual
+         * back-office toggle (BO-03-12-05), so this matches the same rows as
+         * {@link #DEGRADED}; both are kept because the questionnaire poses them
+         * as two distinct criteria.
+         */
+        DEGRADED_MANUAL
     }
 
     /** Free text searched in the article labels, ticket number and fidelity card (BO-04-01-01). */
@@ -87,6 +99,11 @@ public class JournalCriteria {
 
     /** A VAT rate the ticket must carry on at least one line (BO-04-01-55), or null. */
     public BigDecimal vatRate;
+
+    /** Inclusive lower bound of the card authorization number range (BO-04-01-08), or null. */
+    public String authMin;
+    /** Inclusive upper bound of the card authorization number range (BO-04-01-08), or null. */
+    public String authMax;
 
     /** Inclusive lower bound of the manual-reduction amount range (BO-04-01-26), or null. */
     public BigDecimal reductionMin;
@@ -144,6 +161,8 @@ public class JournalCriteria {
         criteria.pluMin = blankToNull(params.getFirst("pluMin"));
         criteria.pluMax = blankToNull(params.getFirst("pluMax"));
         criteria.vatRate = parseAmount(params.getFirst("vatRate"));
+        criteria.authMin = blankToNull(params.getFirst("authMin"));
+        criteria.authMax = blankToNull(params.getFirst("authMax"));
         criteria.reductionMin = parseAmount(params.getFirst("reductionMin"));
         criteria.reductionMax = parseAmount(params.getFirst("reductionMax"));
         addNonBlank(criteria.methods, params.get("method"));

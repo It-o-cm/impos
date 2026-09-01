@@ -488,6 +488,26 @@ class PaymentServiceTest {
     }
 
     /**
+     * The accept leg carries the terminal traces (authorization number and
+     * degraded-mode indicator) from the outcome onto the registered card entry,
+     * which is then persisted (BO-04-01-08/47/49).
+     */
+    @Test
+    void acceptLegCarriesTerminalTraces() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("15.00"));
+        outcome.authorizationNumber = "654321";
+        outcome.degradedMode = true;
+        cb.onAccepted(outcome);
+        PaymentState.PaymentEntry entry = state.payment.payments.get(0);
+        assertEquals("654321", entry.authorizationNumber);
+        org.junit.jupiter.api.Assertions.assertTrue(entry.degradedMode);
+        assertNull(state.payment.pendingCardAuthNumber);
+        assertFalse(state.payment.pendingCardDegraded);
+        verify(ticketPersistenceService).addPaymentToTicket(3L, entry);
+    }
+
+    /**
      * The accept leg does nothing when the pending amount was cleared
      * meanwhile ({@code amount == null} true arm — ticket cancelled between
      * the request and the terminal decision).

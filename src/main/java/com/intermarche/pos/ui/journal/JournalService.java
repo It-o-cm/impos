@@ -136,6 +136,7 @@ public class JournalService {
             query.bind("vatRate", criteria.vatRate);
         }
         appendReductionRange(query, criteria);
+        appendAuthorizationRange(query, criteria);
         appendFlags(query, criteria);
         return query;
     }
@@ -195,7 +196,37 @@ public class JournalService {
     }
 
     /**
-     * Appends one condition per selected boolean flag (BO-04-01-14/25/31/32/34/46).
+     * Appends the card authorization-number range (BO-04-01-08): at least one
+     * card payment on the ticket carries an authorization number within the
+     * requested bounds. The {@code treat} downcast restricts the correlated
+     * sub-select to card payments, and the {@code is not null} guard excludes
+     * degraded acceptances (which reach no monetique and hold no number), so a
+     * bound never silently matches them.
+     *
+     * @param query the query under construction
+     * @param criteria the parsed criteria
+     */
+    private void appendAuthorizationRange(JournalQuery query, JournalCriteria criteria) {
+        if (criteria.authMin == null && criteria.authMax == null) {
+            return;
+        }
+        StringBuilder inner = new StringBuilder(
+                "exists (select p from t.payments p where treat(p as CardPayment).authorizationNumber is not null");
+        if (criteria.authMin != null) {
+            inner.append(" and treat(p as CardPayment).authorizationNumber >= :authMin");
+            query.bind("authMin", criteria.authMin);
+        }
+        if (criteria.authMax != null) {
+            inner.append(" and treat(p as CardPayment).authorizationNumber <= :authMax");
+            query.bind("authMax", criteria.authMax);
+        }
+        inner.append(")");
+        query.and(inner.toString());
+    }
+
+    /**
+     * Appends one condition per selected boolean flag
+     * (BO-04-01-14/25/31/32/34/46/47/49).
      *
      * @param query the query under construction
      * @param criteria the parsed criteria
@@ -227,6 +258,12 @@ public class JournalService {
         if (criteria.flags.contains(JournalCriteria.Flag.CARD)) {
             query.and("exists (select p from t.payments p where type(p) = :cardType)");
             query.bind("cardType", CardPayment.class);
+        }
+        if (criteria.flags.contains(JournalCriteria.Flag.DEGRADED)) {
+            query.and("exists (select p from t.payments p where treat(p as CardPayment).degradedMode = true)");
+        }
+        if (criteria.flags.contains(JournalCriteria.Flag.DEGRADED_MANUAL)) {
+            query.and("exists (select p from t.payments p where treat(p as CardPayment).degradedMode = true)");
         }
     }
 

@@ -2,10 +2,14 @@ package com.intermarche.pos.ui.hardware.terminal;
 
 import com.intermarche.pos.service.PosSettingsService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -61,17 +65,21 @@ class DegradedModePaymentTerminalClientTest {
     }
 
     /**
-     * {@code requestDebit} reaches the auto-accept terminal when degraded
-     * mode is on (degraded arm).
+     * {@code requestDebit} reaches the auto-accept terminal when degraded mode
+     * is on (degraded arm), wrapping the callback so the outcome gets stamped;
+     * the register's own callback is NOT passed through verbatim.
      */
     @Test
     void requestDebitReachesAutoAcceptWhenDegraded() {
         when(posSettingsService.paymentDegradedMode()).thenReturn(true);
         BigDecimal amount = new BigDecimal("10.00");
         TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
         gate.requestDebit(amount, callback);
-        verify(autoAccept).requestDebit(amount, callback);
-        verify(configured, never()).requestDebit(amount, callback);
+        verify(autoAccept).requestDebit(eq(amount), captor.capture());
+        verify(configured, never()).requestDebit(eq(amount), captor.capture());
+        assertNotSame(callback, captor.getValue());
     }
 
     /**
@@ -89,17 +97,72 @@ class DegradedModePaymentTerminalClientTest {
     }
 
     /**
-     * {@code requestCredit} reaches the auto-accept terminal when degraded
-     * mode is on (degraded arm).
+     * {@code requestCredit} reaches the auto-accept terminal when degraded mode
+     * is on (degraded arm), wrapping the callback so the outcome gets stamped.
      */
     @Test
     void requestCreditReachesAutoAcceptWhenDegraded() {
         when(posSettingsService.paymentDegradedMode()).thenReturn(true);
         BigDecimal amount = new BigDecimal("4.00");
         TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
         gate.requestCredit(amount, callback);
-        verify(autoAccept).requestCredit(amount, callback);
-        verify(configured, never()).requestCredit(amount, callback);
+        verify(autoAccept).requestCredit(eq(amount), captor.capture());
+        verify(configured, never()).requestCredit(eq(amount), captor.capture());
+        assertNotSame(callback, captor.getValue());
+    }
+
+    /**
+     * The wrapped callback's accept leg stamps the outcome degraded and
+     * forwards it to the register's callback (BO-04-01-47/49).
+     */
+    @Test
+    void degradedWrapperStampsAcceptedOutcome() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(true);
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        gate.requestDebit(new BigDecimal("10.00"), callback);
+        verify(autoAccept).requestDebit(eq(new BigDecimal("10.00")), captor.capture());
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("10.00"));
+        captor.getValue().onAccepted(outcome);
+        assertTrue(outcome.degradedMode);
+        verify(callback).onAccepted(outcome);
+    }
+
+    /**
+     * The wrapped callback's refuse leg stamps the outcome degraded and
+     * forwards it (BO-04-01-47/49).
+     */
+    @Test
+    void degradedWrapperStampsRefusedOutcome() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(true);
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        gate.requestDebit(new BigDecimal("10.00"), callback);
+        verify(autoAccept).requestDebit(eq(new BigDecimal("10.00")), captor.capture());
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("10.00"));
+        captor.getValue().onRefused(outcome);
+        assertTrue(outcome.degradedMode);
+        verify(callback).onRefused(outcome);
+    }
+
+    /**
+     * The wrapped callback's error leg carries no outcome to stamp and is
+     * forwarded unchanged.
+     */
+    @Test
+    void degradedWrapperForwardsError() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(true);
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        ArgumentCaptor<TerminalTransactionCallback> captor =
+                ArgumentCaptor.forClass(TerminalTransactionCallback.class);
+        gate.requestDebit(new BigDecimal("10.00"), callback);
+        verify(autoAccept).requestDebit(eq(new BigDecimal("10.00")), captor.capture());
+        captor.getValue().onError("TPE INJOIGNABLE");
+        verify(callback).onError("TPE INJOIGNABLE");
     }
 
     /**

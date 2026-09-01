@@ -48,6 +48,21 @@ public class PaymentState implements Serializable {
     public BigDecimal pendingCardAmount = null;
 
     /**
+     * Authorization number returned by the terminal for the card payment being
+     * registered (BO-04-01-08), or null when none (degraded acceptance reaches
+     * no monetique). Carried from the accept callback to the persisted
+     * {@code CardPayment}; ephemeral, cleared once the entry is built.
+     */
+    public String pendingCardAuthNumber = null;
+
+    /**
+     * True when the card payment being registered was accepted in degraded mode
+     * (BO-04-01-47/49). Carried from the accept callback to the persisted
+     * {@code CardPayment}; ephemeral, cleared once the entry is built.
+     */
+    public boolean pendingCardDegraded = false;
+
+    /**
      * Outcome of the remote valuation at payment entry (phase 7): LOCAL
      * (engine not configured), ENGINE (valued), DEGRADED (engine failed,
      * catalog prices apply). Null before payment entry.
@@ -144,6 +159,22 @@ public class PaymentState implements Serializable {
     }
 
     /**
+     * Registers a card payment carrying the monetique traces the terminal
+     * returned (authorization number, degraded-mode indicator), so they reach
+     * the persisted {@code CardPayment} (BO-04-01-08/47/49).
+     *
+     * @param amount the paid amount
+     * @param authorizationNumber the terminal authorization number, or null
+     * @param degradedMode true when accepted in degraded mode
+     */
+    public void addCardPayment(BigDecimal amount, String authorizationNumber, boolean degradedMode) {
+        payments.add(new PaymentEntry("CARD", amount, degradedMode, authorizationNumber));
+        paidAmount = paidAmount.add(amount);
+        goToLastPage();
+        clearTemporaryInputs();
+    }
+
+    /**
      * Registers a cash payment with the tendered amount.
      * <p>
      * Important: {@link #lastChangeAmount} is NOT cleared here, it is needed
@@ -204,6 +235,8 @@ public class PaymentState implements Serializable {
         ticketDbId = null;
         paymentInProgress = false;
         pendingCardAmount = null;
+        pendingCardAuthNumber = null;
+        pendingCardDegraded = false;
         valuationStatus = null;
         valuationJson = null;
         valuationEngineTotal = null;
@@ -368,6 +401,12 @@ public class PaymentState implements Serializable {
         /** True when this entry is a voucher payment. */
         public boolean voucher;
 
+        /** The card authorization number (BO-04-01-08), or null. */
+        public String authorizationNumber;
+
+        /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
+        public boolean degradedMode;
+
         /**
          * Creates a plain payment entry.
          *
@@ -407,6 +446,23 @@ public class PaymentState implements Serializable {
             this.tenderedAmount = null;
             this.voucherNumber = voucherNumber;
             this.voucher = voucher;
+        }
+
+        /**
+         * Creates a card payment entry carrying the monetique traces the
+         * terminal returned (BO-04-01-08/47/49).
+         *
+         * @param method the payment method key (CARD)
+         * @param amount the paid amount
+         * @param degradedMode true when accepted in degraded mode
+         * @param authorizationNumber the terminal authorization number, or null
+         */
+        public PaymentEntry(String method, BigDecimal amount, boolean degradedMode, String authorizationNumber) {
+            this.method = method;
+            this.amount = amount;
+            this.tenderedAmount = null;
+            this.degradedMode = degradedMode;
+            this.authorizationNumber = authorizationNumber;
         }
 
         /**

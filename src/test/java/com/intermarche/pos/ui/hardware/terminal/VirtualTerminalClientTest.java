@@ -65,6 +65,35 @@ class VirtualTerminalClientTest {
     }
 
     /**
+     * {@code accept} returns a 6-digit authorization number in the outcome, as
+     * a real monetique would (BO-04-01-08).
+     */
+    @Test
+    void acceptReturnsAuthorizationNumber() {
+        park("12.00");
+        org.mockito.ArgumentCaptor<TerminalOutcome> captor =
+                org.mockito.ArgumentCaptor.forClass(TerminalOutcome.class);
+        assertTrue(client.accept());
+        verify(callback).onAccepted(captor.capture());
+        String auth = captor.getValue().authorizationNumber;
+        assertTrue(auth != null && auth.matches("\\d{6}"));
+    }
+
+    /**
+     * {@code refuse} returns no authorization number: a refused transaction
+     * reached no monetique acceptance (BO-04-01-08 negative case).
+     */
+    @Test
+    void refuseReturnsNoAuthorizationNumber() {
+        park("12.00");
+        org.mockito.ArgumentCaptor<TerminalOutcome> captor =
+                org.mockito.ArgumentCaptor.forClass(TerminalOutcome.class);
+        assertTrue(client.refuse());
+        verify(callback).onRefused(captor.capture());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().authorizationNumber);
+    }
+
+    /**
      * {@code refuse} fires the refuse leg once with the parked amount
      * (pending arm).
      */

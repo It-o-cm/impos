@@ -155,6 +155,10 @@ public final class SyncPayloads {
         public String voucherLabel;
         /** The voucher number, or null. */
         public String voucherNumber;
+        /** The card authorization number (BO-04-01-08), or null. */
+        public String authorizationNumber;
+        /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
+        public boolean degradedMode;
     }
 
     /**

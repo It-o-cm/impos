@@ -70,25 +70,39 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
     }
 
     /**
-     * Starts a debit on the currently active terminal.
+     * Starts a debit. While degraded, it goes to the immediate-acceptance
+     * terminal and its outcome is stamped degraded (BO-04-01-47/49) so the
+     * card payment records that it was accepted without the monetique;
+     * otherwise it reaches the configured terminal untouched. The degraded
+     * decision is read once here, so the routing and the stamping can never
+     * disagree even if the toggle flips mid-transaction.
      *
      * @param amount the amount to debit
      * @param callback the decision receiver
      */
     @Override
     public void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
-        active().requestDebit(amount, callback);
+        if (posSettingsService.paymentDegradedMode()) {
+            autoAccept.requestDebit(amount, new DegradedOutcomeCallback(callback));
+        } else {
+            configured.requestDebit(amount, callback);
+        }
     }
 
     /**
-     * Starts a credit on the currently active terminal.
+     * Starts a credit, with the same degraded routing and stamping as
+     * {@link #requestDebit(BigDecimal, TerminalTransactionCallback)}.
      *
      * @param amount the amount to credit
      * @param callback the decision receiver
      */
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
-        active().requestCredit(amount, callback);
+        if (posSettingsService.paymentDegradedMode()) {
+            autoAccept.requestCredit(amount, new DegradedOutcomeCallback(callback));
+        } else {
+            configured.requestCredit(amount, callback);
+        }
     }
 
     /**
@@ -125,5 +139,59 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
     @Override
     public String name() {
         return active().name();
+    }
+
+    /**
+     * Callback wrapper that stamps every terminal outcome as degraded before
+     * forwarding it, so a card payment accepted (or refused) through the
+     * degraded gate records that no monetique server was reached
+     * (BO-04-01-47/49). The error leg carries no outcome and is forwarded
+     * unchanged.
+     */
+    private static final class DegradedOutcomeCallback implements TerminalTransactionCallback {
+
+        /** The real decision receiver the stamped outcome is forwarded to. */
+        private final TerminalTransactionCallback delegate;
+
+        /**
+         * Wraps the register's callback.
+         *
+         * @param delegate the real decision receiver
+         */
+        DegradedOutcomeCallback(TerminalTransactionCallback delegate) {
+            this.delegate = delegate;
+        }
+
+        /**
+         * Stamps the accepted outcome degraded and forwards it.
+         *
+         * @param outcome the accepted outcome
+         */
+        @Override
+        public void onAccepted(TerminalOutcome outcome) {
+            outcome.degradedMode = true;
+            delegate.onAccepted(outcome);
+        }
+
+        /**
+         * Stamps the refused outcome degraded and forwards it.
+         *
+         * @param outcome the refused outcome
+         */
+        @Override
+        public void onRefused(TerminalOutcome outcome) {
+            outcome.degradedMode = true;
+            delegate.onRefused(outcome);
+        }
+
+        /**
+         * Forwards a terminal failure unchanged (no outcome to stamp).
+         *
+         * @param message the operator-facing failure message
+         */
+        @Override
+        public void onError(String message) {
+            delegate.onError(message);
+        }
     }
 }

@@ -164,6 +164,10 @@ public class SyncIngestService {
                 voucher.voucherLabel = paymentDto.voucherLabel;
                 voucher.voucherNumber = paymentDto.voucherNumber;
             }
+            if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment card) {
+                card.authorizationNumber = paymentDto.authorizationNumber;
+                card.degradedMode = paymentDto.degradedMode;
+            }
             payment.paymentIndex = paymentDto.paymentIndex;
             ticket.addPayment(payment);
         }

@@ -88,6 +88,13 @@
             <label class="field-label" for="f-vat">Taux de TVA</label>
             <input class="input-control" id="f-vat" type="text" name="vatRate" value="{criteria.vatRate ?: ''}">
         </div>
+        <div class="field">
+            <label class="field-label" for="f-auth-min">N° d'autorisation (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-auth-min" type="text" name="authMin" value="{criteria.authMin ?: ''}">
+                <input class="input-control" type="text" name="authMax" value="{criteria.authMax ?: ''}">
+            </div>
+        </div>
     </div>
 
     <fieldset class="journal-fieldset">

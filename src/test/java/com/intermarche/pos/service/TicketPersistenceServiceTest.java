@@ -525,6 +525,34 @@ class TicketPersistenceServiceTest {
     }
 
     /**
+     * Covers the card arm of {@code addPaymentToTicket}: a card entry resolves
+     * the CARD factory and the created {@link com.intermarche.pos.domain.ticket.CardPayment}
+     * is enriched with the entry's monetique traces (authorization number and
+     * degraded-mode indicator) before being added (BO-04-01-08/47/49).
+     */
+    @Test
+    void addPaymentEnrichesCardPaymentTraces() {
+        TicketPayment.Factory cardFactory = mock(TicketPayment.Factory.class);
+        TicketPayment.Factory voucherFactory = mock(TicketPayment.Factory.class);
+        TicketPersistenceService service = serviceWithFactories(cardFactory, voucherFactory);
+        com.intermarche.pos.domain.ticket.CardPayment payment =
+                mock(com.intermarche.pos.domain.ticket.CardPayment.class);
+        when(cardFactory.create(any(BigDecimal.class), any())).thenReturn(payment);
+        PaymentState.PaymentEntry entry =
+                new PaymentState.PaymentEntry("CARD", new BigDecimal("10.00"), true, "654321");
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.addPaymentToTicket(5L, entry);
+            assertEquals("654321", payment.authorizationNumber);
+            assertTrue(payment.degradedMode);
+            assertEquals(1, payment.paymentIndex);
+            verify(ticket).addPayment(payment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
      * Covers the voucher arm of {@code addPaymentToTicket}: a voucher entry
      * resolves the VOUCHER factory, and the created {@link VoucherPayment} is
      * enriched with the entry label and number before being added.

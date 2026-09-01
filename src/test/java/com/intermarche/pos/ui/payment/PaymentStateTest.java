@@ -121,6 +121,8 @@ class PaymentStateTest {
         state.ticketDbId = 42L;
         state.paymentInProgress = true;
         state.pendingCardAmount = new BigDecimal("5.00");
+        state.pendingCardAuthNumber = "123456";
+        state.pendingCardDegraded = true;
         state.valuationStatus = "ENGINE";
         state.valuationJson = "{}";
         state.valuationEngineTotal = new BigDecimal("9.99");
@@ -142,6 +144,8 @@ class PaymentStateTest {
         assertNull(state.ticketDbId);
         assertFalse(state.paymentInProgress);
         assertNull(state.pendingCardAmount);
+        assertNull(state.pendingCardAuthNumber);
+        assertFalse(state.pendingCardDegraded);
         assertNull(state.valuationStatus);
         assertNull(state.valuationJson);
         assertNull(state.valuationEngineTotal);
@@ -377,6 +381,53 @@ class PaymentStateTest {
         PaymentEntry entry = new PaymentEntry("CARD", new BigDecimal("3.00"));
         assertEquals("CARD", entry.method);
         assertEquals(new BigDecimal("3.00"), entry.amount);
+        assertNull(entry.tenderedAmount);
+        assertFalse(entry.isVoucher());
+    }
+
+    /**
+     * addCardPayment appends a card entry carrying the terminal traces
+     * (authorization number, degraded-mode indicator), accumulates the paid
+     * amount and jumps to the last page (BO-04-01-08/47/49).
+     */
+    @Test
+    void addCardPaymentCarriesTerminalTraces() {
+        PaymentState state = new PaymentState();
+        state.addCardPayment(new BigDecimal("12.00"), "654321", true);
+        PaymentEntry entry = state.payments.get(0);
+        assertEquals("CARD", entry.method);
+        assertEquals(new BigDecimal("12.00"), entry.amount);
+        assertEquals("654321", entry.authorizationNumber);
+        assertTrue(entry.degradedMode);
+        assertNull(entry.tenderedAmount);
+        assertFalse(entry.isVoucher());
+        assertEquals(new BigDecimal("12.00"), state.paidAmount);
+    }
+
+    /**
+     * addCardPayment accepts a null authorization number and a non-degraded
+     * flag (the nominal accepted-card case), storing both verbatim.
+     */
+    @Test
+    void addCardPaymentAcceptsNoAuthorizationAndNotDegraded() {
+        PaymentState state = new PaymentState();
+        state.addCardPayment(new BigDecimal("4.00"), null, false);
+        PaymentEntry entry = state.payments.get(0);
+        assertNull(entry.authorizationNumber);
+        assertFalse(entry.degradedMode);
+    }
+
+    /**
+     * The card-entry constructor stores the degraded flag and authorization
+     * number and leaves the tendered amount null and the voucher flag false.
+     */
+    @Test
+    void cardEntryConstructorStoresTraces() {
+        PaymentEntry entry = new PaymentEntry("CARD", new BigDecimal("9.00"), true, "111222");
+        assertEquals("CARD", entry.method);
+        assertEquals(new BigDecimal("9.00"), entry.amount);
+        assertTrue(entry.degradedMode);
+        assertEquals("111222", entry.authorizationNumber);
         assertNull(entry.tenderedAmount);
         assertFalse(entry.isVoucher());
     }

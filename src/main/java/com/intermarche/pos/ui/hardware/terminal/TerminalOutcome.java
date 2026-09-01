@@ -40,6 +40,23 @@ public class TerminalOutcome {
     public String rawResponse;
 
     /**
+     * The authorization number returned by the monetique for an accepted
+     * transaction (BO-04-01-08), or null when the terminal returns none — the
+     * degraded gate accepts without a monetique server, so its outcome carries
+     * no authorization number.
+     */
+    public String authorizationNumber;
+
+    /**
+     * True when the transaction was accepted in degraded mode (BO-04-01-47/49):
+     * the manual back-office toggle (BO-03-12-05) routed it to immediate
+     * acceptance instead of the configured terminal. The register only knows
+     * this MANUAL degraded mode; a secondary-monetique-server acceptance
+     * (BO-04-01-48) is not something it can observe. Defaults to false.
+     */
+    public boolean degradedMode;
+
+    /**
      * Builds an outcome carrying only the amount — what the virtual
      * terminal can report.
      *

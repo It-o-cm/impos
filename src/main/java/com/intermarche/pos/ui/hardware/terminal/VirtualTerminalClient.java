@@ -6,6 +6,7 @@ import jakarta.enterprise.inject.Typed;
 import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * The simulator's payment terminal: the transaction stays pending until a
@@ -116,8 +117,21 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
     public boolean accept() {
         TerminalTransactionCallback cb = takePendingCallback();
         if (cb == null) return false;
-        cb.onAccepted(TerminalOutcome.ofAmount(amount));
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(amount);
+        outcome.authorizationNumber = generateAuthorizationNumber();
+        cb.onAccepted(outcome);
         return true;
+    }
+
+    /**
+     * Produces the 6-digit authorization number a real monetique returns on an
+     * accepted transaction (BO-04-01-08): the simulator stands in for the
+     * terminal, so it mints one here. A refused transaction carries none.
+     *
+     * @return a zero-padded 6-digit authorization number
+     */
+    private String generateAuthorizationNumber() {
+        return String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
     }
 
     /**

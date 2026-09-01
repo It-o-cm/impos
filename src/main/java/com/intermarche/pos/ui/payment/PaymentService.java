@@ -234,6 +234,11 @@ public class PaymentService {
             // In-memory update
             if ("CASH".equals(methodKey)) {
                 state.payment.addCashPayment(amountToPay, tendered);
+            } else if ("CARD".equals(methodKey)) {
+                // The card entry carries the terminal traces (authorization
+                // number, degraded-mode indicator) parked by the accept leg.
+                state.payment.addCardPayment(amountToPay,
+                        state.payment.pendingCardAuthNumber, state.payment.pendingCardDegraded);
             } else {
                 state.payment.addPayment(methodKey, amountToPay);
             }
@@ -304,7 +309,7 @@ public class PaymentService {
              */
             @Override
             public void onAccepted(com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
-                registerAcceptedCard(state);
+                registerAcceptedCard(state, outcome);
             }
 
             /**
@@ -334,15 +339,23 @@ public class PaymentService {
 
     /**
      * Registers the pending card payment — the accept leg of the terminal
-     * callback.
+     * callback. Parks the terminal traces (authorization number, degraded-mode
+     * indicator) so the money path carries them onto the CardPayment entity
+     * (BO-04-01-08/47/49), then clears them.
      *
      * @param state the current POS state
+     * @param outcome the terminal outcome carrying the monetique traces
      */
-    private void registerAcceptedCard(PosState state) {
+    private void registerAcceptedCard(PosState state,
+            com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
         BigDecimal amount = state.payment.pendingCardAmount;
         if (amount == null) return;
         state.payment.pendingCardAmount = null;
+        state.payment.pendingCardAuthNumber = outcome.authorizationNumber;
+        state.payment.pendingCardDegraded = outcome.degradedMode;
         handlePaymentWithChange(state, "CARD", "CARTE", amount);
+        state.payment.pendingCardAuthNumber = null;
+        state.payment.pendingCardDegraded = false;
         state.touch();
     }
 

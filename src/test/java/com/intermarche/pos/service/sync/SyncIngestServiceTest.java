@@ -325,6 +325,63 @@ class SyncIngestServiceTest {
     }
 
     /**
+     * Covers the {@code instanceof CardPayment} true arm of {@code ingestTicket}:
+     * a rebuilt card payment receives the authorization number and degraded-mode
+     * indicator carried by the payload (BO-04-01-08/47/49). A second push of the
+     * same ticket number is an upsert (see the update test) — no row is
+     * duplicated — so the traces are the store node's stable copy of the sale.
+     */
+    @Test
+    void ingestTicketSetsCardPaymentTraces() {
+        TicketPayment.Factory cardFactory = mock(TicketPayment.Factory.class);
+        when(cardFactory.getKey()).thenReturn("CARD");
+        com.intermarche.pos.domain.ticket.CardPayment cardPayment =
+                mock(com.intermarche.pos.domain.ticket.CardPayment.class);
+        when(cardFactory.create(any(), any())).thenReturn(cardPayment);
+        SyncIngestService service = serviceWith(cardFactory);
+        SyncPayloads.TicketDto dto = new SyncPayloads.TicketDto();
+        dto.ticketNumber = "K5";
+        dto.terminalId = "T5";
+        dto.status = "CLOSED";
+        dto.creationDate = "2026-05-05T10:00:00";
+        dto.storeCode = "ST1";
+        dto.cashierLogin = "alice";
+        dto.sessionNumber = null;
+        dto.itemCount = 1;
+        dto.totalExcludingTax = new BigDecimal("10.00");
+        dto.totalIncludingTax = new BigDecimal("12.00");
+        dto.totalVat = new BigDecimal("2.00");
+        dto.valuationStatus = "NOT_VALUATED";
+        SyncPayloads.PaymentDto cardDto = new SyncPayloads.PaymentDto();
+        cardDto.paymentIndex = 1;
+        cardDto.methodKey = "CARD";
+        cardDto.amount = new BigDecimal("12.00");
+        cardDto.voucherLabel = null;
+        cardDto.authorizationNumber = "654321";
+        cardDto.degradedMode = true;
+        dto.payments.add(cardDto);
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        PanacheQuery<Ticket> ticketQuery = queryReturning(null);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        PanacheQuery<Employee> cashierQuery = queryReturning(cashier);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> createdTicket = mockConstruction(Ticket.class,
+                        (m, c) -> { m.lines = new ArrayList<>(); m.payments = new ArrayList<>(); })) {
+            mocked.when(() -> Ticket.find("ticketNumber", "K5")).thenReturn(ticketQuery);
+            mocked.when(() -> Store.find("code", "ST1")).thenReturn(storeQuery);
+            mocked.when(() -> Employee.find("loginName", "alice")).thenReturn(cashierQuery);
+            service.ingestTicket(dto);
+            assertEquals("654321", cardPayment.authorizationNumber);
+            assertTrue(cardPayment.degradedMode);
+            assertEquals(1, cardPayment.paymentIndex);
+            Ticket ticket = createdTicket.constructed().get(0);
+            verify(ticket).addPayment(cardPayment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
      * Covers the update arm of {@code ingestTicket} with a null session
      * (session ternary false arm) and a null store code exercising the
      * fallback to the single local store (code ternary false arm, first store

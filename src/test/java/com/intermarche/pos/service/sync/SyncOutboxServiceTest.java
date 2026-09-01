@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.domain.SyncOutbox;
+import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.CashPayment;
 import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.domain.ticket.RefundLine;
@@ -413,6 +414,49 @@ class SyncOutboxServiceTest {
             assertEquals("Bon", out.payments.get(1).voucherLabel);
             assertEquals("V9", out.payments.get(1).voucherNumber);
             assertNull(out.payments.get(1).tenderedAmount);
+        }
+    }
+
+    /**
+     * Covers the {@code instanceof CardPayment} true arm of the TICKET payment
+     * mapping: a card payment carries its authorization number and degraded-mode
+     * indicator into the payload, which round-trips to the expected values
+     * (BO-04-01-08/47/49).
+     */
+    @Test
+    void prepareTicketSerializesCardPaymentTraces() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.TICKET;
+        row.entityId = 100L;
+        Ticket ticket = new Ticket();
+        ticket.ticketNumber = "K3";
+        ticket.terminalId = "T3";
+        ticket.status = Ticket.TicketStatus.CLOSED;
+        ticket.valuationStatus = Ticket.ValuationStatus.VALUATED;
+        ticket.creationDate = LocalDateTime.of(2026, 3, 3, 10, 0, 0);
+        ticket.itemCount = 1;
+        ticket.totalExcludingTax = new BigDecimal("10.00");
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        CardPayment card = mock(CardPayment.class);
+        when(card.getMethodKey()).thenReturn("CARD");
+        card.paymentIndex = 1;
+        card.amount = new BigDecimal("12.00");
+        card.authorizationNumber = "654321";
+        card.degradedMode = true;
+        ticket.payments.add(card);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> Ticket.findById(100L)).thenReturn(ticket);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            SyncPayloads.TicketDto out = new ObjectMapper().readValue(item.json, SyncPayloads.TicketDto.class);
+            assertEquals(1, out.payments.size());
+            assertEquals("CARD", out.payments.get(0).methodKey);
+            assertEquals("654321", out.payments.get(0).authorizationNumber);
+            assertTrue(out.payments.get(0).degradedMode);
+            assertNull(out.payments.get(0).tenderedAmount);
+            assertNull(out.payments.get(0).voucherLabel);
         }
     }
 

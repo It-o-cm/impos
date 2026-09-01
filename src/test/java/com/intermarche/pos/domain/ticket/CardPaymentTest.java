@@ -66,6 +66,30 @@ class CardPaymentTest {
     }
 
     /**
+     * A fresh card payment defaults its monetique traces: no authorization
+     * number and not degraded (BO-04-01-08/47/49).
+     */
+    @Test
+    void monetiqueTracesDefaultToEmpty() {
+        CardPayment payment = new CardPayment(new BigDecimal("3.0000"));
+        Assertions.assertNull(payment.authorizationNumber);
+        Assertions.assertFalse(payment.degradedMode);
+    }
+
+    /**
+     * The monetique traces are plain persisted fields the sync ingestion and the
+     * register payment path write: they store and return the terminal values.
+     */
+    @Test
+    void monetiqueTracesStoreTheirValues() {
+        CardPayment payment = new CardPayment(new BigDecimal("3.0000"));
+        payment.authorizationNumber = "987654";
+        payment.degradedMode = true;
+        Assertions.assertEquals("987654", payment.authorizationNumber);
+        Assertions.assertTrue(payment.degradedMode);
+    }
+
+    /**
      * The factory advertises the "CARD" method key used for CDI lookup.
      */
     @Test

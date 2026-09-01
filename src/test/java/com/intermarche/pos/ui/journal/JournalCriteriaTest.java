@@ -66,9 +66,11 @@ class JournalCriteriaTest {
         params.putSingle("vatRate", "0,2000");
         params.putSingle("reductionMin", "1,00");
         params.putSingle("reductionMax", "5,00");
+        params.putSingle("authMin", " 100000 ");
+        params.putSingle("authMax", "999999");
         params.put("method", List.of("CARD", "  "));
         params.put("eventType", List.of("SESSION_CLOSED"));
-        params.put("flag", List.of("CARD", "  ", "XXX"));
+        params.put("flag", List.of("CARD", "DEGRADED", "DEGRADED_MANUAL", "  ", "XXX"));
         params.putSingle("sort", "amount");
         params.putSingle("dir", "desc");
         JournalCriteria criteria = JournalCriteria.fromParams(params);
@@ -88,10 +90,14 @@ class JournalCriteriaTest {
         assertEquals(new BigDecimal("0.2000"), criteria.vatRate);
         assertEquals(new BigDecimal("1.00"), criteria.reductionMin);
         assertEquals(new BigDecimal("5.00"), criteria.reductionMax);
+        assertEquals("100000", criteria.authMin);
+        assertEquals("999999", criteria.authMax);
         assertEquals("[CARD]", criteria.methods.toString());
         assertEquals("[SESSION_CLOSED]", criteria.eventTypes.toString());
-        assertEquals(1, criteria.flags.size());
+        assertEquals(3, criteria.flags.size());
         assertTrue(criteria.flags.contains(JournalCriteria.Flag.CARD));
+        assertTrue(criteria.flags.contains(JournalCriteria.Flag.DEGRADED));
+        assertTrue(criteria.flags.contains(JournalCriteria.Flag.DEGRADED_MANUAL));
         assertEquals("amount", criteria.sort);
         assertTrue(criteria.descending);
     }

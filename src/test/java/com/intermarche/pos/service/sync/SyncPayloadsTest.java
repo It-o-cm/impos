@@ -233,12 +233,16 @@ class SyncPayloadsTest {
         dto.tenderedAmount = new BigDecimal("20.00");
         dto.voucherLabel = "Meal voucher";
         dto.voucherNumber = "V123";
+        dto.authorizationNumber = "654321";
+        dto.degradedMode = true;
         assertEquals(1, dto.paymentIndex);
         assertEquals("CASH", dto.methodKey);
         assertEquals(new BigDecimal("12.00"), dto.amount);
         assertEquals(new BigDecimal("20.00"), dto.tenderedAmount);
         assertEquals("Meal voucher", dto.voucherLabel);
         assertEquals("V123", dto.voucherNumber);
+        assertEquals("654321", dto.authorizationNumber);
+        org.junit.jupiter.api.Assertions.assertTrue(dto.degradedMode);
     }
 
     /**
@@ -254,6 +258,8 @@ class SyncPayloadsTest {
         assertNull(dto.tenderedAmount);
         assertNull(dto.voucherLabel);
         assertNull(dto.voucherNumber);
+        assertNull(dto.authorizationNumber);
+        org.junit.jupiter.api.Assertions.assertFalse(dto.degradedMode);
     }
 
     /**
