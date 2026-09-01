@@ -83,13 +83,13 @@ class AdminSettingsResourceTest {
         verify(resource.adminSettings).data(eq("entries"), captor.capture());
         List<AdminSettingsResource.Entry> entries =
                 (List<AdminSettingsResource.Entry>) captor.getValue();
-        assertEquals(20, entries.size());
+        assertEquals(22, entries.size());
         boolean[] firstOfSection = {true, true, true, false, false, false, false, true, false, false,
-                true, true, true, false, true, false, true, true, true, false};
+                true, true, true, false, true, false, true, true, true, false, true, false};
         boolean[] bool = {true, false, true, false, false, true, true, false, false, true,
-                true, true, false, false, true, true, true, true, true, true};
+                true, true, false, false, true, true, true, true, true, true, false, false};
         boolean[] integer = {false, true, false, true, true, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false};
+                false, false, false, false, false, false, false, false, false, false, false, false};
         for (int i = 0; i < entries.size(); i++) {
             assertEquals(firstOfSection[i], entries.get(i).firstOfSection, "firstOfSection#" + i);
             assertEquals(bool[i], entries.get(i).bool, "bool#" + i);

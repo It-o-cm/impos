@@ -44,7 +44,8 @@ import static org.mockito.Mockito.when;
 class CashMovementServiceTest {
 
     /**
-     * Builds a service whose terminal id and outbox are mocked.
+     * Builds a service whose terminal id, outbox and settings are mocked; the
+     * administered endorsement threshold resolves to 100.00 €.
      *
      * @param outbox the outbox mock to inject
      * @return the wired service
@@ -55,6 +56,9 @@ class CashMovementServiceTest {
         when(numbers.getTerminalId()).thenReturn("C04");
         service.ticketNumberService = numbers;
         service.syncOutboxService = outbox;
+        PosSettingsService settings = mock(PosSettingsService.class);
+        when(settings.cashMovementEndorsementThreshold()).thenReturn(new BigDecimal("100.00"));
+        service.posSettingsService = settings;
         return service;
     }
 

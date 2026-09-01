@@ -1,0 +1,123 @@
+{!
+ ! Cash-movement page (CashMovementResource): the cashier records a drawer
+ ! movement (withdrawal, deposit, expense, customer down-payment, cash-count
+ ! declaration) with an amount and a reason. A movement strictly above the
+ ! administered threshold reveals the manager-endorsement fields, checked
+ ! server-side. Outcome messages arrive via the ?error= / ?ok= query params.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mouvement de Caisse</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid var(--border-strong); border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
+    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: 1.4rem; }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 620px; }
+    .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
+    .form-row { display: flex; align-items: center; gap: 15px; margin: 18px 0; justify-content: space-between; }
+    .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
+    .form-row select, .form-row input { width: 320px; padding: 12px; font-size: 1.2rem; font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .manager-block { border: 1px solid var(--border-strong); border-radius: 8px; padding: 12px 18px; margin-top: 18px; }
+    .manager-block .hint { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 8px; }
+    .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
+    .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; text-decoration: none; text-align: center; display: block; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>MOUVEMENT DE CAISSE</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel">
+        {#if error??}
+          <div class="error-box">{error}</div>
+        {/if}
+        {#if saved}
+          <div class="ok-box">MOUVEMENT ENREGISTRÉ</div>
+        {/if}
+
+        <h2>Mouvement de caisse</h2>
+        <form method="post" action="/action/cash-movement/record">
+          <div class="form-row">
+            <label for="type">Type</label>
+            <select id="type" name="type">
+              <option value="WITHDRAWAL">Prélèvement</option>
+              <option value="DEPOSIT">Apport</option>
+              <option value="EXPENSE">Dépense</option>
+              <option value="CUSTOMER_DEPOSIT">Acompte client</option>
+              <option value="DECLARATION">Déclaration (comptage)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="amount">Montant €</label>
+            <input type="text" id="amount" name="amount" value="0,00" inputmode="decimal" autocomplete="off">
+          </div>
+          <div class="form-row">
+            <label for="reason">Motif</label>
+            <select id="reason" name="reason">
+              <option value="">—</option>
+              {#for reason in reasons}
+                <option value="{reason}">{reason}</option>
+              {/for}
+            </select>
+          </div>
+
+          <div class="manager-block" id="managerBlock" style="display:none;">
+            <div class="hint">Aval manager requis au-delà de {threshold} €.</div>
+            <div class="form-row">
+              <label for="managerLogin">Badge manager</label>
+              <input type="text" id="managerLogin" name="managerLogin" autocomplete="off">
+            </div>
+            <div class="form-row">
+              <label for="managerPin">Code PIN</label>
+              <input type="password" id="managerPin" name="managerPin" autocomplete="off">
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-success">ENREGISTRER LE MOUVEMENT</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+    </div>
+  </div>
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    // Reveal the manager block as soon as the typed amount passes the threshold.
+    const threshold = parseFloat("{threshold}");
+    const amountInput = document.getElementById('amount');
+    const managerBlock = document.getElementById('managerBlock');
+    function toggleManager() {
+      const value = parseFloat((amountInput.value || '').replace(',', '.'));
+      managerBlock.style.display = (!isNaN(value) && value > threshold) ? 'block' : 'none';
+    }
+    amountInput.addEventListener('input', toggleManager);
+    toggleManager();
+  </script>
+</body>
+</html>

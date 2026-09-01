@@ -303,4 +303,44 @@ class PosSettingsServiceTest {
             assertFalse(service.fidelityAllowMultipleScan());
         }
     }
+
+    /**
+     * {@code cashMovementEndorsementThreshold} parses a well-formed stored
+     * amount (parse-ok arm) and falls back to the catalog default on a corrupt
+     * row (parse-fail arm).
+     */
+    @Test
+    void cashMovementEndorsementThresholdParsesOrFallsBack() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.movement-endorsement-threshold", " 250.50 ")));
+            assertEquals(0, new java.math.BigDecimal("250.50")
+                    .compareTo(new PosSettingsService().cashMovementEndorsementThreshold()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.movement-endorsement-threshold", "oops")));
+            assertEquals(0, new java.math.BigDecimal("100.00")
+                    .compareTo(new PosSettingsService().cashMovementEndorsementThreshold()));
+        }
+    }
+
+    /**
+     * {@code cashMovementReasons} splits the administered list, trimming each
+     * entry and dropping blank ones ({@code !isEmpty} both arms), and returns an
+     * empty list for a blank setting (isBlank true arm).
+     */
+    @Test
+    void cashMovementReasonsSplitsAndDropsBlanks() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.movement-reasons", " Coffre ; ; Timbres ")));
+            assertEquals(List.of("Coffre", "Timbres"), new PosSettingsService().cashMovementReasons());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.movement-reasons", "   ")));
+            assertTrue(new PosSettingsService().cashMovementReasons().isEmpty());
+        }
+    }
 }

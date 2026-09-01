@@ -1,5 +1,6 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.SyncOutbox;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.when;
  * <p>
  * The service reads and writes exclusively through Panache active-record static
  * access ({@code CashSession.find}, {@code Employee.findById}, {@code Ticket.list},
- * {@code Refund.list}); all of it is intercepted with
+ * {@code Refund.list}, {@code CashMovement.list}); all of it is intercepted with
  * {@link org.mockito.Mockito#mockStatic} on {@link PanacheEntityBase}, and the
  * {@code new CashSession()} of the opening path is intercepted with
  * {@link org.mockito.Mockito#mockConstruction} so its {@code persist()} is a
@@ -46,8 +47,9 @@ import static org.mockito.Mockito.when;
  * injection fields. Every branch of the four public methods is covered:
  * opening (already-open, null cashier id, unknown cashier, float present, float
  * defaulted), report building (empty vs. populated, cash vs. non-cash payment,
- * cash vs. non-cash refund) and closing (no session, parked present with
- * cashier and amounts, parked absent with null cashier and null amounts).
+ * cash vs. non-cash refund, and every movement sign plus the null-amount guard)
+ * and closing (no session, parked present with cashier and amounts, parked
+ * absent with null cashier and null amounts).
  */
 class CashSessionServiceTest {
 
@@ -94,6 +96,21 @@ class CashSessionServiceTest {
         PanacheQuery<CashSession> query = queryReturning(result);
         mocked.when(() -> CashSession.find("terminalId = ?1 and status = ?2",
                 TERMINAL, CashSession.SessionStatus.OPEN)).thenReturn(query);
+    }
+
+    /**
+     * Builds a cash movement of the given type and amount (a plain instance,
+     * never persisted).
+     *
+     * @param type the movement type
+     * @param amount the movement amount, or null
+     * @return the movement
+     */
+    private CashMovement movement(CashMovement.MovementType type, String amount) {
+        CashMovement movement = new CashMovement();
+        movement.type = type;
+        movement.amount = amount != null ? new BigDecimal(amount) : null;
+        return movement;
     }
 
     /**
@@ -232,6 +249,7 @@ class CashSessionServiceTest {
             mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
                     session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
             mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
             CashSessionService.SessionReport report = service.buildReport(session);
             assertSame(session, report.session);
             assertEquals(0, report.ticketCount);
@@ -267,13 +285,68 @@ class CashSessionServiceTest {
                     session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of(ticket));
             mocked.when(() -> Refund.list("session", session))
                     .thenReturn(List.of(cashRefund, cardRefund));
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
             CashSessionService.SessionReport report = service.buildReport(session);
             assertEquals(1, report.ticketCount);
+            assertEquals(0, BigDecimal.ZERO.compareTo(report.netCashMovements));
             assertEquals(0, new BigDecimal("30.00").compareTo(report.totalIncludingTax));
             assertEquals(0, new BigDecimal("20.00").compareTo(report.totalsByMethod.get("CASH")));
             assertEquals(0, new BigDecimal("10.00").compareTo(report.totalsByMethod.get("CARD")));
             assertEquals(0, new BigDecimal("8.00").compareTo(report.totalRefunds));
             assertEquals(0, new BigDecimal("115.00").compareTo(report.theoreticalCash));
+        }
+    }
+
+    /**
+     * A withdrawal and a deposit of the same amount compensate exactly: the net
+     * cash movement is zero and the theoretical cash equals the movement-free
+     * baseline (opening float, here with no tickets and no refunds). This is the
+     * invariance the lot must preserve.
+     */
+    @Test
+    void buildReportWithdrawalAndDepositCompensate() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    movement(CashMovement.MovementType.WITHDRAWAL, "40.00"),
+                    movement(CashMovement.MovementType.DEPOSIT, "40.00")));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, BigDecimal.ZERO.compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("50.00").compareTo(report.theoreticalCash));
+        }
+    }
+
+    /**
+     * Covers every arm of the movement-sign switch and both arms of the
+     * null-amount guard: a deposit and a customer down-payment add cash, a
+     * withdrawal and an expense remove it, a declaration and a null-amount
+     * movement move nothing. Net = +10 +5 −4 −3 = 8, so the theoretical is the
+     * opening float plus 8.
+     */
+    @Test
+    void buildReportMovementSignsPerType() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    movement(CashMovement.MovementType.DEPOSIT, "10.00"),
+                    movement(CashMovement.MovementType.CUSTOMER_DEPOSIT, "5.00"),
+                    movement(CashMovement.MovementType.WITHDRAWAL, "4.00"),
+                    movement(CashMovement.MovementType.EXPENSE, "3.00"),
+                    movement(CashMovement.MovementType.DECLARATION, "100.00"),
+                    movement(CashMovement.MovementType.DEPOSIT, null)));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, new BigDecimal("8.00").compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("58.00").compareTo(report.theoreticalCash));
         }
     }
 
@@ -314,6 +387,7 @@ class CashSessionServiceTest {
             mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
                     session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
             mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
             mocked.when(() -> Ticket.list("terminalId = ?1 and status = ?2",
                     TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(List.of(parked));
             mocked.when(() -> Employee.findById(9L)).thenReturn(cashier);
@@ -357,6 +431,7 @@ class CashSessionServiceTest {
             mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
                     session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
             mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
             mocked.when(() -> Ticket.list("terminalId = ?1 and status = ?2",
                     TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(List.of());
             CashSessionService.SessionReport report = service.closeSession(null, null, null, null);

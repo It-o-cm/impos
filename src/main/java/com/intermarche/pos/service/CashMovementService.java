@@ -25,23 +25,16 @@ import java.util.UUID;
  * A movement above the endorsement threshold requires a manager endorsement:
  * the endorsing manager's badge must be supplied, else the recording is
  * refused. This service READS NO SCREEN — the session, the cashier and the
- * endorsement decision are all handed to it by the caller. The threshold is a
- * DOCUMENTED DEFAULT ({@link #DEFAULT_ENDORSEMENT_THRESHOLD}) until lot C5b
- * moves it to the administered catalog of {@code PosSettingsService} (the key
- * that serves BO-04-01-44); this lot ships the object and its transport only,
- * so it serves ZERO journal requirement on its own.
+ * endorsement decision are all handed to it by the caller. The threshold is
+ * read from the administered catalog of {@code PosSettingsService} (key {@code
+ * cash.movement-endorsement-threshold}, distributed by the SETTINGS domain of
+ * the referential pull — the parameter that serves BO-04-01-44), never from a
+ * hardcoded configuration key.
  */
 @ApplicationScoped
 public class CashMovementService {
 
     private static final Logger LOG = Logger.getLogger(CashMovementService.class);
-
-    /**
-     * The default endorsement threshold in euros, applied until lot C5b makes
-     * it an administered parameter. A movement strictly above it needs a
-     * manager endorsement.
-     */
-    static final BigDecimal DEFAULT_ENDORSEMENT_THRESHOLD = new BigDecimal("100.00");
 
     @Inject
     TicketNumberService ticketNumberService;
@@ -49,16 +42,20 @@ public class CashMovementService {
     @Inject
     SyncOutboxService syncOutboxService;
 
+    @Inject
+    PosSettingsService posSettingsService;
+
     /**
      * Indicates whether a movement of the given amount requires a manager
-     * endorsement (strictly above the threshold). A null amount never requires
-     * one.
+     * endorsement (strictly above the administered threshold). A null amount
+     * never requires one.
      *
      * @param amount the movement amount, or null
      * @return true when the amount is strictly above the endorsement threshold
      */
     public boolean requiresEndorsement(BigDecimal amount) {
-        return amount != null && amount.compareTo(DEFAULT_ENDORSEMENT_THRESHOLD) > 0;
+        return amount != null
+                && amount.compareTo(posSettingsService.cashMovementEndorsementThreshold()) > 0;
     }
 
     /**
@@ -80,7 +77,7 @@ public class CashMovementService {
                                BigDecimal amount, String reason, String endorsedBy) {
         if (requiresEndorsement(amount) && endorsedBy == null) {
             LOG.warnf("Mouvement refuse : aval manager requis au-dela de %s",
-                    DEFAULT_ENDORSEMENT_THRESHOLD.toPlainString());
+                    posSettingsService.cashMovementEndorsementThreshold().toPlainString());
             return null;
         }
         CashMovement movement = new CashMovement();

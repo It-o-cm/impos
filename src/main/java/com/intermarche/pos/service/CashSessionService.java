@@ -1,5 +1,6 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.ticket.Refund;
@@ -26,8 +27,12 @@ import java.util.Map;
  * withdrawal. Sessions live in the register's own database, so they survive
  * register restarts by construction.
  * <p>
- * The theoretical cash is the opening float plus the cash payments of the
- * closed tickets of the session, minus its cash refunds.
+ * The theoretical cash is the opening float, plus the cash payments of the
+ * closed tickets of the session, minus its cash refunds, plus the net of the
+ * session's cash MOVEMENTS: deposits and customer down-payments add cash to
+ * the drawer, withdrawals and expenses take it out, and a cash-count
+ * declaration moves nothing (it is a witness, not a transfer). A session with
+ * no movement is therefore strictly unchanged.
  * <p>
  * Reports are computed from the DATABASE, never from in-memory state: an X
  * or Z after a register restart is exact by construction. The Z closing has
@@ -64,8 +69,10 @@ public class CashSessionService {
         public BigDecimal totalIncludingTax = BigDecimal.ZERO;
         /** The payment totals per method key, in first-seen order. */
         public Map<String, BigDecimal> totalsByMethod = new LinkedHashMap<>();
-        /** The theoretical cash in the drawer (float + cash payments - cash refunds). */
+        /** The theoretical cash in the drawer (float + cash payments - cash refunds + net movements). */
         public BigDecimal theoreticalCash = BigDecimal.ZERO;
+        /** The net cash impact of the session's movements (deposits/acomptes minus withdrawals/expenses). */
+        public BigDecimal netCashMovements = BigDecimal.ZERO;
         /** The total refunded during the session, all methods. */
         public BigDecimal totalRefunds = BigDecimal.ZERO;
         /** True when this report closes the session (Z), false for an X snapshot. */
@@ -150,9 +157,37 @@ public class CashSessionService {
                 cashRefunds = cashRefunds.add(refund.totalAmount);
             }
         }
+        // Cash movements of the session: net impact on the drawer (a session
+        // without any movement leaves the theoretical strictly unchanged)
+        BigDecimal netMovements = BigDecimal.ZERO;
+        List<CashMovement> movements = CashMovement.list("session = ?1", session);
+        for (CashMovement movement : movements) {
+            netMovements = netMovements.add(cashImpact(movement));
+        }
+        report.netCashMovements = netMovements;
         report.theoreticalCash = session.openingFloat.add(cashTotal).subtract(cashRefunds)
-                .setScale(2, RoundingMode.HALF_UP);
+                .add(netMovements).setScale(2, RoundingMode.HALF_UP);
         return report;
+    }
+
+    /**
+     * Returns the signed impact of a cash movement on the drawer: a deposit or
+     * a customer down-payment adds cash, a withdrawal or an expense removes it,
+     * a cash-count declaration moves nothing. A movement with a null amount has
+     * no impact.
+     *
+     * @param movement the movement to weigh
+     * @return the signed amount added to the drawer (negative when it removes cash)
+     */
+    private BigDecimal cashImpact(CashMovement movement) {
+        if (movement.amount == null) {
+            return BigDecimal.ZERO;
+        }
+        return switch (movement.type) {
+            case DEPOSIT, CUSTOMER_DEPOSIT -> movement.amount;
+            case WITHDRAWAL, EXPENSE -> movement.amount.negate();
+            case DECLARATION -> BigDecimal.ZERO;
+        };
     }
 
     /**

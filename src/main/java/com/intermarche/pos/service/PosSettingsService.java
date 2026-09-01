@@ -6,6 +6,8 @@ import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.logging.Logger;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,7 +136,15 @@ public class PosSettingsService {
         new Def("fidelity.allow-multiple-scan", Type.BOOL, "FIDÉLITÉ",
                 "Scan multiple de carte de fidélité",
                 "Plusieurs cartes de fidélité peuvent être scannées pendant la transaction, seule la dernière est retenue. Désactivé : une carte déjà scannée bloque les suivantes (BO-10-03-02).",
-                "true", null));
+                "true", null),
+        new Def("cash.movement-endorsement-threshold", Type.TEXT, "MOUVEMENTS DE CAISSE",
+                "Seuil d'aval manager (€)",
+                "Montant au-delà duquel un mouvement de caisse (prélèvement, apport, dépense, acompte, déclaration) exige un aval manager. Un mouvement à ce montant ou en dessous passe sans aval (BO-04-01-44).",
+                "100.00", null),
+        new Def("cash.movement-reasons", Type.TEXT, "MOUVEMENTS DE CAISSE",
+                "Motifs autorisés",
+                "Motifs proposés au caissier pour un mouvement de caisse, séparés par des points-virgules. Vide : la saisie du motif reste libre (BO-04-01-44).",
+                "Prélèvement coffre;Apport de fond;Achat de timbres;Dépense pharmacie;Erreur de caisse", null));
 
     /** The cached rows, or null when a reload is due. */
     private volatile Map<String, String> cache = null;
@@ -241,6 +251,20 @@ public class PosSettingsService {
             return Integer.parseInt(value(key).trim());
         } catch (Exception e) {
             return Integer.parseInt(def(key).defaultValue());
+        }
+    }
+
+    /**
+     * Returns a decimal (monetary) parameter, guarding against a corrupt row.
+     *
+     * @param key the catalog key
+     * @return the effective decimal value, or the catalog default when corrupt
+     */
+    private BigDecimal bigDecimalValue(String key) {
+        try {
+            return new BigDecimal(value(key).trim());
+        } catch (Exception e) {
+            return new BigDecimal(def(key).defaultValue());
         }
     }
 
@@ -397,4 +421,41 @@ public class PosSettingsService {
      * @return true when the customer-display QR code is shown
      */
     public boolean customerQrEnabled() { return boolValue("customer.qr-enabled"); }
+
+    /**
+     * The amount above which a cash movement (withdrawal, deposit, expense,
+     * customer down-payment, cash-count declaration) requires a manager
+     * endorsement (BO-04-01-44). Administered through the SETTINGS domain, so a
+     * store node can raise or lower it without redeploying a register.
+     *
+     * @return the endorsement threshold, in euros
+     */
+    public BigDecimal cashMovementEndorsementThreshold() {
+        return bigDecimalValue("cash.movement-endorsement-threshold");
+    }
+
+    /**
+     * The reasons offered to the cashier for a cash movement (BO-04-01-44),
+     * parsed from the semicolon-separated administered list; blank entries are
+     * dropped, and an empty or blank setting yields an empty list (free reason
+     * entry). Never null.
+     *
+     * @return the authorized movement reasons, in catalog order
+     */
+    public List<String> cashMovementReasons() {
+        // value() never returns null for a catalog key: an absent row falls to
+        // the catalog default, which is a non-null string.
+        String raw = value("cash.movement-reasons");
+        if (raw.isBlank()) {
+            return List.of();
+        }
+        List<String> reasons = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                reasons.add(trimmed);
+            }
+        }
+        return reasons;
+    }
 }

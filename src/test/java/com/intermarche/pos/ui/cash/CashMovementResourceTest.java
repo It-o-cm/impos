@@ -1,0 +1,353 @@
+package com.intermarche.pos.ui.cash;
+
+import com.intermarche.pos.domain.CashMovement;
+import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.service.CashMovementService;
+import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.auth.AuthState;
+import com.intermarche.pos.ui.endorsement.EndorsementService;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.qute.Template;
+import io.quarkus.qute.TemplateInstance;
+import jakarta.ws.rs.core.Response;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link CashMovementResource}.
+ * <p>
+ * The resource is a thin JAX-RS facade over {@link PosState}, a
+ * {@link CashSessionService}, a {@link CashMovementService}, a
+ * {@link PosSettingsService}, an {@link EndorsementService} and one Qute
+ * {@link Template}. Every collaborator is a Mockito mock; {@code PosState} is a
+ * mock carrying a real {@link AuthState} so {@code operatorId} /
+ * {@code operatorBadgeId} read without a null, and the sole static call
+ * ({@code Employee.findById}) is intercepted with
+ * {@link org.mockito.Mockito#mockStatic} on {@link PanacheEntityBase}. No
+ * database and no Quarkus context are booted.
+ * <p>
+ * Branch enumeration (both arms of every decision, 100%): the page's five error
+ * codes plus the {@code ok != null} saved flag; {@code record}'s training gate,
+ * {@code session == null}, {@code type == null} (via a null and an unknown
+ * name), {@code requiresEndorsement} with the endorsement-resolved and
+ * endorsement-refused arms, the {@code operatorId != null} cashier ternary and
+ * the {@code recorded == null} arm; {@code resolveEndorsement}'s supervisor,
+ * authorized and refused roads; and every {@code parseAmount} case (null,
+ * blank, valid, invalid).
+ */
+class CashMovementResourceTest {
+
+    /**
+     * Builds a resource with fresh mocks and a real {@link AuthState} carrying a
+     * logged operator (id 7, badge {@code M1}).
+     *
+     * @return the wired resource
+     */
+    private CashMovementResource newResource() {
+        CashMovementResource resource = new CashMovementResource();
+        resource.state = mock(PosState.class);
+        AuthState auth = new AuthState();
+        auth.operatorId = 7L;
+        auth.operatorBadgeId = "M1";
+        resource.state.auth = auth;
+        resource.cashSessionService = mock(CashSessionService.class);
+        resource.cashMovementService = mock(CashMovementService.class);
+        resource.posSettingsService = mock(PosSettingsService.class);
+        resource.endorsementService = mock(EndorsementService.class);
+        resource.cashMovement = mock(Template.class);
+        return resource;
+    }
+
+    /**
+     * Stubs the five-link {@code cashMovement} template chain with permissive
+     * matchers on the reasons, threshold, saved and error data.
+     *
+     * @param resource the resource whose template is stubbed
+     * @return the chain, the last element being the rendered view
+     */
+    private TemplateInstance[] stubPageChain(CashMovementResource resource) {
+        when(resource.posSettingsService.cashMovementReasons()).thenReturn(List.of("Coffre"));
+        when(resource.posSettingsService.cashMovementEndorsementThreshold())
+                .thenReturn(new BigDecimal("100.00"));
+        TemplateInstance ti1 = mock(TemplateInstance.class);
+        TemplateInstance ti2 = mock(TemplateInstance.class);
+        TemplateInstance ti3 = mock(TemplateInstance.class);
+        TemplateInstance ti4 = mock(TemplateInstance.class);
+        TemplateInstance ti5 = mock(TemplateInstance.class);
+        when(resource.cashMovement.data("state", resource.state)).thenReturn(ti1);
+        when(ti1.data(eq("reasons"), any())).thenReturn(ti2);
+        when(ti2.data(eq("threshold"), any())).thenReturn(ti3);
+        when(ti3.data(eq("saved"), any())).thenReturn(ti4);
+        when(ti4.data(eq("error"), any())).thenReturn(ti5);
+        return new TemplateInstance[]{ti1, ti2, ti3, ti4, ti5};
+    }
+
+    /**
+     * Asserts the given response is a 303 redirect to the expected location.
+     *
+     * @param response the response under test
+     * @param location the expected {@code Location} header value
+     */
+    private void assertRedirect(Response response, String location) {
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals(location, response.getLocation().toString());
+    }
+
+    // --- cashMovementPage ---
+
+    /**
+     * The page renders the no-session message (first {@code equals} true arm)
+     * and the not-saved flag (ok null arm).
+     */
+    @Test
+    void pageNoSessionMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("no-session", null));
+        verify(chain[2]).data("saved", false);
+        verify(chain[3]).data("error", "AUCUNE SESSION OUVERTE");
+    }
+
+    /**
+     * The page renders the bad-type message (second {@code equals} true arm).
+     */
+    @Test
+    void pageBadTypeMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("bad-type", null));
+        verify(chain[3]).data("error", "TYPE DE MOUVEMENT INVALIDE");
+    }
+
+    /**
+     * The page renders the endorsement message (third {@code equals} true arm).
+     */
+    @Test
+    void pageEndorsementMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("endorsement", null));
+        verify(chain[3]).data("error", "AVAL MANAGER REFUSÉ OU MANQUANT");
+    }
+
+    /**
+     * The page renders the training message (fourth {@code equals} true arm).
+     */
+    @Test
+    void pageTrainingMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("training", null));
+        verify(chain[3]).data("error", "INDISPONIBLE EN FORMATION");
+    }
+
+    /**
+     * The page renders a null message for an unknown code (all {@code equals}
+     * false arm) and the saved flag when {@code ok} is present (ok non-null arm).
+     */
+    @Test
+    void pageUnknownErrorAndSavedFlag() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("bogus", "1"));
+        verify(chain[2]).data("saved", true);
+        verify(chain[3]).data("error", (String) null);
+    }
+
+    // --- record ---
+
+    /**
+     * A record in training mode is blocked with the training redirect
+     * ({@code trainingMode} true arm); nothing is looked up or written.
+     */
+    @Test
+    void recordTrainingModeBlocked() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = true;
+        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null, null),
+                "/cash-movement?error=training");
+        verifyNoInteractions(resource.cashSessionService);
+        verifyNoInteractions(resource.cashMovementService);
+    }
+
+    /**
+     * A record with no open session redirects with {@code no-session}
+     * ({@code session == null} true arm).
+     */
+    @Test
+    void recordNoSessionRedirects() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(null);
+        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null, null),
+                "/cash-movement?error=no-session");
+        verifyNoInteractions(resource.cashMovementService);
+    }
+
+    /**
+     * A record with a null type name redirects with {@code bad-type}
+     * ({@code parseType} value-null arm, so {@code type == null} true arm).
+     */
+    @Test
+    void recordNullTypeRedirectsBadType() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record(null, "10", "Coffre", null, null),
+                "/cash-movement?error=bad-type");
+        verifyNoInteractions(resource.cashMovementService);
+    }
+
+    /**
+     * A record with an unknown type name redirects with {@code bad-type}
+     * ({@code parseType} {@code IllegalArgumentException} arm).
+     */
+    @Test
+    void recordUnknownTypeRedirectsBadType() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("BOGUS", "10", "Coffre", null, null),
+                "/cash-movement?error=bad-type");
+        verifyNoInteractions(resource.cashMovementService);
+    }
+
+    /**
+     * A below-threshold record with a logged operator writes the movement and
+     * redirects with {@code ok=1} ({@code requiresEndorsement} false arm,
+     * {@code operatorId != null} true arm, {@code recorded == null} false arm);
+     * the valid comma amount exercises the {@code parseAmount} success branch and
+     * the resolved cashier is carried to the service.
+     */
+    @Test
+    void recordBelowThresholdWritesAndConfirms() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        CashMovement recorded = mock(CashMovement.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
+        when(resource.cashMovementService.record(eq(session), eq(cashier),
+                eq(CashMovement.MovementType.WITHDRAWAL), eq(new BigDecimal("30.00")),
+                eq("Coffre"), eq(null))).thenReturn(recorded);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            assertRedirect(resource.record("WITHDRAWAL", "30,00", "Coffre", null, null),
+                    "/cash-movement?ok=1");
+        }
+        verify(resource.state).touch();
+    }
+
+    /**
+     * An above-threshold record self-endorsed by a connected supervisor writes
+     * with the operator's own badge ({@code requiresEndorsement} true arm,
+     * {@code resolveEndorsement} supervisor arm, {@code endorsedBy != null});
+     * the null amount exercises the {@code parseAmount} null branch.
+     */
+    @Test
+    void recordAboveThresholdSelfEndorsedWrites() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        CashMovement recorded = mock(CashMovement.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.cashMovementService.record(eq(session), eq(cashier),
+                eq(CashMovement.MovementType.DEPOSIT), eq(BigDecimal.ZERO),
+                eq("Apport"), eq("M1"))).thenReturn(recorded);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            assertRedirect(resource.record("DEPOSIT", null, "Apport", null, null),
+                    "/cash-movement?ok=1");
+        }
+        verify(resource.endorsementService, never()).authorize(any(), any(), any());
+    }
+
+    /**
+     * An above-threshold record endorsed by a manager credential writes with the
+     * presented badge ({@code resolveEndorsement} authorized arm); the blank
+     * amount exercises the {@code parseAmount} blank branch.
+     */
+    @Test
+    void recordAboveThresholdManagerAuthorizedWrites() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        CashMovement recorded = mock(CashMovement.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
+        when(resource.endorsementService.authorize("22222222", "1111", "CASH_MOVEMENT"))
+                .thenReturn(true);
+        when(resource.cashMovementService.record(eq(session), eq(cashier),
+                eq(CashMovement.MovementType.EXPENSE), eq(BigDecimal.ZERO),
+                eq("Pharmacie"), eq("22222222"))).thenReturn(recorded);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            assertRedirect(resource.record("EXPENSE", "   ", "Pharmacie", "22222222", "1111"),
+                    "/cash-movement?ok=1");
+        }
+    }
+
+    /**
+     * An above-threshold record refused by the manager redirects with
+     * {@code endorsement} ({@code resolveEndorsement} refused arm, so
+     * {@code endorsedBy == null} true arm); nothing is written and no cashier is
+     * resolved.
+     */
+    @Test
+    void recordAboveThresholdRefusedRedirects() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
+        when(resource.endorsementService.authorize(any(), any(), any())).thenReturn(false);
+        assertRedirect(resource.record("WITHDRAWAL", "150", "Coffre", "x", "y"),
+                "/cash-movement?error=endorsement");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A record the service refuses (returns null) redirects with
+     * {@code endorsement} ({@code recorded == null} true arm); a null operator id
+     * exercises the {@code operatorId != null} false arm (no cashier resolved)
+     * and the unparsable amount exercises the {@code parseAmount} catch branch.
+     */
+    @Test
+    void recordServiceRefusalRedirects() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        resource.state.auth.operatorId = null;
+        CashSession session = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
+        when(resource.cashMovementService.record(eq(session), eq(null),
+                eq(CashMovement.MovementType.DECLARATION), eq(BigDecimal.ZERO),
+                eq("Comptage"), eq(null))).thenReturn(null);
+        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null, null),
+                "/cash-movement?error=endorsement");
+        verify(resource.state).touch();
+    }
+}
