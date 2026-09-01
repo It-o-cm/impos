@@ -464,6 +464,18 @@ public class TicketPersistenceService {
         } else if (item.ean != null) {
             line.product = Product.findByEan(item.ean);
         }
+        // Nomenclature snapshot (BO-04-01-11): the family the article was sold
+        // under, captured here at line creation exactly as the price is, and
+        // never re-resolved on later reconciliations — a referential
+        // re-parenting after the sale must not move a consolidated line.
+        if (line.product != null) {
+            com.intermarche.pos.domain.ProductFamily family =
+                    com.intermarche.pos.domain.ProductFamily.findDirectFamily(line.product);
+            if (family != null) {
+                line.familyCode = family.code;
+                line.familyLabel = family.description;
+            }
+        }
         line.productLabel = item.label;
         line.quantity = item.quantity;
         line.unitPrice = item.unitPrice;

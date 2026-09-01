@@ -131,12 +131,14 @@ public class JournalService {
             query.bind("dateTo", criteria.dateTo);
         }
         appendPluRange(query, criteria);
+        appendFamilyRange(query, criteria);
         if (criteria.vatRate != null) {
             query.and("exists (select l from t.lines l where l.vatRate = :vatRate)");
             query.bind("vatRate", criteria.vatRate);
         }
         appendReductionRange(query, criteria);
         appendAuthorizationRange(query, criteria);
+        appendRefundArticleRange(query, criteria);
         appendFlags(query, criteria);
         return query;
     }
@@ -165,6 +167,82 @@ public class JournalService {
             }
             inner.append("l.plu <= :pluMax");
             query.bind("pluMax", criteria.pluMax);
+        }
+        inner.append(")");
+        query.and(inner.toString());
+    }
+
+    /**
+     * Appends the nomenclature range (BO-04-01-11) as a single line-scoped
+     * {@code exists} on the family code snapshotted at sale time, so both bounds
+     * bear on the same line. A single family is expressed as an equal min and
+     * max; a "plage de familles" as a span of codes. The comparison is on the
+     * line's own {@code familyCode} snapshot, never on the current referential,
+     * which is the whole point of the snapshot.
+     *
+     * @param query the query under construction
+     * @param criteria the parsed criteria
+     */
+    private void appendFamilyRange(JournalQuery query, JournalCriteria criteria) {
+        if (criteria.familyMin == null && criteria.familyMax == null) {
+            return;
+        }
+        StringBuilder inner = new StringBuilder("exists (select l from t.lines l where ");
+        boolean first = true;
+        if (criteria.familyMin != null) {
+            inner.append("l.familyCode >= :familyMin");
+            query.bind("familyMin", criteria.familyMin);
+            first = false;
+        }
+        if (criteria.familyMax != null) {
+            if (!first) {
+                inner.append(" and ");
+            }
+            inner.append("l.familyCode <= :familyMax");
+            query.bind("familyMax", criteria.familyMax);
+        }
+        inner.append(")");
+        query.and(inner.toString());
+    }
+
+    /**
+     * Appends the refunded-article criterion (BO-04-01-23): the ticket carries a
+     * refund whose refunded line gives back an article whose PLU falls in the
+     * requested range and whose refunded amount falls in the requested amount
+     * range. The refunded article's PLU is read on the original ticket line the
+     * refund line references ({@code rl.originalLineId} → {@code ol.id}, the
+     * consolidated line id the ingestion resolved), so the PLU snapshot is the
+     * one the article was SOLD under. The amount compared is the refunded line
+     * total ({@code price} × {@code quantity}, tax included) — the money given
+     * back for that article. Every bound is optional; any subset narrows the
+     * same single-refund-line {@code exists}.
+     *
+     * @param query the query under construction
+     * @param criteria the parsed criteria
+     */
+    private void appendRefundArticleRange(JournalQuery query, JournalCriteria criteria) {
+        if (criteria.refundPluMin == null && criteria.refundPluMax == null
+                && criteria.refundAmountMin == null && criteria.refundAmountMax == null) {
+            return;
+        }
+        StringBuilder inner = new StringBuilder(
+                "exists (select rl from Refund r join r.lines rl, TicketLine ol"
+                        + " where r.originalTicketId = t.id and ol.id = rl.originalLineId");
+        if (criteria.refundPluMin != null) {
+            inner.append(" and ol.plu >= :refundPluMin");
+            query.bind("refundPluMin", criteria.refundPluMin);
+        }
+        if (criteria.refundPluMax != null) {
+            inner.append(" and ol.plu <= :refundPluMax");
+            query.bind("refundPluMax", criteria.refundPluMax);
+        }
+        if (criteria.refundAmountMin != null) {
+            inner.append(" and rl.price * rl.quantity >= :refundAmountMin");
+            query.bind("refundAmountMin", criteria.refundAmountMin);
+        }
+        if (criteria.refundAmountMax != null) {
+            inner.append(" and rl.price * rl.quantity <= :refundAmountMax");
+            query.bind("refundAmountMax", criteria.refundAmountMax);
         }
         inner.append(")");
         query.and(inner.toString());

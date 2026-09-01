@@ -126,6 +126,27 @@ public class TicketLine extends BaseEntity {
     public boolean priceEmbedded;
 
     /**
+     * Code of the product's nomenclature (family) as it was at sale time
+     * (campaign lot C3, BO-04-01-11). Snapshotted from the product when the
+     * persistent line is created, exactly as the label, EAN, PLU and price
+     * already are: the referential can be re-parented after the sale, but a
+     * consolidated line must keep the family the article was sold under. Null
+     * for unknown-item and deposit-return lines (no catalog product) and for a
+     * product attached to no family. Register-local at creation, then carried
+     * by the transport so the store journal can search by family.
+     */
+    @Column(name = "family_code", length = 50)
+    public String familyCode;
+
+    /**
+     * Human-readable label of the product's nomenclature (family) as it was at
+     * sale time (campaign lot C3, BO-04-01-11), snapshotted alongside
+     * {@link #familyCode}. Null when the line carries no family.
+     */
+    @Column(name = "family_label", length = 255)
+    public String familyLabel;
+
+    /**
      * Returns the line total formatted for display (2 decimals, French comma).
      *
      * @return the formatted line total

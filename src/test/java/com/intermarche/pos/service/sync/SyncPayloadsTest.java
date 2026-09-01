@@ -187,6 +187,8 @@ class SyncPayloadsTest {
         dto.originalUnitPrice = new BigDecimal("1.35");
         dto.totalPrice = new BigDecimal("2.40");
         dto.deposit = true;
+        dto.familyCode = "FRUITS";
+        dto.familyLabel = "Rayon Fruits";
         assertEquals(1, dto.lineNumber);
         assertEquals("L-UID", dto.lineUid);
         assertEquals("3760000000001", dto.ean);
@@ -201,6 +203,8 @@ class SyncPayloadsTest {
         assertEquals(new BigDecimal("1.35"), dto.originalUnitPrice);
         assertEquals(new BigDecimal("2.40"), dto.totalPrice);
         assertTrue(dto.deposit);
+        assertEquals("FRUITS", dto.familyCode);
+        assertEquals("Rayon Fruits", dto.familyLabel);
     }
 
     /**
@@ -217,6 +221,8 @@ class SyncPayloadsTest {
         assertNull(dto.modifierType);
         assertNull(dto.modifierValue);
         assertNull(dto.originalUnitPrice);
+        assertNull(dto.familyCode);
+        assertNull(dto.familyLabel);
         assertEquals(0, dto.lineNumber);
         assertFalse(dto.deposit);
     }

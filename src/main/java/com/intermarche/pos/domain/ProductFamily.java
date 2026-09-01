@@ -86,6 +86,27 @@ public class ProductFamily extends BaseEntity {
     }
 
     /**
+     * Returns the single DIRECT family a product belongs to — the family whose
+     * {@code products} collection contains it — deterministically the one with
+     * the lowest {@code code} when the product is directly attached to several
+     * (the model allows a DAG; the sale snapshots one stable nomenclature per
+     * line, campaign lot C3 / BO-04-01-11). Returns null when the product is
+     * null, unpersisted, or attached to no family.
+     *
+     * @param product the sold product
+     * @return the direct family with the lowest code, or null
+     */
+    public static ProductFamily findDirectFamily(Product product) {
+        if (product == null || product.id == null) {
+            return null;
+        }
+        return find(
+                "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code",
+                product.id
+        ).firstResult();
+    }
+
+    /**
      * Retrieves all parent ProductFamilies for a given Product, traversing up the hierarchy.
      * <p>
      * This method supports graphs where a family can have multiple parents.

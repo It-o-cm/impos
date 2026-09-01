@@ -97,6 +97,23 @@ public class JournalCriteria {
     /** Inclusive upper bound of the article PLU range (BO-04-01-10), or null. */
     public String pluMax;
 
+    /** Inclusive lower bound of the nomenclature (family) code range (BO-04-01-11), or null. */
+    public String familyMin;
+    /** Inclusive upper bound of the nomenclature (family) code range (BO-04-01-11), or null. */
+    public String familyMax;
+
+    /**
+     * Inclusive lower bound of the refunded-article PLU range (BO-04-01-23), or
+     * null. Bears on the article a refund gives back, not on a sold line.
+     */
+    public String refundPluMin;
+    /** Inclusive upper bound of the refunded-article PLU range (BO-04-01-23), or null. */
+    public String refundPluMax;
+    /** Inclusive lower bound of the refunded-article amount range (BO-04-01-23), or null. */
+    public BigDecimal refundAmountMin;
+    /** Inclusive upper bound of the refunded-article amount range (BO-04-01-23), or null. */
+    public BigDecimal refundAmountMax;
+
     /** A VAT rate the ticket must carry on at least one line (BO-04-01-55), or null. */
     public BigDecimal vatRate;
 
@@ -160,6 +177,12 @@ public class JournalCriteria {
         criteria.dateTo = parseDateTime(params.getFirst("dateTo"));
         criteria.pluMin = blankToNull(params.getFirst("pluMin"));
         criteria.pluMax = blankToNull(params.getFirst("pluMax"));
+        criteria.familyMin = blankToNull(params.getFirst("familyMin"));
+        criteria.familyMax = blankToNull(params.getFirst("familyMax"));
+        criteria.refundPluMin = blankToNull(params.getFirst("refundPluMin"));
+        criteria.refundPluMax = blankToNull(params.getFirst("refundPluMax"));
+        criteria.refundAmountMin = parseAmount(params.getFirst("refundAmountMin"));
+        criteria.refundAmountMax = parseAmount(params.getFirst("refundAmountMax"));
         criteria.vatRate = parseAmount(params.getFirst("vatRate"));
         criteria.authMin = blankToNull(params.getFirst("authMin"));
         criteria.authMax = blankToNull(params.getFirst("authMax"));

@@ -377,6 +377,8 @@ class SyncOutboxServiceTest {
         line.quantity = new BigDecimal("1");
         line.unitPrice = new BigDecimal("12.00");
         line.totalPrice = new BigDecimal("12.00");
+        line.familyCode = "FRUITS";
+        line.familyLabel = "Rayon Fruits";
         ticket.lines.add(line);
         CashPayment cash = mock(CashPayment.class);
         when(cash.getMethodKey()).thenReturn("CASH");
@@ -406,6 +408,8 @@ class SyncOutboxServiceTest {
             assertEquals("S1", out.sessionNumber);
             assertEquals(1, out.lines.size());
             assertEquals("U1", out.lines.get(0).lineUid);
+            assertEquals("FRUITS", out.lines.get(0).familyCode);
+            assertEquals("Rayon Fruits", out.lines.get(0).familyLabel);
             assertEquals(2, out.payments.size());
             assertEquals("CASH", out.payments.get(0).methodKey);
             assertEquals(new BigDecimal("10.00"), out.payments.get(0).tenderedAmount);

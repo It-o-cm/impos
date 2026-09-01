@@ -137,6 +137,10 @@ public final class SyncPayloads {
         public BigDecimal totalPrice;
         /** True for deposit-return lines. */
         public boolean deposit;
+        /** The nomenclature (family) code snapshotted at sale time (BO-04-01-11), or null. */
+        public String familyCode;
+        /** The nomenclature (family) label snapshotted at sale time (BO-04-01-11), or null. */
+        public String familyLabel;
     }
 
     /**

@@ -3,6 +3,7 @@ package com.intermarche.pos.service;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.ProductFamily;
 import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.domain.SyncOutbox;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
@@ -316,6 +317,129 @@ class TicketPersistenceServiceTest {
             verify(ticket, times(2)).addLine(lineCaptor.capture());
             assertTrue(lineCaptor.getAllValues().get(0).priceEmbedded);
             assertFalse(lineCaptor.getAllValues().get(1).priceEmbedded);
+        }
+    }
+
+    /**
+     * The nomenclature snapshot (BO-04-01-11) is captured on each persisted
+     * line at creation: a product with a direct family carries its code and
+     * label, a product attached to no family (family query resolves null) and
+     * a line with no catalog product both leave the snapshot blank. The three
+     * arms of the {@code line.product != null} / {@code family != null} guards
+     * are exercised in one pass.
+     */
+    @Test
+    void syncDraftSnapshotsTheNomenclatureOntoEachLine() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        state.fidelity.active = false;
+        addItem(state, "F1", "3000", null, "2.00", "1", null);
+        addItem(state, "F2", "4000", null, "1.00", "1", null);
+        addItem(state, "F3", null, null, "-1.00", "1", null);
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        CashSession session = mock(CashSession.class);
+        Product withFamily = mock(Product.class);
+        withFamily.id = 7L;
+        Product noFamily = mock(Product.class);
+        noFamily.id = 8L;
+        ProductFamily family = new ProductFamily();
+        family.code = "FRUITS";
+        family.description = "Rayon Fruits";
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.cashSessionService.getOpenSession()).thenReturn(session);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        PanacheQuery<Product> eanWith = queryReturning(withFamily);
+        PanacheQuery<Product> eanNo = queryReturning(noFamily);
+        PanacheQuery<ProductFamily> familyQuery = queryReturning(family);
+        PanacheQuery<ProductFamily> emptyFamilyQuery = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
+            mocked.when(() -> Product.find("ean", "3000")).thenReturn(eanWith);
+            mocked.when(() -> Product.find("ean", "4000")).thenReturn(eanNo);
+            mocked.when(() -> ProductFamily.find(
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    .thenReturn(familyQuery);
+            mocked.when(() -> ProductFamily.find(
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 8L))
+                    .thenReturn(emptyFamilyQuery);
+            service.syncDraft(state);
+            Ticket ticket = created.constructed().get(0);
+            ArgumentCaptor<TicketLine> lineCaptor = ArgumentCaptor.forClass(TicketLine.class);
+            verify(ticket, times(3)).addLine(lineCaptor.capture());
+            TicketLine withFam = lineCaptor.getAllValues().get(0);
+            TicketLine noFam = lineCaptor.getAllValues().get(1);
+            TicketLine noProd = lineCaptor.getAllValues().get(2);
+            assertEquals("FRUITS", withFam.familyCode);
+            assertEquals("Rayon Fruits", withFam.familyLabel);
+            assertNull(noFam.familyCode);
+            assertNull(noFam.familyLabel);
+            assertNull(noProd.familyCode);
+            assertNull(noProd.familyLabel);
+        }
+    }
+
+    /**
+     * Totals invariance (campaign rule): the same cart yields byte-identical
+     * HT, TTC and VAT totals whether or not the sold product carries a
+     * nomenclature — the snapshot decorates the line, it never moves a centime.
+     */
+    @Test
+    void syncDraftKeepsTicketTotalsInvariantUnderTheNomenclatureSnapshot() {
+        BigDecimal[] withFamily = totalsOfSingleLineDraft(true);
+        BigDecimal[] withoutFamily = totalsOfSingleLineDraft(false);
+        assertEquals(withoutFamily[0], withFamily[0]);
+        assertEquals(withoutFamily[1], withFamily[1]);
+        assertEquals(withoutFamily[2], withFamily[2]);
+    }
+
+    /**
+     * Creates a one-line draft (2 units at 2,50 €, 20% VAT) and returns its
+     * persisted [HT, TTC, VAT] totals, resolving a family on the product only
+     * when requested — the two runs differ solely by the snapshot.
+     *
+     * @param withFamily whether the product resolves a direct family
+     * @return the three ticket totals of the created draft
+     */
+    private BigDecimal[] totalsOfSingleLineDraft(boolean withFamily) {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        state.fidelity.active = false;
+        addItem(state, "L1", "3000", null, "2.50", "2", null);
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        CashSession session = mock(CashSession.class);
+        Product product = mock(Product.class);
+        product.id = 7L;
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.cashSessionService.getOpenSession()).thenReturn(session);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        PanacheQuery<Product> eanQuery = queryReturning(product);
+        ProductFamily family = new ProductFamily();
+        family.code = "FRUITS";
+        family.description = "Rayon Fruits";
+        PanacheQuery<ProductFamily> familyQuery = queryReturning(withFamily ? family : null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
+            mocked.when(() -> Product.find("ean", "3000")).thenReturn(eanQuery);
+            mocked.when(() -> ProductFamily.find(
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    .thenReturn(familyQuery);
+            service.syncDraft(state);
+            Ticket ticket = created.constructed().get(0);
+            return new BigDecimal[]{ticket.totalExcludingTax, ticket.totalIncludingTax, ticket.totalVat};
         }
     }
 

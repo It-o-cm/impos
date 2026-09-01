@@ -253,6 +253,8 @@ class SyncIngestServiceTest {
         byPlu.lineNumber = 1;
         byPlu.plu = "100";
         byPlu.quantity = new BigDecimal("1");
+        byPlu.familyCode = "FRUITS";
+        byPlu.familyLabel = "Rayon Fruits";
         SyncPayloads.LineDto byEan = new SyncPayloads.LineDto();
         byEan.lineNumber = 2;
         byEan.plu = null;
@@ -313,6 +315,12 @@ class SyncIngestServiceTest {
             assertSame(plaster, createdLines.constructed().get(0).product);
             assertSame(apple, createdLines.constructed().get(1).product);
             assertNull(createdLines.constructed().get(2).product);
+            // The nomenclature snapshot is stored verbatim from the payload,
+            // authoritative over the store-side product link (BO-04-01-11):
+            // a referential re-parenting never rewrites a consolidated line.
+            assertEquals("FRUITS", createdLines.constructed().get(0).familyCode);
+            assertEquals("Rayon Fruits", createdLines.constructed().get(0).familyLabel);
+            assertNull(createdLines.constructed().get(1).familyCode);
             verify(ticket, times(3)).addLine(any());
             assertEquals("Bon", voucherPayment.voucherLabel);
             assertEquals("V9", voucherPayment.voucherNumber);

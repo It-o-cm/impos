@@ -267,6 +267,8 @@ public class SyncOutboxService {
             lineDto.originalUnitPrice = line.originalUnitPrice;
             lineDto.totalPrice = line.totalPrice;
             lineDto.deposit = line.deposit;
+            lineDto.familyCode = line.familyCode;
+            lineDto.familyLabel = line.familyLabel;
             dto.lines.add(lineDto);
         }
         for (TicketPayment payment : ticket.payments) {

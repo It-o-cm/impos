@@ -149,6 +149,12 @@ public class SyncIngestService {
             line.originalUnitPrice = lineDto.originalUnitPrice;
             line.totalPrice = lineDto.totalPrice;
             line.deposit = lineDto.deposit;
+            // Nomenclature snapshot is authoritative: stored verbatim from the
+            // payload, never re-derived from the store-side product link, so a
+            // referential re-parenting on the consolidated node never rewrites
+            // history (BO-04-01-11).
+            line.familyCode = lineDto.familyCode;
+            line.familyLabel = lineDto.familyLabel;
             ticket.addLine(line);
         }
 

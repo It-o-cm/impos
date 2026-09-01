@@ -35,6 +35,10 @@ class JournalCriteriaTest {
         JournalCriteria criteria = JournalCriteria.fromParams(null);
         assertNull(criteria.text);
         assertNull(criteria.amountMin);
+        assertNull(criteria.familyMin);
+        assertNull(criteria.familyMax);
+        assertNull(criteria.refundPluMin);
+        assertNull(criteria.refundAmountMin);
         assertTrue(criteria.methods.isEmpty());
         assertTrue(criteria.flags.isEmpty());
         assertFalse(criteria.descending);
@@ -63,6 +67,12 @@ class JournalCriteriaTest {
         params.putSingle("dateTo", "2026-08-31");
         params.putSingle("pluMin", "40");
         params.putSingle("pluMax", "50");
+        params.putSingle("familyMin", " FRUITS ");
+        params.putSingle("familyMax", "LEGUMES");
+        params.putSingle("refundPluMin", "40");
+        params.putSingle("refundPluMax", "60");
+        params.putSingle("refundAmountMin", "2,00");
+        params.putSingle("refundAmountMax", "20.00");
         params.putSingle("vatRate", "0,2000");
         params.putSingle("reductionMin", "1,00");
         params.putSingle("reductionMax", "5,00");
@@ -87,6 +97,12 @@ class JournalCriteriaTest {
         assertEquals(LocalDateTime.of(2026, 8, 31, 0, 0), criteria.dateTo);
         assertEquals("40", criteria.pluMin);
         assertEquals("50", criteria.pluMax);
+        assertEquals("FRUITS", criteria.familyMin);
+        assertEquals("LEGUMES", criteria.familyMax);
+        assertEquals("40", criteria.refundPluMin);
+        assertEquals("60", criteria.refundPluMax);
+        assertEquals(new BigDecimal("2.00"), criteria.refundAmountMin);
+        assertEquals(new BigDecimal("20.00"), criteria.refundAmountMax);
         assertEquals(new BigDecimal("0.2000"), criteria.vatRate);
         assertEquals(new BigDecimal("1.00"), criteria.reductionMin);
         assertEquals(new BigDecimal("5.00"), criteria.reductionMax);

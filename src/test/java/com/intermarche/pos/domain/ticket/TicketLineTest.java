@@ -40,6 +40,8 @@ class TicketLineTest {
         Assertions.assertNull(line.modifierValue);
         Assertions.assertNull(line.originalUnitPrice);
         Assertions.assertNull(line.totalPrice);
+        Assertions.assertNull(line.familyCode);
+        Assertions.assertNull(line.familyLabel);
     }
 
     /**
@@ -64,6 +66,8 @@ class TicketLineTest {
         line.originalUnitPrice = new BigDecimal("2.2100");
         line.totalPrice = new BigDecimal("2.9850");
         line.deposit = true;
+        line.familyCode = "FRUITS";
+        line.familyLabel = "Rayon Fruits";
         Assertions.assertEquals(3, line.lineNumber);
         Assertions.assertEquals("uid-1", line.lineUid);
         Assertions.assertSame(product, line.product);
@@ -79,6 +83,8 @@ class TicketLineTest {
         Assertions.assertEquals(new BigDecimal("2.2100"), line.originalUnitPrice);
         Assertions.assertEquals(new BigDecimal("2.9850"), line.totalPrice);
         Assertions.assertTrue(line.deposit);
+        Assertions.assertEquals("FRUITS", line.familyCode);
+        Assertions.assertEquals("Rayon Fruits", line.familyLabel);
     }
 
     /**

@@ -123,11 +123,17 @@ class JournalServiceTest {
         criteria.dateTo = LocalDateTime.of(2026, 8, 31, 23, 59);
         criteria.pluMin = "40";
         criteria.pluMax = "50";
+        criteria.familyMin = "FRUITS";
+        criteria.familyMax = "LEGUMES";
         criteria.vatRate = new BigDecimal("0.2000");
         criteria.reductionMin = new BigDecimal("1.00");
         criteria.reductionMax = new BigDecimal("5.00");
         criteria.authMin = "100000";
         criteria.authMax = "999999";
+        criteria.refundPluMin = "40";
+        criteria.refundPluMax = "60";
+        criteria.refundAmountMin = new BigDecimal("2.00");
+        criteria.refundAmountMax = new BigDecimal("20.00");
         criteria.flags.add(JournalCriteria.Flag.CANCELLED);
         criteria.flags.add(JournalCriteria.Flag.DISCOUNT);
         criteria.flags.add(JournalCriteria.Flag.RETURN);
@@ -156,6 +162,9 @@ class JournalServiceTest {
         assertTrue(where.contains("t.creationDate >= :dateFrom"));
         assertTrue(where.contains("t.creationDate <= :dateTo"));
         assertTrue(where.contains("l.plu >= :pluMin and l.plu <= :pluMax"));
+        assertTrue(where.contains("l.familyCode >= :familyMin and l.familyCode <= :familyMax"));
+        assertEquals("FRUITS", params.get("familyMin"));
+        assertEquals("LEGUMES", params.get("familyMax"));
         assertTrue(where.contains("l.vatRate = :vatRate"));
         assertTrue(where.contains("l.modifierValue >= :reductionMin and l.modifierValue <= :reductionMax"));
         assertTrue(where.contains("t.status = :cancelled"));
@@ -172,6 +181,16 @@ class JournalServiceTest {
         assertEquals("100000", params.get("authMin"));
         assertEquals("999999", params.get("authMax"));
         assertTrue(where.contains("treat(p as CardPayment).degradedMode = true"));
+        assertTrue(where.contains("exists (select rl from Refund r join r.lines rl, TicketLine ol"
+                + " where r.originalTicketId = t.id and ol.id = rl.originalLineId"));
+        assertTrue(where.contains("ol.plu >= :refundPluMin"));
+        assertTrue(where.contains("ol.plu <= :refundPluMax"));
+        assertTrue(where.contains("rl.price * rl.quantity >= :refundAmountMin"));
+        assertTrue(where.contains("rl.price * rl.quantity <= :refundAmountMax"));
+        assertEquals("40", params.get("refundPluMin"));
+        assertEquals("60", params.get("refundPluMax"));
+        assertEquals(new BigDecimal("2.00"), params.get("refundAmountMin"));
+        assertEquals(new BigDecimal("20.00"), params.get("refundAmountMax"));
     }
 
     /**
@@ -284,6 +303,130 @@ class JournalServiceTest {
         String where = service.buildTicketQuery(criteria).whereClause();
         assertTrue(where.contains("where l.plu <= :pluMax)"));
         assertFalse(where.contains("pluMin"));
+    }
+
+    /**
+     * A family lower bound alone appends the {@code >=} half only (BO-04-01-11,
+     * first-bound arm, no {@code and}).
+     */
+    @Test
+    void familyMinOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.familyMin = "FRUITS";
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("l.familyCode >= :familyMin)"));
+        assertFalse(where.contains("familyMax"));
+        assertEquals("FRUITS", service.buildTicketQuery(criteria).parameters().get("familyMin"));
+    }
+
+    /**
+     * A family upper bound alone appends the {@code <=} half only (the
+     * {@code and} separator is skipped: {@code !first} false arm).
+     */
+    @Test
+    void familyMaxOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.familyMax = "LEGUMES";
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("where l.familyCode <= :familyMax)"));
+        assertFalse(where.contains("familyMin"));
+    }
+
+    /**
+     * No family bound adds no family clause (both-null early-return arm).
+     */
+    @Test
+    void noFamilyBoundAddsNoClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        assertFalse(service.buildTicketQuery(new JournalCriteria()).whereClause().contains("familyCode"));
+    }
+
+    /**
+     * A refunded-article PLU lower bound and an amount upper bound alone append
+     * their two halves only, over the refund-join {@code exists} (BO-04-01-23,
+     * pluMin present / pluMax absent / amountMin absent / amountMax present).
+     */
+    @Test
+    void refundPluMinAndAmountMaxOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.refundPluMin = "40";
+        criteria.refundAmountMax = new BigDecimal("20.00");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("r.originalTicketId = t.id and ol.id = rl.originalLineId"));
+        assertTrue(where.contains("ol.plu >= :refundPluMin"));
+        assertTrue(where.contains("rl.price * rl.quantity <= :refundAmountMax"));
+        assertFalse(where.contains("refundPluMax"));
+        assertFalse(where.contains("refundAmountMin"));
+        assertEquals("40", query.parameters().get("refundPluMin"));
+        assertEquals(new BigDecimal("20.00"), query.parameters().get("refundAmountMax"));
+    }
+
+    /**
+     * A refunded-article PLU upper bound and an amount lower bound alone append
+     * their two halves only (BO-04-01-23, pluMin absent / pluMax present /
+     * amountMin present / amountMax absent).
+     */
+    @Test
+    void refundPluMaxAndAmountMinOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.refundPluMax = "60";
+        criteria.refundAmountMin = new BigDecimal("2.00");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("ol.plu <= :refundPluMax"));
+        assertTrue(where.contains("rl.price * rl.quantity >= :refundAmountMin"));
+        assertFalse(where.contains("refundPluMin"));
+        assertFalse(where.contains("refundAmountMax"));
+        assertEquals("60", query.parameters().get("refundPluMax"));
+        assertEquals(new BigDecimal("2.00"), query.parameters().get("refundAmountMin"));
+    }
+
+    /**
+     * No refunded-article bound adds no refund clause (four-null early-return
+     * arm of the builder).
+     */
+    @Test
+    void noRefundArticleBoundAddsNoClause() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalQuery query = service.buildTicketQuery(new JournalCriteria());
+        assertFalse(query.whereClause().contains("rl.originalLineId"));
+        assertFalse(query.parameters().containsKey("refundPluMin"));
+    }
+
+    /**
+     * A refunded-article amount lower bound alone still opens the refund-join
+     * {@code exists} (BO-04-01-23): the early-return condition falls through on
+     * its {@code refundAmountMin == null} false arm, with no PLU clause.
+     */
+    @Test
+    void refundAmountMinOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.refundAmountMin = new BigDecimal("2.00");
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("rl.price * rl.quantity >= :refundAmountMin)"));
+        assertFalse(where.contains("ol.plu"));
+        assertFalse(where.contains("refundAmountMax"));
+    }
+
+    /**
+     * A refunded-article amount upper bound alone opens the refund-join
+     * {@code exists} (BO-04-01-23): the early-return condition falls through on
+     * its {@code refundAmountMax == null} false arm.
+     */
+    @Test
+    void refundAmountMaxOnly() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.refundAmountMax = new BigDecimal("20.00");
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("rl.price * rl.quantity <= :refundAmountMax)"));
+        assertFalse(where.contains("refundAmountMin"));
     }
 
     /**

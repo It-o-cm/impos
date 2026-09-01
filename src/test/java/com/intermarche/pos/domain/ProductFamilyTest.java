@@ -81,6 +81,65 @@ class ProductFamilyTest {
     }
 
     /**
+     * findDirectFamily returns null for a null product (first OR arm true),
+     * without hitting the database.
+     */
+    @Test
+    void findDirectFamilyNullProduct() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            Assertions.assertNull(ProductFamily.findDirectFamily(null));
+            panache.verifyNoInteractions();
+        }
+    }
+
+    /**
+     * findDirectFamily returns null for an unpersisted product (first OR arm
+     * false, second OR arm true), without hitting the database.
+     */
+    @Test
+    void findDirectFamilyNullId() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            Assertions.assertNull(ProductFamily.findDirectFamily(product(null)));
+            panache.verifyNoInteractions();
+        }
+    }
+
+    /**
+     * findDirectFamily returns the lowest-code direct family — the single
+     * first result of the ordered join query (both guard arms false).
+     */
+    @Test
+    void findDirectFamilyReturnsFirstResult() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            ProductFamily expected = family(10L, null);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<ProductFamily> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(expected);
+            panache.when(() -> ProductFamily.find(
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    .thenReturn(query);
+            Assertions.assertSame(expected, ProductFamily.findDirectFamily(product(7L)));
+        }
+    }
+
+    /**
+     * findDirectFamily returns null when the product is attached to no family
+     * (query first result null): the snapshot leaves the line's family blank.
+     */
+    @Test
+    void findDirectFamilyNoFamily() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<ProductFamily> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(null);
+            panache.when(() -> ProductFamily.find(
+                    "select pf from ProductFamily pf join pf.products p where p.id = ?1 order by pf.code", 7L))
+                    .thenReturn(query);
+            Assertions.assertNull(ProductFamily.findDirectFamily(product(7L)));
+        }
+    }
+
+    /**
      * findAllFamiliesForProduct returns an empty set for a null product
      * (first OR arm true).
      */

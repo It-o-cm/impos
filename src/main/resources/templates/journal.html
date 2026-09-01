@@ -78,6 +78,13 @@
             </div>
         </div>
         <div class="field">
+            <label class="field-label" for="f-family-min">Nomenclature famille (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-family-min" type="text" name="familyMin" value="{criteria.familyMin ?: ''}">
+                <input class="input-control" type="text" name="familyMax" value="{criteria.familyMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
             <label class="field-label" for="f-reduction-min">Réduction manuelle (de / à)</label>
             <div class="journal-range">
                 <input class="input-control" id="f-reduction-min" type="text" name="reductionMin" value="{criteria.reductionMin ?: ''}">
@@ -93,6 +100,20 @@
             <div class="journal-range">
                 <input class="input-control" id="f-auth-min" type="text" name="authMin" value="{criteria.authMin ?: ''}">
                 <input class="input-control" type="text" name="authMax" value="{criteria.authMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-refund-plu-min">Remboursement article - N° PLU (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-refund-plu-min" type="text" name="refundPluMin" value="{criteria.refundPluMin ?: ''}">
+                <input class="input-control" type="text" name="refundPluMax" value="{criteria.refundPluMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-refund-amount-min">Remboursement article - Montant (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-refund-amount-min" type="text" name="refundAmountMin" value="{criteria.refundAmountMin ?: ''}">
+                <input class="input-control" type="text" name="refundAmountMax" value="{criteria.refundAmountMax ?: ''}">
             </div>
         </div>
     </div>
