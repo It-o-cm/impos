@@ -172,6 +172,8 @@ class ProductResourceTest {
         input.referenceWeight = new BigDecimal("1.500");
         input.referenceVolume = new BigDecimal("0.000");
         input.unitName = "kg";
+        input.checkoutLabel = "MELON JAUNE";
+        input.internalCode = "INT-42";
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Product> products = mockStatic(Product.class);
              MockedConstruction<Product> created = mockConstruction(Product.class)) {
@@ -189,6 +191,8 @@ class ProductResourceTest {
             assertEquals(new BigDecimal("0.000"), product.referenceVolume);
             assertEquals("kg", product.unitName);
             assertEquals(ProductType.WEIGHT, product.productType);
+            assertEquals("MELON JAUNE", product.checkoutLabel);
+            assertEquals("INT-42", product.internalCode);
             assertFalse(product.active);
             verify(product, times(1)).persist();
         }
@@ -304,6 +308,8 @@ class ProductResourceTest {
     void updateProductUnchangedEanAndNameSkipConflictChecks() throws GraphQLException {
         Product existing = product(EAN, NAME);
         ProductResource.ProductRecord input = record(EAN, NAME, null, null);
+        input.checkoutLabel = "MELON JAUNE";
+        input.internalCode = "INT-42";
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Product> products = mockStatic(Product.class)) {
             panache.when(() -> Product.findById(PRODUCT_ID)).thenReturn(existing);
@@ -311,6 +317,8 @@ class ProductResourceTest {
             assertSame(existing, result);
             assertSame(input.ean, existing.ean);
             assertSame(input.name, existing.name);
+            assertEquals("MELON JAUNE", existing.checkoutLabel);
+            assertEquals("INT-42", existing.internalCode);
             products.verify(() -> Product.findByEan(EAN), times(0));
             panache.verify(() -> Product.count(UPDATE_COUNT_QUERY, NAME, PRODUCT_ID), times(0));
         }
@@ -430,9 +438,12 @@ class ProductResourceTest {
         input.referenceWeight = new BigDecimal("1.000");
         input.referenceVolume = new BigDecimal("2.000");
         input.unitName = "kg";
+        input.checkoutLabel = "CL";
+        input.internalCode = "IC";
         String expected = "ProductRecord [ean=" + EAN + ", name=" + NAME + ", description=d" +
                 ", brand=b, referenceWeight=1.000, referenceVolume=2.000" +
-                ", productType=UNIT, unitName=kg, active=true";
+                ", productType=UNIT, unitName=kg, active=true" +
+                ", checkoutLabel=CL, internalCode=IC";
         assertEquals(expected, input.toString());
     }
 }

@@ -1,0 +1,92 @@
+{!
+ ! Back-office ARTICLE fiche edit form (BO-02-03-*): the checkout label, the
+ ! internal code, the forbidden-to-sale flag, the age restriction and the
+ ! declared attributes that drive register behaviour. `product` is null when
+ ! the id is unknown. POST -> 303 -> notice, the admin cycle. The commercial
+ ! name and EAN are shown read-only: their creation/renaming stays on the
+ ! integration surfaces.
+!}
+{#include admin-layout}
+
+{#title}Fiche article{/title}
+
+{#body}
+<div class="page-head">
+    <div>
+        <h1>Fiche article</h1>
+        <p class="page-sub">Données et attributs d'un article du référentiel.</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-ghost" href="/admin/articles">Retour à la liste</a>
+    </div>
+</div>
+
+{#if product}
+<form method="post" action="/admin/articles/edit">
+    <input type="hidden" name="id" value="{product.id}">
+
+    <div class="card">
+        <h2 class="card-title">Identité</h2>
+        <div class="field-grid">
+            <div class="field">
+                <label class="field-label" for="f-ean">Code EAN</label>
+                <input class="input-control" id="f-ean" type="text" value="{product.ean}" disabled>
+                <span class="field-hint">Non modifiable depuis cet écran.</span>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-name">Libellé commercial</label>
+                <input class="input-control" id="f-name" type="text" value="{product.name}" disabled>
+                <span class="field-hint">Intégré depuis la Gestion Commerciale.</span>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-checkout">Libellé encaissement</label>
+                <input class="input-control" id="f-checkout" type="text" name="checkoutLabel" value="{product.checkoutLabel ?: ''}" maxlength="100">
+                <span class="field-hint">Affiché sur la ligne et le ticket. Vide : le libellé commercial s'applique.</span>
+            </div>
+            <div class="field">
+                <label class="field-label" for="f-internal">Code interne</label>
+                <input class="input-control" id="f-internal" type="text" name="internalCode" value="{product.internalCode ?: ''}" maxlength="50">
+                <span class="field-hint">Encaissement par scan ou saisie, en plus de l'EAN.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">Comportement en caisse</h2>
+        <div class="field-grid">
+            <div class="field">
+                <label class="field-label" for="f-age">Contrôle d'âge (ans)</label>
+                <input class="input-control" id="f-age" type="number" name="ageRestriction" min="0" value="{product.ageRestriction ?: ''}">
+                <span class="field-hint">Vide ou 0 : aucun contrôle.</span>
+            </div>
+            <div class="field field-check">
+                <label class="field-label"><input type="checkbox" name="forbiddenToSale" {#if product.forbiddenToSale}checked{/if}> Vente interdite</label>
+                <span class="field-hint">L'article est refusé au scan.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">Attributs déclarés</h2>
+        <div class="field-grid">
+            {#for attr in attributes}
+            <div class="field field-check">
+                <label class="field-label"><input type="checkbox" name="{attr.code}" {#if attr.checked}checked{/if}> {attr.label}</label>
+            </div>
+            {/for}
+        </div>
+    </div>
+
+    <div class="page-actions" style="margin-top: 6px;">
+        <button class="btn btn-primary" type="submit">Enregistrer</button>
+        <a class="btn btn-ghost" href="/admin/articles">Annuler</a>
+    </div>
+</form>
+{#else}
+<div class="card">
+    <p>Article introuvable. <a class="link-strong" href="/admin/articles">Retour à la liste</a>.</p>
+</div>
+{/if}
+{/body}
+
+{#footer}Ces données sont référentielles : sur un nœud magasin, elles atteignent les caisses au tirage suivant.{/footer}

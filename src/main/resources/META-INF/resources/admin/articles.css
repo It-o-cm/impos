@@ -1,0 +1,28 @@
+/*
+ * Article back-office area sheet (BO-02-03-*). Base chrome, tokens and the
+ * shared list/form classes live in base.css and stay untouched; this sheet
+ * carries only what is specific to the article fiche — the checkbox field
+ * layout of the "Comportement en caisse" and "Attributs déclarés" cards.
+ * Colours use the --im-* tokens only, never hard-coded values.
+ */
+.field-check {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    justify-content: flex-start;
+}
+
+.field-check .field-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.field-check input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--im-accent);
+    cursor: pointer;
+}

@@ -154,6 +154,75 @@ class ProductTest {
     }
 
     /**
+     * findByInternalCode delegates to the internal-code finder and returns its
+     * first result.
+     */
+    @Test
+    void findByInternalCodeDelegatesToFinder() {
+        Product expected = new Product();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(expected);
+            panache.when(() -> Product.find("internalCode", "INT-42")).thenReturn(query);
+            Assertions.assertSame(expected, Product.findByInternalCode("INT-42"));
+        }
+    }
+
+    /**
+     * findActiveByInternalCode delegates to the active-internal-code finder and
+     * returns its first result.
+     */
+    @Test
+    void findActiveByInternalCodeDelegatesToFinder() {
+        Product expected = new Product();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(expected);
+            panache.when(() -> Product.find("internalCode = ?1 and active = true", "INT-42"))
+                    .thenReturn(query);
+            Assertions.assertSame(expected, Product.findActiveByInternalCode("INT-42"));
+        }
+    }
+
+    /**
+     * saleLabel returns the checkout label when it is set and non-blank
+     * (BO-02-03-02, present arm).
+     */
+    @Test
+    void saleLabelReturnsCheckoutLabelWhenSet() {
+        Product product = new Product();
+        product.name = "Coca Cola";
+        product.checkoutLabel = "PROMO COLA";
+        Assertions.assertEquals("PROMO COLA", product.saleLabel());
+    }
+
+    /**
+     * saleLabel falls back to the commercial name when the checkout label is
+     * null (null arm).
+     */
+    @Test
+    void saleLabelFallsBackToNameWhenNull() {
+        Product product = new Product();
+        product.name = "Coca Cola";
+        product.checkoutLabel = null;
+        Assertions.assertEquals("Coca Cola", product.saleLabel());
+    }
+
+    /**
+     * saleLabel falls back to the commercial name when the checkout label is
+     * blank (blank arm).
+     */
+    @Test
+    void saleLabelFallsBackToNameWhenBlank() {
+        Product product = new Product();
+        product.name = "Coca Cola";
+        product.checkoutLabel = "   ";
+        Assertions.assertEquals("Coca Cola", product.saleLabel());
+    }
+
+    /**
      * findActiveByPlu delegates to the active-PLU finder and returns its
      * first result.
      */
@@ -182,7 +251,7 @@ class ProductTest {
         product.name = "Melon";
         product.productType = ProductType.WEIGHT;
         int expected = Objects.hash("3760001", "", "Melon", null, null, null, null,
-                ProductType.WEIGHT, null, true, false);
+                ProductType.WEIGHT, null, true, false, null, null);
         Assertions.assertEquals(expected, product.getChecksum());
     }
 
@@ -204,9 +273,11 @@ class ProductTest {
         product.unitName = "pcs";
         product.active = false;
         product.forbiddenToSale = true;
+        product.checkoutLabel = "MELON JAUNE";
+        product.internalCode = "INT-42";
         int expected = Objects.hash("3760001", "1234", "Melon", "Sweet", "Farm",
                 new BigDecimal("1.500"), new BigDecimal("0.750"), ProductType.UNIT,
-                "pcs", false, true);
+                "pcs", false, true, "MELON JAUNE", "INT-42");
         Assertions.assertEquals(expected, product.getChecksum());
     }
 }

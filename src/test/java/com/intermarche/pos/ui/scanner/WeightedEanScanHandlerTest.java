@@ -358,4 +358,92 @@ class WeightedEanScanHandlerTest {
         verify(ticket).setError("POIDS INVALIDE");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
+
+    /**
+     * BO-02-03-11: a RECALLED weighed article is refused with the recall error,
+     * before any weighing, and adds no line.
+     */
+    @Test
+    void recalledProductRefusedAtScan() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("ARTICLE EN RETRAIT/RAPPEL");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-02-03-26/27: a VAT-EXEMPT weighed article ventilates its line at rate 0.
+     */
+    @Test
+    void vatExemptVentilatesAtZeroRate() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        Price price = newPrice("2.99", "0.055");
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            newHandler().handle(ctx);
+        }
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(new BigDecimal("2.99")), eq(new BigDecimal("0.500")), eq(BigDecimal.ZERO));
+    }
+
+    /**
+     * BO-02-03-02: the weighed line uses the checkout label when set.
+     */
+    @Test
+    void checkoutLabelUsedAsLineLabel() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.checkoutLabel = "Banane Bio";
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE BIO"),
+                eq(BigDecimal.ZERO), eq(new BigDecimal("0.500")), eq(DEFAULT_VAT));
+    }
+
+    /**
+     * BO-02-03-09: a DISCOUNT-FORBIDDEN weighed article flags the freshly added
+     * line so later price gestures refuse it.
+     */
+    @Test
+    void discountForbiddenIsSnapshotOntoTheLine() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ticket.items.get(0).discountForbidden);
+    }
 }

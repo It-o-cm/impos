@@ -77,6 +77,10 @@ public class ProductCsvResource extends ImporterCsvResource {
     static final String COL_ICON = "ICON";
     /** Header name of the OPTIONAL forbidden-to-sale flag. */
     static final String COL_FORBIDDEN_TO_SALE = "FORBIDDEN_TO_SALE";
+    /** Header name of the OPTIONAL checkout label (libellé encaissement, BO-02-03-02). */
+    static final String COL_CHECKOUT_LABEL = "CHECKOUT_LABEL";
+    /** Header name of the OPTIONAL internal code (code interne, BO-02-03-04). */
+    static final String COL_INTERNAL_CODE = "INTERNAL_CODE";
 
     /** The columns this importer cannot work without. */
     private static final List<String> REQUIRED_COLUMNS = List.of(
@@ -213,6 +217,12 @@ public class ProductCsvResource extends ImporterCsvResource {
         if (data.has(COL_FORBIDDEN_TO_SALE)) {
             product.forbiddenToSale = safeParseBoolean(data, COL_FORBIDDEN_TO_SALE);
         }
+        if (data.has(COL_CHECKOUT_LABEL)) {
+            product.checkoutLabel = safeGet(data, COL_CHECKOUT_LABEL);
+        }
+        if (data.has(COL_INTERNAL_CODE)) {
+            product.internalCode = safeGet(data, COL_INTERNAL_CODE);
+        }
     }
 
     /**
@@ -232,6 +242,10 @@ public class ProductCsvResource extends ImporterCsvResource {
         String plu = data.has(COL_PLU) ? safeGet(data, COL_PLU) : existing.plu;
         boolean forbidden = data.has(COL_FORBIDDEN_TO_SALE)
                 ? safeParseBoolean(data, COL_FORBIDDEN_TO_SALE) : existing.forbiddenToSale;
+        String checkoutLabel = data.has(COL_CHECKOUT_LABEL)
+                ? safeGet(data, COL_CHECKOUT_LABEL) : existing.checkoutLabel;
+        String internalCode = data.has(COL_INTERNAL_CODE)
+                ? safeGet(data, COL_INTERNAL_CODE) : existing.internalCode;
         return Objects.hash(
                 data.code,                                      // ean
                 plu == null ? "" : plu,                         // plu
@@ -243,7 +257,9 @@ public class ProductCsvResource extends ImporterCsvResource {
                 safeParseProductType(data, COL_PRODUCT_TYPE),   // productType
                 safeGet(data, COL_UNIT_NAME),                   // unitName
                 safeParseBoolean(data, COL_ACTIVE),             // active
-                forbidden                                       // forbiddenToSale
+                forbidden,                                      // forbiddenToSale
+                checkoutLabel,                                  // checkoutLabel
+                internalCode                                    // internalCode
         );
     }
 

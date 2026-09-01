@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.scanner;
 
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.attribute.ProductAttributes;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.annotation.Priority;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -66,6 +67,13 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                     return;
                 }
 
+                // BO-02-03-11: a recalled article is refused at scan, no line.
+                if (ProductAttributes.recall(p)) {
+                    ctx.state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                    ctx.handled = true;
+                    return;
+                }
+
                 // Age gate: a restricted product parks the scan behind the
                 // ID-check prompt; the confirmation replays this very code
                 // through the chain (phase: age control).
@@ -77,10 +85,25 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 Price price = Price.findCurrentPrice(p.id);
                 BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
                 BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+                // BO-02-03-26/27: VAT-exempt article ventilated at rate 0; the
+                // amount due is unchanged, only its VAT breakdown.
+                if (ProductAttributes.vatExempt(p)) {
+                    vatRate = BigDecimal.ZERO;
+                }
 
-                ctx.state.ticket.addItem(ctx.code, null, p.name.toUpperCase(), finalPrice, BigDecimal.ONE, vatRate);
-                if (p.giftCardAmount != null) {
-                    ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).moneyProduct = true;
+                // Line label is the checkout label when set, else the name.
+                ctx.state.ticket.addItem(ctx.code, null, p.saleLabel().toUpperCase(), finalPrice, BigDecimal.ONE, vatRate);
+                // Only reach into the line when there is a snapshot to carry —
+                // a plain product leaves the freshly added line untouched.
+                if (p.giftCardAmount != null || ProductAttributes.discountForbidden(p)) {
+                    com.intermarche.pos.ui.ticket.TicketState.TicketItem line =
+                            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);
+                    if (p.giftCardAmount != null) {
+                        line.moneyProduct = true;
+                    }
+                    if (ProductAttributes.discountForbidden(p)) {
+                        line.discountForbidden = true;
+                    }
                 }
 
                 ctx.handled = true;

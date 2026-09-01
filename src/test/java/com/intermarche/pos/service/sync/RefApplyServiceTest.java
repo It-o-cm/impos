@@ -150,10 +150,16 @@ class RefApplyServiceTest {
         insert.unitName = "kg";
         insert.active = true;
         insert.forbiddenToSale = false;
+        insert.ageRestriction = 18;
+        insert.checkoutLabel = "POMME";
+        insert.internalCode = "INT-1";
+        insert.attributes.put("VAT_EXEMPT", "true");
         RefPayloads.ProductDto update = new RefPayloads.ProductDto();
         update.ean = "E2";
         update.productType = null;
         update.active = true;
+        // Null attributes on the update DTO covers the null-map arm of applyProducts.
+        update.attributes = null;
         Product existing = mock(Product.class);
         Product seen = mock(Product.class);
         seen.ean = "E1";
@@ -176,8 +182,13 @@ class RefApplyServiceTest {
             assertEquals("E1", inserted.ean);
             assertEquals(ProductType.WEIGHT, inserted.productType);
             assertEquals("Pomme", inserted.name);
+            assertEquals(18, inserted.ageRestriction);
+            assertEquals("POMME", inserted.checkoutLabel);
+            assertEquals("INT-1", inserted.internalCode);
+            assertEquals("true", inserted.attributes.get("VAT_EXEMPT"));
             verify(inserted, times(1)).persist();
             assertNull(existing.productType);
+            assertTrue(existing.attributes.isEmpty());
             verify(existing, times(1)).persist();
             assertTrue(seen.active);
             verify(seen, never()).persist();

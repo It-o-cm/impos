@@ -1,0 +1,60 @@
+{!
+ ! Back-office ARTICLE list (BO-02-03-*): the referential articles, ordered by
+ ! EAN. Each row opens the fiche edit form. Creation stays on the integration
+ ! surfaces (CSV import, GraphQL); this screen edits existing fiches. POST ->
+ ! 303 -> notice, the admin cycle.
+!}
+{#include admin-layout}
+
+{#title}Articles{/title}
+
+{#body}
+<div class="page-head">
+    <div>
+        <h1>Articles</h1>
+        <p class="page-sub">Fiches articles du référentiel et leurs attributs de caisse.</p>
+    </div>
+</div>
+
+{#if notice}
+<div class="alert {#if noticeOk}alert-ok{#else}alert-error{/if}" role="status">{notice}</div>
+{/if}
+
+<div class="card">
+    {#if products.isEmpty()}
+    <div class="empty-state">
+        <p>Aucun article dans le référentiel.</p>
+        <p class="empty-hint">Intégrez les articles via l'import CSV ou le GraphQL avant de les administrer.</p>
+    </div>
+    {#else}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>EAN</th>
+                <th>Libellé commercial</th>
+                <th>Libellé encaissement</th>
+                <th>Code interne</th>
+                <th>Type</th>
+                <th class="col-actions">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#for product in products}
+            <tr>
+                <td><a class="link-strong" href="/admin/articles/edit?id={product.id}">{product.ean}</a></td>
+                <td>{product.name}</td>
+                <td class="col-muted">{product.checkoutLabel ?: '—'}</td>
+                <td class="col-muted">{product.internalCode ?: '—'}</td>
+                <td class="col-muted">{product.productType ?: '—'}</td>
+                <td class="col-actions">
+                    <a class="btn btn-small btn-ghost" href="/admin/articles/edit?id={product.id}">Modifier</a>
+                </td>
+            </tr>
+            {/for}
+        </tbody>
+    </table>
+    {/if}
+</div>
+{/body}
+
+{#footer}Une fiche modifiée ici change le comportement de la caisse au tirage suivant.{/footer}

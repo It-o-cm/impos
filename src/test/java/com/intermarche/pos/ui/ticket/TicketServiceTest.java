@@ -369,6 +369,34 @@ class TicketServiceTest {
     }
 
     /**
+     * BO-02-03-09: {@code applyRemise} refuses a discount-forbidden line — the
+     * line is untouched, exactly as for a money product.
+     */
+    @Test
+    void applyRemiseRefusesDiscountForbiddenLine() {
+        TicketState.TicketItem item = line("X", new BigDecimal("10"), BigDecimal.ONE);
+        item.discountForbidden = true;
+        service.applyRemise(item, new BigDecimal("1.00"));
+        assertNull(item.modifierType);
+        assertEquals(new BigDecimal("10"), item.unitPrice);
+        verifyNoInteractions(hardwareService);
+    }
+
+    /**
+     * BO-02-03-09: {@code applyDiscount} refuses a discount-forbidden line — the
+     * unit price is untouched.
+     */
+    @Test
+    void applyDiscountRefusesDiscountForbiddenLine() {
+        TicketState.TicketItem item = line("X", new BigDecimal("10"), BigDecimal.ONE);
+        item.discountForbidden = true;
+        service.applyDiscount(item, new BigDecimal("20"));
+        assertNull(item.modifierType);
+        assertEquals(new BigDecimal("10"), item.unitPrice);
+        verifyNoInteractions(hardwareService);
+    }
+
+    /**
      * {@code applyRemise} with a zero original price (first orig operand),
      * a non-negative resulting total and a non-zero quantity divides the new
      * total back to a unit price.
@@ -650,6 +678,9 @@ class TicketServiceTest {
             PanacheQuery<Product> query = mock(PanacheQuery.class);
             when(query.firstResult()).thenReturn(null);
             panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            // BO-02-03-04: the EAN miss falls back to the internal-code lookup,
+            // which also misses here — both empty yields PRODUIT INTROUVABLE.
+            panache.when(() -> Product.find("internalCode = ?1 and active = true", "123")).thenReturn(query);
             service.addItemByEan(state, "123", BigDecimal.ONE);
         }
         assertEquals("PRODUIT INTROUVABLE", state.ticket.transientError);
@@ -725,6 +756,99 @@ class TicketServiceTest {
         TicketState.TicketItem added = state.ticket.items.get(0);
         assertEquals(0, BigDecimal.ZERO.compareTo(added.unitPrice));
         assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
+    }
+
+    /**
+     * BO-02-03-04: {@code addItemByEan} falls back to the internal-code lookup
+     * when the EAN misses, and rings the line under the product's own EAN.
+     */
+    @Test
+    void addItemByEanResolvesByInternalCodeWhenEanMisses() {
+        openSession();
+        Product p = product("MILK", "3760001", null);
+        p.internalCode = "INT-42";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> miss = mock(PanacheQuery.class);
+            when(miss.firstResult()).thenReturn(null);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "INT-42")).thenReturn(miss);
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> hit = mock(PanacheQuery.class);
+            when(hit.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("internalCode = ?1 and active = true", "INT-42")).thenReturn(hit);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "INT-42", BigDecimal.ONE);
+        }
+        assertEquals(1, state.ticket.items.size());
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals("MILK", added.label);
+        assertEquals("3760001", added.ean);
+    }
+
+    /**
+     * BO-02-03-26/27: {@code addItemByEan} on a VAT-exempt article rings the
+     * line at VAT rate 0 while keeping the catalog price (amount due unchanged).
+     */
+    @Test
+    void addItemByEanVatExemptVentilatesAtZero() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        Price pr = price("1.50", "0.055");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(pr);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("1.50").compareTo(added.unitPrice));
+        assertEquals(0, BigDecimal.ZERO.compareTo(added.vatRate));
+    }
+
+    /**
+     * BO-02-03-11: {@code addItemByEan} refuses a recalled article with the
+     * recall error and adds no line.
+     */
+    @Test
+    void addItemByEanRefusesRecalledArticle() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("ARTICLE EN RETRAIT/RAPPEL", state.ticket.transientError);
+    }
+
+    /**
+     * BO-02-03-09: {@code addItemByEan} snapshots the discount ban onto the
+     * added line so later price gestures refuse it.
+     */
+    @Test
+    void addItemByEanSnapshotsDiscountForbidden() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertTrue(state.ticket.items.get(0).discountForbidden);
     }
 
     // --- addItemByPlu ---

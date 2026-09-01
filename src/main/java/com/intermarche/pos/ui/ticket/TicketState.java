@@ -506,6 +506,17 @@ public class TicketState implements Serializable {
          */
         public boolean priceEmbedded = false;
 
+        /**
+         * True when the article sold on this line forbids discounts and rebates
+         * (BO-02-03-09): the line price gestures (remise, discount) refuse to
+         * touch it, exactly as they refuse a {@link #moneyProduct}. Snapshotted
+         * from the product at add time. In-memory guard only — like the
+         * scanned-sticker set it is not restored by a draft recovery: the ban is
+         * a UI safeguard, not a fiscal fact, and no discount can have been
+         * applied to a banned line for the recovery to have to preserve.
+         */
+        public boolean discountForbidden = false;
+
         public BigDecimal getTotalPrice() {
             BigDecimal __t = valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
             if (globalDiscountShare != null) {

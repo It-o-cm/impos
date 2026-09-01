@@ -1,6 +1,8 @@
 package com.intermarche.pos.service.sync;
 
 import java.math.BigDecimal;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Referential snapshot payloads pulled by the registers from the store node
@@ -59,6 +61,18 @@ public final class RefPayloads {
         public boolean active;
         /** Whether the product is forbidden to sale. */
         public boolean forbiddenToSale;
+        /** The minimum age required to sell the article, or null (BO-02-03-08). */
+        public Integer ageRestriction;
+        /** The checkout label, or null (BO-02-03-02). */
+        public String checkoutLabel;
+        /** The internal code, or null (BO-02-03-04). */
+        public String internalCode;
+        /**
+         * The declared attributes, code&nbsp;→&nbsp;text value (BO-02-03-18).
+         * A {@link TreeMap} so JSON and the canonical fingerprint are ordered
+         * by key; never null (empty when the article carries no attribute).
+         */
+        public Map<String, String> attributes = new TreeMap<>();
     }
 
     /**

@@ -25,6 +25,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -371,6 +372,71 @@ class ProductCsvResourceTest {
         java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
         for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
         return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
+    }
+
+    /**
+     * Header including the optional CHECKOUT_LABEL and INTERNAL_CODE columns
+     * appended after the canonical nine.
+     */
+    private static final String[] EXTRAS_HEADER = {"EAN", "NAME", "DESCRIPTION", "BRAND",
+            "REFERENCE_WEIGHT", "REFERENCE_VOLUME", "PRODUCT_TYPE", "UNIT_NAME", "ACTIVE",
+            "CHECKOUT_LABEL", "INTERNAL_CODE"};
+
+    /**
+     * Builds a header-bound row declaring the optional CHECKOUT_LABEL and
+     * INTERNAL_CODE columns.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData lineWithExtras(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < EXTRAS_HEADER.length; i++) header.put(EXTRAS_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, EXTRAS_HEADER[0]);
+    }
+
+    /**
+     * BO-02-03-02/04: {@code feedProduct} applies the optional CHECKOUT_LABEL and
+     * INTERNAL_CODE columns when the header declares them (the {@code has} true
+     * arms).
+     */
+    @Test
+    void processLineLogicAppliesCheckoutAndInternalCodeColumns() {
+        ProductCsvResource resource = new ProductCsvResource();
+        String[] cells = {"333", "Melon", "", "", "", "", "", "", "true", "MELON JAUNE", "INT-42"};
+        ImporterCsvResource.LineData data = lineWithExtras(1, cells);
+        Map<String, Object> context = new HashMap<>();
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+            verify(em).persist(captor.capture());
+            Product persisted = captor.getValue();
+            assertEquals("MELON JAUNE", persisted.checkoutLabel);
+            assertEquals("INT-42", persisted.internalCode);
+        }
+    }
+
+    /**
+     * BO-02-03-02/04: {@code computeIncomingChecksum} reads CHECKOUT_LABEL and
+     * INTERNAL_CODE from the CSV when the header declares them (the {@code has}
+     * true arms), so a change in either shifts the checksum.
+     */
+    @Test
+    void incomingChecksumReadsCheckoutAndInternalCodeFromCsv() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product existing = new Product();
+        String[] plain = {"333", "Melon", "", "", "", "", "", "", "true", "", ""};
+        String[] withLabel = {"333", "Melon", "", "", "", "", "", "", "true", "MELON JAUNE", ""};
+        String[] withCode = {"333", "Melon", "", "", "", "", "", "", "true", "", "INT-42"};
+        int base = incomingChecksum(resource, lineWithExtras(1, plain), existing);
+        int labelled = incomingChecksum(resource, lineWithExtras(1, withLabel), existing);
+        int coded = incomingChecksum(resource, lineWithExtras(1, withCode), existing);
+        assertNotEquals(base, labelled);
+        assertNotEquals(base, coded);
     }
 
 }

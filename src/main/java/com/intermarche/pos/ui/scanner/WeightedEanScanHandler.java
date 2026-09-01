@@ -83,9 +83,19 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             ctx.handled = true;
             return;
         }
+        // BO-02-03-11: a recalled article is refused at scan, no line.
+        if (com.intermarche.pos.domain.attribute.ProductAttributes.recall(product)) {
+            ctx.state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+            ctx.handled = true;
+            return;
+        }
 
         Price price = Price.findCurrentPrice(product.id);
         BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+        // BO-02-03-26/27: VAT-exempt article ventilated at rate 0.
+        if (com.intermarche.pos.domain.attribute.ProductAttributes.vatExempt(product)) {
+            vatRate = BigDecimal.ZERO;
+        }
 
         if (priceEmbedded) {
             // One physical sticker = one line: refuse the accidental double scan
@@ -101,7 +111,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // sticker-code guard above (one physical sticker = one scan), not
             // by stripping the identity.
             BigDecimal total = BigDecimal.valueOf(embeddedValue, 2);
-            ctx.state.ticket.addItem(product.ean, articleCode, product.name.toUpperCase(),
+            ctx.state.ticket.addItem(product.ean, articleCode, product.saleLabel().toUpperCase(),
                     total, BigDecimal.ONE, vatRate);
             // The sticker price is the line's own truth: flag it so the
             // valuation request carries the surcharge trio and the engine
@@ -119,8 +129,12 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
                 return;
             }
             BigDecimal unitPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-            ctx.state.ticket.addItem(product.ean, articleCode, product.name.toUpperCase(),
+            ctx.state.ticket.addItem(product.ean, articleCode, product.saleLabel().toUpperCase(),
                     unitPrice, quantityKg, vatRate);
+        }
+        // BO-02-03-09: snapshot the discount ban onto the freshly added line.
+        if (com.intermarche.pos.domain.attribute.ProductAttributes.discountForbidden(product)) {
+            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).discountForbidden = true;
         }
         ctx.handled = true;
     }

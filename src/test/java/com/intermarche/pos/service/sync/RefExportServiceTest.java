@@ -220,12 +220,18 @@ class RefExportServiceTest {
         typed.unitName = "kg";
         typed.active = true;
         typed.forbiddenToSale = false;
+        typed.ageRestriction = 18;
+        typed.checkoutLabel = "CL";
+        typed.internalCode = "IC2";
+        typed.attributes = new java.util.HashMap<>(java.util.Map.of("BULKY", "true"));
         Product untyped = mock(Product.class);
         untyped.ean = "E2";
         untyped.name = "Poire";
         untyped.productType = null;
         untyped.active = false;
         untyped.forbiddenToSale = true;
+        // Null attribute map covers the null arm of toDto's attributes ternary.
+        untyped.attributes = null;
         PanacheQuery<Product> query = singlePage(0, 10, List.of(typed, untyped));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Product.find("order by ean")).thenReturn(query);
@@ -238,10 +244,15 @@ class RefExportServiceTest {
             assertEquals(new BigDecimal("1.000"), first.referenceWeight);
             assertEquals("WEIGHT", first.productType);
             assertTrue(first.active);
+            assertEquals(18, first.ageRestriction);
+            assertEquals("CL", first.checkoutLabel);
+            assertEquals("IC2", first.internalCode);
+            assertEquals("true", first.attributes.get("BULKY"));
             RefPayloads.ProductDto second = (RefPayloads.ProductDto) result.get(1);
             assertEquals("E2", second.ean);
             assertNull(second.productType);
             assertTrue(second.forbiddenToSale);
+            assertTrue(second.attributes.isEmpty());
         }
     }
 
@@ -576,8 +587,8 @@ class RefExportServiceTest {
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
             mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
             Map<String, String> fingerprints = service.getFingerprints();
-            assertEquals(sha256hex("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT|kg|true|false"
-                    + "E2||Poire||||||||false|true"), fingerprints.get("PRODUCTS"));
+            assertEquals(sha256hex("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT|kg|true|false||||"
+                    + "E2||Poire||||||||false|true||||"), fingerprints.get("PRODUCTS"));
             assertEquals(EMPTY_SHA256, fingerprints.get("FAMILIES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("PRICES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("EMPLOYEES"));
@@ -699,7 +710,17 @@ class RefExportServiceTest {
         product.unitName = null;
         product.active = true;
         product.forbiddenToSale = false;
-        assertEquals("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT||true|false",
+        product.ageRestriction = 18;
+        product.checkoutLabel = "CL";
+        product.internalCode = "INT9";
+        product.attributes.put("VAT_EXEMPT", "true");
+        product.attributes.put("BULKY", "false");
+        assertEquals("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|BULKY=false,VAT_EXEMPT=true",
+                canonical.invoke(service, product));
+        // A null attribute map renders as the empty trailing field (null arm of
+        // the canonical attributes helper).
+        product.attributes = null;
+        assertEquals("E1|100|Pomme|Desc|IC|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|",
                 canonical.invoke(service, product));
         RefPayloads.PriceDto price = new RefPayloads.PriceDto();
         price.productEan = "E1";

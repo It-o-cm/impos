@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -62,6 +64,24 @@ public class Product extends BaseEntity {
     @Column(nullable = false)
     @NotBlank(message = "Product name is mandatory")
     public String name;
+
+    /**
+     * The checkout label (libellé encaissement, BO-02-03-02): the short label
+     * printed on the ticket and shown on the sale line, distinct from the
+     * commercial {@link #name}. When null the sale surface falls back to the
+     * commercial name, so an article without a dedicated checkout label behaves
+     * exactly as before.
+     */
+    @Column(name = "checkout_label", length = 100)
+    public String checkoutLabel;
+
+    /**
+     * The internal code (code interne, BO-02-03-04): an in-store identifier a
+     * cashier can scan or key to reach the article in addition to its EAN.
+     * Unique across the referential, nullable when the article has none.
+     */
+    @Column(name = "internal_code", unique = true, length = 50)
+    public String internalCode;
 
     @Column(length = 255)
     public String description;
@@ -157,6 +177,30 @@ public class Product extends BaseEntity {
     public java.math.BigDecimal giftCardAmount;
 
     // --------------------------------------------------
+    // Declared attributes (BO-02-03-18)
+    // --------------------------------------------------
+
+    /**
+     * The declared attributes of the article, code&nbsp;→&nbsp;text value
+     * (BO-02-03-18). The map is open: any attribute code integrated from the
+     * Gestion Commerciale is stored here, which is how the "minimum 99 attributs
+     * possibles" requirement is met — the storage is unbounded and only the
+     * subset the register acts upon is declared in {@code
+     * ProductAttributeCatalog}. Read through {@code ProductAttributes}, never by
+     * poking the map directly. Values are text; the catalog carries the type.
+     * <p>
+     * This is referential data (integrated and distributed by the draw), NOT
+     * per-register local state: it lives on the store side of the frontier and
+     * flows to every register through the PRODUCTS domain.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "product_attributes",
+            joinColumns = @JoinColumn(name = "product_id"))
+    @MapKeyColumn(name = "attr_code", length = 50)
+    @Column(name = "attr_value", length = 255)
+    public Map<String, String> attributes = new HashMap<>();
+
+    // --------------------------------------------------
     // Panache Active Record Queries
     // --------------------------------------------------
 
@@ -180,6 +224,18 @@ public class Product extends BaseEntity {
             BigDecimal quantityKg = BigDecimal.valueOf(quantity);
             return quantityKg.divide(this.referenceWeight, 6, RoundingMode.HALF_UP);
         }
+    }
+
+    /**
+     * The effective sale-line label (BO-02-03-02): the checkout label when it
+     * is set and non-blank, otherwise the commercial {@link #name}. Both the
+     * scan chain and the manual-add paths route their line label through here,
+     * so an article without a dedicated checkout label reads exactly as before.
+     *
+     * @return the checkout label when present, else the commercial name
+     */
+    public String saleLabel() {
+        return (checkoutLabel != null && !checkoutLabel.isBlank()) ? checkoutLabel : name;
     }
 
     /**
@@ -224,11 +280,38 @@ public class Product extends BaseEntity {
     }
 
     /**
+     * Finds a product by its unique internal code (code interne, BO-02-03-04).
+     *
+     * @param internalCode the internal code
+     * @return the Product or null
+     */
+    public static Product findByInternalCode(String internalCode) {
+        return find("internalCode", internalCode).firstResult();
+    }
+
+    /**
+     * Finds a product by its internal code, ensuring it is globally active.
+     *
+     * @param internalCode the internal code
+     * @return the active Product or null
+     */
+    public static Product findActiveByInternalCode(String internalCode) {
+        return find("internalCode = ?1 and active = true", internalCode).firstResult();
+    }
+
+    /**
      * Calculates a checksum based on the product's key attributes.
+     * <p>
+     * The declared {@link #attributes} map is deliberately excluded (like
+     * {@code icon}): attribute changes are administered directly (admin screen,
+     * GraphQL) and distributed by the draw, not gated by the CSV change
+     * detection. {@code checkoutLabel} and {@code internalCode} ARE included and
+     * mirrored by the CSV importer.
+     *
      * @return Checksum integer value
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(ean, plu==null? "":plu ,name, description, brand, referenceWeight, referenceVolume, productType, unitName, active, forbiddenToSale);
+        return Objects.hash(ean, plu==null? "":plu ,name, description, brand, referenceWeight, referenceVolume, productType, unitName, active, forbiddenToSale, checkoutLabel, internalCode);
     }
 }

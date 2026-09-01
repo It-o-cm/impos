@@ -284,7 +284,8 @@ public class RefExportService {
         if (row instanceof RefPayloads.ProductDto p) {
             return String.join("|", n(p.ean), n(p.plu), n(p.name), n(p.description), n(p.icon),
                     n(p.brand), n(p.referenceWeight), n(p.referenceVolume), n(p.productType),
-                    n(p.unitName), String.valueOf(p.active), String.valueOf(p.forbiddenToSale));
+                    n(p.unitName), String.valueOf(p.active), String.valueOf(p.forbiddenToSale),
+                    n(p.ageRestriction), n(p.checkoutLabel), n(p.internalCode), attributes(p.attributes));
         }
         if (row instanceof RefPayloads.PriceDto p) {
             return String.join("|", n(p.productEan), n(p.priceExcludingTax), n(p.priceIncludingTax),
@@ -335,6 +336,24 @@ public class RefExportService {
         return value != null ? value.toString() : "";
     }
 
+    /**
+     * Canonical rendering of a product's declared attributes: entries sorted by
+     * code and joined {@code code=value}, so the fingerprint is stable whatever
+     * the map's iteration order. An empty or null map renders as the empty
+     * string.
+     *
+     * @param attributes the attribute map, or null
+     * @return the ordered canonical rendering
+     */
+    private String attributes(java.util.Map<String, String> attributes) {
+        if (attributes == null || attributes.isEmpty()) {
+            return "";
+        }
+        return new java.util.TreeMap<>(attributes).entrySet().stream()
+                .map(e -> e.getKey() + "=" + n(e.getValue()))
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
     // --------------------------------------------------
     // Entity to DTO mapping
     // --------------------------------------------------
@@ -373,6 +392,11 @@ public class RefExportService {
         dto.unitName = product.unitName;
         dto.active = product.active;
         dto.forbiddenToSale = product.forbiddenToSale;
+        dto.ageRestriction = product.ageRestriction;
+        dto.checkoutLabel = product.checkoutLabel;
+        dto.internalCode = product.internalCode;
+        dto.attributes = product.attributes != null
+                ? new java.util.TreeMap<>(product.attributes) : new java.util.TreeMap<>();
         return dto;
     }
 

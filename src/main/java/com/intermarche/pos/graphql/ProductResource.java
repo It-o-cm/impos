@@ -161,6 +161,8 @@ public class ProductResource implements GraphQLTrait {
             // Convert String enum to Java Enum safely
             product.productType = input.productType != null ? ProductType.valueOf(input.productType) : null;
             product.unitName = input.unitName;
+            product.checkoutLabel = input.checkoutLabel;
+            product.internalCode = input.internalCode;
             // Default 'active' to true if not specified
             product.active = input.active != null ? input.active : true;
 
@@ -229,6 +231,8 @@ public class ProductResource implements GraphQLTrait {
             if (input.referenceVolume != null) product.referenceVolume = input.referenceVolume;
             if (input.productType != null) product.productType = ProductType.valueOf(input.productType);
             if (input.unitName != null) product.unitName = input.unitName;
+            if (input.checkoutLabel != null) product.checkoutLabel = input.checkoutLabel;
+            if (input.internalCode != null) product.internalCode = input.internalCode;
             if (input.active != null) product.active = input.active;
 
             LOGGER.info("Exiting method updateProduct");
@@ -273,6 +277,8 @@ public class ProductResource implements GraphQLTrait {
         public String productType;
         public String unitName;
         public Boolean active;
+        public String checkoutLabel;
+        public String internalCode;
 
         public ProductRecord() {
         }
@@ -284,7 +290,8 @@ public class ProductResource implements GraphQLTrait {
         public String toString() {
             return "ProductRecord [ean=" + ean + ", name=" + name + ", description=" + description +
                     ", brand=" + brand + ", referenceWeight=" + referenceWeight + ", referenceVolume=" + referenceVolume +
-                    ", productType=" + productType + ", unitName=" + unitName + ", active=" + active;
+                    ", productType=" + productType + ", unitName=" + unitName + ", active=" + active +
+                    ", checkoutLabel=" + checkoutLabel + ", internalCode=" + internalCode;
         }
 
     }

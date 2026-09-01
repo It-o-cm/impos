@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.attribute.ProductAttributes;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
@@ -329,6 +330,7 @@ public class TicketService {
     public void applyRemise(TicketState.TicketItem item, BigDecimal amount) {
         if (item == null || amount == null || amount.signum() <= 0) return;
         if (item.moneyProduct) return; // money products are never discounted
+        if (item.discountForbidden) return; // BO-02-03-09: article bans discounts
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
@@ -354,6 +356,7 @@ public class TicketService {
      */
     public void applyDiscount(TicketState.TicketItem item, BigDecimal percent) {
         if (item != null && item.moneyProduct) return; // money products are never discounted
+        if (item != null && item.discountForbidden) return; // BO-02-03-09: article bans discounts
         // The line cap is administered (LC-03-02-07); 100 stays absolute.
         int lineCap = Math.min(100, posSettingsService.lineMaxDiscountPercent());
         if (item == null || percent == null || percent.signum() <= 0
@@ -425,23 +428,41 @@ public class TicketService {
         state.selectedTicketIndex = -1;
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         Product p = Product.find("ean = ?1 and active = true", ean).firstResult();
+        if (p == null) {
+            // BO-02-03-04: keying the internal code reaches the same article as
+            // its EAN would.
+            p = Product.findActiveByInternalCode(ean);
+        }
         if (p != null) {
             if (p.forbiddenToSale) {
                 state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
                 return;
             }
-            if (suspendForAgeCheck(state, p, "EAN_QTY", ean, quantity)) {
+            if (ProductAttributes.recall(p)) {
+                state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                return;
+            }
+            if (suspendForAgeCheck(state, p, "EAN_QTY", p.ean, quantity)) {
                 return;
             }
             Price price = Price.findCurrentPrice(p.id);
             BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
             BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
-            // PLU is null: unit sale
-            state.ticket.addItem(ean, null, p.name.toUpperCase(), finalPrice, quantity, vatRate);
-            if (p.giftCardAmount != null) {
-                state.ticket.items.get(state.ticket.items.size() - 1).moneyProduct = true;
+            // BO-02-03-26/27: a VAT-exempt article is ventilated at rate 0; the
+            // amount due (tax included) is unchanged, only its VAT breakdown.
+            if (ProductAttributes.vatExempt(p)) {
+                vatRate = BigDecimal.ZERO;
             }
-            displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
+            // PLU is null: unit sale. Line label is the checkout label when set.
+            state.ticket.addItem(p.ean, null, p.saleLabel().toUpperCase(), finalPrice, quantity, vatRate);
+            TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
+            if (p.giftCardAmount != null) {
+                line.moneyProduct = true;
+            }
+            if (ProductAttributes.discountForbidden(p)) {
+                line.discountForbidden = true;
+            }
+            displayItem(line);
             syncAndRevalue(state);
         } else {
             state.ticket.setError("PRODUIT INTROUVABLE");
@@ -464,6 +485,10 @@ public class TicketService {
                 state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
                 return;
             }
+            if (ProductAttributes.recall(p)) {
+                state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                return;
+            }
             // Age gate BEFORE weighing: the scale read is consumed on the
             // replay only, so a confirmed check weighs exactly once.
             if (suspendForAgeCheck(state, p, "PLU", pluCode, null)) {
@@ -477,12 +502,21 @@ public class TicketService {
             Price price = Price.findCurrentPrice(p.id);
             BigDecimal unitPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
             BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+            // BO-02-03-26/27: a VAT-exempt weighed article ventilates at rate 0.
+            if (ProductAttributes.vatExempt(p)) {
+                vatRate = BigDecimal.ZERO;
+            }
             BigDecimal quantityKg = BigDecimal.valueOf(weight).setScale(3, RoundingMode.HALF_UP);
 
-            // Real PLU code carried by the line; EAN left null
-            state.ticket.addItem(p.ean, pluCode, p.name.toUpperCase(), unitPrice, quantityKg, vatRate);
+            // Real PLU code carried by the line; EAN left null. Checkout label
+            // when set, else the commercial name.
+            state.ticket.addItem(p.ean, pluCode, p.saleLabel().toUpperCase(), unitPrice, quantityKg, vatRate);
+            TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
+            if (ProductAttributes.discountForbidden(p)) {
+                line.discountForbidden = true;
+            }
 
-            displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
+            displayItem(line);
             syncAndRevalue(state);
         } else {
             state.ticket.setError("PLU INTROUVABLE");

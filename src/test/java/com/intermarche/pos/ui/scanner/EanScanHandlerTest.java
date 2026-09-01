@@ -409,4 +409,96 @@ class EanScanHandlerTest {
         assertFalse(ctx.handled);
         verify(ticket, never()).setError("CODE EAN INVALIDE");
     }
+
+    /**
+     * BO-02-03-11: a RECALLED product is refused at scan with the recall error,
+     * before the age gate and without a line — the recall behaves exactly like
+     * forbidden-to-sale.
+     */
+    @Test
+    void recalledProductRefusedAtScan() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("ARTICLE EN RETRAIT/RAPPEL");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+        verify(handler.ticketService, never())
+                .suspendForAgeCheck(any(), any(), any(), any(), any());
+    }
+
+    /**
+     * BO-02-03-26/27: a VAT-EXEMPT product overrides the catalog VAT rate to 0
+     * on the line, while the price (the amount due) is unchanged — invariance of
+     * the amount due, only the VAT breakdown differs.
+     */
+    @Test
+    void vatExemptProductVentilatesAtZeroRate() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("1.5000");
+        price.vatRate = new BigDecimal("0.0550");
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            newHandler().handle(ctx);
+        }
+        verify(ticket).addItem(eq(CODE), isNull(), eq("COCA COLA"),
+                eq(new BigDecimal("1.5000")), eq(BigDecimal.ONE), eq(BigDecimal.ZERO));
+    }
+
+    /**
+     * BO-02-03-02: the line label is the checkout label when the article carries
+     * one, upper-cased, instead of the commercial name.
+     */
+    @Test
+    void checkoutLabelIsUsedAsLineLabel() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.checkoutLabel = "Promo Cola";
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        verify(ticket).addItem(eq(CODE), isNull(), eq("PROMO COLA"),
+                eq(BigDecimal.ZERO), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
+    }
+
+    /**
+     * BO-02-03-09: a DISCOUNT-FORBIDDEN product flags the freshly added line so
+     * the price gestures later refuse it — the snapshot rides on the line.
+     */
+    @Test
+    void discountForbiddenIsSnapshotOntoTheLine() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(added.discountForbidden);
+    }
 }

@@ -91,6 +91,11 @@ public class RefApplyService {
             product.unitName = dto.unitName;
             product.active = dto.active;
             product.forbiddenToSale = dto.forbiddenToSale;
+            product.ageRestriction = dto.ageRestriction;
+            product.checkoutLabel = dto.checkoutLabel;
+            product.internalCode = dto.internalCode;
+            product.attributes = dto.attributes != null
+                    ? new java.util.HashMap<>(dto.attributes) : new java.util.HashMap<>();
             product.persist();
             seen.add(dto.ean);
         }
