@@ -162,4 +162,86 @@ class ScannerDiscoveryTest {
                 new File(root, "dev"), PATTERNS).discover();
         assertTrue(found.isEmpty());
     }
+
+    /**
+     * {@code usbKey} of a blank (non-null) phys is null — covers the
+     * {@code phys.isBlank()} true leg of the {@code phys == null || phys.isBlank()}
+     * guard, the leg the non-null non-blank cases leave uncovered.
+     */
+    @Test
+    void usbKeyOfBlankPhysIsNull() {
+        assertEquals(null, ScannerDiscovery.usbKey("   "));
+    }
+
+    /**
+     * An evdev scanner whose {@code phys} file is absent is still discovered on
+     * the EVDEV channel but claims no USB key — covers the {@code key == null}
+     * (false) leg of the evdev USB-key guard, since {@code read} of the missing
+     * phys returns null and {@code usbKey(null)} is null.
+     *
+     * @param root a temporary directory
+     * @throws Exception on file-creation failure
+     */
+    @Test
+    void evdevScannerWithoutPhysIsKeptWithNoUsbKey(@TempDir File root) throws Exception {
+        File input = new File(root, "input");
+        File hidraw = new File(root, "hidraw");
+        File dev = new File(root, "dev");
+        dev.mkdirs();
+        File deviceDir = new File(input, "event3/device");
+        deviceDir.mkdirs();
+        Files.writeString(new File(deviceDir, "name").toPath(), "Zebra DS2208 Scanner\n");
+        List<ScannerDiscovery.DiscoveredDevice> found =
+                new ScannerDiscovery(input, hidraw, dev, PATTERNS).discover();
+        assertEquals(1, found.size());
+        assertEquals(ScannerDiscovery.Channel.EVDEV, found.get(0).channel());
+        assertTrue(found.get(0).path().endsWith("/event3"));
+    }
+
+    /**
+     * A hidraw scanner whose uevent carries no {@code HID_PHYS} line is kept —
+     * covers the {@code key == null} (false) short-circuit leg of the hidraw
+     * dedup guard, and the loop-exhaustion (key-not-found) leg of the uevent
+     * field scan, since the {@code HID_PHYS} lookup walks every line to its end.
+     *
+     * @param root a temporary directory
+     * @throws Exception on file-creation failure
+     */
+    @Test
+    void hidrawScannerWithoutPhysIsKept(@TempDir File root) throws Exception {
+        File input = new File(root, "input");
+        File hidraw = new File(root, "hidraw");
+        File dev = new File(root, "dev");
+        dev.mkdirs();
+        File deviceDir = new File(hidraw, "hidraw2/device");
+        deviceDir.mkdirs();
+        Files.writeString(new File(deviceDir, "uevent").toPath(),
+                "HID_ID=0003:000005E0:00000890\nHID_NAME=Datalogic Handheld Scanner\n");
+        List<ScannerDiscovery.DiscoveredDevice> found =
+                new ScannerDiscovery(input, hidraw, dev, PATTERNS).discover();
+        assertEquals(1, found.size());
+        assertEquals(ScannerDiscovery.Channel.HIDRAW, found.get(0).channel());
+        assertTrue(found.get(0).path().endsWith("/hidraw2"));
+    }
+
+    /**
+     * A hidraw node whose {@code uevent} file is absent is ignored — covers the
+     * {@code content == null} (true) leg of the uevent field reader, since
+     * {@code read} of the missing file returns null and the name resolves to
+     * null, which does not match.
+     *
+     * @param root a temporary directory
+     * @throws Exception on file-creation failure
+     */
+    @Test
+    void hidrawNodeWithoutUeventIsIgnored(@TempDir File root) throws Exception {
+        File input = new File(root, "input");
+        File hidraw = new File(root, "hidraw");
+        File dev = new File(root, "dev");
+        dev.mkdirs();
+        new File(hidraw, "hidraw9/device").mkdirs();
+        List<ScannerDiscovery.DiscoveredDevice> found =
+                new ScannerDiscovery(input, hidraw, dev, PATTERNS).discover();
+        assertTrue(found.isEmpty());
+    }
 }
