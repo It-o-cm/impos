@@ -13,6 +13,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -182,6 +183,75 @@ class ProductSearchResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).addItemByEan(resource.state, "EAN1", BigDecimal.ONE);
+    }
+
+    /**
+     * {@code searchPage(query, page)} with a non-null page number (page ternary
+     * non-null arm) over a result set that spans three pages clamps the request
+     * to a middle page: {@code current} is neither the first nor the last, so
+     * {@code hasPrev} takes the {@code current > 1} true arm and {@code hasNext}
+     * takes the {@code current < pageCount} true arm, and the pager exposes both
+     * neighbours.
+     */
+    @Test
+    void searchPageWithMiddlePageEnablesBothPagerArms() {
+        ProductSearchResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        List<Product> found = new ArrayList<>();
+        for (int i = 0; i < 17; i++) {
+            Product product = mock(Product.class);
+            product.ean = "E" + i;
+            product.name = "P" + i;
+            product.id = (long) i;
+            found.add(product);
+        }
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Product> query = mock(PanacheQuery.class);
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Product> paged = mock(PanacheQuery.class);
+        when(query.page(0, 24)).thenReturn(paged);
+        when(paged.list()).thenReturn(found);
+        TemplateInstance instance = wireTemplate(resource);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            panache.when(() -> Product.find(QUERY, "%ab%", "ab%", "ab")).thenReturn(query);
+            assertSame(instance, resource.searchPage("ab", 2));
+        }
+        assertEquals(17, captureHits(instance).getValue().size());
+        verify(instance).data("pageCount", 3);
+        verify(instance).data("page", 2);
+        verify(instance).data("hasPrev", true);
+        verify(instance).data("hasNext", true);
+        verify(instance).data("prevPage", 1);
+        verify(instance).data("nextPage", 3);
+    }
+
+    /**
+     * {@code scanTypedCode(null)} normalizes a null code to the empty string
+     * (code ternary null arm), finds it empty (is-not-empty guard false arm),
+     * hands nothing to the scan chain and redirects home.
+     */
+    @Test
+    void scanTypedCodeWithNullCodeRedirectsWithoutScanning() {
+        ProductSearchResource resource = newResource();
+        Response response = resource.scanTypedCode(null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * {@code scanTypedCode(code)} trims a non-null code (code ternary non-null
+     * arm) and, when the trimmed code is not empty (is-not-empty guard true
+     * arm), walks the trimmed code through the scan chain and redirects home.
+     */
+    @Test
+    void scanTypedCodeWithTypedCodeRoutesThroughScan() {
+        ProductSearchResource resource = newResource();
+        Response response = resource.scanTypedCode("  3245  ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.ticketService).processScan("3245");
     }
 
     /**
