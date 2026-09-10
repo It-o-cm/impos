@@ -622,4 +622,47 @@ class HardwareServiceTest {
         verify(client).cutPaper();
         verifyNoMoreInteractions(client);
     }
+
+    /**
+     * {@code probeDevices()} reports the customer display AVAILABLE from a fresh
+     * customer-page poll alone — the line-149 ternary's true arm, taken when
+     * {@code customerScreenPresent()} is true: {@code seen > 0} true AND the
+     * freshness window not exceeded — so the line-display probe is never called.
+     */
+    @Test
+    void probeDevicesCustomerScreenPresentShortCircuitsTheDisplayProbe() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeight()).thenReturn("0,000");
+        when(client.getDrawerStatus()).thenReturn("CLOSED");
+        HardwareService service = serviceWith(client);
+        service.state.customerDisplaySeenAt = System.currentTimeMillis();
+        java.util.List<HardwareService.DeviceStatus> devices = service.probeDevices();
+        assertTrue(devices.get(2).available());
+        assertEquals("AFFICHEUR CLIENT", devices.get(2).name());
+        verify(client).getWeight();
+        verify(client).getDrawerStatus();
+        verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * {@code probeDevices()} falls back to the line-display probe when the last
+     * customer-page poll is too old — {@code customerScreenPresent()} false on
+     * the freshness compare's false arm ({@code seen > 0} true but the elapsed
+     * time exceeds the window) — so the ternary takes its probe arm and
+     * {@code setDisplay} is really called.
+     */
+    @Test
+    void probeDevicesStaleCustomerScreenFallsBackToTheDisplayProbe() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeight()).thenReturn("0,000");
+        when(client.getDrawerStatus()).thenReturn("CLOSED");
+        HardwareService service = serviceWith(client);
+        service.state.customerDisplaySeenAt = System.currentTimeMillis() - 60_000L;
+        java.util.List<HardwareService.DeviceStatus> devices = service.probeDevices();
+        assertTrue(devices.get(2).available());
+        verify(client).getWeight();
+        verify(client).getDrawerStatus();
+        verify(client).setDisplay("BONJOUR");
+        verifyNoMoreInteractions(client);
+    }
 }
