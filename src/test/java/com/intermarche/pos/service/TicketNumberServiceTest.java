@@ -1,5 +1,7 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.domain.ticket.DocumentCounter;
+import com.intermarche.pos.domain.ticket.DocumentType;
 import com.intermarche.pos.domain.ticket.TicketCounter;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -24,9 +26,10 @@ import static org.mockito.Mockito.when;
  * All Panache active-record static access ({@code TicketCounter.find}) is
  * intercepted with {@link org.mockito.Mockito#mockStatic}, and the lazy
  * creation path is intercepted with {@link org.mockito.Mockito#mockConstruction}
- * so no database or Quarkus context is needed. The single branch of the class
- * lives in {@link TicketNumberService#lockCounter(String)} (counter found vs.
- * counter created); both arms are covered.
+ * so no database or Quarkus context is needed. The two branches of the class
+ * live in {@link TicketNumberService#lockCounter(String)} and
+ * {@link TicketNumberService#lockDocumentCounter(String, DocumentType)}
+ * (counter found vs. counter created); both arms of each are covered.
  */
 class TicketNumberServiceTest {
 
@@ -55,6 +58,21 @@ class TicketNumberServiceTest {
     private PanacheQuery<TicketCounter> queryReturning(TicketCounter result) {
         @SuppressWarnings("unchecked")
         PanacheQuery<TicketCounter> query = mock(PanacheQuery.class);
+        when(query.withLock(LockModeType.PESSIMISTIC_WRITE)).thenReturn(query);
+        when(query.firstResult()).thenReturn(result);
+        return query;
+    }
+
+    /**
+     * Creates a mocked Panache query whose {@code withLock/firstResult} chain
+     * resolves to the given document counter (or {@code null} to simulate absence).
+     *
+     * @param result the document counter the query must return, possibly {@code null}
+     * @return the configured mocked query
+     */
+    private PanacheQuery<DocumentCounter> docQueryReturning(DocumentCounter result) {
+        @SuppressWarnings("unchecked")
+        PanacheQuery<DocumentCounter> query = mock(PanacheQuery.class);
         when(query.withLock(LockModeType.PESSIMISTIC_WRITE)).thenReturn(query);
         when(query.firstResult()).thenReturn(result);
         return query;
@@ -144,6 +162,84 @@ class TicketNumberServiceTest {
             TicketCounter newCounter = created.constructed().get(0);
             assertSame(newCounter, result);
             assertEquals(TERMINAL, newCounter.terminalId);
+            assertEquals(0L, newCounter.lastNumber);
+            verify(newCounter, times(1)).persist();
+        }
+    }
+
+    /**
+     * Verifies that {@code nextCustomerNumber} increments the customer sequence of
+     * the existing counter and formats it as {@code <terminal>-CLI<6 digits>}.
+     */
+    @Test
+    void nextCustomerNumberIncrementsAndFormats() {
+        TicketCounter counter = new TicketCounter();
+        counter.lastCustomerNumber = 41L;
+        PanacheQuery<TicketCounter> query = queryReturning(counter);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> TicketCounter.find("terminalId", TERMINAL)).thenReturn(query);
+            String number = newService().nextCustomerNumber();
+            assertEquals("C04-CLI000042", number);
+            assertEquals(42L, counter.lastCustomerNumber);
+        }
+    }
+
+    /**
+     * Verifies that {@code nextDocumentNumber} increments the per-type document
+     * sequence of the existing counter and formats it as
+     * {@code <terminal>-<typePrefix><6 digits>}; also covers the non-null arm of
+     * {@code lockDocumentCounter} (existing counter locked and returned, no create).
+     */
+    @Test
+    void nextDocumentNumberIncrementsAndFormats() {
+        DocumentCounter counter = new DocumentCounter();
+        counter.lastNumber = 122L;
+        PanacheQuery<DocumentCounter> query = docQueryReturning(counter);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<DocumentCounter> created = mockConstruction(DocumentCounter.class)) {
+            mocked.when(() -> DocumentCounter.find("terminalId = ?1 and documentType = ?2", TERMINAL, DocumentType.FACTURE)).thenReturn(query);
+            String number = newService().nextDocumentNumber(DocumentType.FACTURE);
+            assertEquals("C04-F000123", number);
+            assertEquals(123L, counter.lastNumber);
+            assertEquals(0, created.constructed().size());
+        }
+    }
+
+    /**
+     * Covers the non-null arm of {@code lockDocumentCounter}: an existing counter
+     * is locked and returned as-is, without any lazy creation/persist.
+     */
+    @Test
+    void lockDocumentCounterReturnsExistingCounterWithoutPersisting() {
+        DocumentCounter counter = new DocumentCounter();
+        PanacheQuery<DocumentCounter> query = docQueryReturning(counter);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<DocumentCounter> created = mockConstruction(DocumentCounter.class)) {
+            mocked.when(() -> DocumentCounter.find("terminalId = ?1 and documentType = ?2", TERMINAL, DocumentType.FACTURE)).thenReturn(query);
+            DocumentCounter result = newService().lockDocumentCounter(TERMINAL, DocumentType.FACTURE);
+            assertSame(counter, result);
+            verify(query).withLock(LockModeType.PESSIMISTIC_WRITE);
+            assertEquals(0, created.constructed().size());
+        }
+    }
+
+    /**
+     * Covers the null arm of {@code lockDocumentCounter}: when no counter exists a
+     * new one is created, seeded (terminal id, document type and zero sequence) and
+     * persisted.
+     */
+    @Test
+    void lockDocumentCounterCreatesAndPersistsCounterWhenAbsent() {
+        PanacheQuery<DocumentCounter> query = docQueryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<DocumentCounter> created = mockConstruction(DocumentCounter.class)) {
+            mocked.when(() -> DocumentCounter.find("terminalId = ?1 and documentType = ?2", TERMINAL, DocumentType.BON_LIVRAISON)).thenReturn(query);
+            DocumentCounter result = newService().lockDocumentCounter(TERMINAL, DocumentType.BON_LIVRAISON);
+            assertEquals(1, created.constructed().size());
+            DocumentCounter newCounter = created.constructed().get(0);
+            assertSame(newCounter, result);
+            assertEquals(TERMINAL, newCounter.terminalId);
+            assertEquals(DocumentType.BON_LIVRAISON, newCounter.documentType);
             assertEquals(0L, newCounter.lastNumber);
             verify(newCounter, times(1)).persist();
         }
