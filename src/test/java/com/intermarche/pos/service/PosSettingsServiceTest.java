@@ -390,6 +390,26 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code printForcedDocuments} splits the administered list, uppercasing and
+     * trimming each entry and dropping blank ones (the loop iterates then exits
+     * and {@code !isEmpty} takes both arms), and returns an empty list for a blank
+     * setting (isBlank true arm).
+     */
+    @Test
+    void printForcedDocumentsSplitsUppercasesAndDropsBlanks() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("print.forced-documents", " ticket ; ; carte ")));
+            assertEquals(List.of("TICKET", "CARTE"), new PosSettingsService().printForcedDocuments());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("print.forced-documents", "   ")));
+            assertTrue(new PosSettingsService().printForcedDocuments().isEmpty());
+        }
+    }
+
+    /**
      * Builds a service wired with an echelon engine and a node PDV number.
      *
      * @param engine the echelon engine, or null
