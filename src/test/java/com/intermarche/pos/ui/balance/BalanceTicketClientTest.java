@@ -282,6 +282,68 @@ class BalanceTicketClientTest {
     }
 
     /**
+     * A null terminal is encoded as the empty string rather than blowing up: the
+     * null arm of the terminal ternary, still reaching a served pick-up.
+     *
+     * @throws Exception if the mocked send declares it
+     */
+    @Test
+    void nullTerminalIsEncodedAsEmpty() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, SERVED_BODY)).when(http).send(any(HttpRequest.class), any());
+        BalanceTicketClient.Answer answer = client(http, true).pickUp(REFERENCE, null);
+        assertEquals(BalanceTicketClient.Outcome.SERVED, answer.outcome());
+        assertNotNull(answer.ticket());
+    }
+
+    /**
+     * A blank shared token adds no header: the false arm of the token guard, the
+     * call still going out and coming back served.
+     *
+     * @throws Exception if the mocked send declares it
+     */
+    @Test
+    void blankTokenSendsNoHeader() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, SERVED_BODY)).when(http).send(any(HttpRequest.class), any());
+        BalanceTicketClient client = client(http, true);
+        client.token = Optional.of("");
+        BalanceTicketClient.Answer answer = client.pickUp(REFERENCE, TERMINAL);
+        assertEquals(BalanceTicketClient.Outcome.SERVED, answer.outcome());
+        assertNotNull(answer.ticket());
+    }
+
+    /**
+     * A sub-200 status is a shop that did not truly serve: the first arm of the
+     * status guard ({@code statusCode < 200}), reported unreachable.
+     *
+     * @throws Exception if the mocked send declares it
+     */
+    @Test
+    void sub200StatusMeansUnreachable() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(100, "")).when(http).send(any(HttpRequest.class), any());
+        BalanceTicketClient.Answer answer = client(http, true).pickUp(REFERENCE, TERMINAL);
+        assertEquals(BalanceTicketClient.Outcome.UNREACHABLE, answer.outcome());
+        assertNull(answer.ticket());
+    }
+
+    /**
+     * A body parsing to a null ticket is a broken shop: the first arm of the
+     * usable-line guard ({@code served == null}), reported unreachable.
+     *
+     * @throws Exception if the mocked send declares it
+     */
+    @Test
+    void nullTicketMeansUnreachable() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        doReturn(resp(200, "null")).when(http).send(any(HttpRequest.class), any());
+        BalanceTicketClient.Answer answer = client(http, true).pickUp(REFERENCE, TERMINAL);
+        assertEquals(BalanceTicketClient.Outcome.UNREACHABLE, answer.outcome());
+        assertNull(answer.ticket());
+    }
+
+    /**
      * The two factories build the answers the client hands back: a served one
      * carries its ticket, a failed one never does.
      */
