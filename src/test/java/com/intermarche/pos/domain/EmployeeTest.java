@@ -18,7 +18,10 @@ import static org.mockito.Mockito.when;
  * The branching methods are {@code isCurrentlyLocked} (the {@code lockedUntil}
  * null guard combined with the {@code isAfter} check), {@code getRoles} (the
  * {@code role} null guard) and {@code verifyPassword} (the two-operand null
- * guard). {@code findLogin} and {@code findActiveLogin} resolve the Panache
+ * guard), {@code hasBackOfficeAccess} (the {@code backOfficePassword} null guard
+ * combined with the {@code isBlank} check), {@code setBackOfficePassword} (the
+ * null-vs-hash ternary) and {@code verifyBackOfficePassword} (the two-operand
+ * short-circuit guard). {@code findLogin} and {@code findActiveLogin} resolve the Panache
  * static finder, which under plain {@code mvn test} falls back to
  * {@link PanacheEntityBase}, so they are intercepted with
  * {@link org.mockito.Mockito#mockStatic}. {@code hashPassword} and the passing
@@ -245,6 +248,109 @@ class EmployeeTest {
         Employee employee = new Employee();
         employee.password = "hash";
         Assertions.assertFalse(employee.verifyPassword(null));
+    }
+
+    /**
+     * hasBackOfficeAccess returns false when no back-office password is stored
+     * (first operand false arm, short-circuit).
+     */
+    @Test
+    void hasBackOfficeAccessNullReturnsFalse() {
+        Employee employee = new Employee();
+        employee.backOfficePassword = null;
+        Assertions.assertFalse(employee.hasBackOfficeAccess());
+    }
+
+    /**
+     * hasBackOfficeAccess returns false when the stored back-office password is
+     * blank (first operand true, isBlank true so the negated second operand is
+     * false).
+     */
+    @Test
+    void hasBackOfficeAccessBlankReturnsFalse() {
+        Employee employee = new Employee();
+        employee.backOfficePassword = "   ";
+        Assertions.assertFalse(employee.hasBackOfficeAccess());
+    }
+
+    /**
+     * hasBackOfficeAccess returns true when a non-blank back-office password is
+     * stored (both operands true).
+     */
+    @Test
+    void hasBackOfficeAccessNonBlankReturnsTrue() {
+        Employee employee = new Employee();
+        employee.backOfficePassword = "hash";
+        Assertions.assertTrue(employee.hasBackOfficeAccess());
+    }
+
+    /**
+     * setBackOfficePassword withdraws access by nulling the field when given null
+     * (ternary null arm).
+     */
+    @Test
+    void setBackOfficePasswordNullWithdrawsAccess() {
+        Employee employee = new Employee();
+        employee.backOfficePassword = "existing";
+        employee.setBackOfficePassword(null);
+        Assertions.assertNull(employee.backOfficePassword);
+    }
+
+    /**
+     * setBackOfficePassword hashes a non-null clear-text password (ternary hash
+     * arm), producing a stored value distinct from the raw input yet accepted by
+     * verifyBackOfficePassword through the real BCrypt round-trip.
+     */
+    @Test
+    void setBackOfficePasswordNonNullHashesAndVerifies() {
+        Employee employee = new Employee();
+        employee.setBackOfficePassword("s3cret");
+        Assertions.assertNotEquals("s3cret", employee.backOfficePassword);
+        Assertions.assertTrue(employee.verifyBackOfficePassword("s3cret"));
+    }
+
+    /**
+     * verifyBackOfficePassword returns false when no back-office password is set
+     * (first operand true after negation, short-circuit).
+     */
+    @Test
+    void verifyBackOfficePasswordNoAccessReturnsFalse() {
+        Employee employee = new Employee();
+        employee.backOfficePassword = null;
+        Assertions.assertFalse(employee.verifyBackOfficePassword("s3cret"));
+    }
+
+    /**
+     * verifyBackOfficePassword returns false when a password exists but the raw
+     * input is null (first operand false, second operand true).
+     */
+    @Test
+    void verifyBackOfficePasswordNullRawReturnsFalse() {
+        Employee employee = new Employee();
+        employee.setBackOfficePassword("s3cret");
+        Assertions.assertFalse(employee.verifyBackOfficePassword(null));
+    }
+
+    /**
+     * verifyBackOfficePassword returns false when a non-null raw password does not
+     * match the stored hash (both guard operands false, BCrypt.checkpw false arm).
+     */
+    @Test
+    void verifyBackOfficePasswordWrongReturnsFalse() {
+        Employee employee = new Employee();
+        employee.setBackOfficePassword("s3cret");
+        Assertions.assertFalse(employee.verifyBackOfficePassword("wrong"));
+    }
+
+    /**
+     * verifyBackOfficePassword returns true when a non-null raw password matches
+     * the stored hash (both guard operands false, BCrypt.checkpw true arm).
+     */
+    @Test
+    void verifyBackOfficePasswordCorrectReturnsTrue() {
+        Employee employee = new Employee();
+        employee.setBackOfficePassword("s3cret");
+        Assertions.assertTrue(employee.verifyBackOfficePassword("s3cret"));
     }
 
     /**
