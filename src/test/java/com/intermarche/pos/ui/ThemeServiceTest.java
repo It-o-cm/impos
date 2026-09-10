@@ -2,6 +2,8 @@ package com.intermarche.pos.ui;
 
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.ui.endorsement.EndorsementService;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
 import io.quarkus.arc.InstanceHandle;
@@ -31,7 +33,10 @@ import static org.mockito.Mockito.when;
  * plain {@code version} counter. The Qute global {@link ThemeService.Globals}
  * reaches the bean through {@link Arc}, itself mocked statically. Every test is
  * fully isolated and asserts absolute expected values, covering both arms of
- * each guard and ternary (28 branches).
+ * each guard and ternary — the outer service (26 branches) and the
+ * {@link ThemeService.Globals} holder (16 branches: {@code posTheme},
+ * {@code ageCheckBirthYear}, {@code supervisorLogged} and {@code showEan},
+ * each resolved through {@link Arc}), 42 branches in all.
  */
 class ThemeServiceTest {
 
@@ -427,6 +432,193 @@ class ThemeServiceTest {
             arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
             assertEquals(java.time.LocalDate.now().getYear() - 18,
                     ThemeService.Globals.ageCheckBirthYear());
+        }
+    }
+
+    // --------------------------------------------------
+    // Globals.supervisorLogged
+    // --------------------------------------------------
+
+    /**
+     * Both beans available AND the operator supervising drives the connected
+     * shortcut: the compound {@code &&} takes its all-true arm (service
+     * available true, state available true, {@code operatorIsSupervisor} true).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void supervisorLoggedReturnsTrueWhenBothAvailableAndSupervising() {
+        PosState state = new PosState();
+        EndorsementService svc = mock(EndorsementService.class);
+        when(svc.operatorIsSupervisor(state)).thenReturn(true);
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<EndorsementService> svcHandle = mock(InstanceHandle.class);
+        when(svcHandle.isAvailable()).thenReturn(true);
+        when(svcHandle.get()).thenReturn(svc);
+        InstanceHandle<PosState> stHandle = mock(InstanceHandle.class);
+        when(stHandle.isAvailable()).thenReturn(true);
+        when(stHandle.get()).thenReturn(state);
+        when(container.instance(EndorsementService.class)).thenReturn(svcHandle);
+        when(container.instance(PosState.class)).thenReturn(stHandle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(true, ThemeService.Globals.supervisorLogged());
+        }
+    }
+
+    /**
+     * Both beans available but the operator NOT supervising takes the third
+     * condition's false arm ({@code operatorIsSupervisor} false): the modal
+     * falls back to asking a credential.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void supervisorLoggedReturnsFalseWhenNotSupervising() {
+        PosState state = new PosState();
+        EndorsementService svc = mock(EndorsementService.class);
+        when(svc.operatorIsSupervisor(state)).thenReturn(false);
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<EndorsementService> svcHandle = mock(InstanceHandle.class);
+        when(svcHandle.isAvailable()).thenReturn(true);
+        when(svcHandle.get()).thenReturn(svc);
+        InstanceHandle<PosState> stHandle = mock(InstanceHandle.class);
+        when(stHandle.isAvailable()).thenReturn(true);
+        when(stHandle.get()).thenReturn(state);
+        when(container.instance(EndorsementService.class)).thenReturn(svcHandle);
+        when(container.instance(PosState.class)).thenReturn(stHandle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(false, ThemeService.Globals.supervisorLogged());
+        }
+    }
+
+    /**
+     * An available service but an UNAVAILABLE state short-circuits on the
+     * second condition's false arm (service available true, state available
+     * false): the supervising check is never reached.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void supervisorLoggedReturnsFalseWhenStateUnavailable() {
+        EndorsementService svc = mock(EndorsementService.class);
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<EndorsementService> svcHandle = mock(InstanceHandle.class);
+        when(svcHandle.isAvailable()).thenReturn(true);
+        InstanceHandle<PosState> stHandle = mock(InstanceHandle.class);
+        when(stHandle.isAvailable()).thenReturn(false);
+        when(container.instance(EndorsementService.class)).thenReturn(svcHandle);
+        when(container.instance(PosState.class)).thenReturn(stHandle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(false, ThemeService.Globals.supervisorLogged());
+            verify(svc, never()).operatorIsSupervisor(stHandle.get());
+        }
+    }
+
+    /**
+     * An UNAVAILABLE service short-circuits on the first condition's false arm
+     * (service available false): the state availability is never consulted.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void supervisorLoggedReturnsFalseWhenServiceUnavailable() {
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<EndorsementService> svcHandle = mock(InstanceHandle.class);
+        when(svcHandle.isAvailable()).thenReturn(false);
+        InstanceHandle<PosState> stHandle = mock(InstanceHandle.class);
+        when(container.instance(EndorsementService.class)).thenReturn(svcHandle);
+        when(container.instance(PosState.class)).thenReturn(stHandle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(false, ThemeService.Globals.supervisorLogged());
+            verify(stHandle, never()).isAvailable();
+        }
+    }
+
+    /**
+     * Any resolution failure is swallowed by the catch guard (catch arm): the
+     * global answers false so the endorsement modal simply asks a credential.
+     */
+    @Test
+    void supervisorLoggedReturnsFalseWhenResolutionThrows() {
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
+            assertEquals(false, ThemeService.Globals.supervisorLogged());
+        }
+    }
+
+    // --------------------------------------------------
+    // Globals.showEan
+    // --------------------------------------------------
+
+    /**
+     * An available settings bean whose {@code showEan()} is true takes the
+     * compound {@code &&} all-true arm (bean available true, setting true): the
+     * EAN accompanies the label.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showEanReturnsTrueWhenSettingEnabled() {
+        PosSettingsService settings = mock(PosSettingsService.class);
+        when(settings.showEan()).thenReturn(true);
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosSettingsService> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(true);
+        when(handle.get()).thenReturn(settings);
+        when(container.instance(PosSettingsService.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(true, ThemeService.Globals.showEan());
+        }
+    }
+
+    /**
+     * An available settings bean whose {@code showEan()} is false takes the
+     * second condition's false arm (bean available true, setting false): the
+     * EAN is hidden.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showEanReturnsFalseWhenSettingDisabled() {
+        PosSettingsService settings = mock(PosSettingsService.class);
+        when(settings.showEan()).thenReturn(false);
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosSettingsService> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(true);
+        when(handle.get()).thenReturn(settings);
+        when(container.instance(PosSettingsService.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(false, ThemeService.Globals.showEan());
+        }
+    }
+
+    /**
+     * An UNAVAILABLE settings bean short-circuits on the first condition's
+     * false arm (bean available false): the setting is never dereferenced.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showEanReturnsFalseWhenBeanUnavailable() {
+        ArcContainer container = mock(ArcContainer.class);
+        InstanceHandle<PosSettingsService> handle = mock(InstanceHandle.class);
+        when(handle.isAvailable()).thenReturn(false);
+        when(container.instance(PosSettingsService.class)).thenReturn(handle);
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenReturn(container);
+            assertEquals(false, ThemeService.Globals.showEan());
+            verify(handle, never()).get();
+        }
+    }
+
+    /**
+     * Any resolution failure is swallowed by the catch guard (catch arm): the
+     * global answers false rather than breaking the rendering.
+     */
+    @Test
+    void showEanReturnsFalseWhenResolutionThrows() {
+        try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
+            arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
+            assertEquals(false, ThemeService.Globals.showEan());
         }
     }
 
