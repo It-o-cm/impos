@@ -1,7 +1,10 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.domain.ticket.BackupPayment;
 import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.CashPayment;
+import com.intermarche.pos.domain.ticket.CreditPayment;
+import com.intermarche.pos.domain.ticket.ForeignCurrencyPayment;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
@@ -508,6 +511,55 @@ class TicketRecoveryServiceTest {
 
         assertNull(service.state.ticket.globalDiscountType);
         assertNull(service.state.ticket.globalDiscountValue);
+    }
+
+    /**
+     * Covers the three remaining type arms of {@code restorePayments}: the
+     * backup (SECOURS), foreign-currency (DEVISE) and credit (CREDIT) branches.
+     * Each dedicated instrument is rebuilt through its own PaymentState entry
+     * with the fields the receipt needs — the backup keeps its manual flag,
+     * scheme and transaction, the currency keeps its code, foreign amount and
+     * rate, and the credit keeps its debtor account. The line total exceeds the
+     * payments so a due remains (completion guard false arm).
+     */
+    @Test
+    void restoreDraftRestoresBackupCurrencyAndCreditPayments() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(15L, Ticket.TicketStatus.OPEN);
+        draft.lines = new ArrayList<>(List.of(line(1, "U1", "100.00", null, null)));
+        BackupPayment backup = new BackupPayment(new BigDecimal("5.00"));
+        backup.paymentIndex = 1;
+        backup.methodLabel = "CB SECOURS";
+        backup.transactionNumber = "TX-42";
+        backup.manual = true;
+        ForeignCurrencyPayment currency = new ForeignCurrencyPayment(new BigDecimal("6.00"));
+        currency.paymentIndex = 2;
+        currency.currencyCode = "USD";
+        currency.foreignAmount = new BigDecimal("6.60");
+        currency.exchangeRate = new BigDecimal("1.10");
+        CreditPayment credit = new CreditPayment(new BigDecimal("7.00"));
+        credit.paymentIndex = 3;
+        credit.accountNumber = "ACC-9";
+        credit.accountName = "Jean Dupont";
+        credit.overLimit = true;
+        draft.payments = new ArrayList<>(Arrays.asList(backup, currency, credit));
+        service.restoreDraft(draft);
+        List<com.intermarche.pos.ui.payment.PaymentState.PaymentEntry> entries =
+                service.state.payment.payments;
+        assertEquals(3, entries.size());
+        assertEquals("SECOURS", entries.get(0).method);
+        assertEquals("CB SECOURS", entries.get(0).backupMethodLabel);
+        assertEquals("TX-42", entries.get(0).backupTransaction);
+        assertTrue(entries.get(0).backupManual);
+        assertEquals("DEVISE", entries.get(1).method);
+        assertEquals("USD", entries.get(1).currencyCode);
+        assertEquals(0, new BigDecimal("6.60").compareTo(entries.get(1).currencyAmount));
+        assertEquals(0, new BigDecimal("1.10").compareTo(entries.get(1).currencyRate));
+        assertEquals("CREDIT", entries.get(2).method);
+        assertEquals("ACC-9", entries.get(2).creditAccountNumber);
+        assertEquals("Jean Dupont", entries.get(2).creditAccountName);
+        assertEquals(0, new BigDecimal("18.00").compareTo(service.state.payment.paidAmount));
+        assertFalse(service.state.payment.transactionComplete);
     }
 
 }
