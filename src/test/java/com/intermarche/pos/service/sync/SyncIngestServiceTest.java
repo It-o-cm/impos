@@ -1033,4 +1033,382 @@ class SyncIngestServiceTest {
             verify(existing, times(1)).persist();
         }
     }
+
+    /**
+     * Covers the null-emission false arm of the {@code emittedAt} ternary in
+     * {@code consumeBalanceTicket} (line 441): a served ticket whose emission
+     * timestamp is null yields a payload with a null {@code emittedAt} rather
+     * than throwing, the row still being stamped and persisted.
+     */
+    @Test
+    void consumeBalanceTicketServesATicketWithNoEmissionDate() {
+        SyncIngestService service = new SyncIngestService();
+        BalanceTicket existing = mock(BalanceTicket.class);
+        when(existing.isConsumed()).thenReturn(false);
+        existing.reference = "B9";
+        existing.counterLabel = "POISSONNERIE";
+        existing.emittedAt = null;
+        existing.lines = new ArrayList<>();
+        PanacheQuery<BalanceTicket> query = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B9")).thenReturn(query);
+            SyncPayloads.BalanceTicketDto served = service.consumeBalanceTicket("B9", "CAISSE-03");
+            assertEquals("B9", served.reference);
+            assertNull(served.emittedAt);
+            assertEquals(0, served.lines.size());
+            assertEquals("CAISSE-03", existing.consumedByTerminal);
+            verify(existing, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // ingestTicket — formattedContent guard and remaining payment kinds
+    // --------------------------------------------------
+
+    /**
+     * Covers the true arms of the {@code formattedContent} compound guard in
+     * {@code ingestTicket} (line 141): a non-null, non-blank printed form is
+     * copied onto the ticket (the {@code != null} true arm and the
+     * {@code !isBlank()} true arm both taken, line 142 executed).
+     */
+    @Test
+    void ingestTicketStoresNonBlankFormattedContent() {
+        SyncIngestService service = serviceWith();
+        SyncPayloads.TicketDto dto = new SyncPayloads.TicketDto();
+        dto.ticketNumber = "K6";
+        dto.terminalId = "T6";
+        dto.status = "CLOSED";
+        dto.creationDate = "2026-06-06T10:00:00";
+        dto.storeCode = "ST1";
+        dto.cashierLogin = "alice";
+        dto.sessionNumber = null;
+        dto.itemCount = 0;
+        dto.totalExcludingTax = new BigDecimal("1.00");
+        dto.totalIncludingTax = new BigDecimal("1.00");
+        dto.totalVat = new BigDecimal("0.00");
+        dto.valuationStatus = "NOT_VALUATED";
+        dto.formattedContent = "*** TICKET ***";
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        PanacheQuery<Ticket> ticketQuery = queryReturning(null);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        PanacheQuery<Employee> cashierQuery = queryReturning(cashier);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> createdTicket = mockConstruction(Ticket.class,
+                        (m, c) -> { m.lines = new ArrayList<>(); m.payments = new ArrayList<>(); })) {
+            mocked.when(() -> Ticket.find("ticketNumber", "K6")).thenReturn(ticketQuery);
+            mocked.when(() -> Store.find("code", "ST1")).thenReturn(storeQuery);
+            mocked.when(() -> Employee.find("loginName", "alice")).thenReturn(cashierQuery);
+            service.ingestTicket(dto);
+            Ticket ticket = createdTicket.constructed().get(0);
+            assertEquals("*** TICKET ***", ticket.formattedContent);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the {@code !isBlank()} false arm of the {@code formattedContent}
+     * compound guard in {@code ingestTicket} (line 141): a non-null but blank
+     * printed form is NOT copied ({@code != null} true, {@code isBlank()} true),
+     * so line 142 is skipped and the field is left null.
+     */
+    @Test
+    void ingestTicketIgnoresBlankFormattedContent() {
+        SyncIngestService service = serviceWith();
+        SyncPayloads.TicketDto dto = new SyncPayloads.TicketDto();
+        dto.ticketNumber = "K7";
+        dto.terminalId = "T7";
+        dto.status = "CLOSED";
+        dto.creationDate = "2026-07-07T10:00:00";
+        dto.storeCode = "ST1";
+        dto.cashierLogin = "alice";
+        dto.sessionNumber = null;
+        dto.itemCount = 0;
+        dto.totalExcludingTax = new BigDecimal("1.00");
+        dto.totalIncludingTax = new BigDecimal("1.00");
+        dto.totalVat = new BigDecimal("0.00");
+        dto.valuationStatus = "NOT_VALUATED";
+        dto.formattedContent = "   ";
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        PanacheQuery<Ticket> ticketQuery = queryReturning(null);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        PanacheQuery<Employee> cashierQuery = queryReturning(cashier);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> createdTicket = mockConstruction(Ticket.class,
+                        (m, c) -> { m.lines = new ArrayList<>(); m.payments = new ArrayList<>(); })) {
+            mocked.when(() -> Ticket.find("ticketNumber", "K7")).thenReturn(ticketQuery);
+            mocked.when(() -> Store.find("code", "ST1")).thenReturn(storeQuery);
+            mocked.when(() -> Employee.find("loginName", "alice")).thenReturn(cashierQuery);
+            service.ingestTicket(dto);
+            Ticket ticket = createdTicket.constructed().get(0);
+            assertNull(ticket.formattedContent);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the true arms of the four remaining payment {@code instanceof}
+     * decorations in {@code ingestTicket} (lines 201, 204, 209, 214): a cheque
+     * (magnetic line), a backup payment (method label, transaction, manual
+     * flag), a foreign-currency payment (code, foreign amount, rate) and a
+     * credit payment (account number, account name, over-limit flag) are each
+     * rebuilt and decorated from the payload in one upsert.
+     */
+    @Test
+    void ingestTicketDecoratesChequeBackupCurrencyAndCreditPayments() {
+        TicketPayment.Factory chequeFactory = mock(TicketPayment.Factory.class);
+        TicketPayment.Factory backupFactory = mock(TicketPayment.Factory.class);
+        TicketPayment.Factory deviseFactory = mock(TicketPayment.Factory.class);
+        TicketPayment.Factory creditFactory = mock(TicketPayment.Factory.class);
+        when(chequeFactory.getKey()).thenReturn("CHEQUE");
+        when(backupFactory.getKey()).thenReturn("SECOURS");
+        when(deviseFactory.getKey()).thenReturn("DEVISE");
+        when(creditFactory.getKey()).thenReturn("CREDIT");
+        com.intermarche.pos.domain.ticket.ChequePayment chequePayment =
+                mock(com.intermarche.pos.domain.ticket.ChequePayment.class);
+        com.intermarche.pos.domain.ticket.BackupPayment backupPayment =
+                mock(com.intermarche.pos.domain.ticket.BackupPayment.class);
+        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devisePayment =
+                mock(com.intermarche.pos.domain.ticket.ForeignCurrencyPayment.class);
+        com.intermarche.pos.domain.ticket.CreditPayment creditPayment =
+                mock(com.intermarche.pos.domain.ticket.CreditPayment.class);
+        when(chequeFactory.create(any(), any())).thenReturn(chequePayment);
+        when(backupFactory.create(any(), any())).thenReturn(backupPayment);
+        when(deviseFactory.create(any(), any())).thenReturn(devisePayment);
+        when(creditFactory.create(any(), any())).thenReturn(creditPayment);
+        SyncIngestService service = serviceWith(chequeFactory, backupFactory, deviseFactory, creditFactory);
+        SyncPayloads.TicketDto dto = new SyncPayloads.TicketDto();
+        dto.ticketNumber = "K8";
+        dto.terminalId = "T8";
+        dto.status = "CLOSED";
+        dto.creationDate = "2026-08-08T10:00:00";
+        dto.storeCode = "ST1";
+        dto.cashierLogin = "alice";
+        dto.sessionNumber = null;
+        dto.itemCount = 0;
+        dto.totalExcludingTax = new BigDecimal("1.00");
+        dto.totalIncludingTax = new BigDecimal("1.00");
+        dto.totalVat = new BigDecimal("0.00");
+        dto.valuationStatus = "NOT_VALUATED";
+        SyncPayloads.PaymentDto chequeDto = new SyncPayloads.PaymentDto();
+        chequeDto.paymentIndex = 1;
+        chequeDto.methodKey = "CHEQUE";
+        chequeDto.amount = new BigDecimal("10.00");
+        chequeDto.magneticLine = "CMC7-LINE";
+        SyncPayloads.PaymentDto backupDto = new SyncPayloads.PaymentDto();
+        backupDto.paymentIndex = 2;
+        backupDto.methodKey = "SECOURS";
+        backupDto.amount = new BigDecimal("20.00");
+        backupDto.backupMethodLabel = "CB SECOURS";
+        backupDto.backupTransaction = "TX-42";
+        backupDto.backupManual = true;
+        SyncPayloads.PaymentDto deviseDto = new SyncPayloads.PaymentDto();
+        deviseDto.paymentIndex = 3;
+        deviseDto.methodKey = "DEVISE";
+        deviseDto.amount = new BigDecimal("30.00");
+        deviseDto.currencyCode = "USD";
+        deviseDto.currencyAmount = new BigDecimal("33.00");
+        deviseDto.currencyRate = new BigDecimal("1.10");
+        SyncPayloads.PaymentDto creditDto = new SyncPayloads.PaymentDto();
+        creditDto.paymentIndex = 4;
+        creditDto.methodKey = "CREDIT";
+        creditDto.amount = new BigDecimal("40.00");
+        creditDto.creditAccountNumber = "ACC-1";
+        creditDto.creditAccountName = "Durand";
+        creditDto.creditOverLimit = true;
+        dto.payments.add(chequeDto);
+        dto.payments.add(backupDto);
+        dto.payments.add(deviseDto);
+        dto.payments.add(creditDto);
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        PanacheQuery<Ticket> ticketQuery = queryReturning(null);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        PanacheQuery<Employee> cashierQuery = queryReturning(cashier);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> createdTicket = mockConstruction(Ticket.class,
+                        (m, c) -> { m.lines = new ArrayList<>(); m.payments = new ArrayList<>(); })) {
+            mocked.when(() -> Ticket.find("ticketNumber", "K8")).thenReturn(ticketQuery);
+            mocked.when(() -> Store.find("code", "ST1")).thenReturn(storeQuery);
+            mocked.when(() -> Employee.find("loginName", "alice")).thenReturn(cashierQuery);
+            service.ingestTicket(dto);
+            assertEquals("CMC7-LINE", chequePayment.magneticLine);
+            assertEquals("CB SECOURS", backupPayment.methodLabel);
+            assertEquals("TX-42", backupPayment.transactionNumber);
+            assertTrue(backupPayment.manual);
+            assertEquals("USD", devisePayment.currencyCode);
+            assertEquals(new BigDecimal("33.00"), devisePayment.foreignAmount);
+            assertEquals(new BigDecimal("1.10"), devisePayment.exchangeRate);
+            assertEquals("ACC-1", creditPayment.accountNumber);
+            assertEquals("Durand", creditPayment.accountName);
+            assertTrue(creditPayment.overLimit);
+            Ticket ticket = createdTicket.constructed().get(0);
+            verify(ticket).addPayment(chequePayment);
+            verify(ticket).addPayment(backupPayment);
+            verify(ticket).addPayment(devisePayment);
+            verify(ticket).addPayment(creditPayment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // renderTicketDuplicate (LC-08-05-05)
+    // --------------------------------------------------
+
+    /**
+     * Covers the {@code == null} true arm of {@code renderTicketDuplicate}'s
+     * guard (line 295): a null ticket number yields null without hitting the
+     * database or the printer.
+     */
+    @Test
+    void renderTicketDuplicateReturnsNullOnNullNumber() {
+        SyncIngestService service = new SyncIngestService();
+        assertNull(service.renderTicketDuplicate(null));
+    }
+
+    /**
+     * Covers the {@code isBlank()} true arm of {@code renderTicketDuplicate}'s
+     * guard (line 295, {@code == null} false + {@code isBlank()} true): a blank
+     * ticket number yields null.
+     */
+    @Test
+    void renderTicketDuplicateReturnsNullOnBlankNumber() {
+        SyncIngestService service = new SyncIngestService();
+        assertNull(service.renderTicketDuplicate("   "));
+    }
+
+    /**
+     * Covers the not-found arm of {@code renderTicketDuplicate} (line 295 both
+     * guard arms false, line 301 {@code ticket == null} true): a well-formed
+     * number the shop does not hold yields null; the trimmed number is used as
+     * the lookup key.
+     */
+    @Test
+    void renderTicketDuplicateReturnsNullWhenTicketAbsent() {
+        SyncIngestService service = new SyncIngestService();
+        PanacheQuery<Ticket> ticketQuery = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.find("ticketNumber", "K1")).thenReturn(ticketQuery);
+            assertNull(service.renderTicketDuplicate("  K1  "));
+        }
+    }
+
+    /**
+     * Covers the found arm of {@code renderTicketDuplicate} (line 301
+     * {@code ticket == null} false): a held ticket is rendered through the
+     * register's own printer as a duplicate, with a print count floored at 1.
+     */
+    @Test
+    void renderTicketDuplicateRendersHeldTicket() {
+        SyncIngestService service = new SyncIngestService();
+        com.intermarche.pos.ui.hardware.TicketPrinterService printer =
+                mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
+        service.ticketPrinterService = printer;
+        Ticket ticket = mock(Ticket.class);
+        ticket.printCount = 0;
+        when(printer.renderTicket(ticket, true, 1)).thenReturn("DUPLICATA");
+        PanacheQuery<Ticket> ticketQuery = queryReturning(ticket);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.find("ticketNumber", "K1")).thenReturn(ticketQuery);
+            assertEquals("DUPLICATA", service.renderTicketDuplicate("K1"));
+        }
+    }
+
+    // --------------------------------------------------
+    // ingestCustomer (LC-08-04-09)
+    // --------------------------------------------------
+
+    /**
+     * Covers the insert arm of {@code ingestCustomer} (line 323
+     * {@code customer == null} true) with a freshly constructed account whose
+     * address is null (line 331 true arm): a new row and a new address are
+     * created, stamped and persisted, and the "créé" log arm (line 342) is
+     * taken.
+     */
+    @Test
+    void ingestCustomerCreatesWhenAbsent() {
+        SyncIngestService service = new SyncIngestService();
+        SyncPayloads.CustomerDto dto = new SyncPayloads.CustomerDto();
+        dto.accountNumber = "AC1";
+        dto.companyName = "ACME";
+        dto.lastName = "Durand";
+        dto.firstName = "Paul";
+        dto.street = "1 rue des Lilas";
+        dto.postalCode = "75001";
+        dto.city = "Paris";
+        dto.siret = "12345678900011";
+        dto.vatNumber = "FR00123456789";
+        dto.phone = "0102030405";
+        dto.email = "paul@acme.fr";
+        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> query = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.AccountCustomer> created =
+                        mockConstruction(com.intermarche.pos.domain.AccountCustomer.class);
+                MockedConstruction<com.intermarche.pos.domain.Address> addresses =
+                        mockConstruction(com.intermarche.pos.domain.Address.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer
+                    .find("accountNumber", "AC1")).thenReturn(query);
+            service.ingestCustomer(dto);
+            com.intermarche.pos.domain.AccountCustomer customer = created.constructed().get(0);
+            assertEquals("AC1", customer.accountNumber);
+            assertEquals("ACME", customer.companyName);
+            assertEquals("Durand", customer.lastName);
+            assertEquals("Paul", customer.firstName);
+            assertEquals(1, addresses.constructed().size());
+            com.intermarche.pos.domain.Address address = addresses.constructed().get(0);
+            assertSame(address, customer.address);
+            assertEquals("1 rue des Lilas", address.streetLine1);
+            assertEquals("75001", address.postalCode);
+            assertEquals("Paris", address.city);
+            assertEquals("12345678900011", customer.siret);
+            assertEquals("paul@acme.fr", customer.email);
+            verify(customer, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the update arm of {@code ingestCustomer} (line 323
+     * {@code customer == null} false) with an existing account already carrying
+     * an address (line 331 false arm): the row is refreshed in place, its
+     * existing address reused (no new one constructed), and the "mis à jour" log
+     * arm (line 342) is taken.
+     */
+    @Test
+    void ingestCustomerUpdatesExistingWithAddress() {
+        SyncIngestService service = new SyncIngestService();
+        SyncPayloads.CustomerDto dto = new SyncPayloads.CustomerDto();
+        dto.accountNumber = "AC2";
+        dto.companyName = "GLOBEX";
+        dto.lastName = "Martin";
+        dto.firstName = "Marie";
+        dto.street = "2 avenue du Parc";
+        dto.postalCode = "69002";
+        dto.city = "Lyon";
+        dto.siret = "98765432100022";
+        dto.email = "marie@globex.fr";
+        com.intermarche.pos.domain.AccountCustomer existing =
+                mock(com.intermarche.pos.domain.AccountCustomer.class);
+        com.intermarche.pos.domain.Address address =
+                mock(com.intermarche.pos.domain.Address.class);
+        existing.address = address;
+        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> query = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.Address> addresses =
+                        mockConstruction(com.intermarche.pos.domain.Address.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer
+                    .find("accountNumber", "AC2")).thenReturn(query);
+            service.ingestCustomer(dto);
+            assertTrue(addresses.constructed().isEmpty());
+            assertSame(address, existing.address);
+            assertEquals("GLOBEX", existing.companyName);
+            assertEquals("Martin", existing.lastName);
+            assertEquals("Marie", existing.firstName);
+            assertEquals("2 avenue du Parc", address.streetLine1);
+            assertEquals("69002", address.postalCode);
+            assertEquals("Lyon", address.city);
+            assertEquals("marie@globex.fr", existing.email);
+            verify(existing, times(1)).persist();
+        }
+    }
 }
