@@ -51,7 +51,21 @@ class ReprintResourceTest {
         resource.reprintService = mock(ReprintService.class);
         resource.reprintTicketPage = mock(Template.class);
         resource.reprintDetailPage = mock(Template.class);
+        resource.reprintForeignPage = mock(Template.class);
         return resource;
+    }
+
+    /**
+     * Stubs the {@code reprint-foreign} template to return a recognizable view
+     * for the given resource's state.
+     *
+     * @param resource the resource whose {@code reprintForeignPage} template is stubbed
+     * @return the view {@code reprintForeignPage.data("state", state)} returns
+     */
+    private TemplateInstance stubForeign(ReprintResource resource) {
+        TemplateInstance view = mock(TemplateInstance.class);
+        when(resource.reprintForeignPage.data("state", resource.state)).thenReturn(view);
+        return view;
     }
 
     /**
@@ -419,8 +433,8 @@ class ReprintResourceTest {
 
     /**
      * {@code startExchange()} delegates to the service and renders the detail
-     * view when the same ticket is viewed (identity guard both arms false:
-     * id match).
+     * view when the same ticket is viewed (identity guard both arms false: id
+     * match).
      */
     @Test
     void startExchangeStartsWhenSameTicketViewed() {
@@ -431,6 +445,27 @@ class ReprintResourceTest {
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.startExchange(7L));
         verify(resource.reprintService).startExchange();
+    }
+
+    // --- cancelExchange ---
+
+    /**
+     * {@code cancelExchange()} cancels the exchange on the service then reopens
+     * the ticket through {@code showReprintDetail}, installing the found ticket
+     * in the detail view.
+     */
+    @Test
+    void cancelExchangeCancelsThenReopensDetail() {
+        ReprintResource resource = newResource();
+        Ticket ticket = mock(Ticket.class);
+        TemplateInstance detailView = stubDetail(resource);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            assertSame(detailView, resource.cancelExchange(7L));
+        }
+        verify(resource.reprintService).cancelExchange();
+        verify(resource.state.reprint).setViewedTicket(ticket);
+        verify(resource.state).touch();
     }
 
     // --- toggleExchangeLine ---
@@ -489,5 +524,48 @@ class ReprintResourceTest {
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.toggleExchangeLine(7L, 5L));
         verify(resource.reprintService).toggleExchangeLine(5L);
+    }
+
+    // --- printExchange ---
+
+    /**
+     * {@code printExchange()} delegates the bon-pour-échange print to the
+     * service and redirects (303) to the ticket's detail view.
+     */
+    @Test
+    void printExchangePrintsAndRedirectsToDetail() {
+        ReprintResource resource = newResource();
+        Response response = resource.printExchange(42L);
+        verify(resource.reprintService).printExchange(42L);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/reprint/view/42", response.getLocation().toString());
+    }
+
+    // --- showForeign ---
+
+    /**
+     * {@code showForeign()} opens the foreign-duplicata mask on the service and
+     * renders the foreign page.
+     */
+    @Test
+    void showForeignStartsAndRendersForeignPage() {
+        ReprintResource resource = newResource();
+        TemplateInstance foreignView = stubForeign(resource);
+        assertSame(foreignView, resource.showForeign());
+        verify(resource.reprintService).startForeign();
+    }
+
+    // --- printForeign ---
+
+    /**
+     * {@code printForeign()} delegates the typed number to the service and
+     * renders the foreign page carrying any failure.
+     */
+    @Test
+    void printForeignPrintsAndRendersForeignPage() {
+        ReprintResource resource = newResource();
+        TemplateInstance foreignView = stubForeign(resource);
+        assertSame(foreignView, resource.printForeign("C03-000042"));
+        verify(resource.reprintService).printForeign("C03-000042");
     }
 }
