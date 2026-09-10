@@ -547,4 +547,202 @@ class BalanceTicketServiceTest {
         assertEquals(0, new BigDecimal("13.54").compareTo(booked.getValue()));
         assertTrue(added.priceEmbedded);
     }
+
+    // --------------------------------------------------
+    // Missed-branch fill
+    // --------------------------------------------------
+
+    /**
+     * A null reference is not held by the local memory (the {@code reference != null}
+     * guard's false arm) so the pick-up proceeds and the served line is integrated.
+     */
+    @Test
+    void nullReferenceIsNotRefusedByMemory() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items.add(new TicketState.TicketItem(EAN, null, "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        BalanceTicketClient client = mock(BalanceTicketClient.class);
+        when(client.pickUp(any(), anyString()))
+                .thenReturn(BalanceTicketClient.Answer.served(oneLine("ROTI", null, "5.00", "0.055")));
+        BalanceTicketService service = newService(client);
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(null);
+            assertTrue(service.integrate(state, null));
+        }
+        verify(ticket).addItem(eq(EAN), eq(null), eq("ROTI"), any(), any(), any());
+        verify(ticket).setNotice("TICKET COMPTOIR null INTÉGRÉ (1 LIGNE(S))");
+    }
+
+    /**
+     * A line carrying no EAN takes the {@code line.ean == null ? null} arm without
+     * touching the catalog, and is still integrated as an unknown article.
+     */
+    @Test
+    void lineWithoutEanSkipsTheCatalogLookup() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items.add(new TicketState.TicketItem(null, null, "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        SyncPayloads.BalanceTicketDto dto = oneLine("ROTI", null, "5.00", "0.055");
+        dto.lines.get(0).ean = null;
+        BalanceTicketService service = newService(serving(dto));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            assertTrue(service.integrate(state, REFERENCE));
+            products.verifyNoInteractions();
+        }
+        verify(ticket).addItem(eq(null), eq(null), eq("ROTI"), any(), any(), eq(new BigDecimal("0.055")));
+    }
+
+    /**
+     * A recalled but sellable article takes the {@code recall} arm of the refusal
+     * guard: the line is withdrawn and named, and the empty pick-up is refused.
+     */
+    @Test
+    void recalledArticleIsRefused() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<com.intermarche.pos.domain.attribute.ProductAttributes> attrs =
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.attribute.ProductAttributes.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            attrs.when(() -> com.intermarche.pos.domain.attribute.ProductAttributes.recall(any())).thenReturn(true);
+            assertFalse(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0.500KG");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * When {@code addItem} appends nothing (the mock ticket stays empty), the
+     * {@code items.isEmpty()} true arm returns before any flag is read back, yet the
+     * line still counts as added and the notice is issued.
+     */
+    @Test
+    void emptyTicketAfterAddIsNotFlagged() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).addItem(eq(EAN), eq("1234"), eq("ROTI 0.500KG"), any(), any(), any());
+        verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE + " INTÉGRÉ (1 LIGNE(S))");
+    }
+
+    /**
+     * A discount-banned article takes the {@code discountForbidden} true arm and the
+     * ban is snapshotted onto the freshly added line (BO-02-03-09).
+     */
+    @Test
+    void discountForbiddenIsSnapshotted() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        TicketState.TicketItem added = new TicketState.TicketItem(EAN, "1234", "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT);
+        ticket.items.add(added);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<com.intermarche.pos.domain.attribute.ProductAttributes> attrs =
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.attribute.ProductAttributes.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            attrs.when(() -> com.intermarche.pos.domain.attribute.ProductAttributes.discountForbidden(any())).thenReturn(true);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        assertTrue(added.discountForbidden);
+    }
+
+    /**
+     * With the catalog price chosen and a current price whose amount is null, the
+     * {@code priceIncludingTax == null} arm falls back to the counter's own total.
+     */
+    @Test
+    void catalogPriceFallsBackWithoutAPriceAmount() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.500", "13.54", "0.055")));
+        when(service.posSettingsService.balanceCounterPrice()).thenReturn(false);
+        Price price = new Price();
+        price.priceIncludingTax = null;
+        ArgumentCaptor<BigDecimal> booked = ArgumentCaptor.forClass(BigDecimal.class);
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).addItem(any(), any(), any(), booked.capture(), any(), any());
+        assertEquals(0, new BigDecimal("13.54").compareTo(booked.getValue()));
+    }
+
+    /**
+     * With the catalog price chosen and a non-positive reported weight, the
+     * {@code quantity.signum() <= 0} arm falls back to the counter's own total.
+     */
+    @Test
+    void catalogPriceFallsBackWithNonPositiveWeight() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0", "13.54", "0.055")));
+        when(service.posSettingsService.balanceCounterPrice()).thenReturn(false);
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("20.00");
+        ArgumentCaptor<BigDecimal> booked = ArgumentCaptor.forClass(BigDecimal.class);
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).addItem(any(), any(), any(), booked.capture(), any(), any());
+        assertEquals(0, new BigDecimal("13.54").compareTo(booked.getValue()));
+    }
+
+    /**
+     * A VAT-exempt article takes the {@code vatExempt} true arm and the line is
+     * captured at a zero rate, outranking the counter's own rate (BO-02-03-26/27).
+     */
+    @Test
+    void vatExemptArticleGetsZeroRate() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        BalanceTicketService service = newService(serving(oneLine("ROTI", null, "5.00", "0.055")));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<com.intermarche.pos.domain.attribute.ProductAttributes> attrs =
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.attribute.ProductAttributes.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            attrs.when(() -> com.intermarche.pos.domain.attribute.ProductAttributes.vatExempt(any())).thenReturn(true);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).addItem(any(), any(), any(), any(), any(), eq(BigDecimal.ZERO));
+    }
+
+    /**
+     * Past the memory size the {@code while} loop's true arm forgets the oldest
+     * reference: re-scanning it calls the shop again instead of being refused by
+     * the local memory.
+     */
+    @Test
+    void memoryForgetsOldestBeyondLimit() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketClient client = serving(oneLine("ROTI", "0.5", "5.00", "0.055"));
+        BalanceTicketService service = newService(client);
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            for (int i = 0; i <= 500; i++) {
+                assertTrue(service.integrate(state, "R" + i));
+            }
+            assertTrue(service.integrate(state, "R0"));
+        }
+        verify(client, times(2)).pickUp(eq("R0"), eq(TERMINAL));
+    }
 }
