@@ -740,6 +740,35 @@ class ImporterCsvResourceTest {
     }
 
     /**
+     * An importer that NAMES a feed but whose {@code engineFeedService} is null
+     * captures nothing, driving the {@code engineFeedService == null} TRUE arm
+     * of {@code captureFeed} (line 205): the guard short-circuits on the null
+     * keeper and the import still answers 200.
+     */
+    @Test
+    void importCsvStreamWithFeedCodeButNullServiceStoresNothing() {
+        TestImporter importer = new TestImporter() {
+            /**
+             * Names the captured feed for this test.
+             *
+             * @return the OFFERS feed code
+             */
+            @Override
+            protected String feedCode() {
+                return "OFFERS";
+            }
+        };
+        importer.tm = mock(TransactionManager.class);
+        importer.engineFeedService = null;
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            Response response = importer.importCsvStream(stream("CODE|NAME\nA|foo\n"), "CODE", List.of("NAME"));
+            assertEquals(200, response.getStatus());
+        }
+    }
+
+    /**
      * A header missing the key column or a required column rejects the file
      * with a 400 naming the missing names, before any processing.
      */
@@ -837,6 +866,61 @@ class ImporterCsvResourceTest {
         Response response = importer.importCsvStream(stream("CODE|NAME\n"), "CODE", List.of("NAME"));
         assertEquals(200, response.getStatus());
         assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+        assertEquals(0, importer.chunkCalls);
+    }
+
+    /**
+     * A data line whose key-column index falls BEYOND the row's cells yields a
+     * null code, driving the {@code code == null} TRUE arm of the empty-key
+     * guard (line 165). A duplicate header name ({@code CODE0}) collapses the
+     * header to size 2 while pushing the key column {@code KEY} to index 2, so
+     * a 2-cell data row clears the short-line guard yet resolves the key to
+     * null; the line is reported and skipped without stopping the import.
+     */
+    @Test
+    void importCsvStreamReportsNullKeyLine() {
+        TestImporter importer = newImporter();
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            Response response = importer.importCsvStream(stream("CODE0|CODE0|KEY\na|b\n"), "KEY", List.of());
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":0, \"updatedCount\":0, \"errors\":[Line 2 ignored (empty key 'KEY')\"]}", response.getEntity());
+            assertEquals(0, importer.chunkCalls);
+        }
+    }
+
+    /**
+     * An empty header cell is skipped by {@code parseHeader}, driving the
+     * {@code name.isEmpty()} TRUE arm (line 343): the header {@code CODE||NAME}
+     * declares two usable columns (CODE at 0, NAME at 2) and the blank middle
+     * column is dropped, so the file still imports its single creation.
+     */
+    @Test
+    void importCsvStreamSkipsEmptyHeaderColumn() {
+        TestImporter importer = newImporter();
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            Response response = importer.importCsvStream(stream("CODE||NAME\nA|x|y\n"), "CODE", List.of("NAME"));
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":1, \"updatedCount\":0}", response.getEntity());
+            assertEquals(1, importer.chunkCalls);
+        }
+    }
+
+    /**
+     * A required column equal to the (also missing) key column is not listed
+     * twice: {@code missingColumns} adds the key first, then the required-column
+     * loop finds it already present, driving the {@code !missing.contains(column)}
+     * FALSE arm (line 367). The 400 response names the missing column once.
+     */
+    @Test
+    void importCsvStreamDoesNotDuplicateMissingKeyColumn() {
+        TestImporter importer = newImporter();
+        Response response = importer.importCsvStream(stream("OTHER|NAME\nA|foo\n"), "CODE", List.of("CODE"));
+        assertEquals(400, response.getStatus());
+        assertEquals("{\"error\":\"Missing required columns: CODE\"}", response.getEntity());
         assertEquals(0, importer.chunkCalls);
     }
 }
