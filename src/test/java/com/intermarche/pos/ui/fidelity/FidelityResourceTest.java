@@ -7,9 +7,10 @@ import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,27 +18,31 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link FidelityResource}.
  * <p>
- * The resource is a thin JAX-RS facade over a mocked {@link PosState}, a
- * {@link FidelityService} and the Qute {@code fidelity} {@link Template}. Every
- * collaborator is a Mockito mock; the template echoes a recognizable
- * {@link TemplateInstance} so the returned view can be identified, while the
- * POST actions return a 303 redirect to "/" (PRG pattern) asserted by status
- * and location. Tests assert absolute expected values and verify delegation.
+ * The resource is a thin JAX-RS facade over {@link PosState}, its
+ * {@link FidelityState} sub-state, a {@link FidelityService} and the
+ * {@code fidelity} Qute {@link Template}. Every collaborator is a Mockito mock,
+ * except the {@link FidelityState} sub-state which is a REAL instance so the
+ * many public-field reads and writes the resource performs never hit a null.
+ * The template echoes a recognizable {@link TemplateInstance} through its
+ * fluent {@code data(..)} chain so the returned view can be identified with
+ * {@code assertSame}. Tests assert absolute expected values (redirect status
+ * and Location, returned view, stored state fields) and verify delegation,
+ * covering both arms of the {@code value} and {@code mode} null ternaries, all
+ * three {@code mode} legs, both arms of the {@code space > 0} guard and both
+ * arms of the {@code refusal != null} guard.
  */
 class FidelityResourceTest {
 
     /**
      * Builds a {@link FidelityResource} whose service and template are fresh
-     * mocks and whose {@link PosState} is a mock carrying a real
-     * {@link FidelityState} sub-state.
+     * mocks and whose {@link PosState} is a mock carrying a REAL
+     * {@link FidelityState} sub-state, so field access never hits a null.
      *
-     * @return a resource with fully wired mocked collaborators
+     * @return a resource with mocked service and template over a real fidelity state
      */
     private FidelityResource newResource() {
         FidelityResource resource = new FidelityResource();
         resource.state = mock(PosState.class);
-        // The page reads the stored lookup echo from the REAL sub-state (a
-        // mock's field would be null and the render would NPE).
         resource.state.fidelity = new FidelityState();
         resource.fidelityService = mock(FidelityService.class);
         resource.fidelity = mock(Template.class);
@@ -45,57 +50,195 @@ class FidelityResourceTest {
     }
 
     /**
-     * Stubs the given template to return a recognizable view for the resource's
-     * state.
+     * Stubs the {@code fidelity} template fluent chain to return a single
+     * recognizable view for the given resource.
      *
-     * @param template the template to stub
-     * @param resource the resource whose state is passed to the template
-     * @return the view {@code template.data("state", state)} returns
+     * @param resource the resource whose {@code fidelity} template is stubbed
+     * @return the view every {@code data(..)} call in the chain returns
      */
-    private TemplateInstance stub(Template template, FidelityResource resource) {
+    private TemplateInstance stubFidelity(FidelityResource resource) {
         TemplateInstance view = mock(TemplateInstance.class);
-        when(template.data("state", resource.state)).thenReturn(view);
-        // The fidelity page CHAINS further data() calls: the holder-lookup
-        // outcome (null outside a search), the echoed search mode and value,
-        // then the in-store consultation (status, balance, movements). A
-        // chained mock returns null by default, which reads as "the page
-        // rendered nothing" — the view returns ITSELF so the chain stays
-        // observable end to end.
-        when(view.data(eq("lookup"), any())).thenReturn(view);
-        when(view.data(eq("searchMode"), any())).thenReturn(view);
-        when(view.data(eq("searchValue"), any())).thenReturn(view);
-        when(view.data(eq("consultation"), any())).thenReturn(view);
+        when(resource.fidelity.data("state", resource.state)).thenReturn(view);
+        when(view.data(anyString(), any())).thenReturn(view);
         return view;
     }
 
     // --- fidelityPage ---
 
     /**
-     * {@code fidelityPage()} renders the fidelity view when the terminal is
-     * unlocked (guard false arm).
+     * {@code fidelityPage()} assembles the page from the template chain, feeding
+     * the consultation loaded from the state, and returns the rendered view.
      */
     @Test
-    void fidelityPageRendersFidelityWhenUnlocked() {
+    void fidelityPageRendersConsultationView() {
         FidelityResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance fidelityView = stub(resource.fidelity, resource);
-        assertSame(fidelityView, resource.fidelityPage());
+        TemplateInstance view = stubFidelity(resource);
+        FidelityService.Consultation consultation = mock(FidelityService.Consultation.class);
+        when(resource.fidelityService.loadConsultation(resource.state)).thenReturn(consultation);
+        assertSame(view, resource.fidelityPage());
+        verify(resource.fidelityService).loadConsultation(resource.state);
+        verify(resource.fidelity).data("state", resource.state);
     }
 
     // --- validateFidelity ---
 
     /**
-     * {@code validateFidelity()} attaches the card and redirects to the main
-     * page (PRG pattern, so a browser reload never replays the POST).
+     * {@code validateFidelity()} delegates the typed card to the service and
+     * redirects to the home page (PRG pattern).
      */
     @Test
     void validateFidelityAttachesCardAndRedirectsHome() {
         FidelityResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(false);
-        Response response = resource.validateFidelity("1234");
+        Response response = resource.validateFidelity("123456");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
-        verify(resource.fidelityService).validateCard(resource.state, "1234");
+        verify(resource.fidelityService).validateCard(resource.state, "123456");
     }
 
+    // --- lookupFidelity ---
+
+    /**
+     * {@code lookupFidelity()} in {@code tel} mode trims the non-null value
+     * (value ternary true arm), searches by phone only (tel leg) and echoes the
+     * non-null mode (mode ternary true arm), storing the outcome and resetting
+     * the page.
+     */
+    @Test
+    void lookupFidelityTelModeSearchesByPhone() {
+        FidelityResource resource = newResource();
+        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        when(resource.fidelityService.lookupCards("0601", null, null, null)).thenReturn(lookup);
+        Response response = resource.lookupFidelity("tel", "  0601  ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/fidelity", response.getLocation().toString());
+        verify(resource.fidelityService).lookupCards("0601", null, null, null);
+        assertSame(lookup, resource.state.fidelity.lastLookup);
+        assertEquals("tel", resource.state.fidelity.lastLookupMode);
+        assertEquals("0601", resource.state.fidelity.lastLookupValue);
+        assertEquals(0, resource.state.fidelity.lastLookupPage);
+    }
+
+    /**
+     * {@code lookupFidelity()} in {@code email} mode (tel leg false, email leg
+     * true) searches by e-mail only and echoes the mode.
+     */
+    @Test
+    void lookupFidelityEmailModeSearchesByEmail() {
+        FidelityResource resource = newResource();
+        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        when(resource.fidelityService.lookupCards(null, "a@b.fr", null, null)).thenReturn(lookup);
+        Response response = resource.lookupFidelity("email", "a@b.fr");
+        assertEquals("/fidelity", response.getLocation().toString());
+        verify(resource.fidelityService).lookupCards(null, "a@b.fr", null, null);
+        assertEquals("email", resource.state.fidelity.lastLookupMode);
+        assertEquals("a@b.fr", resource.state.fidelity.lastLookupValue);
+    }
+
+    /**
+     * {@code lookupFidelity()} in {@code name} mode with a space (space &gt; 0
+     * true arm) splits the value into last name and first name.
+     */
+    @Test
+    void lookupFidelityNameModeWithSpaceSplitsName() {
+        FidelityResource resource = newResource();
+        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        when(resource.fidelityService.lookupCards(null, null, "DURAND", "JACQUES")).thenReturn(lookup);
+        Response response = resource.lookupFidelity("name", "DURAND JACQUES");
+        assertEquals("/fidelity", response.getLocation().toString());
+        verify(resource.fidelityService).lookupCards(null, null, "DURAND", "JACQUES");
+        assertEquals("name", resource.state.fidelity.lastLookupMode);
+        assertEquals("DURAND JACQUES", resource.state.fidelity.lastLookupValue);
+    }
+
+    /**
+     * {@code lookupFidelity()} in {@code name} mode without a space (space &gt; 0
+     * false arm) searches by last name only, first name null.
+     */
+    @Test
+    void lookupFidelityNameModeWithoutSpaceUsesLastNameOnly() {
+        FidelityResource resource = newResource();
+        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        when(resource.fidelityService.lookupCards(null, null, "DURAND", null)).thenReturn(lookup);
+        Response response = resource.lookupFidelity("name", "DURAND");
+        assertEquals("/fidelity", response.getLocation().toString());
+        verify(resource.fidelityService).lookupCards(null, null, "DURAND", null);
+        assertEquals("name", resource.state.fidelity.lastLookupMode);
+        assertEquals("DURAND", resource.state.fidelity.lastLookupValue);
+    }
+
+    /**
+     * {@code lookupFidelity()} with a null mode and null value takes the value
+     * ternary false arm (input defaults to empty), falls through to the name
+     * leg, and echoes {@code "name"} via the mode ternary false arm.
+     */
+    @Test
+    void lookupFidelityNullModeAndValueDefaultsToNameEmpty() {
+        FidelityResource resource = newResource();
+        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        when(resource.fidelityService.lookupCards(null, null, "", null)).thenReturn(lookup);
+        Response response = resource.lookupFidelity(null, null);
+        assertEquals("/fidelity", response.getLocation().toString());
+        verify(resource.fidelityService).lookupCards(null, null, "", null);
+        assertEquals("name", resource.state.fidelity.lastLookupMode);
+        assertEquals("", resource.state.fidelity.lastLookupValue);
+    }
+
+    // --- changeLookupPage ---
+
+    /**
+     * {@code changeLookupPage()} stores a positive page index unchanged and
+     * re-renders the fidelity page.
+     */
+    @Test
+    void changeLookupPageStoresPositiveIndexAndRenders() {
+        FidelityResource resource = newResource();
+        TemplateInstance view = stubFidelity(resource);
+        assertSame(view, resource.changeLookupPage(4));
+        assertEquals(4, resource.state.fidelity.lastLookupPage);
+    }
+
+    /**
+     * {@code changeLookupPage()} clamps a negative page index to zero and
+     * re-renders the fidelity page.
+     */
+    @Test
+    void changeLookupPageClampsNegativeIndexToZero() {
+        FidelityResource resource = newResource();
+        TemplateInstance view = stubFidelity(resource);
+        assertSame(view, resource.changeLookupPage(-3));
+        assertEquals(0, resource.state.fidelity.lastLookupPage);
+    }
+
+    // --- selectFidelity ---
+
+    /**
+     * {@code selectFidelity()} on a refusal (refusal != null true arm) stores a
+     * new lookup view carrying the refusal message and redirects back to the
+     * fidelity page.
+     */
+    @Test
+    void selectFidelityRefusalReRendersFidelityPage() {
+        FidelityResource resource = newResource();
+        when(resource.fidelityService.attachLookedUpCard(resource.state, "555", "DURAND",
+                "JACQUES", "RESILIATED", "a@b.fr")).thenReturn("Carte résiliée");
+        Response response = resource.selectFidelity("555", "DURAND", "JACQUES", "RESILIATED", "a@b.fr");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/fidelity", response.getLocation().toString());
+        assertEquals("Carte résiliée", resource.state.fidelity.lastLookup.message);
+    }
+
+    /**
+     * {@code selectFidelity()} on success (refusal != null false arm) leaves the
+     * stored lookup untouched and redirects to the home page.
+     */
+    @Test
+    void selectFidelitySuccessRedirectsHome() {
+        FidelityResource resource = newResource();
+        when(resource.fidelityService.attachLookedUpCard(resource.state, "555", "DURAND",
+                "JACQUES", "ACTIVE", "a@b.fr")).thenReturn(null);
+        Response response = resource.selectFidelity("555", "DURAND", "JACQUES", "ACTIVE", "a@b.fr");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        assertNull(resource.state.fidelity.lastLookup);
+    }
 }
