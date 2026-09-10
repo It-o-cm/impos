@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
+import com.intermarche.pos.domain.AccountCustomer;
 import com.intermarche.pos.ui.payment.PaymentState.PaymentEntry;
 import org.junit.jupiter.api.Test;
 
@@ -476,5 +477,102 @@ class PaymentStateTest {
     void getVoucherNumberAbsent() {
         PaymentEntry entry = new PaymentEntry("Ticket Resto", new BigDecimal("7.50"), null, true);
         assertEquals("", entry.getVoucherNumber());
+    }
+
+    /**
+     * Builds a distinct account customer, so a filled credit list holds
+     * separate instances rather than repeated references.
+     *
+     * @param number the account number to stamp on the customer
+     * @return a fresh account customer
+     */
+    private AccountCustomer account(String number) {
+        AccountCustomer customer = new AccountCustomer();
+        customer.accountNumber = number;
+        customer.companyName = "Company " + number;
+        return customer;
+    }
+
+    /**
+     * getVisibleCreditCustomers returns the whole list untouched when it holds
+     * no more than CREDIT_ROWS accounts (size &lt;= CREDIT_ROWS true arm).
+     */
+    @Test
+    void getVisibleCreditCustomersReturnsFullListWhenSmall() {
+        PaymentState state = new PaymentState();
+        state.creditCustomers.add(account("A1"));
+        state.creditCustomers.add(account("A2"));
+        List<AccountCustomer> visible = state.getVisibleCreditCustomers();
+        assertSame(state.creditCustomers, visible);
+        assertEquals(2, visible.size());
+    }
+
+    /**
+     * getVisibleCreditCustomers caps the list to the first CREDIT_ROWS accounts
+     * when it holds more (size &lt;= CREDIT_ROWS false arm).
+     */
+    @Test
+    void getVisibleCreditCustomersCapsWhenLarge() {
+        PaymentState state = new PaymentState();
+        for (int i = 0; i < PaymentState.CREDIT_ROWS + 2; i++) {
+            state.creditCustomers.add(account("A" + i));
+        }
+        List<AccountCustomer> visible = state.getVisibleCreditCustomers();
+        assertEquals(PaymentState.CREDIT_ROWS, visible.size());
+        assertSame(state.creditCustomers.get(0), visible.get(0));
+        assertSame(state.creditCustomers.get(PaymentState.CREDIT_ROWS - 1),
+                visible.get(PaymentState.CREDIT_ROWS - 1));
+    }
+
+    /**
+     * isCreditSearchWithoutMatch is false before any search ran, short-circuiting
+     * on creditSearched (first condition false).
+     */
+    @Test
+    void isCreditSearchWithoutMatchFalseWhenNotSearched() {
+        assertFalse(new PaymentState().isCreditSearchWithoutMatch());
+    }
+
+    /**
+     * isCreditSearchWithoutMatch is false when a search ran and matched at least
+     * one account (first condition true, isEmpty false arm).
+     */
+    @Test
+    void isCreditSearchWithoutMatchFalseWhenSearchedWithMatches() {
+        PaymentState state = new PaymentState();
+        state.creditSearched = true;
+        state.creditCustomers.add(account("A1"));
+        assertFalse(state.isCreditSearchWithoutMatch());
+    }
+
+    /**
+     * isCreditSearchWithoutMatch is true when a search ran and matched nothing
+     * (first condition true, isEmpty true arm).
+     */
+    @Test
+    void isCreditSearchWithoutMatchTrueWhenSearchedEmpty() {
+        PaymentState state = new PaymentState();
+        state.creditSearched = true;
+        assertTrue(state.isCreditSearchWithoutMatch());
+    }
+
+    /**
+     * isCreditOverLimitPending is false when no over-ceiling amount is held back
+     * (creditPendingAmount null arm).
+     */
+    @Test
+    void isCreditOverLimitPendingFalseWhenNull() {
+        assertFalse(new PaymentState().isCreditOverLimitPending());
+    }
+
+    /**
+     * isCreditOverLimitPending is true while an over-ceiling amount awaits a
+     * supervisor (creditPendingAmount non-null arm).
+     */
+    @Test
+    void isCreditOverLimitPendingTrueWhenSet() {
+        PaymentState state = new PaymentState();
+        state.creditPendingAmount = new BigDecimal("5.00");
+        assertTrue(state.isCreditOverLimitPending());
     }
 }
