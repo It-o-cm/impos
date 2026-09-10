@@ -4,6 +4,7 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModState;
 import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.payment.MoneticsDegradedService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.qute.Template;
@@ -58,6 +59,7 @@ class HomeResourceTest {
         resource.homeService = mock(HomeService.class);
         resource.ticketService = mock(TicketService.class);
         resource.hardwareService = mock(HardwareService.class);
+        resource.moneticsDegradedService = mock(MoneticsDegradedService.class);
         resource.main = mock(Template.class);
         resource.supervisor = mock(Template.class);
         resource.ticket = mock(Template.class);
@@ -315,6 +317,38 @@ class HomeResourceTest {
         Response response = resource.toggleTraining();
         assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).requestTrainingToggle();
+    }
+
+    /**
+     * {@code toggleMoneticsDegraded()} RELEASES the forced degraded mode when it
+     * is already forced (true arm of the guard): the single key deactivates and
+     * redirects home, and the activate path is never taken.
+     */
+    @Test
+    void toggleMoneticsDegradedDeactivatesWhenAlreadyForced() {
+        HomeResource resource = newResource();
+        when(resource.state.isMoneticsDegradedForced()).thenReturn(true);
+        Response response = resource.toggleMoneticsDegraded("mcurie", "1111");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.moneticsDegradedService).deactivate(resource.state, "mcurie", "1111");
+        verify(resource.moneticsDegradedService, never()).activate(any(), any(), any());
+    }
+
+    /**
+     * {@code toggleMoneticsDegraded()} FORCES the degraded mode when it is not yet
+     * forced (false arm of the guard): the same key activates and redirects home,
+     * and the deactivate path is never taken.
+     */
+    @Test
+    void toggleMoneticsDegradedActivatesWhenNotForced() {
+        HomeResource resource = newResource();
+        when(resource.state.isMoneticsDegradedForced()).thenReturn(false);
+        Response response = resource.toggleMoneticsDegraded("mcurie", "1111");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.moneticsDegradedService).activate(resource.state, "mcurie", "1111");
+        verify(resource.moneticsDegradedService, never()).deactivate(any(), any(), any());
     }
 
     // --- Menu navigation ---
