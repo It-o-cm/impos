@@ -877,6 +877,20 @@ class HomeServiceTest {
     }
 
     /**
+     * {@code submitPriceMod()} refuses a quantity on a line carrying a PLU but
+     * NO EAN (weighed guard: plu non-null true, plu non-empty true, hasEan arm
+     * false). It is neither a weighed line (no EAN) nor a unit line (a PLU is
+     * present), so the line is not quantity-modifiable.
+     */
+    @Test
+    void submitPriceModQuantityRefusedWhenPluPresentButEanNull() {
+        service.state.ticket.items.add(item("A", null, "1000", BigDecimal.ONE, BigDecimal.ONE));
+        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
      * {@code submitPriceMod()} refuses a quantity on a negative unit line
      * (unit line true, negative total: signum arm true).
      */
