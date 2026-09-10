@@ -28,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -422,6 +424,37 @@ class ProductFamilyCsvResourceTest {
             assertSame(f1, resource.findEntityForLine(data));
         }
     }
+    /**
+     * {@code processChunkWithFallback}, through {@code productsByEan}, flushes a
+     * full batch mid-iteration when a single row references exactly
+     * {@code EAN_BATCH} (500) distinct EANs: the {@code batch.size() == EAN_BATCH}
+     * true arm fires once, the accumulated batch is fetched and cleared, and the
+     * trailing {@code fetchBatch} runs on the now-empty batch (so a single
+     * {@code Product.list} query is issued). The looked-up product lands in the
+     * context product map, proving the mid-loop flush actually queried the batch.
+     */
+    @Test
+    void processChunkWithFallbackFlushesFullEanBatch() {
+        ProductFamilyCsvResource resource = new ProductFamilyCsvResource();
+        List<String> eanList = new ArrayList<>();
+        for (int i = 0; i < 500; i++) eanList.add(String.format("E%04d", i));
+        String eans = String.join(",", eanList);
+        List<ImporterCsvResource.LineData> lines = new ArrayList<>();
+        lines.add(line(1, parts("F1", "Fruits", "ORGANIC", eans, "")));
+        Set<String> targetCodes = new HashSet<>();
+        targetCodes.add("F1");
+        Product p0 = product("E0000");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> ProductFamily.list(CODE_QUERY, targetCodes)).thenReturn(List.of());
+            panache.when(() -> Product.list(eq(EAN_QUERY), anyList())).thenReturn(List.of(p0));
+            Map<String, Object> context = resource.processChunkWithFallback(lines, targetCodes, new int[]{0, 0}, new ArrayList<>());
+            @SuppressWarnings("unchecked")
+            Map<String, Product> productMap = (Map<String, Product>) context.get(CTX_PRODUCTS);
+            assertEquals(1, productMap.size());
+            assertSame(p0, productMap.get("E0000"));
+        }
+    }
+
     /** Header names of the imported feed, in the cell order of the fixtures. */
     private static final String[] TEST_HEADER = {"CODE", "DESCRIPTION", "FLAGS", "PRODUCT_EANS", "SUBFAMILY_CODES"};
 
