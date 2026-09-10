@@ -668,4 +668,34 @@ class ManualServiceTest {
             assertTrue(data.items.isEmpty());
         }
     }
+
+    /**
+     * {@code getManualCategoryData} on a page whose whole window falls inside the
+     * sub-families reaches the false arm of the product guard (line 222): the
+     * page is filled by children alone and no product range is opened even
+     * though the category holds articles on a later page.
+     */
+    @Test
+    void getManualCategoryDataProductGuardFalseWhenPageIsAllChildren() {
+        ProductFamily childA = fam(60L, "CA", "ChildA");
+        childA.products = new HashSet<>(List.of(prod("ChildAEan", "820", null)));
+        ProductFamily childB = fam(61L, "CB", "ChildB");
+        childB.products = new HashSet<>(List.of(prod("ChildBEan", "821", null)));
+        ProductFamily family = fam(62L, "CAT7", "Cat7");
+        family.productFamilies = new HashSet<>(List.of(childA, childB));
+        family.products = new HashSet<>(List.of(prod("Article A", "822", null)));
+        List<ProductFamily> all = List.of(family, childA, childB);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubFindByCode(mocked, "CAT7", family);
+            ManualViewData data = serviceWith("ALPHA", 1, all).getManualCategoryData("CAT7", 1);
+            assertEquals(1, data.page);
+            assertEquals(3, data.totalPages);
+            assertNull(data.prevUrl);
+            assertEquals("/manual/cat/CAT7?page=2", data.nextUrl);
+            assertEquals(1, data.items.size());
+            assertTrue(data.items.get(0).isCategory);
+            assertEquals("ChildA", data.items.get(0).label);
+        }
+    }
 }
