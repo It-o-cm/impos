@@ -5,10 +5,15 @@ import com.intermarche.pos.domain.Address;
 import com.intermarche.pos.domain.Store;
 import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.CashPayment;
+import com.intermarche.pos.domain.ticket.ChequePayment;
+import com.intermarche.pos.domain.ticket.CreditPayment;
 import com.intermarche.pos.domain.ticket.DocumentType;
+import com.intermarche.pos.domain.ticket.FidelityPayment;
 import com.intermarche.pos.domain.ticket.Invoice;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.ticket.TicketRestoPayment;
+import com.intermarche.pos.domain.ticket.VoucherPayment;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -367,5 +372,74 @@ class InvoiceDocumentTest {
                 .getLegalMentions();
         assertTrue(mentions.contains("L441-10"));
         assertTrue(mentions.contains("40 €"));
+    }
+
+    /**
+     * Each remaining known tender is named as the customer reads it, and an unmapped
+     * tender falls back to its bare type — the four named legs of the tender switch
+     * plus its default arm. The loyalty tender is settled with no amount, which the
+     * document reads as zero, the null arm of the amount guard.
+     */
+    @Test
+    void namesEveryRemainingTenderAndTreatsANullAmountAsZero() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        ticket.payments.add(new ChequePayment(new BigDecimal("10.00")));
+        ticket.payments.add(new TicketRestoPayment(new BigDecimal("5.00")));
+        ticket.payments.add(new VoucherPayment(new BigDecimal("3.00"), null, null));
+        ticket.payments.add(new FidelityPayment(null));
+        ticket.payments.add(new CreditPayment(new BigDecimal("2.00")));
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true);
+        assertEquals(5, document.tenders.size());
+        assertEquals("Chèque", document.tenders.get(0).label());
+        assertEquals("10,00", document.tenders.get(0).amount());
+        assertEquals("Titre-restaurant", document.tenders.get(1).label());
+        assertEquals("Bon d'achat", document.tenders.get(2).label());
+        assertEquals("Cagnotte fidélité", document.tenders.get(3).label());
+        assertEquals("0,00", document.tenders.get(3).amount());
+        assertEquals("Credit", document.tenders.get(4).label());
+        assertEquals("Chèque, Titre-restaurant, Bon d'achat, Cagnotte fidélité, Credit",
+                document.paymentMethods);
+    }
+
+    /**
+     * A store whose legal name is present but blank is treated as declaring none, the
+     * non-null-yet-blank leg of the filled-text guard: the footer keeps only the
+     * register entry and the capital.
+     */
+    @Test
+    void treatsABlankLegalNameAsAbsent() {
+        Store store = new Store();
+        store.name = "MAGASIN";
+        store.legalName = "   ";
+        store.rcs = "123";
+        store.shareCapital = new BigDecimal("1");
+        Ticket ticket = new Ticket();
+        ticket.store = store;
+        ticket.ticketNumber = "T";
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true);
+        assertEquals("RCS 123 — Capital : 1,00 €", document.legalFooter);
+    }
+
+    /**
+     * An address carrying a street but neither postal code nor town prints the street
+     * alone and appends no town line, the empty-town arm of the town-line guard.
+     */
+    @Test
+    void printsTheStreetAloneWhenThereIsNoTown() {
+        Store store = new Store();
+        store.name = "MAGASIN";
+        store.address = new Address();
+        store.address.streetLine1 = "12 rue A";
+        Ticket ticket = new Ticket();
+        ticket.store = store;
+        ticket.ticketNumber = "T";
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true);
+        assertEquals(1, document.seller.addressLines().size());
+        assertEquals("12 rue A", document.seller.addressLines().get(0));
     }
 }
