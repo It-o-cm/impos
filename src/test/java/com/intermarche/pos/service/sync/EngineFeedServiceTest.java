@@ -174,6 +174,43 @@ class EngineFeedServiceTest {
     }
 
     /**
+     * {@code markError} on a null message stores null verbatim: the
+     * {@code error != null} guard takes its false leg, short-circuiting the
+     * length test and skipping truncation (null arm of the compound).
+     */
+    @Test
+    void markErrorAcceptsNullMessage() {
+        EngineFeed feed = mock(EngineFeed.class);
+        feed.code = "OFFERS";
+        feed.lastError = "old error";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> feedQuery = queryOf(feed);
+            mocked.when(() -> EngineFeed.find("code", "OFFERS")).thenReturn(feedQuery);
+            service.markError("OFFERS", null);
+            assertNull(feed.lastError);
+            verify(feed).persist();
+        }
+    }
+
+    /**
+     * {@code markError} on a short message stores it unchanged: the
+     * {@code error != null} guard is true but {@code length() > 500} takes
+     * its false leg, so no truncation occurs (short arm of the compound).
+     */
+    @Test
+    void markErrorKeepsShortMessage() {
+        EngineFeed feed = mock(EngineFeed.class);
+        feed.code = "OFFERS";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> feedQuery = queryOf(feed);
+            mocked.when(() -> EngineFeed.find("code", "OFFERS")).thenReturn(feedQuery);
+            service.markError("OFFERS", "short");
+            assertEquals("short", feed.lastError);
+            verify(feed).persist();
+        }
+    }
+
+    /**
      * {@code pendingFeeds} snapshots the feeds awaiting delivery in
      * catalog order, skipping absent rows (null arm) and acknowledged ones
      * (up-to-date arm), and carries code, engine path, content, version
