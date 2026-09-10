@@ -201,6 +201,32 @@ class ReprintServiceTest {
         verifyNoInteractions(service.ticketPrinterService);
     }
 
+    /**
+     * {@code printForeign(null)} normalises a null number to the empty string and
+     * then refuses it as blank, without ever asking the node (ternary null arm,
+     * blank arm true).
+     */
+    @Test
+    void printForeignWithANullNumberIsTreatedAsBlank() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        service.printForeign(null);
+        verifyNoInteractions(service.storeTicketClient);
+        verifyNoInteractions(service.ticketPrinterService);
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code startForeign()} opens the foreign-ticket mask on an empty number and
+     * cleared error, then touches the session (straight-line, no branch).
+     */
+    @Test
+    void startForeignOpensTheForeignMask() {
+        ReprintService service = newService();
+        service.startForeign();
+        verify(service.state).touch();
+    }
+
     // --- loadHistory ---
 
     /**
