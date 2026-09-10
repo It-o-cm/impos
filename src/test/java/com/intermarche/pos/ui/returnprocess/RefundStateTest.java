@@ -293,6 +293,35 @@ class RefundStateTest {
     }
 
     /**
+     * clearSelection drops the ticket selection and its staging (quantities,
+     * page, typed line, editing flag, manual amount, guard message) while
+     * KEEPING the search fields (search pattern and found tickets).
+     */
+    @Test
+    void clearSelectionKeepsSearchDropsStaging() {
+        RefundState s = new RefundState();
+        s.searchPattern = "abc";
+        s.foundTickets.add(ticket(new ArrayList<>()));
+        s.selectedTicket = ticket(new ArrayList<>());
+        s.returnQuantities.put(1L, BigDecimal.ONE);
+        s.detailPage = 3;
+        s.selectedLineId = 4L;
+        s.isEditingAmount = true;
+        s.manualTotalAmount = BigDecimal.TEN;
+        s.errorMessage = "err";
+        s.clearSelection();
+        assertEquals("abc", s.searchPattern);
+        assertEquals(1, s.foundTickets.size());
+        assertNull(s.selectedTicket);
+        assertTrue(s.returnQuantities.isEmpty());
+        assertEquals(0, s.detailPage);
+        assertNull(s.selectedLineId);
+        assertFalse(s.isEditingAmount);
+        assertNull(s.manualTotalAmount);
+        assertNull(s.errorMessage);
+    }
+
+    /**
      * clear resets every field to its initial value.
      */
     @Test
