@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
 import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.ui.hardware.HardwareClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,6 +38,9 @@ class TerminalClientProducerTest {
         producer.verifoneHost = "127.0.0.1";
         producer.verifonePort = 8200;
         producer.verifoneTimeoutMs = 1000;
+        producer.hardwareClient = mock(HardwareClient.class);
+        producer.bridgePollMs = 500L;
+        producer.bridgeDeadlineMs = 300000L;
     }
 
     /**
@@ -77,6 +81,16 @@ class TerminalClientProducerTest {
     void verifoneModeReturnsVerifoneClient() {
         producer.mode = "verifone";
         assertTrue(configured() instanceof VerifoneTerminalClient);
+    }
+
+    /**
+     * Mode {@code bridge} resolves to the hardware-bridge client (bridge
+     * arm).
+     */
+    @Test
+    void bridgeModeReturnsHardwareBridgeClient() {
+        producer.mode = "bridge";
+        assertTrue(configured() instanceof HardwareBridgeTerminalClient);
     }
 
     /**
