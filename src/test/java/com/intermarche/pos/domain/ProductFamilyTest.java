@@ -408,6 +408,19 @@ class ProductFamilyTest {
     }
 
     /**
+     * addFlag on a family whose flags string is present but blank parses it as
+     * the empty set: this reaches the {@code isBlank()} arm of getFlagsSet
+     * (flags non-null, {@code isBlank()} true), the arm that hasFlag's own guard
+     * short-circuits before ever calling getFlagsSet.
+     */
+    @Test
+    void addFlagOnBlankFlagsCreatesTheFlag() {
+        ProductFamily f = family(1L, "   ");
+        f.addFlag("NEW");
+        Assertions.assertEquals("NEW", f.flags);
+    }
+
+    /**
      * addFlag is a no-op when the token is already present (add arm false).
      */
     @Test
