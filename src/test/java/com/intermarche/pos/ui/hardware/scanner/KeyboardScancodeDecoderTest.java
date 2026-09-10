@@ -107,4 +107,23 @@ class KeyboardScancodeDecoderTest {
         assertEquals(1, emitted.size());
         assertTrue(emitted.get(0).length() <= KeyboardScancodeDecoder.MAX_LENGTH);
     }
+
+    /**
+     * Presses every mapped key code in turn — each main-row digit (2..11),
+     * the main-row dash (12), each main-row letter (16..25, 30..38, 44..50),
+     * every keypad digit (71,72,73,75,76,77,79,80,81,82) and the keypad dash
+     * (74) — then ENTER: this exercises EVERY case arm of the mapping switch
+     * and asserts the exact character produced by each, in order. The 48
+     * characters stay under {@link KeyboardScancodeDecoder#MAX_LENGTH} so no
+     * runaway reset interferes.
+     */
+    @Test
+    void everyMappedKeyProducesItsExactCharacter() {
+        int[] keys = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 36, 37, 38, 44, 45, 46, 47, 48, 49, 50, 71, 72, 73, 75, 76, 77, 79, 80, 81, 82, 74};
+        for (int key : keys) {
+            decoder.onKeyPress(key);
+        }
+        decoder.onKeyPress(28);
+        assertEquals(List.of("1234567890-QWERTYUIOPASDFGHJKLZXCVBNM7894561230-"), emitted);
+    }
 }
