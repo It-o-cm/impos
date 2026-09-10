@@ -838,6 +838,41 @@ class PaymentResourceTest {
         assertEquals("/", response.getLocation().toString());
     }
 
+    // --- selectCreditAccount ---
+
+    /**
+     * {@code selectCreditAccount()} passes a null id when no customer is posted
+     * and redirects (ternary {@code customerId == null} true arm).
+     */
+    @Test
+    void selectCreditAccountNullIdSelectsNull() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccount(null));
+        verify(resource.creditClientService).selectById(resource.state, null);
+    }
+
+    /**
+     * {@code selectCreditAccount()} parses a numeric id (trimmed) and names the
+     * account (ternary {@code customerId == null} false arm, valid number).
+     */
+    @Test
+    void selectCreditAccountValidIdSelectsById() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccount("  42 "));
+        verify(resource.creditClientService).selectById(resource.state, 42L);
+    }
+
+    /**
+     * {@code selectCreditAccount()} falls back to a null id on an unparsable
+     * value ({@code NumberFormatException} catch arm).
+     */
+    @Test
+    void selectCreditAccountInvalidIdSelectsNull() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccount("abc"));
+        verify(resource.creditClientService).selectById(resource.state, null);
+    }
+
     /**
      * {@code abandonTicketFromPayment} cancels the collected payments BEFORE
      * cancelling the ticket (the mandatory order, so no orphaned payment
