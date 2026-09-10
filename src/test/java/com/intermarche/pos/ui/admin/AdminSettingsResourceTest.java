@@ -1,8 +1,10 @@
 package com.intermarche.pos.ui.admin;
 
+import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -216,5 +218,49 @@ class AdminSettingsResourceTest {
         verify(resource.posSettingsService).store("gesture.endorsement-required", "false");
         assertTrue(response.getLocation().toString().contains("noticeOk=true"));
         assertFalse(response.getLocation().toString().contains("noticeOk=false"));
+    }
+
+    /**
+     * {@code adminRoot} routes a signed-in administrator to the parameters:
+     * the non-null arm of the identity guard, the true arm of {@code hasRole}
+     * and the true arm of the routing ternary.
+     */
+    @Test
+    void adminRootRoutesAdminToSettings() {
+        AdminSettingsResource resource = newResource();
+        resource.identity = mock(SecurityIdentity.class);
+        when(resource.identity.hasRole(Employee.EmployeeRole.ADMIN.name())).thenReturn(true);
+        Response response = resource.adminRoot();
+        assertEquals(303, response.getStatus());
+        assertEquals("/admin/settings", response.getLocation().toString());
+    }
+
+    /**
+     * {@code adminRoot} routes a signed-in non-administrator to the
+     * supervision: the non-null arm of the identity guard, the false arm of
+     * {@code hasRole} and the false arm of the routing ternary.
+     */
+    @Test
+    void adminRootRoutesNonAdminToDashboard() {
+        AdminSettingsResource resource = newResource();
+        resource.identity = mock(SecurityIdentity.class);
+        when(resource.identity.hasRole(Employee.EmployeeRole.ADMIN.name())).thenReturn(false);
+        Response response = resource.adminRoot();
+        assertEquals(303, response.getStatus());
+        assertEquals("/dashboard", response.getLocation().toString());
+    }
+
+    /**
+     * {@code adminRoot} routes to the supervision when there is no identity:
+     * the null arm of the identity guard short-circuits before {@code hasRole}
+     * and lands on the false arm of the routing ternary.
+     */
+    @Test
+    void adminRootRoutesNullIdentityToDashboard() {
+        AdminSettingsResource resource = newResource();
+        resource.identity = null;
+        Response response = resource.adminRoot();
+        assertEquals(303, response.getStatus());
+        assertEquals("/dashboard", response.getLocation().toString());
     }
 }
