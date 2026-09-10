@@ -768,6 +768,33 @@ class InvoiceServiceTest {
     }
 
     /**
+     * A cancelled line is skipped when the document is built: its price counts neither
+     * excluding nor including tax — the true arm of the {@code line.cancelled} guard,
+     * exercised alongside the live line that provides the false arm.
+     */
+    @Test
+    void issueExcludesCancelledLinesFromTheTotals() {
+        Ticket ticket = ticket(1L, "C04-00000417");
+        TicketLine cancelled = new TicketLine();
+        cancelled.productLabel = "ANNULE";
+        cancelled.quantity = BigDecimal.ONE;
+        cancelled.unitPrice = new BigDecimal("5.00");
+        cancelled.totalPrice = new BigDecimal("5.00");
+        cancelled.vatRate = new BigDecimal("0.20");
+        cancelled.cancelled = true;
+        ticket.lines.add(cancelled);
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        service.issue();
+        Invoice document = repository.savedInvoices.get(0);
+        assertEquals(0, new BigDecimal("12.00").compareTo(document.totalIncludingTax));
+        assertEquals(0, new BigDecimal("10.00").compareTo(document.totalExcludingTax));
+    }
+
+    /**
      * An issued document can be laid out again from its id.
      */
     @Test
@@ -1144,6 +1171,20 @@ class InvoiceServiceTest {
         assertEquals(1, outbox.types.size());
         assertEquals(com.intermarche.pos.domain.SyncOutbox.EntityType.CUSTOMER,
                 outbox.types.get(0));
+    }
+
+    /**
+     * A mask that does not require the business name reaches the dedicated business-name
+     * guard, where a null name is still refused: the true arm of {@code companyName ==
+     * null} on that guard, which the administered-mask refusal cannot reach because it
+     * only sees a blank name.
+     */
+    @Test
+    void createCustomerRefusesANullNameEvenWhenTheMaskDoesNotRequireIt() {
+        settings.customerFields = "city";
+        service.createCustomer(null, "", "", "", "VAUCRESSON", "", "", "", "");
+        assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
+        assertTrue(repository.savedCustomers.isEmpty());
     }
 
     /**
