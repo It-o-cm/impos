@@ -528,4 +528,93 @@ class ProductCsvResourceTest {
         assertNotEquals(base, coded);
     }
 
+    /**
+     * Header including the optional register-only ICON and FORBIDDEN_TO_SALE
+     * columns appended after the canonical nine.
+     */
+    private static final String[] ICON_HEADER = {"EAN", "NAME", "DESCRIPTION", "BRAND",
+            "REFERENCE_WEIGHT", "REFERENCE_VOLUME", "PRODUCT_TYPE", "UNIT_NAME", "ACTIVE",
+            "ICON", "FORBIDDEN_TO_SALE"};
+
+    /**
+     * Builds a header-bound row declaring the optional ICON and
+     * FORBIDDEN_TO_SALE columns.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData iconLine(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < ICON_HEADER.length; i++) header.put(ICON_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, ICON_HEADER[0]);
+    }
+
+    /**
+     * {@code feedProduct} lands a null PLU cell as NULL through the
+     * {@code plu == null} leg of the blank-PLU guard (L221): the PLU column
+     * is declared ({@code has} true arm) but the row carries a null cell, so
+     * {@code safeGet} returns null and the first leg of the OR short-circuits
+     * to the null assignment without reaching {@code isEmpty}.
+     */
+    @Test
+    void processLineLogicNullifiesNullPluCell() {
+        ProductCsvResource resource = new ProductCsvResource();
+        ImporterCsvResource.LineData data = weighLine(1, new String[]{"111", "Milk", "Fresh milk",
+                "BrandX", "1.500", "2.000", "unit", "kg", "true", null, "true"});
+        Map<String, Object> context = new HashMap<>();
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+            verify(em).persist(captor.capture());
+            assertNull(captor.getValue().plu);
+        }
+    }
+
+    /**
+     * {@code feedProduct} applies the optional ICON and FORBIDDEN_TO_SALE
+     * columns when the header declares them (the {@code has} true arms at L223
+     * and L226): the icon lands verbatim and the forbidden-to-sale flag is
+     * parsed from the cell.
+     */
+    @Test
+    void processLineLogicAppliesIconAndForbiddenToSaleColumns() {
+        ProductCsvResource resource = new ProductCsvResource();
+        String[] cells = {"444", "Cig", "", "", "", "", "", "", "true", "cig.png", "true"};
+        ImporterCsvResource.LineData data = iconLine(1, cells);
+        Map<String, Object> context = new HashMap<>();
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+            verify(em).persist(captor.capture());
+            Product persisted = captor.getValue();
+            assertEquals("cig.png", persisted.icon);
+            assertTrue(persisted.forbiddenToSale);
+        }
+    }
+
+    /**
+     * {@code computeIncomingChecksum} reads FORBIDDEN_TO_SALE from the CSV when
+     * the header declares it (the {@code has} true arm at L255), so a row that
+     * forbids sale shifts the checksum away from an existing product that
+     * permits it.
+     */
+    @Test
+    void incomingChecksumReadsForbiddenToSaleFromCsv() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product existing = new Product();
+        existing.forbiddenToSale = false;
+        String[] permitted = {"444", "Cig", "", "", "", "", "", "", "true", "cig.png", "false"};
+        String[] forbidden = {"444", "Cig", "", "", "", "", "", "", "true", "cig.png", "true"};
+        int permittedChecksum = incomingChecksum(resource, iconLine(1, permitted), existing);
+        int forbiddenChecksum = incomingChecksum(resource, iconLine(1, forbidden), existing);
+        assertNotEquals(permittedChecksum, forbiddenChecksum);
+    }
+
 }
