@@ -854,4 +854,182 @@ class RefExportServiceTest {
         assertEquals("ENSEIGNE|ITM|discount.enabled|false|", canonical.invoke(service, echelon));
         assertEquals("RAW", canonical.invoke(service, "RAW"));
     }
+
+    /**
+     * Covers the CURRENCIES switch arm and both arms of the {@code euroPerUnit}
+     * ternary in {@code toDto(Currency)}: the first currency carries a rate
+     * (rendered as its plain string), the second has a null rate (rendered null).
+     */
+    @Test
+    void getPageMapsCurrenciesWithAndWithoutRate() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.Currency rated = mock(com.intermarche.pos.domain.Currency.class);
+        rated.code = "CHF";
+        rated.label = "Franc Suisse";
+        rated.symbol = "CHF";
+        rated.euroPerUnit = new BigDecimal("1.050000");
+        rated.active = true;
+        rated.displayOrder = 1;
+        com.intermarche.pos.domain.Currency rateless = mock(com.intermarche.pos.domain.Currency.class);
+        rateless.code = "USD";
+        rateless.label = "Dollar";
+        rateless.symbol = null;
+        rateless.euroPerUnit = null;
+        rateless.active = false;
+        rateless.displayOrder = 2;
+        PanacheQuery<com.intermarche.pos.domain.Currency> query =
+                singlePage(0, 10, List.of(rated, rateless));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code"))
+                    .thenReturn(query);
+            List<?> result = service.getPage("CURRENCIES", 0, 10);
+            assertEquals(2, result.size());
+            RefPayloads.CurrencyDto first = (RefPayloads.CurrencyDto) result.get(0);
+            assertEquals("CHF", first.code);
+            assertEquals("Franc Suisse", first.label);
+            assertEquals("CHF", first.symbol);
+            assertEquals("1.050000", first.euroPerUnit);
+            assertTrue(first.active);
+            assertEquals(1, first.displayOrder);
+            RefPayloads.CurrencyDto second = (RefPayloads.CurrencyDto) result.get(1);
+            assertEquals("USD", second.code);
+            assertNull(second.euroPerUnit);
+            assertFalse(second.active);
+            assertEquals(2, second.displayOrder);
+        }
+    }
+
+    /**
+     * Covers the CUSTOMERS switch arm and both arms of every conditional in
+     * {@code toDto(AccountCustomer)}: the first customer has an address and both
+     * credit figures (the {@code address == null} guard false for street, postal
+     * code and city, and the {@code creditLimit}/{@code creditBalance} ternaries
+     * take their {@code toPlainString} arm), the second has a null address and
+     * null credit figures (the same five conditionals take their null arm).
+     */
+    @Test
+    void getPageMapsCustomersWithAndWithoutAddressAndCredit() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.AccountCustomer full =
+                mock(com.intermarche.pos.domain.AccountCustomer.class);
+        full.accountNumber = "A1";
+        full.companyName = "Acme";
+        full.lastName = "Martin";
+        full.firstName = "Alice";
+        com.intermarche.pos.domain.Address address = new com.intermarche.pos.domain.Address();
+        address.streetLine1 = "10 rue X";
+        address.postalCode = "75008";
+        address.city = "Paris";
+        full.address = address;
+        full.siret = "SIR";
+        full.vatNumber = "VAT";
+        full.phone = "0102";
+        full.email = "a@x.fr";
+        full.creditLimit = new BigDecimal("1000.00");
+        full.creditBalance = new BigDecimal("250.00");
+        com.intermarche.pos.domain.AccountCustomer bare =
+                mock(com.intermarche.pos.domain.AccountCustomer.class);
+        bare.accountNumber = "A2";
+        bare.companyName = "Beta";
+        bare.lastName = null;
+        bare.firstName = null;
+        bare.address = null;
+        bare.siret = null;
+        bare.vatNumber = null;
+        bare.phone = null;
+        bare.email = null;
+        bare.creditLimit = null;
+        bare.creditBalance = null;
+        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> query =
+                singlePage(0, 10, List.of(full, bare));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer
+                    .find("order by accountNumber")).thenReturn(query);
+            List<?> result = service.getPage("CUSTOMERS", 0, 10);
+            assertEquals(2, result.size());
+            RefPayloads.CustomerDto first = (RefPayloads.CustomerDto) result.get(0);
+            assertEquals("A1", first.accountNumber);
+            assertEquals("Acme", first.companyName);
+            assertEquals("10 rue X", first.street);
+            assertEquals("75008", first.postalCode);
+            assertEquals("Paris", first.city);
+            assertEquals("SIR", first.siret);
+            assertEquals("1000.00", first.creditLimit);
+            assertEquals("250.00", first.creditBalance);
+            RefPayloads.CustomerDto second = (RefPayloads.CustomerDto) result.get(1);
+            assertEquals("A2", second.accountNumber);
+            assertNull(second.street);
+            assertNull(second.postalCode);
+            assertNull(second.city);
+            assertNull(second.creditLimit);
+            assertNull(second.creditBalance);
+        }
+    }
+
+    /**
+     * Covers the ENGINE_FEEDS switch arm and {@code toDto(EngineFeed)}: the feed
+     * code, version and verbatim content flow into the payload unchanged (the
+     * method is branchless, shipping the parcel unopened).
+     */
+    @Test
+    void getPageMapsEngineFeeds() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.EngineFeed feed =
+                mock(com.intermarche.pos.domain.EngineFeed.class);
+        feed.code = "VAL";
+        feed.version = "abc123";
+        feed.content = "verbatim-body";
+        PanacheQuery<com.intermarche.pos.domain.EngineFeed> query =
+                singlePage(0, 10, List.of(feed));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code"))
+                    .thenReturn(query);
+            List<?> result = service.getPage("ENGINE_FEEDS", 0, 10);
+            assertEquals(1, result.size());
+            RefPayloads.EngineFeedDto dto = (RefPayloads.EngineFeedDto) result.get(0);
+            assertEquals("VAL", dto.code);
+            assertEquals("abc123", dto.version);
+            assertEquals("verbatim-body", dto.content);
+        }
+    }
+
+    /**
+     * Covers the two remaining {@code instanceof} true arms of {@code canonical}:
+     * a {@link RefPayloads.CurrencyDto} and a {@link RefPayloads.CustomerDto} each
+     * render through their own arm, with a null field apiece to keep exercising
+     * the empty {@code n} arm alongside the non-null fields. Invoked reflectively
+     * because the production flow only ever feeds already-mapped DTOs.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void canonicalRendersCurrencyAndCustomer() throws Exception {
+        RefExportService service = new RefExportService();
+        Method canonical = RefExportService.class.getDeclaredMethod("canonical", Object.class);
+        canonical.setAccessible(true);
+        RefPayloads.CurrencyDto currency = new RefPayloads.CurrencyDto();
+        currency.code = "CHF";
+        currency.label = "Franc Suisse";
+        currency.symbol = null;
+        currency.euroPerUnit = "1.050000";
+        currency.active = true;
+        currency.displayOrder = 1;
+        assertEquals("CHF|Franc Suisse||1.050000|true|1", canonical.invoke(service, currency));
+        RefPayloads.CustomerDto customer = new RefPayloads.CustomerDto();
+        customer.accountNumber = "A1";
+        customer.companyName = "Acme";
+        customer.lastName = "Martin";
+        customer.firstName = "Alice";
+        customer.street = "10 rue X";
+        customer.postalCode = "75008";
+        customer.city = "Paris";
+        customer.siret = "SIR";
+        customer.vatNumber = null;
+        customer.phone = "0102";
+        customer.email = "a@x.fr";
+        customer.creditLimit = "1000.00";
+        customer.creditBalance = null;
+        assertEquals("A1|Acme|Martin|Alice|10 rue X|75008|Paris|SIR||0102|a@x.fr|1000.00|",
+                canonical.invoke(service, customer));
+    }
 }
