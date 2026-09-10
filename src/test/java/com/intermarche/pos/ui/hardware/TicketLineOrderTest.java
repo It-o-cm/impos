@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -216,6 +217,21 @@ class TicketLineOrderTest {
     @Test
     void applyToleratesMissingLines() {
         assertTrue(TicketLineOrder.apply(null, TicketLineOrder.LABEL).isEmpty());
+    }
+
+    /**
+     * A null line WITHIN the list sorts as an empty label rather than failing — the
+     * true arm of {@code line == null} in the label comparator. Its empty label sorts
+     * ahead of a real one, and the returned order keeps the null element intact.
+     */
+    @Test
+    void labelOrderToleratesANullLineInTheList() {
+        List<TicketLine> lines = new ArrayList<>();
+        lines.add(line("POMME", null, null));
+        lines.add(null);
+        List<TicketLine> ordered = TicketLineOrder.apply(lines, TicketLineOrder.LABEL);
+        assertNull(ordered.get(0));
+        assertEquals("POMME", ordered.get(1).productLabel);
     }
 
     // --------------------------------------------------
