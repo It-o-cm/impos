@@ -971,6 +971,215 @@ class TicketPersistenceServiceTest {
         }
     }
 
+    /**
+     * Builds the service with a SINGLE payment factory indexed under the given
+     * key by {@code init}, producing the supplied payment for every create call.
+     *
+     * @param key the method key the factory answers to
+     * @param payment the payment the factory produces
+     * @return the service with the one factory indexed
+     */
+    @SuppressWarnings("unchecked")
+    private TicketPersistenceService serviceWithSingleFactory(String key, TicketPayment payment) {
+        TicketPersistenceService service = newService();
+        TicketPayment.Factory factory = mock(TicketPayment.Factory.class);
+        when(factory.getKey()).thenReturn(key);
+        when(factory.create(any(BigDecimal.class), any())).thenReturn(payment);
+        Instance<TicketPayment.Factory> instance = mock(Instance.class);
+        when(instance.iterator()).thenReturn(java.util.List.of(factory).iterator());
+        service.factoryInstances = instance;
+        service.init();
+        return service;
+    }
+
+    /**
+     * Covers the cheque arm of {@code addPaymentToTicket} (L319, true leg): a
+     * cheque entry resolves the CHEQUE factory and the created
+     * {@link com.intermarche.pos.domain.ticket.ChequePayment} is enriched with
+     * the entry's magnetic line before being added.
+     */
+    @Test
+    void addPaymentEnrichesChequePaymentMagneticLine() {
+        com.intermarche.pos.domain.ticket.ChequePayment payment =
+                mock(com.intermarche.pos.domain.ticket.ChequePayment.class);
+        TicketPersistenceService service = serviceWithSingleFactory("CHEQUE", payment);
+        PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("CHEQUE", new BigDecimal("30.00"));
+        entry.magneticLine = "CMC7-0123456789";
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.addPaymentToTicket(5L, entry);
+            assertEquals("CMC7-0123456789", payment.magneticLine);
+            assertEquals(1, payment.paymentIndex);
+            verify(ticket).addPayment(payment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the backup arm of {@code addPaymentToTicket} (L322, true leg): a
+     * backup entry resolves the SECOURS factory and the created
+     * {@link com.intermarche.pos.domain.ticket.BackupPayment} is enriched with
+     * the entry's method label, transaction number and manual indicator before
+     * being added.
+     */
+    @Test
+    void addPaymentEnrichesBackupPaymentTraces() {
+        com.intermarche.pos.domain.ticket.BackupPayment payment =
+                mock(com.intermarche.pos.domain.ticket.BackupPayment.class);
+        TicketPersistenceService service = serviceWithSingleFactory("SECOURS", payment);
+        PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("SECOURS", new BigDecimal("40.00"));
+        entry.backupMethodLabel = "CB (secours)";
+        entry.backupTransaction = "TX-778899";
+        entry.backupManual = true;
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.addPaymentToTicket(5L, entry);
+            assertEquals("CB (secours)", payment.methodLabel);
+            assertEquals("TX-778899", payment.transactionNumber);
+            assertTrue(payment.manual);
+            assertEquals(1, payment.paymentIndex);
+            verify(ticket).addPayment(payment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the foreign-currency arm of {@code addPaymentToTicket} (L327, true
+     * leg): a currency entry resolves the DEVISE factory and the created
+     * {@link com.intermarche.pos.domain.ticket.ForeignCurrencyPayment} is
+     * enriched with the entry's currency code, foreign amount and exchange rate
+     * before being added.
+     */
+    @Test
+    void addPaymentEnrichesForeignCurrencyPaymentTraces() {
+        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment payment =
+                mock(com.intermarche.pos.domain.ticket.ForeignCurrencyPayment.class);
+        TicketPersistenceService service = serviceWithSingleFactory("DEVISE", payment);
+        PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("DEVISE", new BigDecimal("10.00"));
+        entry.currencyCode = "USD";
+        entry.currencyAmount = new BigDecimal("11.50");
+        entry.currencyRate = new BigDecimal("1.15");
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.addPaymentToTicket(5L, entry);
+            assertEquals("USD", payment.currencyCode);
+            assertEquals(0, new BigDecimal("11.50").compareTo(payment.foreignAmount));
+            assertEquals(0, new BigDecimal("1.15").compareTo(payment.exchangeRate));
+            assertEquals(1, payment.paymentIndex);
+            verify(ticket).addPayment(payment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the credit arm of {@code addPaymentToTicket} (L332, true leg): a
+     * credit entry resolves the CREDIT factory and the created
+     * {@link com.intermarche.pos.domain.ticket.CreditPayment} is enriched with
+     * the entry's account number, account name and over-limit indicator before
+     * being added.
+     */
+    @Test
+    void addPaymentEnrichesCreditPaymentTraces() {
+        com.intermarche.pos.domain.ticket.CreditPayment payment =
+                mock(com.intermarche.pos.domain.ticket.CreditPayment.class);
+        TicketPersistenceService service = serviceWithSingleFactory("CREDIT", payment);
+        PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("CREDIT", new BigDecimal("15.00"));
+        entry.creditAccountNumber = "CPT-4242";
+        entry.creditAccountName = "Famille Martin";
+        entry.creditOverLimit = true;
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.addPaymentToTicket(5L, entry);
+            assertEquals("CPT-4242", payment.accountNumber);
+            assertEquals("Famille Martin", payment.accountName);
+            assertTrue(payment.overLimit);
+            assertEquals(1, payment.paymentIndex);
+            verify(ticket).addPayment(payment);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // storeFormattedContent
+    // --------------------------------------------------
+
+    /**
+     * Covers the null-id leg of the guard of {@code storeFormattedContent}
+     * (L409, first condition true): a null ticket id short-circuits before any
+     * Panache access, so nothing is looked up.
+     */
+    @Test
+    void storeFormattedContentIgnoresNullTicketId() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeFormattedContent(null, "Ticket printed");
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * Covers the null-content leg of the guard of {@code storeFormattedContent}
+     * (L409, first condition false, second true): a null content short-circuits
+     * before any Panache access.
+     */
+    @Test
+    void storeFormattedContentIgnoresNullContent() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeFormattedContent(5L, null);
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * Covers the blank-content leg of the guard of {@code storeFormattedContent}
+     * (L409, first two conditions false, third true): a blank content
+     * short-circuits before any Panache access.
+     */
+    @Test
+    void storeFormattedContentIgnoresBlankContent() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeFormattedContent(5L, "   ");
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * Covers the missing-ticket arm of {@code storeFormattedContent} (L409 all
+     * false, so the guard is passed, then L413 true): a well-formed request
+     * whose ticket vanished stores nothing.
+     */
+    @Test
+    void storeFormattedContentIgnoresMissingTicket() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
+            service.storeFormattedContent(5L, "Ticket printed");
+        }
+    }
+
+    /**
+     * Covers the nominal arm of {@code storeFormattedContent} (L409 all false,
+     * L413 false): a well-formed request on an existing ticket freezes its
+     * printed form and persists it.
+     */
+    @Test
+    void storeFormattedContentStoresAndPersists() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeFormattedContent(5L, "Ticket printed");
+            assertEquals("Ticket printed", ticket.formattedContent);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
     // --------------------------------------------------
     // removePaymentsFromTicket
     // --------------------------------------------------
