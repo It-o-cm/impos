@@ -917,6 +917,25 @@ class PaymentServiceTest {
     }
 
     /**
+     * The basket total behind the engine cap counts ONLY meal tickets: a
+     * non-meal payment already on the ticket (here a card part-payment) is
+     * skipped, so the full eligible base is still available to this meal ticket
+     * ({@code "TR".equals(entry.method)} false arm of the summation loop).
+     */
+    @Test
+    void processTicketRestoEngineBasketTotalSkipsNonMealPayments() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("8");
+        state.payment.valuationMealThreshold = null;
+        state.payment.addPayment("CARD", new BigDecimal("10.00"));
+        service.processTicketResto(state, new BigDecimal("5"));
+        verify(hardwareService).displayMessage("TICKET    5,00 E");
+        assertEquals(0, new BigDecimal("15.00").compareTo(state.payment.paidAmount));
+    }
+
+    /**
      * {@code processTicketResto} in training does not open the drawer
      * ({@code !trainingMode} false arm).
      */
@@ -1390,6 +1409,22 @@ class PaymentServiceTest {
     }
 
     /**
+     * The refuse leg prints no not-completed slip when the terminal supplied NO
+     * outcome, even with the rule forced: there is no frame to print
+     * ({@code outcome != null} false arm short-circuits the {@code &&}). The
+     * pending amount is still dropped with the standard refusal message.
+     */
+    @Test
+    void refuseLegWithNullOutcomePrintsNoTnaReceipt() {
+        when(printPolicy.isTnaReceiptForced()).thenReturn(true);
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onRefused(null);
+        verify(ticketPrinterService, never()).printCardTnaReceipt(any(), any());
+        assertNull(state.payment.pendingCardAmount);
+        assertEquals("PAIEMENT REFUSÉ PAR LE TPE", state.ticket.transientError);
+    }
+
+    /**
      * The accept leg raises the signature flag the printing rule reads
      * (LC-08-03-11).
      */
@@ -1683,6 +1718,403 @@ class PaymentServiceTest {
         service.finalizeTransaction(state);
         verify(ticketPersistenceService, never()).validateTicket(any());
         assertNull(state.lastClosedTicketId);
+        verify(hardwareService).displayMessage("MERCI A BIENTOT");
+    }
+
+    // --------------------------------------------------
+    // processBackupPayment
+    // --------------------------------------------------
+
+    /**
+     * {@code processBackupPayment} rejects a null amount ({@code amount == null}
+     * true arm of the first guard).
+     */
+    @Test
+    void processBackupPaymentNullReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processBackupPayment(state, null, "CB SECOURS", "TX1", false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processBackupPayment} rejects a non-positive amount ({@code amount
+     * == null} false, {@code amount.signum() <= 0} true).
+     */
+    @Test
+    void processBackupPaymentZeroReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processBackupPayment(state, BigDecimal.ZERO, "CB SECOURS", "TX1", false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processBackupPayment} rejects a payment on a settled ticket: the
+     * amount is positive but nothing is due ({@code amount == null} false,
+     * {@code amount.signum() <= 0} false, {@code remaining.signum() <= 0} true).
+     */
+    @Test
+    void processBackupPaymentNothingDueReturns() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processBackupPayment(state, new BigDecimal("5"), "CB SECOURS", "TX1", false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processBackupPayment} caps the applied amount at the remaining due,
+     * gives no change, persists the entry, completes the transaction and never
+     * opens the drawer ({@code remaining.signum() <= 0} false, {@code manual}
+     * carried, completion reached).
+     */
+    @Test
+    void processBackupPaymentCapsCompletesNoDrawer() {
+        state.ticket.totalAmount = new BigDecimal("15.00");
+        state.payment.ticketDbId = 3L;
+        service.processBackupPayment(state, new BigDecimal("20.00"), "CB SECOURS", "TX1", true);
+        assertEquals(0, new BigDecimal("15.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService).displayMessage("SECOURS  15,00 E");
+        verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
+        verify(hardwareService, never()).openDrawer();
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * {@code processBackupPayment} for a partial amount registers it and leaves
+     * the transaction incomplete (completion not reached, the false arm of the
+     * check).
+     */
+    @Test
+    void processBackupPaymentPartialStaysIncomplete() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processBackupPayment(state, new BigDecimal("5.00"), "CB SECOURS", "TX2", false);
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService).displayMessage("SECOURS  5,00 E");
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    // --------------------------------------------------
+    // processForeignCurrency
+    // --------------------------------------------------
+
+    /**
+     * Builds a foreign currency with the given ISO code, display symbol (null to
+     * fall back on the code) and administered euro-per-unit rate.
+     *
+     * @param code the ISO code
+     * @param symbol the display symbol, or null to use the code
+     * @param euroPerUnit how many euros one unit is worth
+     * @return the currency
+     */
+    private com.intermarche.pos.domain.Currency currency(String code, String symbol, String euroPerUnit) {
+        com.intermarche.pos.domain.Currency c = new com.intermarche.pos.domain.Currency();
+        c.code = code;
+        c.symbol = symbol;
+        c.euroPerUnit = new BigDecimal(euroPerUnit);
+        return c;
+    }
+
+    /**
+     * {@code processForeignCurrency} rejects a null currency ({@code currency ==
+     * null} true arm of the first guard).
+     */
+    @Test
+    void processForeignCurrencyNullCurrencyReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processForeignCurrency(state, null, new BigDecimal("50"), new BigDecimal("47.50"));
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processForeignCurrency} rejects a null euro value ({@code currency
+     * == null} false, {@code euroValue == null} true).
+     */
+    @Test
+    void processForeignCurrencyNullEuroValueReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processForeignCurrency(state, currency("CHF", "CHF", "1.05"),
+                new BigDecimal("50"), null);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processForeignCurrency} rejects a non-positive euro value
+     * ({@code currency == null} false, {@code euroValue == null} false,
+     * {@code euroValue.signum() <= 0} true).
+     */
+    @Test
+    void processForeignCurrencyZeroEuroValueReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processForeignCurrency(state, currency("CHF", "CHF", "1.05"),
+                new BigDecimal("0"), BigDecimal.ZERO);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processForeignCurrency} rejects a settlement on a ticket with
+     * nothing due ({@code euroValue} positive so the first guard is fully false,
+     * {@code remaining.signum() <= 0} true).
+     */
+    @Test
+    void processForeignCurrencyNothingDueReturns() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processForeignCurrency(state, currency("CHF", "CHF", "1.05"),
+                new BigDecimal("50"), new BigDecimal("10"));
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processForeignCurrency} for an exact euro value gives no change,
+     * persists the entry, shows the three figures without a RENDU line, opens
+     * the drawer and completes ({@code change.signum() > 0} false arm of both the
+     * ternary and the display guard, drawer rule on).
+     */
+    @Test
+    void processForeignCurrencyExactOpensDrawerCompletes() {
+        state.ticket.totalAmount = new BigDecimal("47.50");
+        state.payment.ticketDbId = 3L;
+        service.processForeignCurrency(state, currency("CHF", "CHF", "1.05"),
+                new BigDecimal("50"), new BigDecimal("47.50"));
+        assertEquals(0, new BigDecimal("47.50").compareTo(state.payment.paidAmount));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.lastChangeAmount));
+        verify(hardwareService).displayMessage("50,00 CHF = 47,50 E");
+        verify(hardwareService, never()).displayMessage("RENDU 0,00 E");
+        verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
+        verify(hardwareService).openDrawer();
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * {@code processForeignCurrency} for foreign notes worth more than the due
+     * caps at the remaining, gives euro change, shows the RENDU line and opens
+     * the drawer ({@code change.signum() > 0} true arm of both the ternary and
+     * the display guard).
+     */
+    @Test
+    void processForeignCurrencyOverpaymentShowsChangeOpensDrawer() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        service.processForeignCurrency(state, currency("CHF", "CHF", "1.05"),
+                new BigDecimal("50"), new BigDecimal("47.50"));
+        assertEquals(0, new BigDecimal("40.00").compareTo(state.payment.paidAmount));
+        assertEquals(0, new BigDecimal("7.50").compareTo(state.payment.lastChangeAmount));
+        verify(hardwareService).displayMessage("50,00 CHF = 47,50 E");
+        verify(hardwareService).displayMessage("RENDU 7,50 E");
+        verify(hardwareService).openDrawer();
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * {@code processForeignCurrency} in training registers the entry, shows the
+     * figures using the ISO code when no symbol was given, but never opens the
+     * drawer ({@code !trainingMode} false arm short-circuits the drawer pulse).
+     */
+    @Test
+    void processForeignCurrencyTrainingNoDrawer() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processForeignCurrency(state, currency("USD", null, "0.90"),
+                new BigDecimal("10"), new BigDecimal("9.00"));
+        verify(hardwareService).displayMessage("10,00 USD = 9,00 E");
+        verify(hardwareService, never()).openDrawer();
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * BO-10-02-12: with the drawer-open-on-payment rule DISABLED, a foreign
+     * currency settlement registers but the drawer stays shut ({@code
+     * !trainingMode} true but {@code drawerOpenOnPayment()} false arm).
+     */
+    @Test
+    void processForeignCurrencyDrawerRuleDisabledKeepsDrawerShut() {
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
+        state.ticket.totalAmount = new BigDecimal("47.50");
+        state.payment.ticketDbId = 3L;
+        service.processForeignCurrency(state, currency("CHF", "CHF", "1.05"),
+                new BigDecimal("50"), new BigDecimal("47.50"));
+        verify(hardwareService).displayMessage("50,00 CHF = 47,50 E");
+        verify(hardwareService, never()).openDrawer();
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    // --------------------------------------------------
+    // processCredit
+    // --------------------------------------------------
+
+    /**
+     * Builds an account customer with the given account number and business
+     * name (no contact, so {@code getDisplayName()} is the business name alone).
+     *
+     * @param number the account number
+     * @param company the business name
+     * @return the account customer
+     */
+    private com.intermarche.pos.domain.AccountCustomer customer(String number, String company) {
+        com.intermarche.pos.domain.AccountCustomer c = new com.intermarche.pos.domain.AccountCustomer();
+        c.accountNumber = number;
+        c.companyName = company;
+        return c;
+    }
+
+    /**
+     * {@code processCredit} rejects a null customer ({@code customer == null}
+     * true arm of the first guard).
+     */
+    @Test
+    void processCreditNullCustomerReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCredit(state, null, new BigDecimal("10"), false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processCredit} rejects a null amount ({@code customer == null}
+     * false, {@code amount == null} true).
+     */
+    @Test
+    void processCreditNullAmountReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCredit(state, customer("C001", "ACME"), null, false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processCredit} rejects a non-positive amount ({@code customer ==
+     * null} false, {@code amount == null} false, {@code amount.signum() <= 0}
+     * true).
+     */
+    @Test
+    void processCreditZeroAmountReturns() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCredit(state, customer("C001", "ACME"), BigDecimal.ZERO, false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processCredit} rejects a charge on a settled ticket: the amount is
+     * positive but nothing is due (first guard fully false, {@code
+     * remaining.signum() <= 0} true).
+     */
+    @Test
+    void processCreditNothingDueReturns() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processCredit(state, customer("C001", "ACME"), new BigDecimal("5"), false);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processCredit} caps the charge at the remaining due, persists the
+     * entry, completes and never opens the drawer ({@code remaining.signum() <=
+     * 0} false, {@code overLimit} carried, completion reached).
+     */
+    @Test
+    void processCreditCapsCompletesNoDrawer() {
+        state.ticket.totalAmount = new BigDecimal("15.00");
+        state.payment.ticketDbId = 3L;
+        service.processCredit(state, customer("C001", "ACME"), new BigDecimal("20.00"), true);
+        assertEquals(0, new BigDecimal("15.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService).displayMessage("CREDIT CLIENT  15,00 E");
+        verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
+        verify(hardwareService, never()).openDrawer();
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * {@code processCredit} for a partial charge registers it and leaves the
+     * transaction incomplete (completion not reached, the false arm of the
+     * check).
+     */
+    @Test
+    void processCreditPartialStaysIncomplete() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCredit(state, customer("C002", "BETA"), new BigDecimal("5.00"), false);
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService).displayMessage("CREDIT CLIENT  5,00 E");
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    // --------------------------------------------------
+    // finalizeTransaction — conditional printing (LC-08-03)
+    // --------------------------------------------------
+
+    /**
+     * With conditional printing ENABLED and the choice not yet applied, the
+     * closing prints the documents the decision names — here the sale ticket and
+     * the card receipt — and records the choice as applied ({@code
+     * isConditionalEnabled()} true AND {@code !printApplied} true, both {@code
+     * decision.saleTicket()} and {@code decision.cardReceipt()} true). The
+     * closing broom {@code payment.reset()} wipes {@code printApplied}, so the
+     * documents printed — not the flag — are the durable proof the block ran.
+     */
+    @Test
+    void finalizeTransactionConditionalEnabledPrintsNamedDocuments() {
+        when(printPolicy.isConditionalEnabled()).thenReturn(true);
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPersistenceService).validateTicket(9L);
+        verify(ticketPrinterService).printTicket(9L);
+        verify(ticketPrinterService).printCardReceipt(9L, false, null);
+    }
+
+    /**
+     * With conditional printing ENABLED but the choice ALREADY applied, the
+     * closing prints nothing on its own — a reloaded screen never produces a
+     * second original ({@code isConditionalEnabled()} true AND {@code
+     * !printApplied} false arm).
+     */
+    @Test
+    void finalizeTransactionConditionalEnabledButAlreadyApplied() {
+        when(printPolicy.isConditionalEnabled()).thenReturn(true);
+        state.payment.ticketDbId = 9L;
+        state.payment.printApplied = true;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPrinterService, never()).printTicket(any());
+        verify(ticketPrinterService, never()).printCardReceipt(any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any());
+    }
+
+    /**
+     * With conditional printing ENABLED and a decision naming NEITHER document,
+     * the closing block is entered but prints nothing ({@code
+     * decision.saleTicket()} false arm and {@code decision.cardReceipt()} false
+     * arm, {@code decision.voucher()} false so the gift-card loop is skipped);
+     * the ticket is still validated and the customer thanked.
+     */
+    @Test
+    void finalizeTransactionConditionalEnabledDecisionNamesNothing() {
+        when(printPolicy.isConditionalEnabled()).thenReturn(true);
+        stubDecision(false, false, false);
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPrinterService, never()).printTicket(any());
+        verify(ticketPrinterService, never()).printCardReceipt(any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any());
+        verify(ticketPersistenceService).validateTicket(9L);
         verify(hardwareService).displayMessage("MERCI A BIENTOT");
     }
 
