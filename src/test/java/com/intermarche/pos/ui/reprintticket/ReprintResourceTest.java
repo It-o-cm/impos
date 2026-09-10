@@ -374,4 +374,120 @@ class ReprintResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/reprint/view/42", response.getLocation().toString());
     }
+
+    // --- startExchange ---
+
+    /**
+     * {@code startExchange()} reopens the ticket instead of starting the
+     * exchange when none is currently viewed (identity guard first arm true:
+     * viewedTicket null).
+     */
+    @Test
+    void startExchangeReopensWhenNoViewedTicket() {
+        ReprintResource resource = newResource();
+        resource.state.reprint.viewedTicket = null;
+        Ticket ticket = mock(Ticket.class);
+        TemplateInstance detailView = stubDetail(resource);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            assertSame(detailView, resource.startExchange(7L));
+        }
+        verify(resource.state.reprint).setViewedTicket(ticket);
+        verify(resource.reprintService, org.mockito.Mockito.never()).startExchange();
+    }
+
+    /**
+     * {@code startExchange()} reopens the ticket instead of starting the
+     * exchange when a different ticket is viewed (identity guard first arm
+     * false, second arm true: id mismatch).
+     */
+    @Test
+    void startExchangeReopensWhenViewedTicketMismatch() {
+        ReprintResource resource = newResource();
+        Ticket viewed = mock(Ticket.class);
+        viewed.id = 99L;
+        resource.state.reprint.viewedTicket = viewed;
+        Ticket ticket = mock(Ticket.class);
+        TemplateInstance detailView = stubDetail(resource);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            assertSame(detailView, resource.startExchange(7L));
+        }
+        verify(resource.state.reprint).setViewedTicket(ticket);
+        verify(resource.reprintService, org.mockito.Mockito.never()).startExchange();
+    }
+
+    /**
+     * {@code startExchange()} delegates to the service and renders the detail
+     * view when the same ticket is viewed (identity guard both arms false:
+     * id match).
+     */
+    @Test
+    void startExchangeStartsWhenSameTicketViewed() {
+        ReprintResource resource = newResource();
+        Ticket viewed = mock(Ticket.class);
+        viewed.id = 7L;
+        resource.state.reprint.viewedTicket = viewed;
+        TemplateInstance detailView = stubDetail(resource);
+        assertSame(detailView, resource.startExchange(7L));
+        verify(resource.reprintService).startExchange();
+    }
+
+    // --- toggleExchangeLine ---
+
+    /**
+     * {@code toggleExchangeLine()} reopens the ticket instead of toggling when
+     * none is currently viewed (identity guard first arm true: viewedTicket
+     * null).
+     */
+    @Test
+    void toggleExchangeLineReopensWhenNoViewedTicket() {
+        ReprintResource resource = newResource();
+        resource.state.reprint.viewedTicket = null;
+        Ticket ticket = mock(Ticket.class);
+        TemplateInstance detailView = stubDetail(resource);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            assertSame(detailView, resource.toggleExchangeLine(7L, 5L));
+        }
+        verify(resource.state.reprint).setViewedTicket(ticket);
+        verify(resource.reprintService, org.mockito.Mockito.never()).toggleExchangeLine(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    /**
+     * {@code toggleExchangeLine()} reopens the ticket instead of toggling when
+     * a different ticket is viewed (identity guard first arm false, second arm
+     * true: id mismatch).
+     */
+    @Test
+    void toggleExchangeLineReopensWhenViewedTicketMismatch() {
+        ReprintResource resource = newResource();
+        Ticket viewed = mock(Ticket.class);
+        viewed.id = 99L;
+        resource.state.reprint.viewedTicket = viewed;
+        Ticket ticket = mock(Ticket.class);
+        TemplateInstance detailView = stubDetail(resource);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            assertSame(detailView, resource.toggleExchangeLine(7L, 5L));
+        }
+        verify(resource.state.reprint).setViewedTicket(ticket);
+        verify(resource.reprintService, org.mockito.Mockito.never()).toggleExchangeLine(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    /**
+     * {@code toggleExchangeLine()} delegates the toggle for the named line and
+     * renders the detail view when the same ticket is viewed (identity guard
+     * both arms false: id match).
+     */
+    @Test
+    void toggleExchangeLineTogglesWhenSameTicketViewed() {
+        ReprintResource resource = newResource();
+        Ticket viewed = mock(Ticket.class);
+        viewed.id = 7L;
+        resource.state.reprint.viewedTicket = viewed;
+        TemplateInstance detailView = stubDetail(resource);
+        assertSame(detailView, resource.toggleExchangeLine(7L, 5L));
+        verify(resource.reprintService).toggleExchangeLine(5L);
+    }
 }
