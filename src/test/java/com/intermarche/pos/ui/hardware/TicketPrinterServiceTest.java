@@ -1326,4 +1326,489 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("jdupont"));
         assertTrue(out.contains("-"));
     }
+
+    // --------------------------------------------------
+    // renderTicket — logo, family grouping, payment kinds
+    // --------------------------------------------------
+
+    /**
+     * Covers the printed-logo arm of {@code renderTicket} (the {@code !logo.isEmpty()}
+     * true arm): with a till that carries a logo, {@link ReceiptLogo#directive()}
+     * yields a non-empty directive, printed as its own line above the store name.
+     */
+    @Test
+    void printTicketPrintsTheLogoDirectiveWhenPresent() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedStatic<ReceiptLogo> logo = mockStatic(ReceiptLogo.class)) {
+            logo.when(ReceiptLogo::directive).thenReturn("[[LOGO abcd]]");
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.startsWith("[[LOGO abcd]]\n"));
+        }
+    }
+
+    /**
+     * Covers the no-logo arm of {@code renderTicket} (the {@code !logo.isEmpty()}
+     * false arm): a till with no printable logo — {@link ReceiptLogo#directive()}
+     * empty — prints no logo line, the store name being the first line. The real
+     * classpath carries a logo file in this build, so the empty case is forced with a
+     * stub.
+     */
+    @Test
+    void printTicketOmitsTheLogoLineWhenAbsent() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedStatic<ReceiptLogo> logo = mockStatic(ReceiptLogo.class)) {
+            logo.when(ReceiptLogo::directive).thenReturn("");
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("[[LOGO"));
+            assertTrue(out.startsWith(" ".repeat((42 - "INTERMARCHE".length()) / 2) + "INTERMARCHE\n"));
+        }
+    }
+
+    /**
+     * Covers the family-grouping arms of {@code renderTicket} (LC-08-01-07): with the
+     * FAMILY order administered, {@code groupByFamily} is true and a heading prints
+     * the first time a family appears (the {@code !family.equals(printedFamily)} true
+     * arm), NOT for a second consecutive line of the same family (its false arm), and
+     * again for a second family — BOULANGERIE thus appears exactly once though two
+     * lines carry it.
+     */
+    @Test
+    void printTicketGroupsLinesUnderFamilyHeadings() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.ticketLineOrder()).thenReturn("FAMILY");
+        Ticket ticket = ticket(0, null);
+        TicketLine a = line("U1", "PAIN", "1", "2.00", "2.00");
+        a.familyLabel = "BOULANGERIE";
+        TicketLine b = line("U2", "BAGUETTE", "1", "1.00", "1.00");
+        b.familyLabel = "BOULANGERIE";
+        TicketLine c = line("U3", "LAIT", "1", "1.00", "1.00");
+        c.familyLabel = "CREMERIE";
+        ticket.lines.add(a);
+        ticket.lines.add(b);
+        ticket.lines.add(c);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("BOULANGERIE"));
+            assertTrue(out.contains("CREMERIE"));
+            assertEquals(out.indexOf("BOULANGERIE"), out.lastIndexOf("BOULANGERIE"));
+        }
+    }
+
+    /**
+     * Covers the foreign-currency settlement arms of {@code renderTicket}
+     * (LC-07-14-05): a DEVISE payment prints its euro value, the foreign amount and
+     * currency, and its rate when set (the {@code exchangeRate == null ? "" :
+     * toPlainString()} else arm and the non-null arm of {@code safe}); a second devise
+     * with a null rate and a null currency code covers the null arm of that ternary
+     * and the null arm of {@code safe}.
+     */
+    @Test
+    void printTicketPrintsForeignCurrencySettlements() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment chf =
+                new com.intermarche.pos.domain.ticket.ForeignCurrencyPayment(new BigDecimal("10.00"));
+        chf.currencyCode = "CHF";
+        chf.foreignAmount = new BigDecimal("9.50");
+        chf.exchangeRate = new BigDecimal("1.0531");
+        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment noRate =
+                new com.intermarche.pos.domain.ticket.ForeignCurrencyPayment(new BigDecimal("2.00"));
+        noRate.currencyCode = null;
+        noRate.foreignAmount = new BigDecimal("2.00");
+        noRate.exchangeRate = null;
+        ticket.payments.add(chf);
+        ticket.payments.add(noRate);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("DEVISE CHF"));
+            assertTrue(out.contains("9,50 CHF  TAUX 1.0531"));
+            assertTrue(out.contains("  2,00   TAUX \n"));
+        }
+    }
+
+    /**
+     * Covers the rounding-settlement arm of {@code renderTicket} (LC-07-03-06): an
+     * ARRONDI payment prints with the OPPOSITE sign of the stored ledger amount — a
+     * ledger {@code +0,02} reads on paper as {@code -0,02}.
+     */
+    @Test
+    void printTicketPrintsRoundingWithInvertedSign() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        ticket.payments.add(
+                new com.intermarche.pos.domain.ticket.RoundingPayment(new BigDecimal("0.02")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("ARRONDI"));
+            assertTrue(out.contains("-0,02 E"));
+        }
+    }
+
+    /**
+     * Covers the customer-credit settlement arms of {@code renderTicket}
+     * (LC-07-09-06): a CREDIT payment names its debtor under its own line with the
+     * sale day, the account number and the account name (the non-null arms of both
+     * account ternaries); a second credit with a null number and a null name covers
+     * their empty-string arms. The sale day is present (the {@code creationDate ==
+     * null} false arm); its true arm is unreachable here, the header formats the date
+     * unconditionally beforehand.
+     */
+    @Test
+    void printTicketPrintsCreditSettlementDebtorLines() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        com.intermarche.pos.domain.ticket.CreditPayment full =
+                new com.intermarche.pos.domain.ticket.CreditPayment(new BigDecimal("10.00"));
+        full.accountNumber = "CPT-42";
+        full.accountName = "MAIRIE DE LYON";
+        com.intermarche.pos.domain.ticket.CreditPayment blank =
+                new com.intermarche.pos.domain.ticket.CreditPayment(new BigDecimal("2.00"));
+        blank.accountNumber = null;
+        blank.accountName = null;
+        ticket.payments.add(full);
+        ticket.payments.add(blank);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("CREDIT"));
+            assertTrue(out.contains("02/08/2026  COMPTE CPT-42"));
+            assertTrue(out.contains("MAIRIE DE LYON"));
+            assertTrue(out.contains("02/08/2026  COMPTE \n"));
+        }
+    }
+
+    // --------------------------------------------------
+    // printRenderedTicket
+    // --------------------------------------------------
+
+    /**
+     * {@code printRenderedTicket} prints a store-node-rendered ticket verbatim and
+     * cuts the paper (the non-blank arm of the {@code content == null ||
+     * content.isBlank()} guard).
+     */
+    @Test
+    void printRenderedTicketPrintsGivenContentVerbatim() {
+        TicketPrinterService service = newService();
+        service.printRenderedTicket("RENDERED ELSEWHERE");
+        assertEquals("RENDERED ELSEWHERE", captureReceipt(service));
+    }
+
+    /**
+     * {@code printRenderedTicket} prints nothing on null content (the {@code content
+     * == null} true arm of the guard).
+     */
+    @Test
+    void printRenderedTicketPrintsNothingOnNullContent() {
+        TicketPrinterService service = newService();
+        service.printRenderedTicket(null);
+        verifyNoInteractions(service.hardwareService);
+    }
+
+    /**
+     * {@code printRenderedTicket} prints nothing on blank content (the {@code content
+     * != null} arm followed by {@code isBlank()} true).
+     */
+    @Test
+    void printRenderedTicketPrintsNothingOnBlankContent() {
+        TicketPrinterService service = newService();
+        service.printRenderedTicket("   ");
+        verifyNoInteractions(service.hardwareService);
+    }
+
+    // --------------------------------------------------
+    // printTicketIdentityBarcode
+    // --------------------------------------------------
+
+    /**
+     * {@code printTicketIdentityBarcode} prints the number in clear and its barcode
+     * directive and cuts the paper (the ticket-present arm).
+     */
+    @Test
+    void printTicketIdentityBarcodePrintsNumberAndBarcode() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            service.printTicketIdentityBarcode(1L);
+        }
+        String out = captureReceipt(service);
+        assertTrue(out.contains("IDENTIFIANT TICKET"));
+        assertTrue(out.contains("C04-00000001"));
+        assertTrue(out.contains("[[BARCODE C04-00000001]]"));
+    }
+
+    /**
+     * {@code printTicketIdentityBarcode} prints nothing on an unknown ticket (the
+     * ticket-null arm).
+     */
+    @Test
+    void printTicketIdentityBarcodePrintsNothingOnUnknownTicket() {
+        TicketPrinterService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(9L)).thenReturn(null);
+            service.printTicketIdentityBarcode(9L);
+        }
+        verifyNoInteractions(service.hardwareService);
+    }
+
+    // --------------------------------------------------
+    // printCardReceipt — opposite arms
+    // --------------------------------------------------
+
+    /**
+     * Covers the opposite arms of {@code printCardReceipt} and {@code cardHeader}: a
+     * ticket with no store (the {@code store != null} false arm → null store name and
+     * the {@code storeName != null} false arm), a null mention (the {@code mention !=
+     * null} false arm), a first card with a null authorization number (the {@code
+     * authorizationNumber != null} false arm) and degraded mode ON (its true arm), a
+     * second card with a blank authorization number (the {@code !isBlank()} false arm)
+     * and degraded mode OFF, and a required signature (its true arm): two slips print,
+     * carrying MODE DEGRADE and a SIGNATURE DU CLIENT block but no store name, no
+     * mention and no AUTORISATION line.
+     */
+    @Test
+    void printCardReceiptRendersDegradedSignatureSlipsWithoutStoreOrAuth() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.store = null;
+        com.intermarche.pos.domain.ticket.CardPayment nullAuth =
+                new com.intermarche.pos.domain.ticket.CardPayment(new BigDecimal("12.00"));
+        nullAuth.authorizationNumber = null;
+        nullAuth.degradedMode = true;
+        com.intermarche.pos.domain.ticket.CardPayment blankAuth =
+                new com.intermarche.pos.domain.ticket.CardPayment(new BigDecimal("3.00"));
+        blankAuth.authorizationNumber = "   ";
+        blankAuth.degradedMode = false;
+        ticket.payments.add(nullAuth);
+        ticket.payments.add(blankAuth);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(2, service.printCardReceipt(1L, true, null));
+        }
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(service.hardwareService, times(2)).printReceipt(captor.capture());
+        verify(service.hardwareService, times(2)).cutPaper();
+        String out = String.join("\n", captor.getAllValues());
+        assertTrue(out.contains("MODE DEGRADE"));
+        assertTrue(out.contains("SIGNATURE DU CLIENT"));
+        assertFalse(out.contains("AUTORISATION"));
+        assertFalse(out.contains("MAGASIN LYON"));
+        assertFalse(out.contains("***"));
+    }
+
+    // --------------------------------------------------
+    // printCardCreditReceipt / printCardTnaReceipt
+    // --------------------------------------------------
+
+    /**
+     * {@code printCardCreditReceipt} prints the refund's card-credit slip
+     * (LC-08-03-10): the CREDIT mention (via {@code cardHeader} with a null store
+     * name), the terminal id, the date and the credited amount.
+     */
+    @Test
+    void printCardCreditReceiptPrintsCreditSlip() {
+        TicketPrinterService service = newService();
+        Refund refund = new Refund();
+        refund.terminalId = "C04";
+        refund.creationDate = NOW;
+        refund.totalAmount = new BigDecimal("6.00");
+        service.printCardCreditReceipt(refund);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("TICKET CARTE BANCAIRE"));
+        assertTrue(out.contains("*** CREDIT ***"));
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("MONTANT CREDITE"));
+        assertTrue(out.contains("6,00 E"));
+    }
+
+    /**
+     * {@code printCardTnaReceipt} with a terminal TNA frame prints it verbatim and,
+     * the frame already ending on a newline, appends none (the {@code frame != null &&
+     * !isBlank()} true arm and the {@code endsWith("\n")} true arm); a non-null amount
+     * beside a frame is NOT printed as a line.
+     */
+    @Test
+    void printCardTnaReceiptPrintsFrameEndingWithNewline() {
+        TicketPrinterService service = newService();
+        service.printCardTnaReceipt(new BigDecimal("5.00"), "TNA-FRAME\n");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("*** ABANDON DEBIT ***"));
+        assertTrue(out.contains("TNA-FRAME\n"));
+        assertFalse(out.contains("MONTANT"));
+    }
+
+    /**
+     * {@code printCardTnaReceipt} with a frame that does NOT end on a newline appends
+     * one (the {@code endsWith("\n")} false arm).
+     */
+    @Test
+    void printCardTnaReceiptAppendsNewlineToFrameWithout() {
+        TicketPrinterService service = newService();
+        service.printCardTnaReceipt(null, "TNA-FRAME");
+        assertTrue(captureReceipt(service).contains("TNA-FRAME\n"));
+    }
+
+    /**
+     * {@code printCardTnaReceipt} with a blank frame but a non-null amount prints the
+     * register's own slip (the {@code !isBlank()} false arm, then the {@code amount !=
+     * null} true arm).
+     */
+    @Test
+    void printCardTnaReceiptPrintsAmountWhenNoFrame() {
+        TicketPrinterService service = newService();
+        service.printCardTnaReceipt(new BigDecimal("5.00"), "   ");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("MONTANT"));
+        assertTrue(out.contains("5,00 E"));
+    }
+
+    /**
+     * {@code printCardTnaReceipt} with neither frame nor amount prints only the header
+     * (the {@code frame != null} false arm and the {@code amount != null} false arm) —
+     * a bare TNA proof.
+     */
+    @Test
+    void printCardTnaReceiptPrintsBareHeaderWithoutFrameOrAmount() {
+        TicketPrinterService service = newService();
+        service.printCardTnaReceipt(null, null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("*** ABANDON DEBIT ***"));
+        assertFalse(out.contains("MONTANT"));
+    }
+
+    // --------------------------------------------------
+    // printExchangeVoucher
+    // --------------------------------------------------
+
+    /**
+     * {@code printExchangeVoucher} prints nothing on an unknown ticket (the
+     * ticket-null arm).
+     */
+    @Test
+    void printExchangeVoucherPrintsNothingOnUnknownTicket() {
+        TicketPrinterService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(9L)).thenReturn(null);
+            service.printExchangeVoucher(9L, null);
+        }
+        verifyNoInteractions(service.hardwareService);
+    }
+
+    /**
+     * {@code printExchangeVoucher} with no selection prints the whole sale
+     * (LC-08-05-10): every sold article with its quantity and NO amount, with the
+     * store, the terminal id and the date all present (their true arms), a label
+     * longer than 30 chars truncated (its true arm) and a cancelled article skipped
+     * (its true arm). A null {@code lineIds} makes {@code whole} true through the
+     * {@code == null} arm, so {@code !whole} short-circuits the per-line filter.
+     */
+    @Test
+    void printExchangeVoucherPrintsWholeSaleWhenNoSelection() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.terminalId = "C04";
+        TicketLine longLabel = line("U1", "ARTICLE AVEC UN LIBELLE VRAIMENT TRES LONG", "2", "1.00", "2.00");
+        longLabel.id = 10L;
+        TicketLine cancelled = line("U2", "ANNULE", "1", "5.00", "5.00");
+        cancelled.id = 11L;
+        cancelled.cancelled = true;
+        ticket.lines.add(longLabel);
+        ticket.lines.add(cancelled);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            service.printExchangeVoucher(1L, null);
+        }
+        String out = captureReceipt(service);
+        assertTrue(out.contains("BON POUR ECHANGE"));
+        assertTrue(out.contains("MAGASIN LYON"));
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("Date   : 02/08/2026"));
+        assertTrue(out.contains("ARTICLE AVEC UN LIBELLE"));
+        assertFalse(out.contains("TRES LONG"));
+        assertFalse(out.contains("ANNULE"));
+        assertTrue(out.contains("AUCUN MONTANT NE FIGURE SUR CE BON"));
+    }
+
+    /**
+     * {@code printExchangeVoucher} treats an EMPTY selection as the whole sale
+     * (LC-08-05-10): a non-null but empty {@code lineIds} makes {@code whole} true
+     * through the {@code isEmpty()} arm, so every sold article prints.
+     */
+    @Test
+    void printExchangeVoucherTreatsEmptySelectionAsWhole() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        TicketLine a = line("U1", "PAIN", "1", "2.00", "2.00");
+        a.id = 30L;
+        ticket.lines.add(a);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            service.printExchangeVoucher(1L, java.util.Collections.emptySet());
+        }
+        assertTrue(captureReceipt(service).contains("PAIN"));
+    }
+
+    /**
+     * {@code printExchangeVoucher} with a selection narrows to the named lines
+     * (LC-08-05-12): a non-empty {@code lineIds} makes {@code whole} false, a line
+     * whose id is in the set is kept and one whose id is absent is dropped (both arms
+     * of the {@code !whole && !contains} filter); the store, terminal id and date are
+     * all absent (their false arms) and a short label is not truncated (its false arm).
+     */
+    @Test
+    void printExchangeVoucherNarrowsToSelectedLines() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.store = null;
+        ticket.terminalId = null;
+        ticket.creationDate = null;
+        TicketLine kept = line("U1", "PAIN", "1", "2.00", "2.00");
+        kept.id = 20L;
+        TicketLine dropped = line("U2", "LAIT", "1", "1.00", "1.00");
+        dropped.id = 21L;
+        ticket.lines.add(kept);
+        ticket.lines.add(dropped);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            service.printExchangeVoucher(1L, java.util.Set.of(20L));
+        }
+        String out = captureReceipt(service);
+        assertTrue(out.contains("PAIN"));
+        assertFalse(out.contains("LAIT"));
+        assertFalse(out.contains("MAGASIN LYON"));
+        assertFalse(out.contains("Caisse"));
+        assertFalse(out.contains("Date"));
+    }
 }
