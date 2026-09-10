@@ -50,6 +50,8 @@ public class HomeResource {
     @Inject TicketService ticketService;
     @Inject HardwareService hardwareService;
     @Inject PosState state;
+    /** The forced monetics degraded mode (LC-07-08-03/04). */
+    @Inject com.intermarche.pos.ui.payment.MoneticsDegradedService moneticsDegradedService;
 
     // --- Drawer error handling ---
 
@@ -199,29 +201,46 @@ public class HomeResource {
         return Response.seeOther(URI.create("/")).build();
     }
 
+    /**
+     * Forces the monetics into degraded mode, or releases it (LC-07-08-03/04).
+     *
+     * <p>ONE key for both directions, like the training toggle beside it: the
+     * operator sees one state and one gesture, and the register knows which of the
+     * two the gesture means.
+     *
+     * @param login the supervisor's login, when the shop requires an endorsement
+     * @param password the supervisor's password
+     * @return a redirect to the home page
+     */
+    @POST
+    @Path("/action/monetics-degraded")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response toggleMoneticsDegraded(@FormParam("login") String login,
+            @FormParam("password") String password) {
+        if (state.isMoneticsDegradedForced()) {
+            moneticsDegradedService.deactivate(state, login, password);
+        } else {
+            moneticsDegradedService.activate(state, login, password);
+        }
+        return Response.seeOther(URI.create("/")).build();
+    }
+
     // --- Menu navigation ---
 
     /**
-     * Shows the secondary menu.
+     * Shows one of the five button menus.
      *
+     * <p>One route for the five keys of the bottom bar. An unknown key lands on the
+     * sale menu rather than on an error: a mistyped or stale link must never leave a
+     * cashier in front of a blank grid.
+     *
+     * @param key the menu key carried by the bottom bar's link
      * @return the home page
      */
     @GET
-    @Path("/action/menu/secondary")
-    public TemplateInstance showSecondaryMenu() {
-        homeService.toggleSecondaryMenu(true);
-        return home();
-    }
-
-    /**
-     * Shows the main menu.
-     *
-     * @return the home page
-     */
-    @GET
-    @Path("/action/menu/main")
-    public TemplateInstance showMainMenu() {
-        homeService.toggleSecondaryMenu(false);
+    @Path("/action/menu/{key}")
+    public TemplateInstance showMenu(@jakarta.ws.rs.PathParam("key") String key) {
+        homeService.selectMenu(com.intermarche.pos.ui.PosMenu.of(key));
         return home();
     }
 
@@ -428,24 +447,54 @@ public class HomeResource {
     /**
      * Requests a manager endorsement to cancel the whole ticket.
      *
-     * @return the home page
+     * @return a redirect to the home page
      */
     @GET
     @Path("/action/cancelTicket")
-    public TemplateInstance cancelTicket() {
+    public Response cancelTicket() {
         homeService.cancelTicket();
-        return home();
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
      * Reprints the last closed ticket.
      *
-     * @return the home page
+     * <p>Answers with a redirect, like every other function of the TICKET menu:
+     * these three used to re-render the sale screen under their own action URL,
+     * so the address bar stayed on /action/print-last and a refresh printed the
+     * ticket a second time.
+     *
+     * @return a redirect to the home page
      */
     @GET
     @Path("/action/print-last")
-    public TemplateInstance printLast() {
+    public Response printLast() {
         homeService.printLastTicket();
-        return home();
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Prints the identification barcode of the last closed ticket, alone
+     * (LC-08-01-04).
+     *
+     * @return a redirect to the home page
+     */
+    @GET
+    @Path("/action/print-last-barcode")
+    public Response printLastBarcode() {
+        homeService.printLastTicketBarcode();
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Prints a duplicate of the last closed ticket's card receipt (LC-08-05-09).
+     *
+     * @return a redirect to the home page
+     */
+    @GET
+    @Path("/action/print-last-card")
+    public Response printLastCard() {
+        homeService.printLastCardReceiptDuplicate();
+        return Response.seeOther(URI.create("/")).build();
     }
 }

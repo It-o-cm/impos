@@ -33,6 +33,9 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
     /** The catalog holding the live value of the degraded-mode toggle. */
     private final PosSettingsService posSettingsService;
 
+    /** The register state carrying the operator's own forcing (LC-07-08-02). */
+    private final com.intermarche.pos.ui.PosState state;
+
     /**
      * Wraps a configured terminal with the degraded-mode gate.
      *
@@ -41,10 +44,28 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      * @param posSettingsService the settings catalog holding the toggle
      */
     public DegradedModePaymentTerminalClient(PaymentTerminalClient configured, PaymentTerminalClient autoAccept,
-                                              PosSettingsService posSettingsService) {
+                                              PosSettingsService posSettingsService,
+                                              com.intermarche.pos.ui.PosState state) {
         this.configured = configured;
         this.autoAccept = autoAccept;
         this.posSettingsService = posSettingsService;
+        this.state = state;
+    }
+
+    /**
+     * Tells whether transactions currently bypass the monetics — because the shop
+     * administered it, or because THIS operator forced it ({@code LC-07-08-02}).
+     *
+     * <p>Two independent sources, one answer: a shop-wide parameter that survives a
+     * restart, and a per-register forcing that expires on its own. Either is enough,
+     * because both mean the same thing to a card request — do not wait for an
+     * authorization that is not coming.
+     *
+     * @return true while the terminal is bypassed
+     */
+    private boolean degraded() {
+        return posSettingsService.paymentDegradedMode()
+                || (state != null && state.isMoneticsDegradedForced());
     }
 
     /**
@@ -66,7 +87,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      * @return the currently active terminal
      */
     private PaymentTerminalClient active() {
-        return posSettingsService.paymentDegradedMode() ? autoAccept : configured;
+        return degraded() ? autoAccept : configured;
     }
 
     /**
@@ -82,7 +103,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      */
     @Override
     public void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
-        if (posSettingsService.paymentDegradedMode()) {
+        if (degraded()) {
             autoAccept.requestDebit(amount, new DegradedOutcomeCallback(callback));
         } else {
             configured.requestDebit(amount, callback);
@@ -98,7 +119,7 @@ public class DegradedModePaymentTerminalClient implements PaymentTerminalClient 
      */
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
-        if (posSettingsService.paymentDegradedMode()) {
+        if (degraded()) {
             autoAccept.requestCredit(amount, new DegradedOutcomeCallback(callback));
         } else {
             configured.requestCredit(amount, callback);

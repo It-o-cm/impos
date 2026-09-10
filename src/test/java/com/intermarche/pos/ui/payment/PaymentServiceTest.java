@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -82,8 +83,14 @@ class PaymentServiceTest {
     /** The back-office parameters mock (drawer-open-on-payment rule). */
     private com.intermarche.pos.service.PosSettingsService posSettingsService;
 
+    /** The cheque reader mock, whose two callbacks the tests fire by hand. */
+    private com.intermarche.pos.ui.hardware.ChequeReadingService chequeReadingService;
+
     /** A real POS state carrying real payment and ticket sub-states. */
     private PosState state;
+
+    /** The conditional-printing rule (LC-08-03), mocked. */
+    private com.intermarche.pos.ui.hardware.PrintPolicy printPolicy;
 
     /**
      * Builds a fresh service with fresh mocks and a fresh real state before
@@ -114,7 +121,49 @@ class PaymentServiceTest {
         posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(posSettingsService.drawerOpenOnPayment()).thenReturn(true);
         service.posSettingsService = posSettingsService;
+        chequeReadingService =
+                mock(com.intermarche.pos.ui.hardware.ChequeReadingService.class);
+        service.chequeReadingService = chequeReadingService;
+        // The conditional-printing rule (LC-08-03) answers as it does with the
+        // option OFF — every document named, nothing forced —, which is the
+        // behaviour every case here was written against.
+        printPolicy = mock(com.intermarche.pos.ui.hardware.PrintPolicy.class);
+        when(printPolicy.decide(any(), any(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(new com.intermarche.pos.ui.hardware.PrintPolicy.Decision(true, true, true));
+        service.printPolicy = printPolicy;
         state = new PosState();
+    }
+
+    /**
+     * Makes the cheque reader answer with a magnetic line as soon as a reading is
+     * started, on the calling thread — the real service answers from its own follower
+     * thread, which nothing here depends on.
+     *
+     * @param line the magnetic line the reader reports
+     */
+    private void chequeReaderAnswers(String line) {
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<String> onRead =
+                    (java.util.function.Consumer<String>) invocation.getArgument(1);
+            onRead.accept(line);
+            return null;
+        }).when(chequeReadingService).read(any(), any(), any());
+    }
+
+    /**
+     * Makes the cheque reader refuse as soon as a reading is started.
+     *
+     * @param message the operator-facing message the reader reports
+     */
+    private void chequeReaderRefuses(String message) {
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<String> onError =
+                    (java.util.function.Consumer<String>) invocation.getArgument(2);
+            onError.accept(message);
+            return null;
+        }).when(chequeReadingService).read(any(), any(), any());
     }
 
     // --------------------------------------------------
@@ -330,6 +379,153 @@ class PaymentServiceTest {
         verify(hardwareService).displayMessage("ESPECES   20,00 E");
         verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
         verify(hardwareService).openDrawer();
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    // --------------------------------------------------
+    // processCash — legal cash rounding (LC-07-03)
+    // --------------------------------------------------
+
+    /**
+     * With rounding OFF (step zero, the French default), an amount off any step is
+     * accepted exactly as before and nothing is booked: the rule must not leak into
+     * a shop that has not enabled it.
+     */
+    @Test
+    void processCashWithoutRoundingAcceptsAnyAmount() {
+        state.cashRoundingStepCents = 0;
+        state.ticket.totalAmount = new BigDecimal("23.42");
+        service.processCash(state, new BigDecimal("23.42"));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CASH", state.payment.payments.get(0).method);
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * A step of one cent is not a rounding either and takes the same leg.
+     */
+    @Test
+    void processCashWithOneCentStepAcceptsAnyAmount() {
+        state.cashRoundingStepCents = 1;
+        state.ticket.totalAmount = new BigDecimal("23.42");
+        service.processCash(state, new BigDecimal("23.42"));
+        assertEquals(1, state.payment.payments.size());
+    }
+
+    /**
+     * Where the shop rounds, an amount off the step is REFUSED and nothing is
+     * registered: the coins to make it up no longer circulate
+     * ({@code LC-07-03-05}).
+     */
+    @Test
+    void processCashRefusesAnAmountOffTheStep() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("23.42");
+        service.processCash(state, new BigDecimal("23.42"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals("MONTANT NON MULTIPLE DE 0,05 E", state.ticket.transientError);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * Rounding DOWN: the sale owes 24,62, the customer hands over 24,60, and the
+     * two cents are booked on ARRONDI so the settlements still sum to the total
+     * ({@code LC-07-03-01/06}). The rounding is registered BEFORE the cash, so the
+     * cash line settles a remainder already on the step.
+     */
+    @Test
+    void processCashRoundsDownAndBooksThePositiveDifference() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("24.62");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("24.60"));
+        assertEquals(2, state.payment.payments.size());
+        assertEquals("ARRONDI", state.payment.payments.get(0).method);
+        assertEquals(0, new BigDecimal("0.02").compareTo(state.payment.payments.get(0).amount));
+        assertEquals("CASH", state.payment.payments.get(1).method);
+        assertEquals(0, new BigDecimal("24.60").compareTo(state.payment.payments.get(1).amount));
+        assertEquals(0, new BigDecimal("24.62").compareTo(state.payment.paidAmount));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.lastChangeAmount));
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * Rounding UP: the sale owes 23,43, the customer hands over 23,45, and the
+     * difference booked is NEGATIVE — the other side of the same rule.
+     */
+    @Test
+    void processCashRoundsUpAndBooksTheNegativeDifference() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("23.43");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("23.45"));
+        assertEquals(2, state.payment.payments.size());
+        assertEquals(0, new BigDecimal("-0.02").compareTo(state.payment.payments.get(0).amount));
+        assertEquals(0, new BigDecimal("23.45").compareTo(state.payment.payments.get(1).amount));
+        assertEquals(0, new BigDecimal("23.43").compareTo(state.payment.paidAmount));
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * A remainder already on the step books no rounding at all — the difference is
+     * zero and the guard returns before registering anything.
+     */
+    @Test
+    void processCashOnTheStepBooksNoRounding() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("23.45");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("23.45"));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CASH", state.payment.payments.get(0).method);
+    }
+
+    /**
+     * A PART payment in cash books no rounding: the sale goes on, its remainder is
+     * rounded when it is finally settled, and rounding a part payment would round
+     * the same sale twice.
+     */
+    @Test
+    void processCashPartPaymentBooksNoRounding() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("24.62");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("10.00"));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CASH", state.payment.payments.get(0).method);
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * The rounding applies to what is SETTLED IN CASH and not to the ticket total:
+     * a sale part-paid by card rounds the REMAINDER the customer hands over.
+     */
+    @Test
+    void processCashRoundsTheRemainderNotTheTotal() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("24.62");
+        state.payment.ticketDbId = 3L;
+        state.payment.addPayment("CARD", new BigDecimal("10.00"));
+        service.processCash(state, new BigDecimal("14.60"));
+        assertEquals(3, state.payment.payments.size());
+        assertEquals("ARRONDI", state.payment.payments.get(1).method);
+        assertEquals(0, new BigDecimal("0.02").compareTo(state.payment.payments.get(1).amount));
+        assertEquals(0, new BigDecimal("24.62").compareTo(state.payment.paidAmount));
+        assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * Overpaying with a note still rounds the sale and gives change on the ROUNDED
+     * remainder: handing over 50 on a 24,62 sale returns 25,40, not 25,38.
+     */
+    @Test
+    void processCashOverpaymentGivesChangeOnTheRoundedRemainder() {
+        state.cashRoundingStepCents = 5;
+        state.ticket.totalAmount = new BigDecimal("24.62");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("50.00"));
+        assertEquals(0, new BigDecimal("25.40").compareTo(state.payment.lastChangeAmount));
+        assertEquals(0, new BigDecimal("24.62").compareTo(state.payment.paidAmount));
         assertTrue(state.payment.transactionComplete);
     }
 
@@ -624,9 +820,10 @@ class PaymentServiceTest {
     }
 
     /**
-     * {@code processTicketResto} under an engine cap with a threshold caps the
-     * eligible base at {@code min(base, threshold)} and decrements it when the
-     * request fits ({@code ENGINE} true, {@code mealEligible != null} true,
+     * {@code processTicketResto} under an engine cap with a threshold allows
+     * up to {@code min(base, threshold)} and registers a fitting request as-is,
+     * leaving the engine base untouched — it is a basket hint, not a counter
+     * ({@code ENGINE} true, {@code mealEligible != null} true,
      * {@code mealThreshold != null} true, {@code allowed.signum() <= 0} false,
      * {@code amount > allowed} false).
      */
@@ -638,15 +835,40 @@ class PaymentServiceTest {
         state.payment.valuationMealEligible = new BigDecimal("10");
         state.payment.valuationMealThreshold = new BigDecimal("8");
         service.processTicketResto(state, new BigDecimal("5"));
-        assertEquals(0, new BigDecimal("5").compareTo(state.payment.valuationMealEligible));
+        assertEquals(0, new BigDecimal("10").compareTo(state.payment.valuationMealEligible));
         verify(hardwareService).displayMessage("TICKET    5,00 E");
         verify(hardwareService).openDrawer();
     }
 
     /**
+     * The meal-voucher cap applies to the BASKET: a second meal ticket is
+     * capped at the base minus the one already registered, and a third is
+     * refused once the allowance is spent — even though the engine base field
+     * itself is rewritten by every revaluation and never decremented. This is
+     * the regression test for the double 2,67 € payment observed on demo.
+     */
+    @Test
+    void processTicketRestoBasketCapSpansPayments() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("8");
+        state.payment.valuationMealThreshold = null;
+        service.processTicketResto(state, new BigDecimal("5"));
+        service.processTicketResto(state, new BigDecimal("5"));
+        verify(hardwareService).displayMessage("TR PLAFONNE  3,00 E");
+        assertEquals(0, new BigDecimal("8").compareTo(state.payment.paidAmount));
+        service.processTicketResto(state, new BigDecimal("5"));
+        verify(hardwareService).displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
+        assertEquals(0, new BigDecimal("8").compareTo(state.payment.paidAmount));
+        assertEquals(2, state.payment.payments.size());
+    }
+
+    /**
      * {@code processTicketResto} caps a request above the allowed base and
-     * announces the ceiling ({@code mealThreshold != null} false so the base
-     * itself is the ceiling, {@code amount > allowed} true).
+     * announces the ceiling, leaving the engine base field untouched
+     * ({@code mealThreshold != null} false so the base itself is the ceiling,
+     * {@code amount > allowed} true).
      */
     @Test
     void processTicketRestoEngineCapsAboveBase() {
@@ -658,7 +880,7 @@ class PaymentServiceTest {
         service.processTicketResto(state, new BigDecimal("20"));
         verify(hardwareService).displayMessage("TR PLAFONNE  8,00 E");
         verify(hardwareService).displayMessage("TICKET    8,00 E");
-        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.valuationMealEligible));
+        assertEquals(0, new BigDecimal("8").compareTo(state.payment.valuationMealEligible));
     }
 
     /**
@@ -745,6 +967,7 @@ class PaymentServiceTest {
      */
     @Test
     void processChequeDefaultsCompletesOpensDrawer() {
+        chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
         service.processCheque(state, BigDecimal.ZERO);
@@ -776,6 +999,7 @@ class PaymentServiceTest {
      */
     @Test
     void processChequeDrawerRuleDisabledKeepsDrawerShut() {
+        chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
         when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
@@ -783,6 +1007,94 @@ class PaymentServiceTest {
         verify(hardwareService).displayMessage("CHEQUE    20,00 E");
         verify(hardwareService, never()).openDrawer();
         assertTrue(state.payment.transactionComplete);
+    }
+
+    /**
+     * The endorsement leaves WITH the reading: the reader prints on the cheque while
+     * it still holds it, so the text cannot be sent afterwards. Its two lines are the
+     * date and the amount the register knows and the paper does not.
+     */
+    @Test
+    void processChequeSendsTheEndorsementWithTheReading() {
+        chequeReaderAnswers("a0007639 a800000000909r 000000000000i");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        ArgumentCaptor<String> endorsement = ArgumentCaptor.forClass(String.class);
+        service.processCheque(state, BigDecimal.ZERO);
+        verify(chequeReadingService).read(endorsement.capture(), any(), any());
+        String[] lines = endorsement.getValue().split("\n");
+        assertEquals(2, lines.length);
+        assertEquals("20,00 EUR", lines[1]);
+    }
+
+    /**
+     * A cheque the reader refuses settles NOTHING: the pending amount is dropped, the
+     * cashier is told why and the ticket keeps its due.
+     */
+    @Test
+    void processChequeRefusedSettlesNothing() {
+        chequeReaderRefuses("AUCUNE DONNEE MAGNETIQUE");
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, BigDecimal.ZERO);
+        assertTrue(state.payment.payments.isEmpty());
+        assertNull(state.payment.pendingChequeAmount);
+        assertFalse(state.payment.transactionComplete);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * A reading that lands AFTER the cashier cancelled is ignored ({@code
+     * pendingChequeAmount == null} true): the cheque was given up on, and a payment
+     * appearing by itself on a ticket the cashier moved on from is worse than a
+     * cheque re-presented.
+     */
+    @Test
+    void processChequeReadAfterCancellationIsIgnored() {
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<String> onRead =
+                    (java.util.function.Consumer<String>) invocation.getArgument(1);
+            service.cancelPendingCheque(state);
+            onRead.accept("a0007639 a800000000909r 000000000000i");
+            return null;
+        }).when(chequeReadingService).read(any(), any(), any());
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCheque(state, BigDecimal.ZERO);
+        assertTrue(state.payment.payments.isEmpty());
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * A refusal that lands after the cashier cancelled changes nothing either
+     * ({@code pendingChequeAmount == null} true in the drop path).
+     */
+    @Test
+    void processChequeRefusedAfterCancellationIsIgnored() {
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<String> onError =
+                    (java.util.function.Consumer<String>) invocation.getArgument(2);
+            service.cancelPendingCheque(state);
+            onError.accept("BOURRAGE");
+            return null;
+        }).when(chequeReadingService).read(any(), any(), any());
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        service.processCheque(state, BigDecimal.ZERO);
+        assertTrue(state.payment.payments.isEmpty());
+        assertNull(state.payment.pendingChequeAmount);
+    }
+
+    /**
+     * {@code cancelPendingCheque} on a register expecting no cheque is a no-op
+     * ({@code pendingChequeAmount == null} true, the guard's other arm).
+     */
+    @Test
+    void cancelPendingChequeWithoutAPendingChequeDoesNothing() {
+        long version = state.version;
+        service.cancelPendingCheque(state);
+        assertEquals(version, state.version);
     }
 
     // --------------------------------------------------
@@ -947,6 +1259,157 @@ class PaymentServiceTest {
         service.processVoucher(state, "BON", "N1", new BigDecimal("5.00"));
         verify(ticketPersistenceService, never()).addPaymentToTicket(any(), any());
         verify(hardwareService).displayMessage("BON       5,00 E");
+    }
+
+    // --------------------------------------------------
+    // applyPrintChoice (LC-08-03)
+    // --------------------------------------------------
+
+    /**
+     * Makes the conditional-printing rule answer with the given decision.
+     *
+     * @param saleTicket whether the sale ticket is printed
+     * @param cardReceipt whether the card receipt is printed
+     * @param voucher whether the vouchers are printed
+     */
+    private void stubDecision(boolean saleTicket, boolean cardReceipt, boolean voucher) {
+        when(printPolicy.decide(any(), any(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(new com.intermarche.pos.ui.hardware.PrintPolicy.Decision(
+                        saleTicket, cardReceipt, voucher));
+    }
+
+    /**
+     * Applies a printing choice with the Panache statics neutralized — the rule
+     * reads the ticket back to look for a GLC article.
+     *
+     * @param choice the cashier's choice
+     */
+    private void applyChoice(com.intermarche.pos.ui.hardware.PrintChoice choice) {
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            service.applyPrintChoice(state, choice);
+        }
+    }
+
+    /**
+     * A decision naming the sale ticket prints it — and only it
+     * (LC-08-03-03).
+     */
+    @Test
+    void applyPrintChoicePrintsTheSaleTicket() {
+        state.payment.ticketDbId = 9L;
+        stubDecision(true, false, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.SALE_TICKET);
+        verify(ticketPrinterService).printTicket(9L);
+        verify(ticketPrinterService, never()).printCardReceipt(any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any());
+        assertTrue(state.payment.printApplied);
+    }
+
+    /**
+     * A decision naming the card receipt prints it — and only it
+     * (LC-08-03-04).
+     */
+    @Test
+    void applyPrintChoicePrintsTheCardReceipt() {
+        state.payment.ticketDbId = 9L;
+        state.payment.cardSignatureRequired = true;
+        stubDecision(false, true, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.CARD_RECEIPT);
+        verify(ticketPrinterService).printCardReceipt(9L, true, null);
+        verify(ticketPrinterService, never()).printTicket(any());
+    }
+
+    /**
+     * A decision naming nothing prints nothing, and still records the choice as
+     * applied so the closing step adds none (LC-08-03-06).
+     */
+    @Test
+    void applyPrintChoicePrintsNothingButRecordsTheChoice() {
+        state.payment.ticketDbId = 9L;
+        stubDecision(false, false, false);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.NONE);
+        verify(ticketPrinterService, never()).printTicket(any());
+        verify(ticketPrinterService, never()).printCardReceipt(any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any());
+        assertTrue(state.payment.printApplied);
+        assertEquals(com.intermarche.pos.ui.hardware.PrintChoice.NONE, state.payment.printChoice);
+    }
+
+    /**
+     * A second application prints nothing: a reloaded modal never produces a
+     * second original ({@code printApplied} true arm).
+     */
+    @Test
+    void applyPrintChoiceIgnoresASecondCall() {
+        state.payment.ticketDbId = 9L;
+        state.payment.printApplied = true;
+        stubDecision(true, true, true);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.ALL);
+        verify(ticketPrinterService, never()).printTicket(any());
+    }
+
+    /**
+     * Without a draft there is nothing to print ({@code ticketDbId == null}
+     * arm).
+     */
+    @Test
+    void applyPrintChoiceWithoutDraftPrintsNothing() {
+        state.payment.ticketDbId = null;
+        stubDecision(true, true, true);
+        applyChoice(com.intermarche.pos.ui.hardware.PrintChoice.ALL);
+        verify(ticketPrinterService, never()).printTicket(any());
+        assertFalse(state.payment.printApplied);
+    }
+
+    /**
+     * The refuse leg prints the not-completed-transaction slip when the back
+     * office forces it, with the terminal's own frame (LC-08-03-12).
+     */
+    @Test
+    void refuseLegPrintsTheTnaReceiptWhenForced() {
+        when(printPolicy.isTnaReceiptForced()).thenReturn(true);
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("15.00"));
+        outcome.tnaFrame = "TRAME TNA";
+        cb.onRefused(outcome);
+        verify(ticketPrinterService).printCardTnaReceipt(new BigDecimal("15.00"), "TRAME TNA");
+    }
+
+    /**
+     * The refuse leg prints no slip when the rule is off — the historical
+     * behaviour.
+     */
+    @Test
+    void refuseLegPrintsNoTnaReceiptWhenNotForced() {
+        when(printPolicy.isTnaReceiptForced()).thenReturn(false);
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onRefused(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        verify(ticketPrinterService, never()).printCardTnaReceipt(any(), any());
+    }
+
+    /**
+     * The accept leg raises the signature flag the printing rule reads
+     * (LC-08-03-11).
+     */
+    @Test
+    void acceptLegRecordsTheSignatureRequirement() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(new BigDecimal("15.00"));
+        outcome.signatureRequired = true;
+        cb.onAccepted(outcome);
+        assertTrue(state.payment.cardSignatureRequired);
+    }
+
+    /**
+     * An accepted transaction asking for no signature leaves the flag down.
+     */
+    @Test
+    void acceptLegLeavesTheSignatureFlagDown() {
+        TerminalTransactionCallback cb = captureCallback("15.00");
+        cb.onAccepted(TerminalOutcome.ofAmount(new BigDecimal("15.00")));
+        assertFalse(state.payment.cardSignatureRequired);
     }
 
     // --------------------------------------------------

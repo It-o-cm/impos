@@ -72,6 +72,8 @@
     <div class="subtitle">À bientôt</div>
   </div>
 
+  <div id="displayMessage" style="display:none; position:fixed; bottom:0; left:0; right:0; background:var(--surface, #222); color:var(--text, #fff); text-align:center; font-size:1.6rem; font-weight:bold; padding:10px; letter-spacing:2px; z-index:10;"></div>
+
   <script>
     let lastKnownVersion = null;
 
@@ -84,6 +86,10 @@
     /* Applies a fresh state payload to the display. */
     function apply(data) {
       document.getElementById('trainingBanner').style.display = data.training ? 'block' : 'none';
+      /* What a two-line VFD would have shown, on the only customer display there is. */
+      const messageZone = document.getElementById('displayMessage');
+      messageZone.textContent = data.message || '';
+      messageZone.style.display = data.message ? 'block' : 'none';
       if (data.complete) {
         document.getElementById('changeZone').textContent =
             data.change ? 'Rendu : ' + data.change + ' €' : '';
@@ -123,8 +129,14 @@
       lines.scrollTop = lines.scrollHeight;
       document.getElementById('totalZone').textContent = data.total + ' €';
       document.getElementById('payingHint').textContent = data.paying ? 'PAIEMENT EN COURS' : '';
+      /* LC-07-03-03: where the shop rounds, the customer reads both figures —
+         what the sale owes and the sum they can actually hand over in coins. */
       document.getElementById('remainingZone').textContent =
-          data.paying ? 'Reste à payer : ' + data.remaining + ' €' : '';
+          data.paying
+              ? (data.rounding
+                  ? 'Reste à payer : ' + data.remaining + ' € — en espèces : ' + data.roundedRemaining + ' €'
+                  : 'Reste à payer : ' + data.remaining + ' €')
+              : '';
       show('cartScreen');
     }
 

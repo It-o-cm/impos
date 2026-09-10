@@ -21,23 +21,23 @@
       display: grid; grid-template-rows: 60px 1fr 80px;
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
     }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
-    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: 1.4rem; }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
 
     .main-area { display: flex; justify-content: center; align-items: center; }
     .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 560px; }
     .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
-    .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: 1.1rem; }
+    .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); }
     .info-row .label { color: var(--text-muted); }
     .info-row .value { font-weight: bold; }
     .status-open { color: var(--success); }
     .form-row { display: flex; align-items: center; gap: 15px; margin: 25px 0; justify-content: center; }
     .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
-    .form-row input { width: 160px; padding: 14px; font-size: 1.4rem; font-weight: bold; text-align: right; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .form-row input { width: 160px; padding: 14px; font-size: var(--fs-field); font-weight: bold; text-align: right; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
     .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
 
-    .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; text-decoration: none; text-align: center; display: block; }
+    .btn { display: block; }
 
     .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
   </style>
@@ -63,7 +63,7 @@
           <div class="info-row"><span class="label">Ouverte le</span><span class="value">{current.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
           <div class="info-row"><span class="label">Fond de caisse</span><span class="value">{current.openingFloatFormatted} €</span></div>
           <div class="actions">
-            <a href="/action/session/x-report" class="btn btn-primary">RAPPORT X (LECTURE)</a>
+            <a href="/session/x-report" class="btn btn-primary">RAPPORT X (LECTURE)</a>
             <a href="/action/session/close-start" class="btn btn-danger">CLÔTURE DE CAISSE (Z)</a>
           </div>
         {#else}
@@ -82,7 +82,13 @@
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+      <!-- Sans session ouverte, RETOUR ne mène nulle part : le garde de session
+           renvoie ici. La seule sortie légitime est alors de rendre la caisse. -->
+      {#if current??}
+        <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+      {#else}
+        <a href="/lock" class="btn btn-muted" style="width: 180px;">DÉCONNEXION</a>
+      {/if}
     </div>
   </div>
 

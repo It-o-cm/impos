@@ -84,6 +84,20 @@ class ProductFamilyTest {
      * findDirectFamily returns null for a null product (first OR arm true),
      * without hitting the database.
      */
+    /**
+     * {@code addFlag} on a freshly created family (null flags string) creates
+     * the flag instead of faulting: the null-flags arm of {@code getFlagsSet}
+     * parses as the empty set. This is the seed's first gesture on the
+     * Fruits &amp; Légumes aisle roots.
+     */
+    @Test
+    void addFlagOnNullFlagsCreatesTheFlag() {
+        ProductFamily family = new ProductFamily();
+        family.addFlag("FRUITS_VEGETABLES");
+        Assertions.assertEquals("FRUITS_VEGETABLES", family.flags);
+        Assertions.assertTrue(family.hasFlag("FRUITS_VEGETABLES"));
+    }
+
     @Test
     void findDirectFamilyNullProduct() {
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {

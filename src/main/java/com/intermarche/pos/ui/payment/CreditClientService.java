@@ -1,0 +1,398 @@
+package com.intermarche.pos.ui.payment;
+
+import com.intermarche.pos.domain.AccountCustomer;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.sync.RefPullService;
+import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.endorsement.EndorsementService;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * Names the debtor of a customer-credit settlement and decides whether the shop
+ * accepts it ({@code LC-07-09}).
+ *
+ * <p>Customer credit is the one payment method where the register hands the goods
+ * over WITHOUT taking anything: the sale becomes a debt settled monthly in the
+ * commercial management. Everything here follows from that. The account must be
+ * named before the amount is registered ({@code LC-07-09-02}), it can be reached by
+ * number or by name ({@code -07}, {@code -08}), and what the account still owes plus
+ * what this sale would add must stay under the administered ceiling ({@code -03}).
+ * A shop that wants to serve a customer anyway can, through a supervisor, and that
+ * moves the BALANCE, never the ceiling ({@code -04}) — the ceiling is the back
+ * office's decision, and a register that could raise it would not be a control.
+ *
+ * <p>It lives in {@code ui.payment} and not in the general services: it reads and
+ * writes {@link PosState}, it exists to serve one panel of the payment screen, and
+ * nothing outside that screen has any use for it.
+ */
+@ApplicationScoped
+public class CreditClientService {
+
+    private static final Logger LOG = Logger.getLogger(CreditClientService.class);
+
+    /** How many matching accounts a name search brings back at most. */
+    private static final int SEARCH_LIMIT = 20;
+
+    /** The shortest name fragment worth searching on. */
+    private static final int MIN_SEARCH_LENGTH = 2;
+
+    /** Refusal shown when the account has no administered ceiling. */
+    static final String NO_CREDIT_GRANTED = "COMPTE SANS AUTORISATION DE CREDIT";
+
+    /** Refusal shown when no account has been named yet. */
+    static final String NO_ACCOUNT = "COMPTE CLIENT NON IDENTIFIE";
+
+    /** Refusal shown when the client referential is too old to be trusted. */
+    static final String DEGRADED = "REFERENTIEL CLIENT NON A JOUR - CREDIT REFUSE";
+
+    /** The action code journalled when a supervisor allows the ceiling to be passed. */
+    static final String OVER_LIMIT_ACTION = "CREDIT_OVER_LIMIT";
+
+    /** Registers the settlement once this service has allowed it. */
+    @Inject
+    PaymentService paymentService;
+
+    /** The back-office parameters governing the degraded rule. */
+    @Inject
+    PosSettingsService posSettingsService;
+
+    /** Tells whether a store node is configured at all. */
+    @Inject
+    SyncOutboxService syncOutboxService;
+
+    /** Carries the age of the last successful referential pull. */
+    @Inject
+    RefPullService refPullService;
+
+    /** Checks the supervisor credential and journals the decision. */
+    @Inject
+    EndorsementService endorsementService;
+
+    /**
+     * Opens the customer-credit panel over the payment screen.
+     *
+     * @param state the current POS state
+     */
+    public void openPanel(PosState state) {
+        // One popup at a time: both panels bind the shared on-screen keypad, and
+        // two bindings would leave the second stealing the first one's buffer.
+        state.payment.clearCurrencyPanel();
+        state.payment.clearCreditPanel();
+        state.payment.creditPanelOpen = true;
+        state.touch();
+    }
+
+    /**
+     * Closes the panel and forgets the account and any pending authorization.
+     *
+     * @param state the current POS state
+     */
+    public void closePanel(PosState state) {
+        state.payment.clearCreditPanel();
+        state.touch();
+    }
+
+    /**
+     * Names the account by its number ({@code LC-07-09-02}): the name comes back for
+     * the operator to confirm, it is not settled on the spot.
+     *
+     * @param state the current POS state
+     * @param accountNumber the account number as typed
+     */
+    public void selectByNumber(PosState state, String accountNumber) {
+        state.payment.creditError = null;
+        state.payment.creditPendingAmount = null;
+        String typed = accountNumber == null ? "" : accountNumber.trim();
+        if (typed.isEmpty()) {
+            state.payment.creditError = "NUMERO DE COMPTE REQUIS";
+            state.touch();
+            return;
+        }
+        AccountCustomer found = AccountCustomer.find("accountNumber", typed).firstResult();
+        if (found == null) {
+            state.payment.creditError = "COMPTE INTROUVABLE : " + typed;
+            state.touch();
+            return;
+        }
+        confirm(state, found);
+    }
+
+    /**
+     * Looks accounts up by name ({@code LC-07-09-07}), address included so two
+     * businesses carrying the same name can be told apart.
+     *
+     * <p>A search matching EXACTLY ONE account names it straight away
+     * ({@code LC-07-09-08}): the operator still confirms, on the same panel, from
+     * the number, name and address then displayed.
+     *
+     * @param state the current POS state
+     * @param search the name fragment typed by the operator
+     */
+    public void searchByName(PosState state, String search) {
+        state.payment.creditError = null;
+        state.payment.creditPendingAmount = null;
+        state.payment.creditSearch = search == null ? "" : search.trim();
+        if (state.payment.creditSearch.length() < MIN_SEARCH_LENGTH) {
+            state.payment.creditCustomers = new java.util.ArrayList<>();
+            state.payment.creditSearched = false;
+            state.payment.creditError = "SAISIR AU MOINS " + MIN_SEARCH_LENGTH + " CARACTERES";
+            state.touch();
+            return;
+        }
+        List<AccountCustomer> matches = AccountCustomer
+                .<AccountCustomer>find("lower(companyName) like ?1 order by companyName",
+                        "%" + state.payment.creditSearch.toLowerCase() + "%")
+                .page(0, SEARCH_LIMIT).list();
+        state.payment.creditCustomers = new java.util.ArrayList<>(matches);
+        state.payment.creditSearched = true;
+        if (matches.size() == 1) {
+            confirm(state, matches.get(0));
+            return;
+        }
+        state.touch();
+    }
+
+    /**
+     * Names the account the operator picked from the search results.
+     *
+     * @param state the current POS state
+     * @param customerId the database id of the picked account
+     */
+    public void selectById(PosState state, Long customerId) {
+        state.payment.creditError = null;
+        state.payment.creditPendingAmount = null;
+        AccountCustomer found = customerId == null ? null : AccountCustomer.findById(customerId);
+        if (found == null) {
+            state.payment.creditError = "COMPTE INTROUVABLE";
+            state.touch();
+            return;
+        }
+        confirm(state, found);
+    }
+
+    /**
+     * Holds the account on the panel for the operator to confirm, and says at once
+     * when it may not settle on credit at all — knowing before typing an amount is
+     * worth more than a refusal after.
+     *
+     * @param state the current POS state
+     * @param customer the account being named
+     */
+    private void confirm(PosState state, AccountCustomer customer) {
+        state.payment.creditCustomer = customer;
+        state.payment.creditCustomers = new java.util.ArrayList<>();
+        state.payment.creditSearched = false;
+        if (!customer.isCreditAllowed()) {
+            state.payment.creditError = NO_CREDIT_GRANTED;
+        }
+        state.touch();
+    }
+
+    /**
+     * Registers a customer-credit settlement, or refuses it.
+     *
+     * <p>The order of the guards IS the rule: no account, no credit granted, a
+     * referential too old to be trusted, then the ceiling. Only the last one can be
+     * passed by a supervisor — the first three are not risks a shop chooses to take,
+     * they are things the register does not know.
+     *
+     * @param state the current POS state
+     * @param amount the amount to charge, or null/zero to charge the remaining due
+     * @return true when the settlement was registered
+     */
+    public boolean processCredit(PosState state, BigDecimal amount) {
+        AccountCustomer customer = state.payment.creditCustomer;
+        if (customer == null) {
+            state.payment.creditError = NO_ACCOUNT;
+            state.touch();
+            return false;
+        }
+        if (!customer.isCreditAllowed()) {
+            state.payment.creditError = NO_CREDIT_GRANTED;
+            state.touch();
+            return false;
+        }
+        if (isDegraded()) {
+            state.payment.creditError = DEGRADED;
+            state.touch();
+            return false;
+        }
+        BigDecimal asked = amountToCharge(state, amount);
+        if (asked.signum() <= 0) {
+            state.touch();
+            return false;
+        }
+        if (exceedsCeiling(customer, asked)) {
+            // HELD BACK, not refused: LC-07-09-04 lets a supervisor allow it, and
+            // the amount must survive until they answer or the operator gives up.
+            state.payment.creditPendingAmount = asked;
+            state.payment.creditError = String.format(
+                    "PLAFOND DEPASSE - ENCOURS %s / PLAFOND %s - AUTORISATION REQUISE",
+                    plain(customer.creditBalance), plain(customer.creditLimit));
+            state.touch();
+            return false;
+        }
+        register(state, customer, asked, false);
+        return true;
+    }
+
+    /**
+     * Lets a supervisor pass the ceiling for the settlement held back
+     * ({@code LC-07-09-04}).
+     *
+     * <p>What moves is the BALANCE, never the ceiling: the situation this exists for
+     * is a customer who has paid their debt without the shop having recorded it, and
+     * the answer to that is one authorized sale, not a permanently raised ceiling.
+     *
+     * @param state the current POS state
+     * @param login the supervisor's login, ignored when the logged operator is one
+     * @param password the supervisor's password
+     * @return true when the settlement was registered
+     */
+    public boolean authorizeOverLimit(PosState state, String login, String password) {
+        BigDecimal held = state.payment.creditPendingAmount;
+        AccountCustomer customer = state.payment.creditCustomer;
+        if (held == null || customer == null) {
+            state.payment.creditError = NO_ACCOUNT;
+            state.touch();
+            return false;
+        }
+        boolean granted = endorsementService.operatorIsSupervisor(state)
+                || endorsementService.authorize(login, password, OVER_LIMIT_ACTION);
+        if (!granted) {
+            state.payment.creditError = "AUTORISATION REFUSEE";
+            state.touch();
+            return false;
+        }
+        state.payment.creditPendingAmount = null;
+        register(state, customer, held, true);
+        return true;
+    }
+
+    /**
+     * Abandons the settlement held back for authorization, keeping the account named
+     * so the operator can simply type a smaller amount.
+     *
+     * @param state the current POS state
+     */
+    public void cancelOverLimit(PosState state) {
+        state.payment.creditPendingAmount = null;
+        state.payment.creditError = null;
+        state.touch();
+    }
+
+    /**
+     * Registers the settlement, charges the account and closes the panel.
+     *
+     * @param state the current POS state
+     * @param customer the debtor
+     * @param amount the amount charged
+     * @param overLimit true when a supervisor allowed the ceiling to be passed
+     */
+    private void register(PosState state, AccountCustomer customer, BigDecimal amount,
+            boolean overLimit) {
+        paymentService.processCredit(state, customer, amount, overLimit);
+        chargeAccount(customer.id, amount);
+        LOG.infof("Crédit client %s : %s E chargés%s", customer.accountNumber, amount,
+                overLimit ? " (autorisation superviseur, plafond dépassé)" : "");
+        state.payment.clearCreditPanel();
+        state.touch();
+    }
+
+    /**
+     * Adds the settlement to the account's outstanding balance.
+     *
+     * <p>The register writes the balance it will lose at the next pull, on purpose:
+     * between two pulls, it is the only thing standing between one account and two
+     * sales that each slip under the ceiling separately.
+     *
+     * @param customerId the database id of the account
+     * @param amount the amount charged
+     */
+    @Transactional
+    void chargeAccount(Long customerId, BigDecimal amount) {
+        AccountCustomer persisted = AccountCustomer.findById(customerId);
+        if (persisted == null) {
+            return;
+        }
+        BigDecimal balance = persisted.creditBalance == null
+                ? BigDecimal.ZERO : persisted.creditBalance;
+        persisted.creditBalance = balance.add(amount);
+        persisted.persist();
+    }
+
+    /**
+     * Resolves what this settlement charges: what was typed, capped at the remaining
+     * due, or the whole remaining due when nothing usable was typed.
+     *
+     * @param state the current POS state
+     * @param amount the amount typed, possibly null or non-positive
+     * @return the amount to charge, never above the remaining due
+     */
+    private BigDecimal amountToCharge(PosState state, BigDecimal amount) {
+        BigDecimal remaining = state.getRemaining();
+        if (amount == null || amount.signum() <= 0) {
+            return remaining;
+        }
+        return amount.min(remaining).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Tells whether this settlement takes the account over its ceiling
+     * ({@code LC-07-09-03}): what it already owes PLUS what this sale adds.
+     *
+     * @param customer the account
+     * @param amount the amount about to be charged
+     * @return true when the ceiling would be exceeded
+     */
+    private boolean exceedsCeiling(AccountCustomer customer, BigDecimal amount) {
+        BigDecimal balance = customer.creditBalance == null
+                ? BigDecimal.ZERO : customer.creditBalance;
+        return balance.add(amount).compareTo(customer.creditLimit) > 0;
+    }
+
+    /**
+     * Tells whether the client referential is too old for its credit figures to be
+     * trusted ({@code LC-07-09-05}).
+     *
+     * <p>A register with NO store node is never degraded: it is not supposed to pull,
+     * so its referential is exactly as fresh as whatever was loaded into it, and
+     * calling that a network outage would refuse credit on a standalone till for a
+     * link it was never meant to have. When a store node IS configured, having never
+     * completed a cycle counts as degraded — a register that has just restarted has,
+     * in truth, no idea what these accounts owe.
+     *
+     * @return true when the shop's setting forbids credit on a stale referential
+     */
+    private boolean isDegraded() {
+        if (!syncOutboxService.isEnabled() || posSettingsService.creditAllowedInDegraded()) {
+            return false;
+        }
+        LocalDateTime lastPull = refPullService.getLastSuccessfulPull();
+        if (lastPull == null) {
+            return true;
+        }
+        return lastPull.isBefore(
+                LocalDateTime.now().minusMinutes(posSettingsService.creditDegradedAfterMinutes()));
+    }
+
+    /**
+     * Formats an amount for a cashier-facing message, treating null as zero.
+     *
+     * @param amount the amount, possibly null
+     * @return the amount in plain digits
+     */
+    private static String plain(BigDecimal amount) {
+        return (amount == null ? BigDecimal.ZERO : amount).setScale(2, RoundingMode.HALF_UP)
+                .toPlainString();
+    }
+}

@@ -30,65 +30,93 @@
         }
 
         /* Header */
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
 
         /* Layout Principal */
-        .main-area { display: grid; grid-template-columns: 1.5fr 1fr; overflow: hidden; }
+        /* minmax(0, …) on both tracks: a bare 1fr means minmax(auto, 1fr) and
+           refuses to shrink below its content, so one long label anywhere would
+           widen the whole terminal and clip the right-hand column. */
+        .main-area { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); overflow: hidden; }
 
         /* Colonne Ticket */
         .receipt-area { background-color: var(--bg-dark); padding: 15px; border-right: 1px solid var(--border-color); overflow: hidden; display: flex; flex-direction: column; }
-        .receipt-empty { margin: auto; color: var(--text-muted); font-size: 1.5rem; text-align: center; }
+        .receipt-empty { margin: auto; color: var(--text-muted); font-size: var(--fs-section); text-align: center; }
 
         /* Styles Lignes */
         .receipt-item-link { text-decoration: none; color: inherit; display: block; }
         .receipt-item {
-            display: flex; justify-content: space-between; font-size: 1.25rem;
+            display: flex; justify-content: space-between; font-size: var(--fs-row);
             border-bottom: 1px dashed var(--border-strong); padding-top: 12px; padding-bottom: 11px;
             border-left: 4px solid transparent; padding-left: 5px; margin-left: -5px;
         }
         .receipt-item.selected { background-color: rgba(0, 85, 255, 0.2); border-left-color: var(--primary); }
         .receipt-item .item-details { flex: 1; padding-right: 20px; }
         .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 80px; }
-        .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: 1.3rem; display: flex; align-items: center; gap: 8px; }
+        .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: var(--fs-amount); display: flex; align-items: center; gap: 8px; }
         .receipt-item.negative .price { color: var(--danger); }
 
         /* Navigation Ticket */
         .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: auto; flex-shrink: 0; }
         .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
-        .nav-info { color: var(--text-muted); font-size: 0.9rem; }
+        .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
 
         /* Colonne Action */
         .action-area { background-color: var(--bg-panel); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
         .total-display { position: relative; text-align: right; }
-        .total-label { font-size: 1.1rem; color: var(--text-muted); }
-        .total-amount { font-size: 3rem; font-weight: bold; color: var(--text-main); }
+        .total-label { font-size: var(--fs-label); color: var(--text-muted); }
+        .total-amount { font-size: var(--fs-total-xl); font-weight: bold; color: var(--text-main); }
         .fid-icon { position: absolute; top: 5px; left: 0; width: 28px; height: 28px; transition: all 0.4s ease; }
         .fid-icon.inactive { stroke: #333; fill: transparent; }
         .fid-icon.active { stroke: var(--success); fill: var(--success); filter: drop-shadow(0 0 4px rgba(0,200,83,0.6)); }
 
         /* Grille Boutons */
-        .grid-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; align-content: end; }
-        .grid-buttons .btn { height: 50px; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; text-decoration: none; padding: 0; }
+        .grid-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; flex: 1; align-content: end; }
+        .grid-buttons .btn { height: 50px; font-size: var(--fs-btn-sm); display: flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; padding: 0 4px; min-width: 0; overflow: hidden; }
+        /* TEN BUTTONS, TWO COLUMNS, FIVE ROWS — and never more. The action column
+           holds exactly that at the register's button size; a menu that needed an
+           eleventh row would have it cut off by the panel, which is how MODE
+           FORMATION became unreachable when the second menu was a single list.
+           The bottom bar is the menu selector now: five keys, five menus, ten
+           slots each. */
         .btn-spacer { background: transparent; border: none; }
 
         /* Footer */
-        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
-        .bottom-nav .btn { width: 180px; height: 50px; font-size: 0.85rem; padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1.15; text-decoration: none; }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; gap: 8px; min-width: 0; }
+        /* The buttons SHARE the bar instead of each claiming 180px: a fixed
+           width made the bar wider than the 1000px terminal as soon as a sixth
+           button appeared (MOUVEMENT, lot C5b), and the whole screen was
+           clipped on the right. Adding a button must cost width, never layout. */
+        .bottom-nav .btn { flex: 1 1 0; min-width: 0; max-width: 180px; height: 50px; font-size: var(--fs-btn-sm); padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1.15; text-decoration: none; }
 
         /* Boutons Communs */
-        .btn { padding: 15px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; }
-        .btn:active { transform: translateY(4px); box-shadow: none; }
-        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
         /* Modale Prix */
-        .price-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 90; justify-content: center; align-items: center; overflow-y: auto; }
+        .price-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 90; justify-content: center; align-items: center; overflow-y: auto; }
         .price-modal.active { display: flex; }
-        .price-panel { background: var(--bg-panel); border: 2px solid var(--primary); border-radius: 12px; padding: 20px; width: 360px; display: flex; flex-direction: column; gap: 12px; margin: auto; }
-        .price-title { font-size: 1.4rem; font-weight: bold; color: var(--primary); text-align: center; }
-        .price-target { color: var(--text-muted); font-size: 0.95rem; text-align: center; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; }
-        .price-input-display { font-size: 2.2rem; text-align: right; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 12px; width: 100%; }
-        .price-kb-area { display: flex; flex-direction: column; min-height: 180px; }
+        .price-panel { background: var(--bg-panel); border: 2px solid var(--primary); border-radius: 12px; padding: 16px; width: 360px; display: flex; flex-direction: column; gap: 10px; margin: auto; }
+        .price-title { font-size: var(--fs-title); font-weight: bold; color: var(--primary); text-align: center; }
+        .price-target { color: var(--text-muted); font-size: var(--fs-label); text-align: center; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; }
+        /* Le rappel de la ligne : la MEME lecture que sur le ticket (quantité en
+           ambre, total en vert), pour qu'il n'y ait rien à ré-interpréter entre
+           l'écran de vente et la modale posée par-dessus. */
+        .price-target-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--bg-row); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 12px; font-size: var(--fs-row); }
+        /* Une seule ligne, toujours : un libellé long doit s'élider, jamais
+           passer à la ligne — la modale mesure 585 px dans un terminal de 600. */
+        .price-target-line .item-details { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .price-target-line .qty { color: var(--warning); margin-right: 8px; }
+        .price-target-line .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: var(--fs-amount); }
+        .price-target-mod { color: var(--warning); font-size: var(--fs-label); text-align: center; }
+        /* Le sélecteur de mode de la modale : les touches se partagent la largeur
+           du panneau, qu'elles soient deux (remise ticket) ou trois (remise,
+           discount, forçage sur une ligne). */
+        .price-modes { display: flex; gap: 8px; }
+        .price-modes .btn { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: var(--fs-btn-sm); }
+        .price-input-display { font-size: var(--fs-field-num); text-align: right; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 12px; width: 100%; }
+        /* Le pavé compact du thème, comme sur les autres écrans chargés : le
+           panneau porte maintenant le rappel de la ligne et le sélecteur de
+           mode, et un pavé pleine taille le poussait hors du terminal. */
+        .price-kb-area { display: flex; flex-direction: column; min-height: 150px; }
 
     </style>
 </head>
@@ -96,6 +124,10 @@
 
 <div class="pos-terminal" id="posTerminal">
     {#if state.trainingMode}<div class="overlay-banner overlay-training">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
+    {! LC-07-08-05: a permanent indicator. A till that has stopped asking the
+     ! monetics for authorization must say so at every instant, not only on the
+     ! screen where it was switched on. !}
+    {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">*** MODE DÉGRADÉ MONÉTIQUE FORCÉ ***</div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
@@ -109,14 +141,14 @@
 
         <div class="action-area">
             <div class="total-display">
-                <span id="fidEarn" style="color: var(--accent); font-weight: bold; font-size: 0.85rem; margin-right: 6px;"></span>
+                <span id="fidEarn" style="color: var(--accent); font-weight: bold; font-size: var(--fs-label); margin-right: 6px;"></span>
                 <svg id="fidIcon" class="fid-icon {state.fidelity.active ? 'active' : 'inactive'}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 12l2 2 4-4"/>
                 </svg>
                 <!-- Attached-card summary: holder (when found via lookup),
                      card number and available balance. Rides the poll. -->
-                <div id="fidSummary" style="color: var(--text-muted); font-size: 0.8rem; text-align: right;">{#if state.fidelity.displaySummary}{state.fidelity.displaySummary}{/if}</div>
+                <div id="fidSummary" style="color: var(--text-muted); font-size: var(--fs-label); text-align: right;">{#if state.fidelity.displaySummary}{state.fidelity.displaySummary}{/if}</div>
                 <div class="total-label">TOTAL À PAYER</div>
                 <div class="total-amount {state.ticket.totalAmount <= 0 ? 'zero' : ''}" id="mainTotal">
                     {state.ticket.getTotalFormatted()} €
@@ -124,65 +156,93 @@
             </div>
 
             <div class="grid-buttons">
-                {#if state.showSecondaryMenu}
 
-                    <!-- Saisies de secours -->
-                    <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
-                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
-
-                    <!-- Cycle de vie des tickets : les deux actions sont
-                         mutuellement exclusives par construction (le service
-                         refuse de parquer un panier vide et de reprendre sur
-                         un panier plein) — n'afficher que celle qui peut agir -->
-                    {#if state.ticket.items.isEmpty()}
-                        <a href="/parked" class="btn btn-warning" style="color:black;">REPRENDRE TICKET</a>
-                    {#else}
-                        <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
-                    {/if}
-                    <a href="/action/print-last" class="btn btn-muted">RÉIMPRIMER</a>
-                    <a href="/reprint" class="btn btn-primary">IMPRIMER TICKET</a>
-                    <a href="/return" class="btn btn-primary">RETOUR</a>
-
-                    <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
-                    <a href="/voucher-balance" class="btn btn-muted">SOLDE BON / CARTE</a>
-                    <a href="/badge-print" class="btn btn-muted">BADGE OPÉRATEUR</a>
-                    <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
-                    <a href="/theme-select" class="btn btn-muted">THÈME D'AFFICHAGE</a>
-                    <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
-
-                {#else}
+                {#if state.menu.key == 'vente'}
+                    <!-- VENTE : les gestes d'une vente en cours, et l'encaissement. -->
                     <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
                     <a href="/action/price-mod/quantity" class="btn btn-muted">QUANTITÉ</a>
-                    <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS & LÉGUMES</a>
-                    <a href="/action/price-mod/remise" class="btn btn-muted">REMISE</a>
-                    <a href="/action/price-mod/discount" class="btn btn-muted">DISCOUNT</a>
-                    <a href="/action/price-mod/force_price" class="btn btn-muted">FORÇAGE PRIX</a>
+                    <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS &amp; LÉGUMES</a>
                     <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
                     <a href="/search" class="btn btn-muted">RECHERCHE</a>
-
+                    <!-- Une seule touche pour les trois façons de changer le prix
+                         d'une ligne : elles occupaient trois des dix emplacements du
+                         menu pour un seul geste. Elle ouvre la modale sur la remise,
+                         et les trois modes s'y échangent. -->
+                    <a href="/action/price-mod/remise" class="btn btn-muted">REMISE / PRIX</a>
+                    <!-- Déconnexion en bas À GAUCHE : la colonne de droite de la
+                         dernière rangée est celle d'ENCAISSER, et on ne met pas une
+                         sortie de session sous le doigt qui vise le paiement. -->
+                    <a href="/lock" class="btn btn-muted">DÉCONNEXION</a>
                     {#if state.ticket.totalAmount > 0}
                         <a id="payBtn" href="/pay" class="btn btn-primary">ENCAISSER</a>
                     {#else}
                         <button id="payBtn" class="btn btn-primary" disabled>ENCAISSER</button>
                     {/if}
+
+                {#else if state.menu.key == 'ticket'}
+                    <!-- TICKET : la vie du ticket et les documents qu'il produit. -->
+                    <!-- Les deux actions du cycle de vie sont mutuellement exclusives
+                         par construction (le service refuse de parquer un panier vide
+                         et de reprendre sur un panier plein) — n'afficher que celle
+                         qui peut agir. -->
+                    {#if state.ticket.items.isEmpty()}
+                        <a href="/parked" class="btn btn-warning" style="color:black;">REPRENDRE TICKET</a>
+                    {#else}
+                        <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
+                    {/if}
+                    <a href="/action/cancelTicket" class="btn btn-danger">ANNULER TICKET</a>
+                    <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
+                    <!-- Les quatre touches DERNIER agissent sur le meme objet — la
+                         derniere vente cloturee — et obeissent donc a la meme regle
+                         (PosState.requireLastClosedTicket) : meme refus, meme message,
+                         meme retour a l'ecran de vente. Le prefixe le dit a l'oeil.
+                         RECHERCHE TICKET, elle, demande de quel ticket il s'agit :
+                         c'est la seule de la colonne a ouvrir un ecran de recherche,
+                         et elle s'appelait "IMPRIMER TICKET" juste au-dessus de
+                         "REIMPRIMER". -->
+                    <a href="/action/print-last" class="btn btn-muted">DERNIER : TICKET</a>
+                    <a href="/action/print-last-barcode" class="btn btn-muted">DERNIER : CODE-BARRES</a>
+                    <a href="/action/print-last-card" class="btn btn-muted">DERNIER : DUPLICATA CB</a>
+                    <a href="/ticket-email" class="btn btn-muted">DERNIER : PAR EMAIL</a>
+                    <a href="/reprint" class="btn btn-primary">RECHERCHE TICKET</a>
+                    <a href="/invoice" class="btn btn-primary">FACTURE</a>
+
+                {#else if state.menu.key == 'client'}
+                    <!-- CLIENT : ce que le client apporte au comptoir. -->
+                    <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
+                    <a href="/voucher-balance" class="btn btn-muted">SOLDE BON / CARTE</a>
+                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
+                    <a href="/return" class="btn btn-primary">RETOUR</a>
+
+                {#else if state.menu.key == 'caisse'}
+                    <!-- CAISSE : l'argent du tiroir et la session. -->
+                    <a href="/cash-movement" class="btn btn-success">MOUVEMENT</a>
+                    <a href="/session" class="btn btn-success">SESSION CAISSE</a>
+                    <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
+                    <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
+                    <form action="/action/monetics-degraded" method="POST" style="display:contents;">
+                        <button type="submit" class="btn btn-warning" style="color:#000;">{state.moneticsDegradedForced ? 'LEVER DÉGRADÉ MONÉTIQUE' : 'FORCER DÉGRADÉ MONÉTIQUE'}</button>
+                    </form>
+
+                {#else}
+                    <!-- POSTE : les réglages de l'opérateur. -->
+                    <a href="/badge-print" class="btn btn-muted">BADGE OPÉRATEUR</a>
+                    <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
+                    <a href="/theme-select" class="btn btn-muted">THÈME D'AFFICHAGE</a>
                 {/if}
+
             </div>
         </div>
     </div>
 
+    <!-- THE BOTTOM BAR IS THE MENU SELECTOR. Its five keys used to be five direct
+         actions; those actions now live in the menus they belong to, and the bar
+         does one thing instead of two. The current menu is the one lit. -->
     <div class="bottom-nav">
-        <a href="/action/cancelTicket" class="btn btn-danger">ANNULER TICKET</a>
-
-        {#if state.showSecondaryMenu}
-            <a href="/action/menu/main" class="btn btn-warning" style="color:black;">PRINCIPAL</a>
-        {#else}
-            <a href="/action/menu/secondary" class="btn btn-muted">AUTRES...</a>
-        {/if}
-
-        <a href="/cash-movement" class="btn btn-success">MOUVEMENT</a>
-        <a href="/session" class="btn btn-success">CAISSE</a>
-        <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
-        <a href="/lock" class="btn btn-muted">DÉCONNEXION</a>
+        {#for m in state.menus}
+        <a href="/action/menu/{m.key}"
+           class="btn {#if state.menu.key == m.key}btn-primary{#else}btn-muted{/if}">{m.label}</a>
+        {/for}
     </div>
 
     <!-- MODALE PRIX -->
@@ -205,18 +265,39 @@
         <div class="price-modal active">
             <div class="price-panel">
                 <div class="price-title">{state.priceModState.typeLabel}</div>
-                <div class="price-target">Article : {state.priceModState.targetLabel}</div>
-                {#if state.priceModState.type == 'GLOBAL_REMISE' || state.priceModState.type == 'GLOBAL_DISCOUNT'}
-                    <!-- The €/% choice is made HERE, not in the menu: one
-                         REMISE TICKET entry, two modes. Switching re-opens
-                         the modal with the other type (typed value resets). -->
-                    <div style="display:flex; gap:10px;">
+                {#if state.priceModState.targetLine}
+                    <!-- RAPPEL DE LA LIGNE MODIFIÉE. La modale recouvre le ticket :
+                         sans ce rappel, remise, discount et forçage se saisissent
+                         sur une ligne que l'opérateur ne voit plus. -->
+                    <div class="price-target-line">
+                        <span class="item-details">{state.priceModState.targetHtml.raw}</span>
+                        <span class="price">{state.priceModState.targetPriceFormatted} €</span>
+                    </div>
+                    {#if state.priceModState.targetModifierLabel}
+                    <div class="price-target-mod">DÉJÀ APPLIQUÉ : {state.priceModState.targetModifierLabel}</div>
+                    {/if}
+                {#else}
+                    <div class="price-target">{state.priceModState.targetLabel}</div>
+                {/if}
+                <!-- LE MODE SE CHOISIT ICI, PAS DANS LE MENU. Une entrée, plusieurs
+                     modes : le geste est le même (dire comment le prix bouge), seule
+                     l'unité change. Basculer réouvre la modale sur l'autre type —
+                     la ligne visée est reprise, la valeur tapée repart à zéro. -->
+                {#if state.priceModState.ticketModes}
+                    <div class="price-modes">
                         <a href="/action/price-mod/global_remise"
-                           class="btn {state.priceModState.type == 'GLOBAL_REMISE' ? 'btn-primary' : 'btn-muted'}"
-                           style="width:50%; height:40px; line-height:40px; padding:0; text-align:center;">MONTANT (€)</a>
+                           class="btn {state.priceModState.type == 'GLOBAL_REMISE' ? 'btn-primary' : 'btn-muted'}">MONTANT €</a>
                         <a href="/action/price-mod/global_discount"
-                           class="btn {state.priceModState.type == 'GLOBAL_DISCOUNT' ? 'btn-primary' : 'btn-muted'}"
-                           style="width:50%; height:40px; line-height:40px; padding:0; text-align:center;">POURCENT (%)</a>
+                           class="btn {state.priceModState.type == 'GLOBAL_DISCOUNT' ? 'btn-primary' : 'btn-muted'}">POURCENT %</a>
+                    </div>
+                {#else if state.priceModState.lineModes}
+                    <div class="price-modes">
+                        <a href="/action/price-mod/remise"
+                           class="btn {state.priceModState.type == 'REMISE' ? 'btn-primary' : 'btn-muted'}">REMISE €</a>
+                        <a href="/action/price-mod/discount"
+                           class="btn {state.priceModState.type == 'DISCOUNT' ? 'btn-primary' : 'btn-muted'}">DISCOUNT %</a>
+                        <a href="/action/price-mod/force_price"
+                           class="btn {state.priceModState.type == 'FORCE_PRICE' ? 'btn-primary' : 'btn-muted'}">PRIX FORCÉ</a>
                     </div>
                 {/if}
                 <form action="/action/price-mod/submit" method="POST" id="priceForm">
@@ -224,8 +305,8 @@
                     <input type="hidden" name="uid" value="{state.priceModState.targetUid}">
                     <input type="hidden" name="rawValue" id="priceHidden" value="0">
                     <input type="text" id="priceDisplay" class="price-input-display" value="0" readonly>
-                    <div class="price-kb-area" id="priceKbArea"></div>
-                    <div style="display:flex; gap:10px; margin-top:15px;">
+                    <div class="price-kb-area pos-kb-compact" id="priceKbArea"></div>
+                    <div style="display:flex; gap:10px; margin-top:10px;">
                         <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
                         <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
                     </div>

@@ -7,15 +7,15 @@
 <!-- CSS Spécifique Modale -->
 <style>
         {#include theme /}
-  .endorse-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 100; justify-content: center; align-items: center; }
+  .endorse-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 100; justify-content: center; align-items: center; }
   .endorse-modal.active { display: flex; }
 
   /* MODIF: Width augmenté à 620px pour élargir le clavier */
   .endorse-panel { background: var(--bg-panel); border: 2px solid var(--warning); border-radius: 10px; padding: 25px; width: 620px; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
 
-  .endorse-title { color: var(--warning); font-size: 1.5rem; font-weight: bold; text-align: center; }
-  .endorse-hint { color: var(--text-muted); text-align: center; font-size: 1rem; }
-  .endorse-display { background: var(--bg-page); border: 3px solid var(--warning); border-radius: 6px; padding: 12px; font-size: 1.8rem; text-align: center; color: var(--warning); letter-spacing: 4px; }
+  .endorse-title { color: var(--warning); font-size: var(--fs-title); font-weight: bold; text-align: center; }
+  .endorse-hint { color: var(--text-muted); text-align: center; font-size: var(--fs-body); }
+  .endorse-display { background: var(--bg-page); border: 3px solid var(--warning); border-radius: 6px; padding: 12px; font-size: var(--fs-field-num); text-align: center; color: var(--warning); letter-spacing: 4px; }
   .endorse-kb-area { min-height: 220px; display: flex; flex-direction: column; }
   .endorse-error { color: var(--danger); text-align: center; font-weight: bold; background: rgba(211,47,47,0.1); padding: 8px; border-radius: 4px; }
 

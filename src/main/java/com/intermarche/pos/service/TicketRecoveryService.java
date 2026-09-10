@@ -155,6 +155,10 @@ public class TicketRecoveryService {
             // lookup (phase: gift-card registry).
             item.moneyProduct = line.moneyProduct;
             item.priceEmbedded = line.priceEmbedded;
+            // Same rule for the reduction ban (BO-02-03-09): read back, never
+            // re-derived. Without this the ban vanished at the first restart
+            // and the article became discountable again.
+            item.discountForbidden = line.discountForbidden;
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();
@@ -187,6 +191,24 @@ public class TicketRecoveryService {
                 state.payment.addVoucherPayment(voucher.voucherLabel, voucher.voucherNumber, voucher.amount);
             } else if (payment instanceof CashPayment cash) {
                 state.payment.addCashPayment(cash.amount, cash.tenderedAmount);
+            } else if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment secours) {
+                // The scheme, the transaction and HOW the outcome was obtained are
+                // restored with the line: a recovered settlement that lost the manual
+                // flag would claim a signature nobody ever verified.
+                state.payment.addBackupPayment(secours.amount, secours.methodLabel,
+                        secours.transactionNumber, secours.manual);
+            } else if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+                // The currency, the amount handed over and the rate are restored with
+                // the line: LC-07-14-05 prints all three, and a recovered settlement
+                // that lost them could not be printed at all.
+                state.payment.addCurrencyPayment(devise.amount, devise.currencyCode,
+                        devise.foreignAmount, devise.exchangeRate);
+            } else if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+                // The debtor is restored with the line: a recovered credit
+                // settlement that lost its account would print a debt owed by
+                // nobody on the receipt the customer is about to be handed.
+                state.payment.addCreditPayment(credit.amount, credit.accountNumber,
+                        credit.accountName, credit.overLimit);
             } else {
                 state.payment.addPayment(methodKeyOf(payment), payment.amount);
             }

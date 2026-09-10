@@ -20,56 +20,61 @@
             overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
         }
 
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
         .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
 
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
+        /* The popup's opaque half: the glass shows the register behind, this
+           carries what is being asked. HEIGHT-NEUTRAL on purpose — glass ring
+           10 + border 2 + padding 8 restores exactly the 20 px the overlay used
+           to inset its content by: the lock and PIN screens filled their 556 px
+           to the pixel, and any wider frame would have pushed them out. It
+           inherits the column flow the overlay used to hold directly, so the
+           children below are unchanged. */
+        .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
         .overlay.active { display: flex; }
         .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
-        .overlay-title { font-size: 1.5rem; }
-        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; }
+        .overlay-title { font-size: var(--fs-title); }
 
         .plu-toolbar { display: flex; gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
-        .plu-tool-btn { flex: 1; padding: 14px; background: var(--bg-row); border: 2px solid var(--border-strong); color: #ddd; font-size: 1.05rem; font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center; text-transform: uppercase; transition: 0.2s; text-decoration: none; }
+        .plu-tool-btn { flex: 1; padding: 14px; background: var(--bg-row); border: 2px solid var(--border-strong); color: #ddd; font-size: var(--fs-btn); font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center; text-transform: uppercase; transition: 0.2s; text-decoration: none; }
         .plu-tool-btn:hover { border-color: var(--primary); color: var(--primary); }
 
         .plu-container { flex: 1; display: flex; flex-direction: column; background: #111; border: 1px solid var(--border-color); border-radius: 5px; overflow: hidden; min-height: 0; }
         .plu-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; padding: 10px; align-content: start; overflow: hidden; }
-        .plu-btn { background: var(--bg-row); font-size: 0.9rem; padding: 8px 4px; border: 1px solid var(--border-strong); color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
+        .plu-btn { background: var(--bg-row); font-size: var(--fs-btn-sm); padding: 8px 4px; border: 1px solid var(--border-strong); color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
         .plu-btn:hover { background: #444; border-color: var(--primary); }
         .plu-btn .plu-emoji { font-size: 1.2rem; }
         .plu-btn .plu-img { max-width: 44px; max-height: 44px; object-fit: contain; }
         .plu-search-result .psr-img { width: 26px; height: 26px; object-fit: contain; margin-right: 11px; vertical-align: middle; }
         .plu-btn .plu-name { margin: 2px 0; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
         .plu-btn .plu-meta { display: flex; gap: 8px; justify-content: center; }
-        .plu-btn .plu-code { display: block; font-size: 0.7rem; color: var(--warning); font-weight: bold; }
+        .plu-btn .plu-code { display: block; font-size: var(--fs-label); color: var(--warning); font-weight: bold; }
 
         .plu-pagination { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-top: 1px solid var(--border-color); background: var(--bg-inset); flex-shrink: 0; }
 
-        .plu-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.88); z-index: 5; justify-content: center; align-items: center; }
+        .plu-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 5; justify-content: center; align-items: center; }
         .plu-modal.active { display: flex; }
         .plu-modal-panel { background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.5); overflow: hidden; }
         .plu-modal-panel.search-panel { width: 874px; height: 520px; }
         .plu-modal-panel.code-panel { width: 340px; }
         .plu-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-shrink: 0; }
-        .plu-modal-title { font-size: 1.2rem; font-weight: bold; color: white; }
-        .plu-modal-close { font-size: 1.8rem; background: none; border: none; color: var(--text-muted); cursor: pointer; line-height: 1; }
+        .plu-modal-title { font-size: var(--fs-section); font-weight: bold; color: white; }
 
-        .plu-search-input { background: var(--bg-page); color: white; padding: 12px 14px; font-size: 1.2rem; border-radius: 6px; border: 1px solid var(--primary); width: 100%; margin-bottom: 8px; flex-shrink: 0; }
+        .plu-search-input { background: var(--bg-page); color: white; padding: 12px 14px; font-size: var(--fs-field); border-radius: 6px; border: 1px solid var(--primary); width: 100%; margin-bottom: 8px; flex-shrink: 0; }
         .plu-search-results { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; overflow-y: auto; max-height: 300px; }
-        .plu-search-result { background: var(--bg-row); border: 1px solid var(--border-strong); color: white; padding: 14px 16px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; }
+        .plu-search-result { background: var(--bg-row); border: 1px solid var(--border-strong); color: white; padding: 14px 16px; border-radius: 6px; cursor: pointer; text-align: left; font-size: var(--fs-row); display: flex; justify-content: space-between; align-items: center; }
         .plu-search-result:hover { background: #444; border-color: var(--primary); }
         .plu-search-result .psr-emoji { font-size: 1.26rem; margin-right: 11px; }
         .plu-search-result .psr-name { flex: 1; }
-        .plu-search-result .psr-code { color: var(--warning); font-weight: bold; font-size: 0.81rem; margin-left: 7px; white-space: nowrap; }
+        .plu-search-result .psr-code { color: var(--warning); font-weight: bold; font-size: var(--fs-row-sub); margin-left: 7px; white-space: nowrap; }
 
-        .plu-code-display { background: var(--bg-page); color: white; padding: 14px; font-size: 2rem; border-radius: 6px; border: 2px solid var(--warning); text-align: center; letter-spacing: 8px; margin-bottom: 14px; flex-shrink: 0; }
+        .plu-code-display { background: var(--bg-page); color: white; padding: 14px; font-size: var(--fs-field-num); border-radius: 6px; border: 2px solid var(--warning); text-align: center; letter-spacing: 8px; margin-bottom: 14px; flex-shrink: 0; }
 
         .plu-kb-area { min-height: 220px; display: flex; flex-direction: column; }
 
-        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; text-align: center; }
         .btn-muted:disabled { background-color: #333; color: #555; cursor: not-allowed; box-shadow: none; }
     </style>
 </head>
@@ -85,9 +90,9 @@
     <div class="bottom-nav"></div>
 
     <div class="overlay active" id="pluScreen">
+        <div class="overlay-panel">
         <div class="overlay-header">
             <div class="overlay-title">FRUITS, LÉGUMES & FRAIS</div>
-            <a href="/" class="close-btn">&times;</a>
         </div>
         <div class="plu-toolbar">
             <button class="plu-tool-btn" onclick="openPluSearch()">🔍 Rechercher un produit</button>
@@ -95,10 +100,11 @@
         </div>
         <div class="plu-container">
             <div class="plu-grid" id="pluGrid"></div>
-            <div class="plu-pagination">
-                <button id="btnPrev" class="btn btn-muted" style="padding:10px;font-size:1rem;width:auto;" onclick="changePage(-1)">PRÉCÉDENT</button>
-                <span id="pluPageInfo" style="color:var(--text-muted);font-size:1.1rem;font-weight:bold;">1 / 1</span>
-                <button id="btnNext" class="btn btn-muted" style="padding:10px;font-size:1rem;width:auto;" onclick="changePage(1)">SUIVANT</button>
+            <div class="plu-pagination pos-pager">
+                <a href="/" class="btn btn-sm btn-muted">RETOUR</a>
+                <button id="btnPrev" class="btn btn-sm btn-muted" onclick="changePage(-1)">PRÉCÉDENT</button>
+                <span id="pluPageInfo" class="pos-pager-info">PAGE 1 / 1</span>
+                <button id="btnNext" class="btn btn-sm btn-muted" onclick="changePage(1)">SUIVANT</button>
             </div>
         </div>
 
@@ -106,7 +112,7 @@
             <div class="plu-modal-panel search-panel">
                 <div class="plu-modal-header">
                     <span class="plu-modal-title">Rechercher un produit</span>
-                    <button class="plu-modal-close" onclick="closePluSearch()">&times;</button>
+                    <button class="btn btn-sm btn-muted" onclick="closePluSearch()">RETOUR</button>
                 </div>
                 <input type="text" class="plu-search-input" id="pluSearchDisplay" placeholder="Tapez un nom..." readonly>
                 <div id="pluSearchKb" class="plu-kb-area"></div>
@@ -118,12 +124,13 @@
             <div class="plu-modal-panel code-panel">
                 <div class="plu-modal-header">
                     <span class="plu-modal-title">Code PLU</span>
-                    <button class="plu-modal-close" onclick="closePluCode()">&times;</button>
+                    <button class="btn btn-sm btn-muted" onclick="closePluCode()">RETOUR</button>
                 </div>
                 <input type="text" class="plu-code-display" id="pluCodeDisplay" value="" readonly>
                 <div id="pluCodeNumpad" class="plu-kb-area"></div>
-                <a href="#" id="pluCodeValidate" class="btn btn-success" style="width:100%;font-size:1.1rem;text-align:center;">VALIDER</a>
+                <a href="#" id="pluCodeValidate" class="btn btn-lg btn-success" style="width:100%;">VALIDER</a>
             </div>
+        </div>
         </div>
     </div>
 </div>
@@ -159,7 +166,7 @@
         }
         grid.innerHTML = html;
 
-        document.getElementById('pluPageInfo').textContent = currentPage + ' / ' + totalPages;
+        document.getElementById('pluPageInfo').textContent = 'PAGE ' + currentPage + ' / ' + totalPages;
         document.getElementById('btnPrev').disabled = currentPage === 1;
         document.getElementById('btnNext').disabled = currentPage === totalPages;
     }

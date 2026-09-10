@@ -499,6 +499,51 @@ class PosStateTest {
         assertEquals(0, state.version);
     }
 
+    // --- requireLastClosedTicket: the one gate of the last-ticket functions ---
+
+    /**
+     * {@code requireLastClosedTicket()} refuses in training mode and says so,
+     * whatever the last closed ticket is (first arm true).
+     */
+    @Test
+    void requireLastClosedTicketRefusesInTraining() {
+        PosState state = newState();
+        state.trainingMode = true;
+        state.lastClosedTicketId = 42L;
+        assertFalse(state.requireLastClosedTicket());
+        verify(state.ticket).setError(PosState.TRAINING_FORBIDDEN);
+        assertEquals(1, state.version);
+    }
+
+    /**
+     * {@code requireLastClosedTicket()} refuses when the register has closed no
+     * sale yet, and says so rather than staying silent (first arm false, second
+     * arm true).
+     */
+    @Test
+    void requireLastClosedTicketRefusesWithoutClosedTicket() {
+        PosState state = newState();
+        state.trainingMode = false;
+        state.lastClosedTicketId = null;
+        assertFalse(state.requireLastClosedTicket());
+        verify(state.ticket).setError(PosState.NO_LAST_TICKET);
+        assertEquals(1, state.version);
+    }
+
+    /**
+     * {@code requireLastClosedTicket()} allows the function and posts nothing
+     * when the register is live and holds a closed ticket (both arms false).
+     */
+    @Test
+    void requireLastClosedTicketAllowsOnClosedTicket() {
+        PosState state = newState();
+        state.trainingMode = false;
+        state.lastClosedTicketId = 42L;
+        assertTrue(state.requireLastClosedTicket());
+        verifyNoInteractions(state.ticket);
+        assertEquals(0, state.version);
+    }
+
     /**
      * The freshly constructed state exposes its pristine defaults and touches no
      * collaborator before any action is taken.

@@ -132,6 +132,13 @@ public class DataInitializer {
         alimentaire.productFamilies.add(legumes);
         alimentaire.productFamilies.add(boissons);
 
+        // Fruits & Légumes aisle marking (weighing screen, read by
+        // FruitService.FRUITS_VEGETABLES_FLAG): the flag is hierarchy-resolved,
+        // so tagging the two aisle roots covers POMMES and RACINES below them.
+        // Literal token here: the domain seed does not reach into the UI layer.
+        fruits.addFlag("FRUITS_VEGETABLES");
+        legumes.addFlag("FRUITS_VEGETABLES");
+
         // --- Engine catalog (ProductImporterClient mirror; PLU/icon = register-local) ---
         Product p01 = createProduct(pommes, "Pommes Golden", "Pommes fraîches bio", "Brand A", "4020", "3300000000001", "🍎", "1.000", "2.500", ProductType.WEIGHT, "kg");
         Product p02 = createProduct(epicerie, "Lait UHT 1L", "Lait demi-écrémé", "Brand B", null, "3300000000002", "🥛", "1.000", "1.000", ProductType.UNIT, "L");
@@ -166,6 +173,13 @@ public class DataInitializer {
         Product p31 = createProduct(cuisson, "Poêle Antiadhésive 28cm", "Poêle fonte alum", "Tefal", null, "3300000000031", "🍳", "0.800", "0.000", ProductType.UNIT, "pcs");
         Product p32 = createProduct(cuisson, "Casserole Inox 20cm", "Casserole acier inox", "Staub", null, "3300000000032", "🍲", "1.200", "0.000", ProductType.UNIT, "pcs");
         Product p33 = createProduct(cuisson, "Set de Couteaux Chef", "Couteaux acier inox", "Sabatier", null, "3300000000033", "🔪", "0.500", "0.000", ProductType.UNIT, "pcs");
+
+        // Variable-weight marking: only true bulk is weighable at the
+        // register. The other WEIGHT-typed rows (pâtes 500g, jambon 100g,
+        // beurre 250g, tomates cerises 500g, poulet 1.2kg, saumon 200g) are
+        // pre-packed at a fixed weight and behave as units in the lane.
+        p01.variableWeight = true; // Pommes Golden, sold loose
+        p17.variableWeight = true; // Concombre, sold loose
 
         // --- Engine price rows for store 0101 (PriceImporterClient mirror,
         //     DEFAULT usage only; ...001/...002/...020 carry a priority-1 promo) ---
@@ -485,6 +499,16 @@ public class DataInitializer {
         s.address.postalCode = "59000";
         s.address.country = "France";
         s.address.city = "Lille";
+        // A receipt can be anonymous; an invoice cannot. Its seller's block and its
+        // legal footer state who is liable, so a demonstration store without a legal
+        // identity issues a document with an empty header and an empty foot.
+        s.legalName = "SA TEST DISTRIBUTION";
+        s.rcs = "Lille Métropole 123 456 789";
+        s.shareCapital = new java.math.BigDecimal("40000");
+        s.siret = "12345678900017";
+        s.vatNumber = "FR12123456789";
+        s.phone = "03 20 00 00 00";
+        s.fax = "03 20 00 00 01";
         s.persist();
     }
 }

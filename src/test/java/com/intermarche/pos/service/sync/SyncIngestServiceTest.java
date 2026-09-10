@@ -1,5 +1,7 @@
 package com.intermarche.pos.service.sync;
 
+import com.intermarche.pos.domain.BalanceTicket;
+import com.intermarche.pos.domain.BalanceTicketLine;
 import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
@@ -820,6 +822,214 @@ class SyncIngestServiceTest {
             assertNull(existing.detail);
             assertNull(existing.operatorBadgeId);
             assertEquals(LocalDateTime.of(2026, 2, 2, 18, 0, 0), existing.eventDate);
+            verify(existing, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // ingestBalanceTicket / consumeBalanceTicket
+    // --------------------------------------------------
+
+    /**
+     * Builds a one-line counter payload.
+     *
+     * @param reference the printed reference
+     * @param emittedAt the emission timestamp, or null
+     * @return the payload
+     */
+    private SyncPayloads.BalanceTicketDto balanceDto(String reference, String emittedAt) {
+        SyncPayloads.BalanceTicketDto dto = new SyncPayloads.BalanceTicketDto();
+        dto.reference = reference;
+        dto.counterLabel = "BOUCHERIE";
+        dto.emittedAt = emittedAt;
+        SyncPayloads.BalanceTicketLineDto line = new SyncPayloads.BalanceTicketLineDto();
+        line.ean = "3560070000000";
+        line.label = "ROTI";
+        line.quantity = new BigDecimal("0.752");
+        line.totalIncludingTax = new BigDecimal("13.54");
+        line.vatRate = new BigDecimal("0.055");
+        dto.lines.add(line);
+        return dto;
+    }
+
+    /**
+     * Covers the insert arm of {@code ingestBalanceTicket} with an emission
+     * timestamp present (parse true arm) and a non-null line list.
+     */
+    @Test
+    void ingestBalanceTicketCreatesWhenAbsent() {
+        SyncIngestService service = new SyncIngestService();
+        PanacheQuery<BalanceTicket> query = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<BalanceTicket> created = mockConstruction(BalanceTicket.class,
+                        (fresh, context) -> fresh.lines = new ArrayList<>());
+                MockedConstruction<BalanceTicketLine> lines =
+                        mockConstruction(BalanceTicketLine.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B1")).thenReturn(query);
+            service.ingestBalanceTicket(balanceDto("B1", "2026-09-10T10:00:00"));
+            BalanceTicket ticket = created.constructed().get(0);
+            assertEquals("B1", ticket.reference);
+            assertEquals("BOUCHERIE", ticket.counterLabel);
+            assertEquals(LocalDateTime.of(2026, 9, 10, 10, 0, 0), ticket.emittedAt);
+            assertEquals(1, lines.constructed().size());
+            BalanceTicketLine line = lines.constructed().get(0);
+            assertSame(ticket, line.balanceTicket);
+            assertEquals("3560070000000", line.ean);
+            assertEquals("ROTI", line.label);
+            assertEquals(new BigDecimal("13.54"), line.totalIncludingTax);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the null-emission arm: with no timestamp from the scale the shop
+     * stamps the ticket itself rather than leaving it undated.
+     */
+    @Test
+    void ingestBalanceTicketStampsWhenEmissionIsMissing() {
+        SyncIngestService service = new SyncIngestService();
+        PanacheQuery<BalanceTicket> query = queryReturning(null);
+        LocalDateTime before = LocalDateTime.now().minusSeconds(1);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<BalanceTicket> created = mockConstruction(BalanceTicket.class,
+                        (fresh, context) -> fresh.lines = new ArrayList<>());
+                MockedConstruction<BalanceTicketLine> lines =
+                        mockConstruction(BalanceTicketLine.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B2")).thenReturn(query);
+            service.ingestBalanceTicket(balanceDto("B2", null));
+            BalanceTicket ticket = created.constructed().get(0);
+            assertTrue(ticket.emittedAt.isAfter(before));
+        }
+    }
+
+    /**
+     * Covers the null-lines arm: a payload carrying no line list is stored as an
+     * empty ticket rather than throwing.
+     */
+    @Test
+    void ingestBalanceTicketAcceptsAPayloadWithoutLines() {
+        SyncIngestService service = new SyncIngestService();
+        SyncPayloads.BalanceTicketDto dto = balanceDto("B3", "2026-09-10T10:00:00");
+        dto.lines = null;
+        PanacheQuery<BalanceTicket> query = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<BalanceTicket> created = mockConstruction(BalanceTicket.class,
+                        (fresh, context) -> fresh.lines = new ArrayList<>());
+                MockedConstruction<BalanceTicketLine> lines =
+                        mockConstruction(BalanceTicketLine.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B3")).thenReturn(query);
+            service.ingestBalanceTicket(dto);
+            assertEquals(0, lines.constructed().size());
+            verify(created.constructed().get(0), times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the update arm: the shop still holds the reference and the scale
+     * pushes a correction, which replaces the lines.
+     */
+    @Test
+    void ingestBalanceTicketUpdatesWhenStillAvailable() {
+        SyncIngestService service = new SyncIngestService();
+        BalanceTicket existing = mock(BalanceTicket.class);
+        existing.lines = new ArrayList<>();
+        existing.lines.add(new BalanceTicketLine());
+        when(existing.isConsumed()).thenReturn(false);
+        PanacheQuery<BalanceTicket> query = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<BalanceTicketLine> lines =
+                        mockConstruction(BalanceTicketLine.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B4")).thenReturn(query);
+            service.ingestBalanceTicket(balanceDto("B4", "2026-09-10T10:00:00"));
+            assertEquals(1, existing.lines.size());
+            assertSame(lines.constructed().get(0), existing.lines.get(0));
+            verify(existing, times(1)).persist();
+        }
+    }
+
+    /**
+     * Covers the consumed arm: a ticket already sold is frozen, so a late push
+     * from the scale is ignored rather than resurrecting it.
+     */
+    @Test
+    void ingestBalanceTicketIgnoresAConsumedTicket() {
+        SyncIngestService service = new SyncIngestService();
+        BalanceTicket existing = mock(BalanceTicket.class);
+        existing.lines = new ArrayList<>();
+        when(existing.isConsumed()).thenReturn(true);
+        PanacheQuery<BalanceTicket> query = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B5")).thenReturn(query);
+            service.ingestBalanceTicket(balanceDto("B5", "2026-09-10T10:00:00"));
+            assertEquals(0, existing.lines.size());
+            verify(existing, times(0)).persist();
+        }
+    }
+
+    /**
+     * Covers the unknown-reference arm of {@code consumeBalanceTicket}: the shop
+     * holds nothing, so it serves nothing.
+     */
+    @Test
+    void consumeBalanceTicketRefusesAnUnknownReference() {
+        SyncIngestService service = new SyncIngestService();
+        PanacheQuery<BalanceTicket> query = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B6")).thenReturn(query);
+            assertNull(service.consumeBalanceTicket("B6", "CAISSE-01"));
+        }
+    }
+
+    /**
+     * Covers the already-consumed arm: the shop served this paper once, and once
+     * is the whole rule.
+     */
+    @Test
+    void consumeBalanceTicketRefusesASecondPickUp() {
+        SyncIngestService service = new SyncIngestService();
+        BalanceTicket existing = mock(BalanceTicket.class);
+        when(existing.isConsumed()).thenReturn(true);
+        PanacheQuery<BalanceTicket> query = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B7")).thenReturn(query);
+            assertNull(service.consumeBalanceTicket("B7", "CAISSE-01"));
+            verify(existing, times(0)).persist();
+        }
+    }
+
+    /**
+     * Covers the serving arm: the detail comes back AND the row is stamped in the
+     * same call — serving and marking are one act, which is what lets the shop
+     * tell a first pick-up from a second.
+     */
+    @Test
+    void consumeBalanceTicketServesAndStamps() {
+        SyncIngestService service = new SyncIngestService();
+        BalanceTicket existing = mock(BalanceTicket.class);
+        when(existing.isConsumed()).thenReturn(false);
+        existing.reference = "B8";
+        existing.counterLabel = "FROMAGE";
+        existing.emittedAt = LocalDateTime.of(2026, 9, 10, 11, 0, 0);
+        existing.lines = new ArrayList<>();
+        BalanceTicketLine line = new BalanceTicketLine();
+        line.ean = "3560070000000";
+        line.label = "COMTE";
+        line.quantity = new BigDecimal("0.310");
+        line.totalIncludingTax = new BigDecimal("7.20");
+        line.vatRate = new BigDecimal("0.055");
+        existing.lines.add(line);
+        PanacheQuery<BalanceTicket> query = queryReturning(existing);
+        LocalDateTime before = LocalDateTime.now().minusSeconds(1);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> BalanceTicket.find("reference", "B8")).thenReturn(query);
+            SyncPayloads.BalanceTicketDto served = service.consumeBalanceTicket("B8", "CAISSE-02");
+            assertEquals("B8", served.reference);
+            assertEquals("FROMAGE", served.counterLabel);
+            assertEquals(1, served.lines.size());
+            assertEquals("COMTE", served.lines.get(0).label);
+            assertEquals(new BigDecimal("7.20"), served.lines.get(0).totalIncludingTax);
+            assertEquals("CAISSE-02", existing.consumedByTerminal);
+            assertTrue(existing.consumedAt.isAfter(before));
             verify(existing, times(1)).persist();
         }
     }

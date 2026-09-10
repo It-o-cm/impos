@@ -115,10 +115,54 @@ public class PosSettingsService {
                 "Imprimer le ticket de mise en attente",
                 "Un reçu portant le numéro de reprise sort à chaque mise en attente (LC-04-01-02).",
                 "true", null),
+        new Def("ticket.email-format", Type.TEXT, "TICKETS",
+                "Forme du ticket envoyé par email",
+                "Comment le ticket voyage dans l'email : BODY (dans le corps du message, défaut), ATTACHMENT (en pièce jointe) ou BOTH (les deux). Une valeur inconnue retombe sur BODY (LC-08-02-07/08).",
+                "BODY", null),
+        new Def("ticket.email-editable", Type.BOOL, "TICKETS",
+                "Adresse du client fidélisé modifiable",
+                "L'adresse email récupérée du référentiel client peut être corrigée en caisse avant l'envoi. Désactivé : elle est envoyée telle quelle et seul un client sans adresse connue en fait saisir une (LC-08-02-10).",
+                "true", null),
+        new Def("ticket.line-order", Type.TEXT, "TICKETS",
+                "Ordre des articles sur le ticket",
+                "Ordre d'impression des articles sur le ticket de caisse : ENTRY (ordre d'enregistrement, défaut), LABEL (alphabétique par libellé) ou FAMILY (regroupés sous le libellé de leur famille). Une valeur inconnue retombe sur ENTRY (LC-08-01-07).",
+                "ENTRY", null),
+        new Def("print.conditional-enabled", Type.BOOL, "IMPRESSION CONDITIONNELLE",
+                "Choix d'impression en fin de transaction",
+                "La caisse propose au caissier quels documents imprimer : tous, ticket de caisse, ticket carte bancaire, bon d'achat ou aucun. Désactivé : la caisse imprime comme aujourd'hui, sans écran de choix (LC-08-03-01).",
+                "false", null),
+        new Def("print.forced-documents", Type.TEXT, "IMPRESSION CONDITIONNELLE",
+                "Documents toujours imprimés",
+                "Documents imprimés d'office quel que soit le choix du caissier, séparés par des points-virgules : TICKET, CARTE, BON. Vide : le choix du caissier s'applique seul (LC-08-03-07).",
+                "", null),
+        new Def("print.force-ticket-glc", Type.BOOL, "IMPRESSION CONDITIONNELLE",
+                "Forcer le ticket comportant un article sous GLC",
+                "Un ticket de caisse comprenant un article soumis à la Garantie Légale de Conformité est imprimé d'office (LC-08-03-09).",
+                "true", null),
+        new Def("print.force-card-credit", Type.BOOL, "IMPRESSION CONDITIONNELLE",
+                "Forcer le ticket carte bancaire de type crédit",
+                "Le ticket carte bancaire d'un remboursement (retour article, ticket retour) est imprimé d'office (LC-08-03-10).",
+                "true", null),
+        new Def("print.force-card-signature", Type.BOOL, "IMPRESSION CONDITIONNELLE",
+                "Forcer le ticket carte bancaire à signature",
+                "Le ticket carte bancaire demandant la signature du client est imprimé d'office (LC-08-03-11).",
+                "true", null),
+        new Def("print.force-card-tna", Type.BOOL, "IMPRESSION CONDITIONNELLE",
+                "Forcer le ticket carte bancaire TNA",
+                "Le ticket carte bancaire d'une transaction non aboutie, portant la mention « abandon débit », est imprimé d'office (LC-08-03-12).",
+                "true", null),
         new Def("payment.degraded-mode", Type.BOOL, "MONÉTIQUE",
                 "Mode dégradé monétique",
                 "Bascule manuelle en cas de coupure vers les serveurs monétique : les paiements carte sont acceptés immédiatement, sans interroger le TPE (BO-03-12-05).",
                 "false", null),
+        new Def("payment.degraded-forced-endorsement", Type.BOOL, "MONÉTIQUE",
+                "Autorisation superviseur pour le mode dégradé forcé",
+                "L'activation et la levée du mode dégradé monétique forcé exigent un aval superviseur. Désactivé : l'opérateur décide seul (LC-07-08-03/04).",
+                "true", null),
+        new Def("payment.degraded-forced-minutes", Type.INT, "MONÉTIQUE",
+                "Durée du mode dégradé forcé (minutes)",
+                "Au bout de ce délai, le mode dégradé monétique forcé se lève tout seul : l'opérateur qui l'a activé ne sera pas celui qui sera encore là trois heures plus tard (LC-07-08-04).",
+                "60", null),
         new Def("ticket.header-message", Type.TEXT, "MESSAGES TICKET",
                 "Message en début de ticket",
                 "Texte imprimé en tête du ticket, sous l'adresse du magasin. Vide : aucun message (BO-03-08-03).",
@@ -135,6 +179,30 @@ public class PosSettingsService {
                 "Ouverture du tiroir à la prise de poste",
                 "Le tiroir s'ouvre au déverrouillage de la caisse pour installer le fond. Désactivé : le tiroir reste fermé à la connexion (BO-10-02-25).",
                 "true", null),
+        new Def("backup.manual-endorsement", Type.BOOL, "SECOURS MONETIQUE",
+                "Autorisation superviseur pour la validation manuelle",
+                "La validation manuelle d'un paiement 'secours monétique' — saisie du montant accepté sans lecture du QR-code de retour — exige un aval superviseur. Désactivé : l'opérateur valide seul (LC-07-07-09).",
+                "true", null),
+        new Def("backup.method-labels", Type.TEXT, "SECOURS MONETIQUE",
+                "Table des moyens de paiement du secours monétique",
+                "Correspondance entre l'identifiant renvoyé par le terminal mobile et le libellé enregistré sur le ticket, sous la forme ID=LIBELLE séparés par des virgules. Un identifiant absent de la table est enregistré en 'SECOURS MONETIQUE' (LC-07-07-08).",
+                "20=CB EMV,43=AMERICAN EXPRESS,53=CB SANS CONTACT,3F=CARTE TRD CB,1010=TRD SODEXO", null),
+        new Def("balance.counter-price", Type.BOOL, "TICKET COMPTOIR",
+                "Prix du ticket comptoir : celui du comptoir",
+                "Les lignes d'un ticket unique balance sont enregistrées au prix calculé par le comptoir. Désactivé : chaque ligne est revalorisée au prix du référentiel, le poids pesé faisant foi et le comptoir n'étant plus qu'un peseur (LC-06-01-04).",
+                "true", null),
+        new Def("cash.rounding-step-cents", Type.INT, "ARRONDI ESPECES",
+                "Pas d'arrondi du règlement espèces (centimes)",
+                "Le montant réglable en espèces est arrondi au multiple le plus proche de ce pas, et l'écart est enregistré sur le moyen de paiement ARRONDI. 0 ou 1 : aucun arrondi (France). 5 : obligation légale belge depuis le 01/12/2019 (LC-07-03-01).",
+                "0", null),
+        new Def("credit.allowed-in-degraded", Type.BOOL, "CREDIT CLIENT",
+                "Crédit client autorisé en mode dégradé",
+                "Le règlement en crédit client reste possible quand le référentiel client n'est plus à jour (coupure entre le BackOffice et la caisse). Désactivé : le crédit client est refusé tant que le référentiel n'a pas été rafraîchi, l'encours et le plafond n'étant plus fiables (LC-07-09-05).",
+                "false", null),
+        new Def("credit.degraded-after-minutes", Type.INT, "CREDIT CLIENT",
+                "Ancienneté du référentiel client tolérée (minutes)",
+                "Au-delà de ce délai sans tirage réussi du référentiel client, la caisse se considère en mode dégradé pour le crédit client (LC-07-09-05).",
+                "60", null),
         new Def("scan.ean13-check-digit", Type.BOOL, "SCAN",
                 "Contrôle du checkdigit EAN13",
                 "Au scan d'un EAN13, la clé de contrôle est vérifiée et un code invalide est refusé. Désactivé : aucun contrôle de clé (BO-10-02-21).",
@@ -159,6 +227,10 @@ public class PosSettingsService {
                 "Motifs autorisés",
                 "Motifs proposés au caissier pour un mouvement de caisse, séparés par des points-virgules. Vide : la saisie du motif reste libre (BO-04-01-44).",
                 "Prélèvement coffre;Apport de fond;Achat de timbres;Dépense pharmacie;Erreur de caisse", null),
+        new Def("invoice.customer-fields", Type.TEXT, "FACTURE",
+                "Champs du client en compte",
+                "Champs demandés à la création d'un client en caisse, séparés par des points-virgules, une étoile marquant les obligatoires : companyName, contactName, street, postalCode, city, siret, vatNumber, phone, email. Vide : tous les champs, raison sociale obligatoire (LC-08-04-10).",
+                "", null),
         new Def("touch.groups-per-page", Type.INT, "TOUCHES CAISSE",
                 "Nombre de touches groupe par page",
                 "Nombre de touches de groupe d'articles affichees par page sur l'ecran de saisie directe. En dessous de 1 la valeur par defaut s'applique (BO-03-01-06).",
@@ -493,6 +565,73 @@ public class PosSettingsService {
     public boolean drawerOpenOnPayment() { return boolValue("drawer.open-on-payment"); }
 
     /**
+     * Whether customer credit stays available while the client referential is
+     * stale ({@code LC-07-09-05}).
+     *
+     * @return true when the shop accepts the risk of an out-of-date balance
+     */
+    /**
+     * The legal cash-rounding step in cents ({@code LC-07-03-01}); zero or one
+     * means the shop does not round.
+     *
+     * @return the rounding step in cents
+     */
+    public int cashRoundingStepCents() { return intValue("cash.rounding-step-cents"); }
+
+    /**
+     * Whether a counter-ticket line keeps the price the scale computed, rather than
+     * being re-priced from the catalog ({@code LC-06-01-04}).
+     *
+     * @return true when the counter's own price is booked
+     */
+    public boolean balanceCounterPrice() { return boolValue("balance.counter-price"); }
+
+    /**
+     * Whether a manual backup-monetics validation needs a supervisor
+     * ({@code LC-07-07-09}).
+     *
+     * @return true when the shop requires an endorsement
+     */
+    public boolean backupManualEndorsement() { return boolValue("backup.manual-endorsement"); }
+
+    /**
+     * Whether forcing or releasing the monetics degraded mode needs a supervisor
+     * ({@code LC-07-08-03/04}).
+     *
+     * @return true when the shop requires an endorsement
+     */
+    public boolean moneticsDegradedForcedEndorsement() {
+        return boolValue("payment.degraded-forced-endorsement");
+    }
+
+    /**
+     * How long a forced monetics degraded mode lasts before releasing itself
+     * ({@code LC-07-08-04}).
+     *
+     * @return the forcing duration in minutes
+     */
+    public int moneticsDegradedForcedMinutes() {
+        return intValue("payment.degraded-forced-minutes");
+    }
+
+    /**
+     * The administered scheme table of the backup monetics ({@code LC-07-07-08}).
+     *
+     * @return the {@code ID=LABEL} pairs, comma separated
+     */
+    public String backupMethodLabels() { return value("backup.method-labels"); }
+
+    public boolean creditAllowedInDegraded() { return boolValue("credit.allowed-in-degraded"); }
+
+    /**
+     * How long the client referential may go without a successful pull before
+     * customer credit is considered degraded ({@code LC-07-09-05}).
+     *
+     * @return the tolerated staleness in minutes
+     */
+    public int creditDegradedAfterMinutes() { return intValue("credit.degraded-after-minutes"); }
+
+    /**
      * Whether taking the post (unlock) opens the cash drawer to install the
      * float (BO-10-02-25): disabled, the drawer stays shut at login.
      *
@@ -604,4 +743,107 @@ public class PosSettingsService {
         }
         return reasons;
     }
+
+    /**
+     * Whether the register offers the end-of-transaction printing choice
+     * (LC-08-03-01): enabled, the cashier picks which documents are printed
+     * and the forced rules below apply on top of that choice; disabled, the
+     * register prints exactly as it did before the option existed.
+     *
+     * @return true when conditional printing is active
+     */
+    public boolean printConditionalEnabled() { return boolValue("print.conditional-enabled"); }
+
+    /**
+     * The documents printed WHATEVER the cashier chooses (LC-08-03-07),
+     * parsed from the semicolon-separated administered list and normalized to
+     * upper case; blank entries are dropped and a blank setting yields an empty
+     * list (the cashier's choice then applies alone). Never null.
+     *
+     * @return the forced document keys, in administered order
+     */
+    public List<String> printForcedDocuments() {
+        // value() never returns null for a catalog key: an absent row falls to
+        // the catalog default, which is a non-null string.
+        String raw = value("print.forced-documents");
+        if (raw.isBlank()) {
+            return List.of();
+        }
+        List<String> documents = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim().toUpperCase();
+            if (!trimmed.isEmpty()) {
+                documents.add(trimmed);
+            }
+        }
+        return documents;
+    }
+
+    /**
+     * Whether a sale ticket carrying an article under the legal conformity
+     * guarantee is printed whatever the cashier chose (LC-08-03-09).
+     *
+     * @return true when the GLC ticket is forced
+     */
+    public boolean printForceTicketGlc() { return boolValue("print.force-ticket-glc"); }
+
+    /**
+     * Whether the card receipt of a refund — a "credit" card transaction —
+     * is printed whatever the cashier chose (LC-08-03-10).
+     *
+     * @return true when the credit card receipt is forced
+     */
+    public boolean printForceCardCredit() { return boolValue("print.force-card-credit"); }
+
+    /**
+     * Whether a card receipt asking for the customer's signature is printed
+     * whatever the cashier chose (LC-08-03-11).
+     *
+     * @return true when the signature card receipt is forced
+     */
+    public boolean printForceCardSignature() { return boolValue("print.force-card-signature"); }
+
+    /**
+     * Whether the card receipt of a not-completed transaction (TNA), carrying
+     * the "abandon débit" mention, is printed (LC-08-03-12).
+     *
+     * @return true when the TNA card receipt is forced
+     */
+    public boolean printForceCardTna() { return boolValue("print.force-card-tna"); }
+
+    /**
+     * The administered customer-creation mask of the invoice screen
+     * (LC-08-04-10), as the raw semicolon list; the invoice screen turns it into
+     * typed fields.
+     *
+     * @return the administered list, never null
+     */
+    public String invoiceCustomerFields() { return value("invoice.customer-fields"); }
+
+    /**
+     * The order the articles are printed in on the sale ticket (LC-08-01-07), as
+     * administered. The printing rule normalizes it — an unknown value falls back
+     * to the entry order there — so this stays a plain read.
+     *
+     * @return the administered order, never null
+     */
+    public String ticketLineOrder() { return value("ticket.line-order"); }
+
+    /**
+     * How the ticket travels in the e-mail (LC-08-02-07/08), as administered. The
+     * mail service normalizes it — an unknown value falls back to the message body
+     * there — so this stays a plain read.
+     *
+     * @return the administered form, never null
+     */
+    public String ticketEmailFormat() { return value("ticket.email-format"); }
+
+    /**
+     * Whether the address read from the customer referential may be corrected at the
+     * register before the receipt is sent (LC-08-02-10): disabled, a known address is
+     * sent as it stands.
+     *
+     * @return true when the retrieved address is editable
+     */
+    public boolean ticketEmailEditable() { return boolValue("ticket.email-editable"); }
 }

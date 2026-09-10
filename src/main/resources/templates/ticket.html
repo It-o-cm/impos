@@ -1,17 +1,27 @@
 {!
  ! THE polled fragment: rendered by /ticket-fragment for main.html's swap —
  ! lines with selection anchors, totals, and the message zone. NAMING WART:
- ! the "error" zone is really the MESSAGE zone (confirmations like
- ! SUPERVISEUR PRÉVENU ride it too). Keep this fragment self-contained: it is
+ ! the "error" zone is really the MESSAGE zone: confirmations ride it too,
+ ! and say so — transientOk draws them green with an OK marker instead of
+ ! red with an ERR. Keep this fragment self-contained: it is
  ! replaced wholesale on every version change.
 !}
 {#if state.ticket.transientError}
+    {#if state.ticket.transientOk}
+    <div class="receipt-item notice-line">
+        <div class="item-details">
+            <strong>✔ {state.ticket.transientError}</strong>
+        </div>
+        <span class="price" style="color:var(--success);">OK</span>
+    </div>
+    {#else}
     <div class="receipt-item error-line">
         <div class="item-details">
             <strong>⚠️ {state.ticket.transientError}</strong>
         </div>
         <span class="price" style="color:var(--danger);">ERR</span>
     </div>
+    {/if}
 {/if}
 
 {#if state.ticket.items.empty}
@@ -23,7 +33,7 @@
                 <div class="item-details">
                     {item.html.raw}
                     {#if showEan && item.ean}
-                    <div style="font-size:0.7rem; color:var(--text-muted);">{item.ean}</div>
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
                     {/if}
                 </div>
                 <span class="price">

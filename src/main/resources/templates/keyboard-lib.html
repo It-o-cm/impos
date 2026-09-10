@@ -52,7 +52,11 @@
                 '.pos-key--action { background: #000; color: var(--warning, #FF9800); }',
                 '.pos-key--alpha { font-size: 1.5rem; text-transform: uppercase; }',
                 '.pos-key--wide { grid-column: span 2; }',
-                '.pos-key--wide5 { grid-column: span 5; }'
+                '.pos-key--wide5 { grid-column: span 5; }',
+                // Kept in sync with theme.html: the one shrunk pad, asked for
+                // by pos-kb-compact on the keyboard's container.
+                '.pos-kb-compact .pos-key { padding: 6px 4px; font-size: var(--fs-key-sm, 1rem); }',
+                '.pos-kb-compact .pos-key--alpha { font-size: var(--fs-key-sm, 1rem); }'
             ].join('\n');
             document.head.appendChild(style);
         },
@@ -307,10 +311,16 @@
             else {
                 if (this.buffer.length >= maxLen) return;
 
+                // Amount convention ONLY: a lone leading zero is a display
+                // placeholder, so the first real digit replaces it. In the
+                // text and pin modes every zero is a significant character
+                // (ticket numbers, PINs): "007" must stay typable, so the
+                // collapse never applies there.
+                var isAmountMode = (cfg.mode === 'integer' || cfg.mode === 'decimal' || cfg.mode === 'payment');
                 var isZeroState = (this.buffer === "0" || this.buffer === "0.00" || this.buffer === "0,00");
                 var isDigit = (k >= '0' && k <= '9');
 
-                if (isZeroState && isDigit) {
+                if (isAmountMode && isZeroState && isDigit) {
                     this.buffer = "";
                 }
 

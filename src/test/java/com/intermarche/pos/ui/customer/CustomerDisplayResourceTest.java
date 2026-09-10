@@ -130,8 +130,9 @@ class CustomerDisplayResourceTest {
         resource.state.payment.transactionComplete = false;
         resource.state.payment.lastChangeAmount = null;
         resource.state.payment.ticketDbId = null;
+        resource.state.customerMessage = "";
         Map<String, Object> result = resource.customerData(1L);
-        assertEquals(13, result.size());
+        assertEquals(16, result.size());
         assertEquals(true, result.get("changed"));
         assertEquals(2L, result.get("version"));
         assertEquals(false, result.get("locked"));
@@ -143,6 +144,7 @@ class CustomerDisplayResourceTest {
         assertEquals(false, result.get("paying"));
         assertEquals(false, result.get("complete"));
         assertEquals("", result.get("change"));
+        assertEquals("", result.get("message"));
         assertEquals("", result.get("digitalPath"));
         List<?> items = (List<?>) result.get("items");
         assertTrue(items.isEmpty());
@@ -151,8 +153,10 @@ class CustomerDisplayResourceTest {
     /**
      * {@code customerData()} builds a full snapshot when the client version is
      * null (guard short-circuit false), carrying a change amount (ternary
-     * true), a populated ticket (loop entered) covering the three quantity
-     * formats, and a resolvable digital path (all three guards false).
+     * true), a populated ticket (loop entered) covering the four quantity
+     * formats — kilograms, whole units, fractional units, and the empty
+     * quantity of a price-embedded sticker — and a resolvable digital path
+     * (all three guards false).
      */
     @Test
     void customerDataFullSnapshotWithItemsAndChangeAndDigitalPath() {
@@ -166,16 +170,22 @@ class CustomerDisplayResourceTest {
         resource.state.payment.transactionComplete = true;
         resource.state.payment.lastChangeAmount = new BigDecimal("2.5");
         resource.state.payment.ticketDbId = 42L;
+        resource.state.customerMessage = "PAIEMENT REFUSE";
         resource.state.ticket.items.add(item("100", new BigDecimal("1.5"), "Bananas", "3,00"));
         resource.state.ticket.items.add(item(null, new BigDecimal("2"), "Milk", "2,00"));
         resource.state.ticket.items.add(item("", new BigDecimal("1.25"), "Nails", "4,00"));
+        TicketState.TicketItem sticker = item("200", BigDecimal.ONE, "Ham", "5,00");
+        sticker.priceEmbedded = true;
+        resource.state.ticket.items.add(sticker);
         Ticket ticket = mock(Ticket.class);
         ticket.id = 42L;
         ticket.digitalKey = "ABCDEF0123456789";
+        when(resource.state.getCashRoundedRemainingFormatted()).thenReturn("24,60");
+        when(resource.state.isCashRoundingVisible()).thenReturn(true);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(42L)).thenReturn(ticket);
             Map<String, Object> result = resource.customerData(null);
-            assertEquals(13, result.size());
+            assertEquals(16, result.size());
             assertEquals(true, result.get("changed"));
             assertEquals(9L, result.get("version"));
             assertEquals(true, result.get("locked"));
@@ -186,10 +196,15 @@ class CustomerDisplayResourceTest {
             assertEquals(true, result.get("paying"));
             assertEquals(true, result.get("complete"));
             assertEquals("2,50", result.get("change"));
+            assertEquals("PAIEMENT REFUSE", result.get("message"));
             assertEquals("/t/42/ABCDEF0123456789", result.get("digitalPath"));
+            // LC-07-03-03: where the shop rounds, the customer display carries BOTH
+            // figures — what the sale owes and what can be handed over in coins.
+            assertEquals("24,60", result.get("roundedRemaining"));
+            assertEquals(true, result.get("rounding"));
             @SuppressWarnings("unchecked")
             List<Map<String, String>> items = (List<Map<String, String>>) result.get("items");
-            assertEquals(3, items.size());
+            assertEquals(4, items.size());
             assertEquals("Bananas", items.get(0).get("label"));
             assertEquals("1,500 kg", items.get(0).get("qty"));
             assertEquals("3,00", items.get(0).get("amount"));
@@ -198,6 +213,8 @@ class CustomerDisplayResourceTest {
             assertEquals("2,00", items.get(1).get("amount"));
             assertEquals("Nails", items.get(2).get("label"));
             assertEquals("x1,25", items.get(2).get("qty"));
+            assertEquals("Ham", items.get(3).get("label"));
+            assertEquals("", items.get(3).get("qty"));
             assertEquals("4,00", items.get(2).get("amount"));
         }
     }

@@ -84,6 +84,16 @@ public class FidelityState implements Serializable {
     /** The holder's first name — same provenance and rules as the last name. */
     public String holderFirstName = null;
 
+    /**
+     * The holder's e-mail as the referential knows it (LC-08-02-09), or null.
+     * <p>
+     * Only a LOOKUP carries it: imfid answers a card scan with a status and a
+     * balance, never with an identity, so a card that arrived by the scan bus leaves
+     * this empty and the operator types the address instead. Shown to the OPERATOR
+     * before an e-mail is sent, never read out to the customer.
+     */
+    public String holderEmail = null;
+
     /** ACTIVE | PENDING_ACTIVATION | RESILIATED, read at attachment, or null. */
     public String accountStatus = null;
 
@@ -190,6 +200,7 @@ public class FidelityState implements Serializable {
             this.label = card;
             this.holderLastName = null;
             this.holderFirstName = null;
+            this.holderEmail = null;
             this.accountStatus = null;
             this.availableBalance = null;
             clearLookup();
@@ -215,6 +226,7 @@ public class FidelityState implements Serializable {
         label = "";
         holderLastName = null;
         holderFirstName = null;
+        holderEmail = null;
         accountStatus = null;
         availableBalance = null;
         clearLookup();

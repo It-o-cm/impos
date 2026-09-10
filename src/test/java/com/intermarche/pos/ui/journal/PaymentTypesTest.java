@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Unit tests for {@link PaymentTypes}.
  * <p>
  * Branch enumeration (100%): {@code forKey} covers the known-key arm (a class
- * is returned) and the unknown-key arm (null). {@code keys} exposes the six
- * discriminator keys in order.
+ * is returned) and the unknown-key arm (null). {@code keys} exposes every
+ * discriminator key in display order.
  */
 class PaymentTypesTest {
 
@@ -33,11 +33,15 @@ class PaymentTypesTest {
     }
 
     /**
-     * The key set carries the six known methods in display order.
+     * The key set carries every known method in display order — the six original
+     * ones, then customer credit, the legal cash rounding, foreign currency and
+     * backup monetics, each added at the end so the journal filter of a shop that
+     * bookmarked its order does not shuffle under it.
      */
     @Test
-    void keysAreTheSixMethods() {
-        assertEquals("[CASH, CARD, CHEQUE, VOUCHER, FIDELITY, TR]", PaymentTypes.keys().toString());
+    void keysAreTheKnownMethodsInDisplayOrder() {
+        assertEquals("[CASH, CARD, CHEQUE, VOUCHER, FIDELITY, TR, CREDIT, ARRONDI, DEVISE, SECOURS]",
+                PaymentTypes.keys().toString());
         assertTrue(PaymentTypes.keys().contains("TR"));
     }
 }

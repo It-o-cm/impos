@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -37,9 +38,12 @@ class DegradedModePaymentTerminalClientTest {
     /** The settings catalog mock holding the toggle. */
     private final PosSettingsService posSettingsService = mock(PosSettingsService.class);
 
+    /** The register state carrying the operator's own forcing (LC-07-08-02). */
+    private final com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+
     /** The gate under test. */
     private final DegradedModePaymentTerminalClient gate =
-            new DegradedModePaymentTerminalClient(configured, autoAccept, posSettingsService);
+            new DegradedModePaymentTerminalClient(configured, autoAccept, posSettingsService, state);
 
     /**
      * {@code configured} returns the wrapped configured terminal, as used by
@@ -233,5 +237,49 @@ class DegradedModePaymentTerminalClientTest {
         gate.onRegisterClosed();
         verify(configured).onRegisterClosed();
         verifyNoInteractions(autoAccept);
+    }
+
+    /**
+     * The operator's own forcing (LC-07-08-02) bypasses the monetics on its own,
+     * without the shop-wide parameter being on — the second leg of the predicate.
+     */
+    @Test
+    void requestDebitReachesAutoAcceptWhenTheOperatorForcedIt() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(false);
+        state.moneticsDegradedUntil = java.time.LocalDateTime.now().plusMinutes(30);
+        BigDecimal amount = new BigDecimal("10.00");
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        gate.requestDebit(amount, callback);
+        verify(autoAccept).requestDebit(eq(amount), any(TerminalTransactionCallback.class));
+        verifyNoInteractions(configured);
+    }
+
+    /**
+     * A forcing whose delay has run out no longer bypasses anything: the request
+     * goes back to the configured terminal, with no gesture needed to put it there.
+     */
+    @Test
+    void requestDebitReachesConfiguredOnceTheForcingExpired() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(false);
+        state.moneticsDegradedUntil = java.time.LocalDateTime.now().minusMinutes(1);
+        BigDecimal amount = new BigDecimal("10.00");
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        gate.requestDebit(amount, callback);
+        verify(configured).requestDebit(amount, callback);
+        verifyNoInteractions(autoAccept);
+    }
+
+    /**
+     * The forcing applies to a credit exactly as it does to a debit.
+     */
+    @Test
+    void requestCreditReachesAutoAcceptWhenTheOperatorForcedIt() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(false);
+        state.moneticsDegradedUntil = java.time.LocalDateTime.now().plusMinutes(30);
+        BigDecimal amount = new BigDecimal("10.00");
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        gate.requestCredit(amount, callback);
+        verify(autoAccept).requestCredit(eq(amount), any(TerminalTransactionCallback.class));
+        verifyNoInteractions(configured);
     }
 }

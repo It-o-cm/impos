@@ -45,7 +45,14 @@ public class SyncOutbox extends PanacheEntity {
         /** A refund (it references a ticket). */
         REFUND,
         /** A technical journal event (pushed last). */
-        EVENT
+        EVENT,
+        /**
+         * An account customer created at the register (LC-08-04-09). It
+         * references NOTHING, so its rank in the drain order is free; last is
+         * where a new kind belongs, since the order of everything before it is
+         * a contract the store node relies on.
+         */
+        CUSTOMER
     }
 
     /** The kind of entity to push. */

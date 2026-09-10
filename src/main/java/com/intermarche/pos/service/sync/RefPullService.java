@@ -79,6 +79,17 @@ public class RefPullService {
     @Inject
     ObjectMapper objectMapper;
 
+    /**
+     * When the last pull CYCLE completed without error, or null while none has.
+     *
+     * <p>Deliberately the cycle and not the last applied domain: a referential that
+     * has not changed for two hours is healthy, whereas {@code RefState.appliedAt}
+     * would say two hours old and let a consumer conclude the link is down. In
+     * memory only — after a restart the register has, in truth, not pulled anything
+     * yet, and a consumer that cares (customer credit does) must be told so.
+     */
+    private volatile java.time.LocalDateTime lastSuccessfulPull;
+
     /** The pull loop executor, or null when the pull is disabled. */
     private ScheduledExecutorService executor;
 
@@ -177,6 +188,17 @@ public class RefPullService {
             LOG.infof("Référentiel %s modifié: tirage du snapshot", domain);
             applyDomain(domain, remoteFingerprint);
         }
+        lastSuccessfulPull = java.time.LocalDateTime.now();
+    }
+
+    /**
+     * When the last complete pull cycle succeeded.
+     *
+     * @return the instant of the last successful cycle, or null when this register
+     *         has not completed one since it started
+     */
+    public java.time.LocalDateTime getLastSuccessfulPull() {
+        return lastSuccessfulPull;
     }
 
     /**
@@ -198,6 +220,10 @@ public class RefPullService {
                     this.<RefPayloads.EmployeeDto>pages(domain, new TypeReference<List<RefPayloads.EmployeeDto>>() {}));
             case "COUPON_TYPES" -> refApplyService.applyCouponTypes(
                     this.<RefPayloads.CouponTypeDto>pages(domain, new TypeReference<List<RefPayloads.CouponTypeDto>>() {}));
+            case "CUSTOMERS" -> refApplyService.applyCustomers(
+                    this.<RefPayloads.CustomerDto>pages(domain, new TypeReference<List<RefPayloads.CustomerDto>>() {}));
+            case "CURRENCIES" -> refApplyService.applyCurrencies(
+                    this.<RefPayloads.CurrencyDto>pages(domain, new TypeReference<List<RefPayloads.CurrencyDto>>() {}));
             case "SETTINGS" -> refApplyService.applySettings(
                     this.<RefPayloads.SettingDto>pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
             case "ENGINE_FEEDS" -> refApplyService.applyEngineFeeds(

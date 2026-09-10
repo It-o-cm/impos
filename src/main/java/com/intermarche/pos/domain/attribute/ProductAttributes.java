@@ -136,4 +136,16 @@ public final class ProductAttributes {
     public static boolean quantityToEnter(Product product) {
         return flag(product, ProductAttributeCatalog.QUANTITY_TO_ENTER);
     }
+
+    /**
+     * Whether the article is covered by the legal conformity guarantee (GLC):
+     * a ticket carrying one is printed whatever the cashier chose, when the
+     * back office forces it (LC-08-03-09).
+     *
+     * @param product the product, or null
+     * @return true when the article is under the legal conformity guarantee
+     */
+    public static boolean legalWarranty(Product product) {
+        return flag(product, ProductAttributeCatalog.LEGAL_WARRANTY);
+    }
 }

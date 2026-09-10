@@ -47,14 +47,31 @@ public class VoucherBalanceResource {
      * runs and the result renders — the lookup is strictly read-only, so
      * re-running it on a browser refresh is harmless.
      *
+     * <p>An EMPTY consultation is answered, not ignored: the operator pressed the
+     * button, so the screen must say something. Without the {@code asked} marker a
+     * blank number and a fresh arrival are indistinguishable here, and the screen
+     * would answer a press by redrawing itself — which reads as a button that does
+     * nothing.
+     *
      * @param number the instrument number to consult, or null for a bare page
+     * @param asked true when the operator pressed CONSULTER, whatever they typed
      * @return the consultation page, with the result when a number was given
      */
     @GET
     @Path("/voucher-balance")
-    public TemplateInstance voucherBalancePage(@QueryParam("number") String number) {
-        BalanceView view = (number == null || number.isBlank()) ? null : lookup(number);
-        return voucherBalance.data("state", state).data("result", view);
+    public TemplateInstance voucherBalancePage(@QueryParam("number") String number,
+                                               @QueryParam("asked") boolean asked) {
+        String typed = number == null ? "" : number.trim();
+        BalanceView view;
+        if (!typed.isEmpty()) {
+            view = lookup(typed);
+        } else if (asked) {
+            view = new BalanceView();
+            view.blank = true;
+        } else {
+            view = null;
+        }
+        return voucherBalance.data("state", state).data("result", view).data("number", typed);
     }
 
     /**
@@ -69,7 +86,8 @@ public class VoucherBalanceResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response consult(@FormParam("number") String number) {
         String encoded = number == null ? "" : URLEncoder.encode(number.trim(), StandardCharsets.UTF_8);
-        return Response.seeOther(URI.create("/voucher-balance?number=" + encoded)).build();
+        return Response.seeOther(
+                URI.create("/voucher-balance?number=" + encoded + "&asked=true")).build();
     }
 
     /**
@@ -103,6 +121,8 @@ public class VoucherBalanceResource {
     public static class BalanceView {
         /** True when the number exists in the registry. */
         public boolean found = false;
+        /** True when the operator consulted without typing a number. */
+        public boolean blank = false;
         /** The instrument number, echoed. */
         public String number;
         /** CARTE CADEAU or AVOIR. */

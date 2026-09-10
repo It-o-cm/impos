@@ -82,9 +82,25 @@ class ParkedTicketResourceTest {
     }
 
     /**
-     * {@code parkedPage()} renders the parked-tickets page seeded with the state
-     * and the register's parked tickets when the terminal is unlocked (guard
-     * false arm).
+     * Wires the parked template so every {@code data(...)} call chains, and
+     * returns the last link — what the resource hands back.
+     *
+     * @param resource the resource whose template is wired
+     * @return the terminal template instance of the chain
+     */
+    private TemplateInstance wireParkedTemplate(ParkedTicketResource resource) {
+        TemplateInstance instance = mock(TemplateInstance.class);
+        when(resource.parked.data(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(instance);
+        when(instance.data(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(instance);
+        return instance;
+    }
+
+    /**
+     * {@code parkedPage(page)} renders the parked-tickets page seeded with the
+     * state and the register's parked tickets when the terminal is unlocked
+     * (guard false arm).
      */
     @Test
     void parkedPageRendersParkedWhenUnlocked() {
@@ -92,11 +108,104 @@ class ParkedTicketResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         List<com.intermarche.pos.domain.ticket.Ticket> tickets = List.of();
         when(resource.ticketParkingService.listParked()).thenReturn(tickets);
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withTickets = mock(TemplateInstance.class);
-        when(resource.parked.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("tickets", tickets)).thenReturn(withTickets);
-        assertSame(withTickets, resource.parkedPage());
+        TemplateInstance instance = wireParkedTemplate(resource);
+        assertSame(instance, resource.parkedPage(null));
+        verify(resource.parked).data("state", resource.state);
+        verify(instance).data("tickets", tickets);
+        verify(instance).data("page", 1);
+        verify(instance).data("pageCount", 1);
+    }
+
+    /**
+     * An empty list still counts as one page, so the pager never announces
+     * "page 1 / 0" (size zero arm).
+     */
+    @Test
+    void parkedPageCountsOnePageWhenEmpty() {
+        ParkedTicketResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.ticketParkingService.listParked()).thenReturn(List.of());
+        TemplateInstance instance = wireParkedTemplate(resource);
+        resource.parkedPage(null);
+        verify(instance).data("pageCount", 1);
+        verify(instance).data("hasPrev", false);
+        verify(instance).data("hasNext", false);
+    }
+
+    /**
+     * Seven parked tickets make two pages of six; the first page carries the
+     * first six and announces a next page (size above one page arm).
+     */
+    @Test
+    void parkedPageCutsSevenTicketsInTwoPages() {
+        ParkedTicketResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.ticketParkingService.listParked()).thenReturn(parkedTickets(7));
+        TemplateInstance instance = wireParkedTemplate(resource);
+        resource.parkedPage(0);
+        verify(instance).data("pageCount", 2);
+        verify(instance).data("hasPrev", false);
+        verify(instance).data("hasNext", true);
+        verify(instance).data("nextPage", 1);
+    }
+
+    /**
+     * The last page carries the remainder and announces no next page
+     * (upper-bound arm).
+     */
+    @Test
+    void parkedPageShowsRemainderOnLastPage() {
+        ParkedTicketResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.ticketParkingService.listParked()).thenReturn(parkedTickets(7));
+        TemplateInstance instance = wireParkedTemplate(resource);
+        resource.parkedPage(1);
+        verify(instance).data("page", 2);
+        verify(instance).data("hasPrev", true);
+        verify(instance).data("hasNext", false);
+        verify(instance).data("prevPage", 0);
+    }
+
+    /**
+     * A page number below zero is clamped to the first page rather than
+     * throwing (lower-clamp arm).
+     */
+    @Test
+    void parkedPageClampsNegativePageToFirst() {
+        ParkedTicketResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.ticketParkingService.listParked()).thenReturn(parkedTickets(7));
+        TemplateInstance instance = wireParkedTemplate(resource);
+        resource.parkedPage(-5);
+        verify(instance).data("page", 1);
+    }
+
+    /**
+     * A page number past the end is clamped to the last page rather than
+     * rendering an empty list (upper-clamp arm).
+     */
+    @Test
+    void parkedPageClampsTooLargePageToLast() {
+        ParkedTicketResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.ticketParkingService.listParked()).thenReturn(parkedTickets(7));
+        TemplateInstance instance = wireParkedTemplate(resource);
+        resource.parkedPage(99);
+        verify(instance).data("page", 2);
+    }
+
+    /**
+     * Builds a list of that many distinct parked tickets.
+     *
+     * @param count how many tickets to build
+     * @return the list, never null
+     */
+    private List<com.intermarche.pos.domain.ticket.Ticket> parkedTickets(int count) {
+        List<com.intermarche.pos.domain.ticket.Ticket> tickets = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            tickets.add(new com.intermarche.pos.domain.ticket.Ticket());
+        }
+        return tickets;
     }
 
     /**

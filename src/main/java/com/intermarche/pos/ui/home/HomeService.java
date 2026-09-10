@@ -74,12 +74,12 @@ public class HomeService {
     // --- Navigation ---
 
     /**
-     * Shows or hides the secondary menu.
+     * Shows one of the five button menus.
      *
-     * @param show true to show the secondary menu
+     * @param menu the menu to show, never null
      */
-    public void toggleSecondaryMenu(boolean show) {
-        state.showSecondaryMenu = show;
+    public void selectMenu(com.intermarche.pos.ui.PosMenu menu) {
+        state.menu = menu;
         state.touch();
     }
 
@@ -132,17 +132,68 @@ public class HomeService {
     }
 
     /**
-     * Reprints the last closed ticket, if any.
+     * Reprints the last closed ticket.
+     *
+     * <p>Refusals go through {@link PosState#requireLastClosedTicket()}: this
+     * function used to be the one that printed nothing and said nothing when
+     * the register had closed no sale yet, which on a touch screen is a broken
+     * button.
      */
     public void printLastTicket() {
-        if (state.trainingMode) {
-            // Real documents are untouchable in training: no duplicata, no counter bump
-            state.ticket.setError("RÉIMPRESSION INDISPONIBLE EN FORMATION");
-            state.touch();
+        // RECOVER FIRST. The DERNIER keys work on the last sale THIS REGISTER
+        // closed, not on the last sale this PROCESS closed: a restart emptied
+        // PosState and the four keys answered "AUCUN TICKET" over a ticket that
+        // was still in the database and still on the customer's hands.
+        ticketService.resolveLastClosedTicketId(state);
+        if (!state.requireLastClosedTicket()) {
             return;
         }
-        if (state.lastClosedTicketId != null) {
-            ticketService.reprintTicket(state.lastClosedTicketId);
+        ticketService.reprintTicket(state.lastClosedTicketId);
+        // ACKNOWLEDGE. The three DERNIER keys redirect to the sale screen and,
+        // when they succeeded, changed nothing on it: the register printed and
+        // said nothing, which on a till whose printer is a remote bridge is
+        // indistinguishable from a dead button.
+        state.ticket.setNotice("TICKET RÉIMPRIMÉ");
+    }
+
+    /**
+     * Prints the identification barcode of the last closed ticket, alone
+     * (LC-08-01-04).
+     *
+     * <p>Refusals go through {@link PosState#requireLastClosedTicket()}. The slip
+     * states no amount, but it carries a real ticket number, and a number that
+     * leaves the register must name a sale that happened.
+     */
+    public void printLastTicketBarcode() {
+        ticketService.resolveLastClosedTicketId(state);
+        if (!state.requireLastClosedTicket()) {
+            return;
+        }
+        ticketService.printTicketIdentityBarcode(state.lastClosedTicketId);
+        state.ticket.setNotice("CODE-BARRES IMPRIMÉ");
+    }
+
+    /**
+     * Prints a duplicate of the last closed ticket's card receipt (LC-08-05-09).
+     *
+     * <p>The register builds the slip from the traces it holds — amount, authorization
+     * number, degraded acceptance. A monetique that returns its own print frames will
+     * replace that body; the DUPLICATA mention and the moment it is asked for do not
+     * change with it. Refusals go through {@link PosState#requireLastClosedTicket()};
+     * a ticket settled without a card prints nothing, which is not a refusal.
+     */
+    public void printLastCardReceiptDuplicate() {
+        ticketService.resolveLastClosedTicketId(state);
+        if (!state.requireLastClosedTicket()) {
+            return;
+        }
+        // A sale settled without a card prints nothing. That is not a failure,
+        // but pressing the key and getting silence is: the operator is told the
+        // ticket has no card slip to duplicate.
+        if (ticketService.printCardReceiptDuplicate(state.lastClosedTicketId) > 0) {
+            state.ticket.setNotice("DUPLICATA CB IMPRIMÉ");
+        } else {
+            state.ticket.setError("AUCUN PAIEMENT CARTE SUR CE TICKET");
         }
     }
 
@@ -166,7 +217,11 @@ public class HomeService {
         if (target == null) {
             state.ticket.setError("AUCUNE LIGNE SÉLECTIONNÉE");
         } else {
-            state.priceModState.set(upper, target.uid, target.label);
+            // The line is captured HERE, at opening, and not read again while the
+            // modal is up: what the operator is about to modify is the line as it
+            // was when the gesture started.
+            state.priceModState.set(upper, target.uid, target.label, target.getHtml(),
+                    target.getPriceFormatted(), target.getModifierLabel());
         }
         state.touch();
     }

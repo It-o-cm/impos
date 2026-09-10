@@ -6,6 +6,7 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
@@ -51,11 +52,37 @@ class AuthResourceTest {
         resource.cashSessionService = mock(CashSessionService.class);
         resource.main = mock(Template.class);
         resource.lock = mock(Template.class);
+        resource.hardwareUnavailable = mock(Template.class);
         // The drawer-open-on-login rule defaults to ON, the pre-existing
         // pulse behavior the success cases rely on (BO-10-02-25).
         resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(true);
+        // The hardware gate defaults to ALL UP, the state every pre-existing
+        // success case runs under; the gate tests override it device by device.
+        when(resource.hardwareService.probeDevices()).thenReturn(java.util.List.of(
+                new HardwareService.DeviceStatus("BALANCE", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("TIROIR-CAISSE", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("AFFICHEUR CLIENT", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("IMPRIMANTE TICKETS", HardwareService.Availability.AVAILABLE)));
         return resource;
+    }
+
+    /**
+     * Stubs the hardware page's fluent {@code data("devices", ...)} then
+     * {@code data("allAvailable", ...)} chain to return a recognizable view.
+     *
+     * @param resource the resource whose hardware template is stubbed
+     * @param devices the device list expected on the first call
+     * @param allAvailable the flag expected on the second call
+     * @return the view the chain returns
+     */
+    private TemplateInstance stubHardwarePage(AuthResource resource,
+            java.util.List<HardwareService.DeviceStatus> devices, boolean allAvailable) {
+        TemplateInstance withDevices = mock(TemplateInstance.class);
+        TemplateInstance view = mock(TemplateInstance.class);
+        when(resource.hardwareUnavailable.data("devices", devices)).thenReturn(withDevices);
+        when(withDevices.data("allAvailable", allAvailable)).thenReturn(view);
+        return view;
     }
 
     /**
@@ -143,72 +170,146 @@ class AuthResourceTest {
     // --- unlock ---
 
     /**
-     * {@code unlock(...)} opens the drawer and redirects to the session screen
-     * on success when not in training and no session is open (both conditions
-     * of the short-circuit true).
+     * A successful unlock ALWAYS lands on the hardware status page, even with
+     * every peripheral available: the operator takes the lane knowingly. The
+     * drawer is not pulsed and no session is looked up here — that belongs to
+     * the override the page's button posts.
      */
     @Test
-    void unlockSuccessLandsOnSessionWhenNoOpenSession() {
+    void unlockShowsThePageWhenEverythingIsAvailable() {
         AuthResource resource = newResource();
         when(resource.authService.login(resource.state, "alice", "1234"))
                 .thenReturn(AuthService.LoginResult.SUCCESS);
+        java.util.List<HardwareService.DeviceStatus> devices = java.util.List.of(
+                new HardwareService.DeviceStatus("BALANCE", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("TIROIR-CAISSE", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("AFFICHEUR CLIENT", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("IMPRIMANTE TICKETS", HardwareService.Availability.AVAILABLE));
+        when(resource.hardwareService.probeDevices()).thenReturn(devices);
+        TemplateInstance view = stubHardwarePage(resource, devices, true);
+        Response response = resource.unlock("alice", "1234");
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertEquals(MediaType.TEXT_HTML_TYPE, response.getMediaType());
+        assertSame(view, response.getEntity());
+        verify(resource.state).touch();
+        verify(resource.state.auth, never()).logout();
+        verify(resource.hardwareService, never()).openDrawer();
+        verify(resource.cashSessionService, never()).getOpenSession();
+    }
+
+    /**
+     * The hardware gate: correct credentials but one FAILED peripheral stop
+     * the entry — the drawer stays shut and the status page is rendered with
+     * the device list (the {@code allAvailable} false arm). The operator
+     * stays authenticated behind the page, which is what allows the override
+     * button to open the lane without presenting credentials again.
+     */
+    @Test
+    void unlockBlocksOnFailedHardware() {
+        AuthResource resource = newResource();
+        when(resource.authService.login(resource.state, "alice", "1234"))
+                .thenReturn(AuthService.LoginResult.SUCCESS);
+        java.util.List<HardwareService.DeviceStatus> devices = java.util.List.of(
+                new HardwareService.DeviceStatus("BALANCE", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("TIROIR-CAISSE", HardwareService.Availability.FAILED),
+                new HardwareService.DeviceStatus("AFFICHEUR CLIENT", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("IMPRIMANTE TICKETS", HardwareService.Availability.AVAILABLE));
+        when(resource.hardwareService.probeDevices()).thenReturn(devices);
+        TemplateInstance view = stubHardwarePage(resource, devices, false);
+        Response response = resource.unlock("alice", "1234");
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertEquals(MediaType.TEXT_HTML_TYPE, response.getMediaType());
+        assertSame(view, response.getEntity());
+        verify(resource.state.auth, never()).logout();
+        verify(resource.state).touch();
+        verify(resource.hardwareService, never()).openDrawer();
+        verify(resource.cashSessionService, never()).getOpenSession();
+    }
+
+    /**
+     * The override button opens the lane in spite of a failed peripheral,
+     * taking the same route as a clean unlock: drawer pulse then the session
+     * screen when none is open (guard false arm, register unlocked).
+     */
+    @Test
+    void hardwareOverrideOpensTheLaneOnSessionScreen() {
+        AuthResource resource = newResource();
+        resource.state.auth.isLocked = false;
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
-        Response response = resource.unlock("alice", "1234");
+        Response response = resource.hardwareOverride();
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/session", response.getLocation().toString());
         verify(resource.hardwareService).openDrawer();
     }
 
     /**
-     * {@code unlock(...)} opens the drawer and redirects home on success when a
-     * session is already open (first condition true, second condition false).
+     * The override lands on the sale screen when a cash session is already
+     * open, exactly like a clean unlock.
      */
     @Test
-    void unlockSuccessLandsHomeWhenSessionOpen() {
+    void hardwareOverrideLandsHomeWhenSessionOpen() {
         AuthResource resource = newResource();
-        when(resource.authService.login(resource.state, "alice", "1234"))
-                .thenReturn(AuthService.LoginResult.SUCCESS);
+        resource.state.auth.isLocked = false;
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        Response response = resource.unlock("alice", "1234");
+        Response response = resource.hardwareOverride();
         assertEquals("/", response.getLocation().toString());
         verify(resource.hardwareService).openDrawer();
     }
 
     /**
-     * {@code unlock(...)} opens the drawer and redirects home on success in
-     * training mode, never consulting the session service (first condition of
-     * the short-circuit false).
+     * The override honours the drawer-open-on-login rule: with the rule
+     * disabled the lane opens without the pulse (BO-10-02-25).
      */
     @Test
-    void unlockSuccessLandsHomeInTrainingMode() {
+    void hardwareOverrideLeavesDrawerShutWhenRuleDisabled() {
         AuthResource resource = newResource();
-        when(resource.authService.login(resource.state, "alice", "1234"))
-                .thenReturn(AuthService.LoginResult.SUCCESS);
+        resource.state.auth.isLocked = false;
         resource.state.trainingMode = true;
-        Response response = resource.unlock("alice", "1234");
+        when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(false);
+        Response response = resource.hardwareOverride();
         assertEquals("/", response.getLocation().toString());
-        verify(resource.hardwareService).openDrawer();
+        verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * A locked register refuses the override and returns to the lock screen
+     * (guard true arm): a stale status page cannot be replayed as a way in.
+     */
+    @Test
+    void hardwareOverrideOnLockedRegisterGoesBackToLockScreen() {
+        AuthResource resource = newResource();
+        resource.state.auth.isLocked = true;
+        Response response = resource.hardwareOverride();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.hardwareService, never()).openDrawer();
         verify(resource.cashSessionService, never()).getOpenSession();
     }
 
     /**
-     * BO-10-02-25: with the drawer-open-on-login rule DISABLED, a successful
-     * unlock still routes normally (session open → home) but leaves the drawer
-     * shut (the {@code drawerOpenOnLogin()} false arm).
+     * An ABSENT peripheral shows the page too: the operator taking the lane
+     * must see what this till is not carrying, and decides with CONTINUER.
+     * Nothing is broken here, and the entry stops all the same.
      */
     @Test
-    void unlockSuccessKeepsDrawerShutWhenRuleDisabled() {
+    void unlockShowsThePageOnAbsentPeripherals() {
         AuthResource resource = newResource();
-        when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(false);
         when(resource.authService.login(resource.state, "alice", "1234"))
                 .thenReturn(AuthService.LoginResult.SUCCESS);
-        resource.state.trainingMode = false;
-        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        java.util.List<HardwareService.DeviceStatus> devices = java.util.List.of(
+                new HardwareService.DeviceStatus("BALANCE", HardwareService.Availability.ABSENT),
+                new HardwareService.DeviceStatus("TIROIR-CAISSE", HardwareService.Availability.AVAILABLE),
+                new HardwareService.DeviceStatus("AFFICHEUR CLIENT", HardwareService.Availability.ABSENT),
+                new HardwareService.DeviceStatus("IMPRIMANTE TICKETS", HardwareService.Availability.AVAILABLE));
+        when(resource.hardwareService.probeDevices()).thenReturn(devices);
+        TemplateInstance view = stubHardwarePage(resource, devices, false);
         Response response = resource.unlock("alice", "1234");
-        assertEquals("/", response.getLocation().toString());
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertSame(view, response.getEntity());
         verify(resource.hardwareService, never()).openDrawer();
+        verify(resource.state.auth, never()).logout();
     }
 
     /**

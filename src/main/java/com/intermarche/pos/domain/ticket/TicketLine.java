@@ -126,6 +126,20 @@ public class TicketLine extends BaseEntity {
     public boolean priceEmbedded;
 
     /**
+     * Whether the article forbids any price reduction (BO-02-03-09).
+     * <p>
+     * Persisted on the line, and read back on recovery, for the same reason as
+     * {@link #moneyProduct}: the draft is the durable truth of what was rung
+     * up. Deriving it again from the catalog at recovery would let a ban
+     * disappear from a cart the moment the register restarts. Working flag of
+     * the draft, deliberately NOT carried by the store push: once the ticket is
+     * closed no reduction can be applied to it any more, so the consolidated
+     * node has nothing to do with it.
+     */
+    @Column(name = "discount_forbidden")
+    public boolean discountForbidden;
+
+    /**
      * Code of the product's nomenclature (family) as it was at sale time
      * (campaign lot C3, BO-04-01-11). Snapshotted from the product when the
      * persistent line is created, exactly as the label, EAN, PLU and price

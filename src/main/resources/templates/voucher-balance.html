@@ -3,6 +3,9 @@
  ! notes live in the LOCAL registry (stored_values) — the balance answer is
  ! authoritative and needs no external hub. Read-only: nothing here touches
  ! the ticket or the registry.
+ !
+ ! Two columns: the answer on the left, the entry on the right — the same shape as
+ ! the other lookup screens of the register.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -12,54 +15,111 @@
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .panel {
+        .pos-terminal {
             width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px; position: relative;
-            display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px;
+            border: 2px solid var(--border-strong); border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
-        h1 { font-size: 1.4rem; letter-spacing: 2px; color: var(--text-muted); }
-        .entry { width: 420px; display: flex; flex-direction: column; gap: 12px; }
-        .value-display { font-size: 1.8rem; text-align: center; color: var(--primary); font-weight: bold;
-                         background: var(--bg-page); border: 3px solid var(--primary); border-radius: 8px; padding: 10px; }
-        .kb-area { min-height: 220px; display: flex; flex-direction: column; }
-        .result { text-align: center; font-size: 1.2rem; font-weight: bold; }
-        .back { position: absolute; top: 15px; left: 15px; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+
+        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
+        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
+
+        .side { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; min-height: 0; }
+
+        /* The answer, when there is one: the balance is the figure the customer
+           came for, so it is the only thing sized like a total. */
+        .answer { background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 8px; padding: 14px; }
+        .answer.found { border-color: var(--success); }
+        .answer.unknown { border-color: var(--danger); }
+        .answer-kind { color: var(--text-muted); font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; }
+        .answer-number { font-size: var(--fs-row); font-weight: bold; margin-top: 2px; }
+        .answer-status { color: var(--text-muted); font-size: var(--fs-row-sub); margin-top: 6px; }
+        .answer-balance { color: var(--success); font-size: var(--fs-total-xl); font-weight: bold; margin-top: 6px; }
+        .answer-unknown { color: var(--danger); font-size: var(--fs-body); font-weight: bold; }
+
+        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+        .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+        .display { width: 100%; font-size: var(--fs-field); padding: 10px 12px; border-radius: 4px;
+                   border: 2px solid var(--border-strong); background: var(--bg-panel);
+                   color: var(--text-main); text-align: left; flex-shrink: 0; }
+        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
+
+        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        /* The application's button base, declared verbatim as every screen does; the
+           theme include supplies the colour modifiers ALONE. Without this the
+           buttons of this screen rendered as bare links. */
     </style>
 </head>
 <body data-theme="{posTheme}">
-    <div class="panel">
-        <a href="/" class="btn btn-muted back">&larr; RETOUR</a>
-        <h1>SOLDE BON / CARTE CADEAU</h1>
+<div class="pos-terminal">
 
-        {#if result}
-        <div class="result">
-            {#if result.found}
-            {result.kindLabel} N° {result.number}<br>
-            STATUT : {result.statusLabel} &nbsp;&mdash;&nbsp; SOLDE : <span style="color: var(--success);">{result.balanceFormatted} €</span>
-            {#else}
-            <span style="color: var(--danger);">BON INCONNU AU REGISTRE</span>
-            {/if}
-        </div>
-        {/if}
+    <div class="top-bar">
+        <span class="store-name">SOLDE BON / CARTE CADEAU</span>
+        <span id="clock"></span>
+    </div>
 
-        <form method="post" action="/action/voucher-balance" class="entry">
-            <input type="hidden" name="number" id="vbHidden" value="">
-            <input type="text" id="vbDisplay" class="value-display" value="" readonly>
-            <div class="kb-area" id="vbKbArea"></div>
-            <button type="submit" class="btn btn-primary" style="width:100%;">CONSULTER</button>
+    <div class="main-area">
+        <form class="work" method="post" action="/action/voucher-balance">
+
+            <div class="side">
+                {#if result}
+                    {#if result.blank}
+                    <div class="answer unknown">
+                        <div class="answer-unknown">AUCUN NUMÉRO SAISI</div>
+                        <div class="answer-status">Tapez le numéro du bon sur le pavé, puis CONSULTER.</div>
+                    </div>
+                    {#else if result.found}
+                    <div class="answer found">
+                        <div class="answer-kind">{result.kindLabel}</div>
+                        <div class="answer-number">N° {result.number}</div>
+                        <div class="answer-status">Statut : {result.statusLabel}</div>
+                        <div class="answer-balance">{result.balanceFormatted} €</div>
+                    </div>
+                    {#else}
+                    <div class="answer unknown">
+                        <div class="answer-unknown">BON INCONNU AU REGISTRE</div>
+                        <div class="answer-status">Vérifiez le numéro saisi.</div>
+                    </div>
+                    {/if}
+                {/if}
+            </div>
+
+            <div class="entry">
+                <div class="entry-title">Numéro du bon</div>
+                <input type="text" id="vbDisplay" class="display" value="{number}" readonly>
+                <input type="hidden" name="number" id="vbHidden" value="{number}">
+                <div class="keyboard pos-kb-compact" id="vbKbArea"></div>
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">CONSULTER</button>
+                </div>
+            </div>
+
         </form>
     </div>
-    {#include keyboard-lib /}
-    <script>
-        PosInput.setup({
-            displayId: 'vbDisplay',
-            hiddenId: 'vbHidden',
-            containerId: 'vbKbArea',
-            keyboardType: 'numpad',
-            mode: 'text',
-            placeholder: "",
-            maxLength: 20
-        });
-    </script>
+
+    <div class="bottom-nav">
+        <a href="/" class="btn btn-muted">RETOUR</a>
+    </div>
+</div>
+
+{#include keyboard-lib /}
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    PosInput.setup({
+        displayId: 'vbDisplay',
+        hiddenId: 'vbHidden',
+        containerId: 'vbKbArea',
+        keyboardType: 'numpad',
+        mode: 'text',
+        maxLength: 20,
+        initialValue: document.getElementById('vbHidden').value || ''
+    });
+</script>
 </body>
 </html>

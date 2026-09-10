@@ -51,6 +51,10 @@ public class PaymentService {
     @Inject
     HardwareService hardwareService;
 
+    /** The cheque reader, reached through the hardware bridge. */
+    @Inject
+    com.intermarche.pos.ui.hardware.ChequeReadingService chequeReadingService;
+
     /** The back-office parameters (drawer-open rules — BO-10-02-12). */
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
@@ -64,6 +68,10 @@ public class PaymentService {
      */
     @Inject
     com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
+
+    /** The conditional-printing rule (LC-08-03). */
+    @Inject
+    com.intermarche.pos.ui.hardware.PrintPolicy printPolicy;
 
     /**
      * Technical EAN of the solidarity-rounding line (parameterized).
@@ -92,6 +100,10 @@ public class PaymentService {
     /** French display format for amounts on the customer display. */
     private final DecimalFormat df = new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
 
+    /** How the endorsement dates a cheque. */
+    private static final java.time.format.DateTimeFormatter ENDORSEMENT_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
     // --------------------------------------------------
     // 1. INITIALIZATION
     // --------------------------------------------------
@@ -114,6 +126,10 @@ public class PaymentService {
         synchronized (state) {
             hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
             state.payment.paymentInProgress = true;
+            // LC-07-03-01: the rounding step is read once, at payment entry, and
+            // held on the state — the screen, the customer display and the printer
+            // all ask for the rounded amount many times per second.
+            state.cashRoundingStepCents = posSettingsService.cashRoundingStepCents();
 
             Long ticketId = ticketPersistenceService.syncDraft(state);
             if (ticketId == null && !state.trainingMode) {
@@ -239,6 +255,9 @@ public class PaymentService {
                 // number, degraded-mode indicator) parked by the accept leg.
                 state.payment.addCardPayment(amountToPay,
                         state.payment.pendingCardAuthNumber, state.payment.pendingCardDegraded);
+            } else if ("CHEQUE".equals(methodKey)) {
+                // The cheque entry carries the magnetic line parked by the reading.
+                state.payment.addChequePayment(amountToPay, state.payment.pendingChequeLine);
             } else {
                 state.payment.addPayment(methodKey, amountToPay);
             }
@@ -271,11 +290,149 @@ public class PaymentService {
     public void processCash(PosState state, BigDecimal tendered) {
         if (tendered == null || tendered.signum() <= 0) return;
 
+        // LC-07-03-05: where the shop rounds, the coins to make up anything off
+        // the step no longer circulate, so an amount off the step cannot have been
+        // handed over. Refused rather than silently rounded: the cashier is telling
+        // the register what is in their hand, and the register does not know better.
+        if (!CashRounding.isTenderable(tendered, state.cashRoundingStepCents)) {
+            state.ticket.setError("MONTANT NON MULTIPLE DE "
+                    + df.format(BigDecimal.valueOf(state.cashRoundingStepCents, 2)) + " E");
+            state.touch();
+            return;
+        }
+
+        // LC-07-03-01/06: the rounding applies to what is SETTLED IN CASH, so it is
+        // decided here and not on the ticket total — a sale part-paid by card rounds
+        // the remainder, which is what the customer actually hands over. The
+        // difference is booked FIRST, so the cash payment that follows sees a
+        // remaining due already on the step and the change comes out right.
+        registerCashRounding(state, tendered);
+
         handlePaymentWithChange(state, "CASH", "ESPECES", tendered);
 
         // Rule: cash = systematic drawer opening (deposit + change), unless the
         // back office disabled the drawer-open-on-payment rule (BO-10-02-12).
         if (!state.trainingMode && posSettingsService.drawerOpenOnPayment()) hardwareService.openDrawer(); // drawer stays shut in training
+    }
+
+    /**
+     * Registers a settlement taken on a backup-monetics terminal
+     * ({@code LC-07-07-06} to {@code -09}).
+     *
+     * <p>Capped at the remaining due and NO CHANGE: a mobile terminal charges what
+     * it was asked to charge, and an amount above what is left is a partial
+     * authorization mismatch, not a customer handing over too much. Giving change on
+     * it would take real money out of the drawer against a card settlement.
+     *
+     * <p>The drawer stays shut: nothing physical moves at this till.
+     *
+     * @param state the current POS state
+     * @param amount the amount the mobile terminal accepted
+     * @param methodLabel the scheme it reported
+     * @param transactionNumber the sale the two codes were matched on
+     * @param manual true when the outcome was keyed in rather than scanned
+     */
+    public void processBackupPayment(PosState state, BigDecimal amount, String methodLabel,
+            String transactionNumber, boolean manual) {
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (amount == null || amount.signum() <= 0) return;
+            BigDecimal remaining = state.getRemaining();
+            if (remaining.signum() <= 0) return;
+
+            state.payment.clearPendingVoucher();
+
+            BigDecimal amountToPay = amount.min(remaining);
+            state.payment.addBackupPayment(amountToPay, methodLabel, transactionNumber, manual);
+            state.touch();
+            savePayment(state, "SECOURS");
+            hardwareService.displayMessage(String.format("SECOURS  %s E", df.format(amountToPay)));
+
+            // Rule: backup monetics = no drawer opening (nothing physical).
+
+            checkCompletion(state);
+        }
+    }
+
+    /**
+     * Registers a settlement handed over in a foreign currency ({@code LC-07-14}).
+     *
+     * <p>Everything downstream works in EUROS: the euro value is what the sale is
+     * credited with, what the change is computed on and what the accounts see. The
+     * currency, the amount handed over and the rate ride on the entry so the receipt
+     * can state all three ({@code LC-07-14-05}), and nowhere else.
+     *
+     * <p>The drawer opens: foreign notes go into it, like any physical tender.
+     *
+     * @param state the current POS state
+     * @param currency the currency handed over
+     * @param foreignAmount the amount handed over, in that currency
+     * @param euroValue the euro value of that amount at the administered rate
+     */
+    public void processForeignCurrency(PosState state, com.intermarche.pos.domain.Currency currency,
+            BigDecimal foreignAmount, BigDecimal euroValue) {
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (currency == null || euroValue == null || euroValue.signum() <= 0) return;
+            BigDecimal remaining = state.getRemaining();
+            if (remaining.signum() <= 0) return;
+
+            state.payment.clearPendingVoucher();
+
+            BigDecimal amountToPay = euroValue.min(remaining);
+            BigDecimal change = euroValue.subtract(amountToPay).setScale(2, RoundingMode.HALF_UP);
+            state.payment.lastChangeAmount = change.signum() > 0 ? change : BigDecimal.ZERO;
+
+            state.payment.addCurrencyPayment(amountToPay, currency.code, foreignAmount,
+                    currency.euroPerUnit);
+            state.touch();
+            savePayment(state, "DEVISE");
+
+            // LC-07-14-05: the three figures the cashier and the customer need to
+            // agree on — what was handed over, what it is worth, and at what rate.
+            hardwareService.displayMessage(String.format("%s %s = %s E",
+                    df.format(foreignAmount), currency.displayUnit(), df.format(euroValue)));
+            if (change.signum() > 0) {
+                hardwareService.displayMessage(String.format("RENDU %s E", df.format(change)));
+            }
+
+            if (!state.trainingMode && posSettingsService.drawerOpenOnPayment()) {
+                hardwareService.openDrawer();
+            }
+
+            checkCompletion(state);
+        }
+    }
+
+    /**
+     * Books the legal rounding difference when this cash payment settles the sale
+     * ({@code LC-07-03-06}).
+     *
+     * <p>ONLY WHEN IT SETTLES. A cash payment smaller than the rounded remainder is
+     * a part payment: the sale goes on, its remainder is rounded again later, and
+     * rounding a part payment would round the same sale twice. So the difference is
+     * booked only when what is tendered covers the rounded remainder.
+     *
+     * @param state the current POS state
+     * @param tendered the cash amount handed over
+     */
+    private void registerCashRounding(PosState state, BigDecimal tendered) {
+        int step = state.cashRoundingStepCents;
+        if (step <= 1) {
+            return;
+        }
+        BigDecimal remaining = state.getRemaining();
+        BigDecimal difference = CashRounding.difference(remaining, step);
+        if (difference.signum() == 0) {
+            return;
+        }
+        if (tendered.compareTo(CashRounding.round(remaining, step)) < 0) {
+            return;
+        }
+        state.payment.addPayment("ARRONDI", difference);
+        state.touch();
+        savePayment(state, "ARRONDI");
+        hardwareService.displayMessage(String.format("ARRONDI  %s E", df.format(difference.negate())));
     }
 
     /**
@@ -319,6 +476,12 @@ public class PaymentService {
              */
             @Override
             public void onRefused(com.intermarche.pos.ui.hardware.terminal.TerminalOutcome outcome) {
+                // LC-08-03-12: the not-completed transaction leaves a printed
+                // trace when the back office forces it — the terminal's own
+                // frame when it supplied one.
+                if (outcome != null && printPolicy.isTnaReceiptForced()) {
+                    ticketPrinterService.printCardTnaReceipt(outcome.amount, outcome.tnaFrame);
+                }
                 dropPendingCard(state, "PAIEMENT REFUSÉ PAR LE TPE");
             }
 
@@ -353,6 +516,12 @@ public class PaymentService {
         state.payment.pendingCardAmount = null;
         state.payment.pendingCardAuthNumber = outcome.authorizationNumber;
         state.payment.pendingCardDegraded = outcome.degradedMode;
+        // LC-08-03-11: a slip the customer must sign forces the card receipt
+        // whatever the cashier chooses. One signed card in the transaction is
+        // enough, so the flag only ever goes up.
+        if (outcome.signatureRequired) {
+            state.payment.cardSignatureRequired = true;
+        }
         handlePaymentWithChange(state, "CARD", "CARTE", amount);
         state.payment.pendingCardAuthNumber = null;
         state.payment.pendingCardDegraded = false;
@@ -399,34 +568,62 @@ public class PaymentService {
         if (amount.signum() <= 0) return;
 
         // Phase 7 lot 3: the engine's MEAL_VOUCHER advantage caps meal tickets
-        // at min(eligible base, threshold, requested); the base shrinks with
-        // each registered meal-ticket payment. No advantage emitted = no cap
-        // (local behavior unchanged).
-        if ("ENGINE".equals(state.payment.valuationStatus) && state.payment.valuationMealEligible != null) {
-            BigDecimal allowed = state.payment.valuationMealEligible;
-            if (state.payment.valuationMealThreshold != null) {
-                allowed = allowed.min(state.payment.valuationMealThreshold);
+        // at min(eligible base, threshold, requested). The cap applies to the
+        // BASKET: the allowance left for this payment is the capped base minus
+        // the meal tickets already registered on the ticket. It is derived
+        // from the payment list at every call, never kept as a decremented
+        // field: each revaluation (every poll of the payment screen) rewrites
+        // the engine hints, so a decremented field would silently re-open the
+        // allowance and let a second full payment through. No advantage
+        // emitted = no cap (local behavior unchanged). Single-writer
+        // discipline: the check and the registration must be one atomic step,
+        // or two concurrent submissions could both pass the check.
+        synchronized (state) {
+            if ("ENGINE".equals(state.payment.valuationStatus) && state.payment.valuationMealEligible != null) {
+                BigDecimal allowed = state.payment.valuationMealEligible;
+                if (state.payment.valuationMealThreshold != null) {
+                    allowed = allowed.min(state.payment.valuationMealThreshold);
+                }
+                allowed = allowed.subtract(registeredMealTicketTotal(state)).max(BigDecimal.ZERO);
+                if (allowed.signum() <= 0) {
+                    hardwareService.displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
+                    LOG.infof("Paiement TR refusé: assiette éligible épuisée");
+                    return;
+                }
+                if (amount.compareTo(allowed) > 0) {
+                    amount = allowed;
+                    hardwareService.displayMessage(String.format("TR PLAFONNE  %s E", df.format(allowed)));
+                    LOG.infof("Paiement TR plafonné à %s (assiette moteur)", allowed);
+                }
             }
-            if (allowed.signum() <= 0) {
-                hardwareService.displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
-                LOG.infof("Paiement TR refusé: assiette éligible épuisée");
-                return;
-            }
-            if (amount.compareTo(allowed) > 0) {
-                amount = allowed;
-                hardwareService.displayMessage(String.format("TR PLAFONNE  %s E", df.format(allowed)));
-                LOG.infof("Paiement TR plafonné à %s (assiette moteur)", allowed);
-            }
-            BigDecimal applied = amount.min(state.getRemaining());
-            state.payment.valuationMealEligible =
-                    state.payment.valuationMealEligible.subtract(applied).max(BigDecimal.ZERO);
-        }
 
-        handlePaymentWithChange(state, "TR", "TICKET", amount);
+            handlePaymentWithChange(state, "TR", "TICKET", amount);
+        }
 
         // Rule: meal tickets = systematic drawer opening (to store the tickets),
         // unless the drawer-open-on-payment rule is disabled (BO-10-02-12).
         if (!state.trainingMode && posSettingsService.drawerOpenOnPayment()) hardwareService.openDrawer(); // drawer stays shut in training
+    }
+
+    /**
+     * Sums the meal-ticket payments already registered on the current ticket.
+     * The engine's meal-voucher cap applies to the basket, so the allowance
+     * left for a new meal ticket is the capped base minus this total. Reading
+     * the payment list keeps the rule correct across revaluations (which
+     * rewrite the engine hints verbatim) and across payment cancellations
+     * (which empty the list and thereby restore the full allowance).
+     *
+     * @param state the current POS state
+     * @return the total of registered TR payments, zero when there is none
+     */
+    private BigDecimal registeredMealTicketTotal(PosState state) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (PaymentState.PaymentEntry entry : state.payment.payments) {
+            if ("TR".equals(entry.method)) {
+                total = total.add(entry.amount);
+            }
+        }
+        return total;
     }
 
     /**
@@ -438,8 +635,105 @@ public class PaymentService {
     public void processCheque(PosState state, BigDecimal amount) {
         if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
         if (amount.signum() <= 0) return;
+        if (state.trainingMode) {
+            registerCheque(state, amount);
+            return;
+        }
+        // The cheque is READ BEFORE it is registered. A payment settled first and read
+        // afterwards would leave a paid line on the ticket for a cheque the reader
+        // refused, and the cashier would have to undo a payment instead of simply
+        // being told to present the cheque again.
+        state.payment.pendingChequeAmount = amount;
+        state.payment.pendingChequeLine = null;
+        state.touch();
+        BigDecimal requested = amount;
+        // Built HERE, on the request thread: the reader prints the endorsement while it
+        // still holds the cheque, so the text must leave with the start of the reading.
+        String endorsement = endorsementText(amount);
+        chequeReadingService.read(
+                endorsement,
+                line -> registerReadCheque(state, requested, line),
+                message -> dropPendingCheque(state, message));
+    }
 
+    /**
+     * Composes what is printed on the back of the cheque.
+     * <p>
+     * What the register knows and the paper does not: WHEN the cheque was taken and
+     * FOR HOW MUCH. Nothing is read from the database here — this service orchestrates
+     * a payment, it does not query, and an endorsement is not worth a round trip in the
+     * middle of a sale.
+     *
+     * @param amount the amount the cheque settles
+     * @return the endorsement, one line per newline
+     */
+    private String endorsementText(BigDecimal amount) {
+        return java.time.LocalDateTime.now().format(ENDORSEMENT_DATE)
+                + "\n" + df.format(amount) + " EUR";
+    }
+
+    /**
+     * Registers the cheque once the reader has read it.
+     *
+     * @param state the current POS state
+     * @param amount the amount the cashier asked for
+     * @param line the magnetic line, kept for the journal
+     */
+    private void registerReadCheque(PosState state, BigDecimal amount, String line) {
+        if (state.payment.pendingChequeAmount == null) {
+            LOG.info("Cheque lu apres annulation cote caisse : ignore");
+            return;
+        }
+        state.payment.pendingChequeAmount = null;
+        state.payment.pendingChequeLine = line;
+        LOG.infof("Cheque lu : %s", line);
+        registerCheque(state, amount);
+    }
+
+    /**
+     * Drops the pending cheque and tells the cashier why.
+     *
+     * @param state the current POS state
+     * @param message the operator-facing message
+     */
+    private void dropPendingCheque(PosState state, String message) {
+        if (state.payment.pendingChequeAmount == null) {
+            return;
+        }
+        state.payment.pendingChequeAmount = null;
+        state.payment.pendingChequeLine = null;
+        state.ticket.setError(message);
+        state.touch();
+    }
+
+    /**
+     * Cancels the pending cheque from the register side.
+     *
+     * <p>The reader is not told: it has no abort, and the document it is holding is
+     * given back by its own timeout. Only the register stops expecting a cheque.
+     *
+     * @param state the current POS state
+     */
+    public void cancelPendingCheque(PosState state) {
+        if (state.payment.pendingChequeAmount == null) {
+            return;
+        }
+        state.payment.pendingChequeAmount = null;
+        state.payment.pendingChequeLine = null;
+        state.touch();
+    }
+
+    /**
+     * Settles a cheque payment, whatever led to it.
+     *
+     * @param state the current POS state
+     * @param amount the amount applied to the ticket
+     */
+    private void registerCheque(PosState state, BigDecimal amount) {
         handlePaymentWithChange(state, "CHEQUE", "CHEQUE", amount);
+        // Ephemeral, like the card traces: cleared once the entry carries it, so the
+        // next cheque of the same ticket cannot inherit this one's line.
+        state.payment.pendingChequeLine = null;
 
         // Rule: cheque = systematic drawer opening (to store the cheque),
         // unless the drawer-open-on-payment rule is disabled (BO-10-02-12).
@@ -483,6 +777,43 @@ public class PaymentService {
     }
 
     /**
+     * Registers a customer-credit settlement ({@code LC-07-09-01}).
+     *
+     * <p>Nothing is collected, so nothing is capped for change either: the caller —
+     * {@link CreditClientService} — has already resolved the account, the ceiling and
+     * the amount, and this method is what every other method's wrapper is, the thin
+     * registration step. THE DRAWER STAYS SHUT: no money changes hands, and a drawer
+     * that opened on a credit sale would be an invitation.
+     *
+     * @param state the current POS state
+     * @param customer the account the debt is charged to
+     * @param amount the amount to charge, already capped at the remaining due
+     * @param overLimit true when a supervisor allowed the ceiling to be passed
+     */
+    public void processCredit(PosState state, com.intermarche.pos.domain.AccountCustomer customer,
+            BigDecimal amount, boolean overLimit) {
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (customer == null || amount == null || amount.signum() <= 0) return;
+            if (state.getRemaining().signum() <= 0) return;
+
+            state.payment.clearPendingVoucher();
+
+            BigDecimal amountToPay = amount.min(state.getRemaining());
+            state.payment.addCreditPayment(amountToPay, customer.accountNumber,
+                    customer.getDisplayName(), overLimit);
+            state.touch();
+            savePayment(state, "CREDIT");
+            hardwareService.displayMessage(
+                    String.format("CREDIT CLIENT  %s E", df.format(amountToPay)));
+
+            // Rule: customer credit = no drawer opening (nothing physical).
+
+            checkCompletion(state);
+        }
+    }
+
+    /**
      * Registers a voucher payment, displays it and persists it.
      * <p>
      * The amount is assumed already capped at the remaining due by the caller.
@@ -505,6 +836,48 @@ public class PaymentService {
             // Rule: voucher = no drawer opening (virtual)
 
             checkCompletion(state);
+        }
+    }
+
+    /**
+     * Applies the cashier's end-of-transaction printing choice (LC-08-03-01 to
+     * LC-08-03-06): the documents the {@link
+     * com.intermarche.pos.ui.hardware.PrintPolicy} names for that choice are
+     * sent to the printer at once.
+     * <p>
+     * Only the two documents that exist BEFORE the fiscal moment are printed
+     * here — the sale ticket (printed from the still-open draft, so it is the
+     * original and not a duplicata, exactly like the historical IMPRIMER
+     * button) and the card receipt. The purchase vouchers are born at
+     * validation, so {@link #finalizeTransaction} prints them under the very
+     * same decision.
+     * <p>
+     * The choice is applied ONCE: a second call is ignored, so a reloaded
+     * screen never prints a second original.
+     *
+     * @param state the current POS state
+     * @param choice the cashier's choice, never null
+     */
+    public void applyPrintChoice(PosState state, com.intermarche.pos.ui.hardware.PrintChoice choice) {
+        // Single-writer discipline (see initPayment).
+        synchronized (state) {
+            if (state.payment.printApplied) return;
+            Long ticketId = state.payment.ticketDbId;
+            if (ticketId == null) return;
+            state.payment.printChoice = choice;
+            com.intermarche.pos.domain.ticket.Ticket ticket =
+                    com.intermarche.pos.domain.ticket.Ticket.findById(ticketId);
+            com.intermarche.pos.ui.hardware.PrintPolicy.Decision decision =
+                    printPolicy.decide(choice, ticket, state.payment.cardSignatureRequired);
+            if (decision.saleTicket()) {
+                ticketPrinterService.printTicket(ticketId);
+            }
+            if (decision.cardReceipt()) {
+                ticketPrinterService.printCardReceipt(ticketId,
+                        state.payment.cardSignatureRequired, null);
+            }
+            state.payment.printApplied = true;
+            state.touch();
         }
     }
 
@@ -546,14 +919,49 @@ public class PaymentService {
                         }
                     }
                 }
+                // LC-08-02-02: freeze the ticket AS PRINTED, here and nowhere
+                // else — this is the only moment the loyalty section of the
+                // rendering still exists, and the only place that knows what
+                // this register's own printer produces. The synchronization
+                // carries it up to the store node from the ticket row.
+                com.intermarche.pos.domain.ticket.Ticket sold =
+                        com.intermarche.pos.domain.ticket.Ticket.findById(ticketId);
+                if (sold != null) {
+                    ticketPersistenceService.storeFormattedContent(ticketId,
+                            ticketPrinterService.renderTicket(sold, false, 0));
+                }
+                // What this closing prints (LC-08-03). With conditional
+                // printing off the decision names every document, which is the
+                // historical behaviour: the vouchers come out and nothing else
+                // is printed on its own.
+                com.intermarche.pos.domain.ticket.Ticket printed =
+                        com.intermarche.pos.domain.ticket.Ticket.findById(ticketId);
+                com.intermarche.pos.ui.hardware.PrintPolicy.Decision decision =
+                        printPolicy.decide(state.payment.printChoice, printed,
+                                state.payment.cardSignatureRequired);
+                // A cashier who closed without touching the choice buttons
+                // still gets the forced documents (GLC ticket, signed card
+                // slip) — the choice defaults to "tous les tickets".
+                if (printPolicy.isConditionalEnabled() && !state.payment.printApplied) {
+                    if (decision.saleTicket()) {
+                        ticketPrinterService.printTicket(ticketId);
+                    }
+                    if (decision.cardReceipt()) {
+                        ticketPrinterService.printCardReceipt(ticketId,
+                                state.payment.cardSignatureRequired, null);
+                    }
+                    state.payment.printApplied = true;
+                }
                 // Gift cards issued by this sale get their printed voucher —
                 // the customer's proof, right after the fiscal moment (phase:
                 // credit notes & gift cards).
-                java.util.List<com.intermarche.pos.domain.StoredValue> issued =
-                        com.intermarche.pos.domain.StoredValue
-                                .find("issuingTicketId", ticketId).list();
-                for (com.intermarche.pos.domain.StoredValue card : issued) {
-                    ticketPrinterService.printGiftCardVoucher(card.number, card.initialAmount);
+                if (decision.voucher()) {
+                    java.util.List<com.intermarche.pos.domain.StoredValue> issued =
+                            com.intermarche.pos.domain.StoredValue
+                                    .find("issuingTicketId", ticketId).list();
+                    for (com.intermarche.pos.domain.StoredValue card : issued) {
+                        ticketPrinterService.printGiftCardVoucher(card.number, card.initialAmount);
+                    }
                 }
             }
 

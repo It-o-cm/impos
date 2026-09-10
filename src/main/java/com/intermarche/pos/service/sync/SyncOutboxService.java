@@ -160,6 +160,12 @@ public class SyncOutboxService {
                     yield event == null ? null
                             : new PreparedItem("event", objectMapper.writeValueAsString(toDto(event)));
                 }
+                case CUSTOMER -> {
+                    com.intermarche.pos.domain.AccountCustomer customer =
+                            com.intermarche.pos.domain.AccountCustomer.findById(row.entityId);
+                    yield customer == null ? null
+                            : new PreparedItem("customer", objectMapper.writeValueAsString(toDto(customer)));
+                }
             };
         } catch (Exception e) {
             LOG.errorf("Préparation sync impossible (outbox %d): %s", outboxId, e.getMessage());
@@ -259,6 +265,7 @@ public class SyncOutboxService {
      */
     private SyncPayloads.TicketDto toDto(Ticket ticket) {
         SyncPayloads.TicketDto dto = new SyncPayloads.TicketDto();
+        dto.formattedContent = ticket.formattedContent;
         dto.ticketNumber = ticket.ticketNumber;
         dto.terminalId = ticket.terminalId;
         dto.status = ticket.status.name();
@@ -320,6 +327,24 @@ public class SyncOutboxService {
                 paymentDto.authorizationNumber = card.authorizationNumber;
                 paymentDto.degradedMode = card.degradedMode;
             }
+            if (payment instanceof com.intermarche.pos.domain.ticket.ChequePayment cheque) {
+                paymentDto.magneticLine = cheque.magneticLine;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment secours) {
+                paymentDto.backupMethodLabel = secours.methodLabel;
+                paymentDto.backupTransaction = secours.transactionNumber;
+                paymentDto.backupManual = secours.manual;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+                paymentDto.currencyCode = devise.currencyCode;
+                paymentDto.currencyAmount = devise.foreignAmount;
+                paymentDto.currencyRate = devise.exchangeRate;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+                paymentDto.creditAccountNumber = credit.accountNumber;
+                paymentDto.creditAccountName = credit.accountName;
+                paymentDto.creditOverLimit = credit.overLimit;
+            }
             dto.payments.add(paymentDto);
         }
         return dto;
@@ -355,6 +380,31 @@ public class SyncOutboxService {
             lineDto.vatRate = line.vatRate;
             dto.lines.add(lineDto);
         }
+        return dto;
+    }
+
+    /**
+     * Builds the payload of an account customer created at the register
+     * (LC-08-04-09).
+     *
+     * @param customer the customer to declare
+     * @return the payload
+     */
+    private SyncPayloads.CustomerDto toDto(com.intermarche.pos.domain.AccountCustomer customer) {
+        SyncPayloads.CustomerDto dto = new SyncPayloads.CustomerDto();
+        dto.accountNumber = customer.accountNumber;
+        dto.companyName = customer.companyName;
+        dto.lastName = customer.lastName;
+        dto.firstName = customer.firstName;
+        if (customer.address != null) {
+            dto.street = customer.address.streetLine1;
+            dto.postalCode = customer.address.postalCode;
+            dto.city = customer.address.city;
+        }
+        dto.siret = customer.siret;
+        dto.vatNumber = customer.vatNumber;
+        dto.phone = customer.phone;
+        dto.email = customer.email;
         return dto;
     }
 

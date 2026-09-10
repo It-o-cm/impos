@@ -83,18 +83,68 @@ class AdminSettingsResourceTest {
         verify(resource.adminSettings).data(eq("entries"), captor.capture());
         List<AdminSettingsResource.Entry> entries =
                 (List<AdminSettingsResource.Entry>) captor.getValue();
-        assertEquals(24, entries.size());
-        boolean[] firstOfSection = {true, true, true, false, false, false, false, true, false, false,
-                true, true, true, false, true, false, true, true, true, false, true, false, true, false};
-        boolean[] bool = {true, false, true, false, false, true, true, false, false, true,
-                true, true, false, false, true, true, true, true, true, true, false, false, false, false};
-        boolean[] integer = {false, true, false, true, true, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false, false, false, true, false};
-        for (int i = 0; i < entries.size(); i++) {
-            assertEquals(firstOfSection[i], entries.get(i).firstOfSection, "firstOfSection#" + i);
-            assertEquals(bool[i], entries.get(i).bool, "bool#" + i);
-            assertEquals(integer[i], entries.get(i).integer, "integer#" + i);
-            assertEquals("V", entries.get(i).value);
+        // Expected BY KEY, not by position. Three parallel boolean arrays indexed
+        // by catalog rank meant that adding one parameter — and the register adds
+        // them by the handful — shifted every expectation after it and the test
+        // failed on entries it was not about. A new parameter is one line here.
+        String[][] expected = {
+            //  key                                   section                      bool   integer
+            {"display.show-ean",                    "AFFICHAGE",                  "b", ""},
+            {"auth.idle-lockout-seconds",           "SESSION CAISSE",             "",  "i"},
+            {"gesture.endorsement-required",        "GESTES DE PRIX",             "b", ""},
+            {"discount.line-max-percent",           "GESTES DE PRIX",             "",  "i"},
+            {"discount.global-max-percent",         "GESTES DE PRIX",             "",  "i"},
+            {"discount.enabled",                    "GESTES DE PRIX",             "b", ""},
+            {"price.show-original-on-force",        "GESTES DE PRIX",             "b", ""},
+            {"customer.message-open",               "AFFICHEUR CLIENT",           "",  ""},
+            {"customer.message-closed",             "AFFICHEUR CLIENT",           "",  ""},
+            {"customer.qr-enabled",                 "AFFICHEUR CLIENT",           "b", ""},
+            {"parking.print-receipt",               "TICKETS",                    "b", ""},
+            {"ticket.email-format",                 "TICKETS",                    "",  ""},
+            {"ticket.email-editable",               "TICKETS",                    "b", ""},
+            {"ticket.line-order",                   "TICKETS",                    "",  ""},
+            {"print.conditional-enabled",           "IMPRESSION CONDITIONNELLE",  "b", ""},
+            {"print.forced-documents",              "IMPRESSION CONDITIONNELLE",  "",  ""},
+            {"print.force-ticket-glc",              "IMPRESSION CONDITIONNELLE",  "b", ""},
+            {"print.force-card-credit",             "IMPRESSION CONDITIONNELLE",  "b", ""},
+            {"print.force-card-signature",          "IMPRESSION CONDITIONNELLE",  "b", ""},
+            {"print.force-card-tna",                "IMPRESSION CONDITIONNELLE",  "b", ""},
+            {"payment.degraded-mode",               "MONÉTIQUE",                  "b", ""},
+            {"payment.degraded-forced-endorsement", "MONÉTIQUE",                  "b", ""},
+            {"payment.degraded-forced-minutes",     "MONÉTIQUE",                  "",  "i"},
+            {"ticket.header-message",               "MESSAGES TICKET",            "",  ""},
+            {"ticket.footer-message",               "MESSAGES TICKET",            "",  ""},
+            {"drawer.open-on-payment",              "TIROIR",                     "b", ""},
+            {"drawer.open-on-login",                "TIROIR",                     "b", ""},
+            {"backup.manual-endorsement",           "SECOURS MONETIQUE",          "b", ""},
+            {"backup.method-labels",                "SECOURS MONETIQUE",          "",  ""},
+            {"balance.counter-price",               "TICKET COMPTOIR",            "b", ""},
+            {"cash.rounding-step-cents",            "ARRONDI ESPECES",            "",  "i"},
+            {"credit.allowed-in-degraded",          "CREDIT CLIENT",              "b", ""},
+            {"credit.degraded-after-minutes",       "CREDIT CLIENT",              "",  "i"},
+            {"scan.ean13-check-digit",              "SCAN",                       "b", ""},
+            {"dashboard.alerts-enabled",            "SUPERVISION",                "b", ""},
+            {"fidelity.advantages-enabled",         "FIDÉLITÉ",                   "b", ""},
+            {"fidelity.allow-multiple-scan",        "FIDÉLITÉ",                   "b", ""},
+            {"cash.movement-endorsement-threshold", "MOUVEMENTS DE CAISSE",       "",  ""},
+            {"cash.movement-reasons",               "MOUVEMENTS DE CAISSE",       "",  ""},
+            {"invoice.customer-fields",             "FACTURE",                    "",  ""},
+            {"touch.groups-per-page",               "TOUCHES CAISSE",             "",  "i"},
+            {"touch.display-order",                 "TOUCHES CAISSE",             "",  ""},
+        };
+        assertEquals(expected.length, entries.size());
+        String previousSection = null;
+        for (int i = 0; i < expected.length; i++) {
+            AdminSettingsResource.Entry entry = entries.get(i);
+            assertEquals(expected[i][0], entry.key, "key#" + i);
+            assertEquals(expected[i][1], entry.section, "section#" + i);
+            assertEquals("b".equals(expected[i][2]), entry.bool, "bool#" + entry.key);
+            assertEquals("i".equals(expected[i][3]), entry.integer, "integer#" + entry.key);
+            // A card opens on every section change and only there.
+            assertEquals(!expected[i][1].equals(previousSection), entry.firstOfSection,
+                    "firstOfSection#" + entry.key);
+            previousSection = expected[i][1];
+            assertEquals("V", entry.value);
         }
         verify(instance).data("notice", "hi");
         verify(instance).data("noticeOk", false);

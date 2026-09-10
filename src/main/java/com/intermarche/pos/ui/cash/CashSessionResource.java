@@ -43,6 +43,8 @@ import java.net.URI;
 public class CashSessionResource {
 
     @Inject @Location("session") Template session;
+    /** The X report, read on screen before it is asked for on paper. */
+    @Inject @Location("session-report") Template sessionReportPage;
     @Inject CashSessionService cashSessionService;
     @Inject TicketPrinterService ticketPrinterService;
     @Inject TechnicalEventService technicalEventService;
@@ -98,9 +100,34 @@ public class CashSessionResource {
     }
 
     /**
-     * Prints an X report (read-only snapshot) of the open session.
+     * SHOWS the X report of the open session (read-only snapshot).
      *
-     * @return a redirect to the session page
+     * <p>An X is a READING: its whole purpose is to look at where the session stands
+     * — mid-shift check, handover between cashiers, control before a withdrawal. It
+     * used to exist as a print alone, so an operator pressing the key saw nothing at
+     * all, and nothing whatsoever on a register whose printer is out of paper. The
+     * paper is now what one asks for AFTER reading, not instead of it.
+     *
+     * <p>Nothing is journalled here: a reading on screen is not an edition. The
+     * journal entry belongs to the print, which is the copy that leaves the register.
+     *
+     * @return the report page, or a redirect to the session page when none is open
+     */
+    @GET
+    @Path("/session/x-report")
+    @Produces(MediaType.TEXT_HTML)
+    public Object showXReport() {
+        CashSession current = cashSessionService.getOpenSession();
+        if (current == null) {
+            return Response.seeOther(URI.create("/session?error=no-session")).build();
+        }
+        return sessionReportPage.data("report", cashSessionService.buildReport(current));
+    }
+
+    /**
+     * Prints the X report of the open session, from the report screen.
+     *
+     * @return a redirect back to the report page
      */
     @GET
     @Path("/action/session/x-report")
@@ -112,7 +139,7 @@ public class CashSessionResource {
         CashSessionService.SessionReport report = cashSessionService.buildReport(current);
         ticketPrinterService.printSessionReport(report);
         technicalEventService.log(TechnicalEvent.EventType.X_REPORT_PRINTED, current.sessionNumber);
-        return Response.seeOther(URI.create("/session")).build();
+        return Response.seeOther(URI.create("/session/x-report")).build();
     }
 
     /**

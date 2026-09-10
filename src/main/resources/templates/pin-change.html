@@ -17,27 +17,32 @@
             display: grid; grid-template-rows: 60px 1fr 80px;
             overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
         }
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
         .main-area { display: grid; grid-template-columns: 1.5fr 1fr; }
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: flex; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: flex; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
+        /* The popup's opaque half: the glass shows the register behind, this
+           carries what is being asked. HEIGHT-NEUTRAL on purpose — glass ring
+           10 + border 2 + padding 8 restores exactly the 20 px the overlay used
+           to inset its content by: the lock and PIN screens filled their 556 px
+           to the pixel, and any wider frame would have pushed them out. It
+           inherits the column flow the overlay used to hold directly, so the
+           children below are unchanged. */
+        .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
         .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
-        .overlay-title { font-size: 1.5rem; }
-        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; text-decoration: none; }
+        .overlay-title { font-size: var(--fs-title); }
         .pin-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 760px; margin: 0 auto; padding-top: 10px; }
         .pin-fields { display: flex; flex-direction: column; gap: 14px; justify-content: center; }
-        .pin-field-label { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .pin-display { width: 100%; font-size: 2rem; text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 3px solid var(--border-color); border-radius: 8px; padding: 10px; letter-spacing: 8px; cursor: pointer; transition: border-color 0.2s; }
+        .pin-field-label { font-size: var(--fs-label); color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .pin-display { width: 100%; font-size: var(--fs-field-num); text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 3px solid var(--border-color); border-radius: 8px; padding: 10px; letter-spacing: 8px; cursor: pointer; transition: border-color 0.2s; }
         .pin-display.active { border-color: var(--primary); }
         .pin-keyboard-area { min-height: 220px; display: flex; flex-direction: column; }
         .pin-actions { grid-column: 1 / -1; display: flex; gap: 15px; justify-content: center; margin-top: 10px; }
-        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; text-align: center; }
-        .btn:active { transform: translateY(4px); box-shadow: none; }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
         .btn:disabled:active { transform: none; }
-        .error-box { grid-column: 1 / -1; background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; font-size: 1rem; border-radius: 6px; text-align: center; }
-        .success-box { grid-column: 1 / -1; background: rgba(0, 200, 83, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; font-size: 1rem; border-radius: 6px; text-align: center; }
+        .error-box { grid-column: 1 / -1; background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; font-size: var(--fs-body); border-radius: 6px; text-align: center; }
+        .success-box { grid-column: 1 / -1; background: rgba(0, 200, 83, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; font-size: var(--fs-body); border-radius: 6px; text-align: center; }
     </style>
 </head>
 <body data-theme="{posTheme}">
@@ -52,9 +57,10 @@
     <div class="bottom-nav"></div>
 
     <div class="overlay" id="pinScreen">
+        <div class="overlay-panel">
         <div class="overlay-header">
             <div class="overlay-title">CHANGER MON CODE PIN</div>
-            <a href="/" class="close-btn">&times;</a>
+            
         </div>
 
         <form action="/action/pin-change" method="POST" id="pinForm" class="pin-body">
@@ -85,11 +91,16 @@
 
             <div class="pin-keyboard-area" id="pinKeyboardArea"></div>
 
+            <!-- UNE seule sortie : btnSecondary, qui s'appelle RETOUR tant que rien
+                 n'est saisi et ANNULER dès qu'un chiffre l'est. La passe de
+                 navigation lui en avait ajouté une deuxième, identique, à gauche —
+                 deux touches RETOUR sur la même rangée. -->
             <div class="pin-actions">
-                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:220px;" disabled>VALIDER</button>
                 <a href="/" id="btnSecondary" class="btn btn-muted" style="width:220px;">RETOUR</a>
+                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:220px;" disabled>VALIDER</button>
             </div>
         </form>
+        </div>
     </div>
 </div>
 

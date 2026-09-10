@@ -39,6 +39,23 @@ public final class RefPayloads {
         public int displayOrder;
         /** The sales volume for the volume order (BO-03-01-13). */
         public long salesVolume;
+        /**
+         * The codes of the families this one hangs under (BO-03-01-01).
+         * <p>
+         * A LIST, not a single parent: the model allows a family to hang under
+         * several, and picking one would invent a rule the product has never
+         * written. Empty for a root family.
+         */
+        public java.util.List<String> parentCodes = new java.util.ArrayList<>();
+        /**
+         * The EANs of the articles this family contains (BO-03-01-04/16).
+         * <p>
+         * Carried here rather than on the article, because the family owns the
+         * association. Without it the register receives flat, empty groups —
+         * the touch grid of a freshly pulled register would show buttons with
+         * nothing behind them.
+         */
+        public java.util.List<String> productEans = new java.util.ArrayList<>();
     }
 
     /**
@@ -77,6 +94,8 @@ public final class RefPayloads {
         public String checkoutLabel;
         /** The internal code, or null (BO-02-03-04). */
         public String internalCode;
+        /** True when the product is sold loose (bulk), weight known only at weighing time. */
+        public boolean variableWeight;
         /**
          * The declared attributes, code&nbsp;→&nbsp;text value (BO-02-03-18).
          * A {@link TreeMap} so JSON and the canonical fingerprint are ordered
@@ -237,5 +256,62 @@ public final class RefPayloads {
         public boolean active;
         /** Whether the type is a deposit-return line type. */
         public boolean depositLine;
+    }
+
+    /**
+     * An account customer as the commercial management holds it, pulled by the
+     * register ({@code LC-07-09}).
+     *
+     * <p>The register can CREATE such a customer at the till (the invoice flow does)
+     * and pushes it upward on the outbox, but the credit ceiling and the outstanding
+     * balance travel the other way only: they are the shop's figures, and a register
+     * that could raise its own ceiling would not be a control.
+     */
+    public static class CustomerDto {
+        /** The account number (upsert key). */
+        public String accountNumber;
+        /** The business name. */
+        public String companyName;
+        /** The contact's family name, or null. */
+        public String lastName;
+        /** The contact's given name, or null. */
+        public String firstName;
+        /** The street line of the billing address, or null. */
+        public String street;
+        /** The postal code of the billing address, or null. */
+        public String postalCode;
+        /** The city of the billing address, or null. */
+        public String city;
+        /** The SIRET, or null. */
+        public String siret;
+        /** The intra-community VAT number, or null. */
+        public String vatNumber;
+        /** The telephone number, or null. */
+        public String phone;
+        /** The electronic address, or null. */
+        public String email;
+        /** The administered credit ceiling, or null when credit is not granted. */
+        public String creditLimit;
+        /** The outstanding balance, or null for none. */
+        public String creditBalance;
+    }
+
+    /**
+     * A foreign currency the shop accepts, with the rate it applies
+     * ({@code LC-07-14}).
+     */
+    public static class CurrencyDto {
+        /** The ISO code (upsert key). */
+        public String code;
+        /** The name shown to the cashier. */
+        public String label;
+        /** The symbol printed beside an amount, or null. */
+        public String symbol;
+        /** How many euros one unit is worth, as text to keep the row canonical. */
+        public String euroPerUnit;
+        /** Whether the till offers it. */
+        public boolean active;
+        /** The order it appears in on the payment screen. */
+        public int displayOrder;
     }
 }

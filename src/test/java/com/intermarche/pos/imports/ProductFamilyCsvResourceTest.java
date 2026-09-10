@@ -176,7 +176,10 @@ class ProductFamilyCsvResourceTest {
         ProductFamily s2 = family("S2");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             panache.when(() -> ProductFamily.list(CODE_QUERY, targetCodes)).thenReturn(List.of(f1));
-            panache.when(() -> Product.list(EAN_QUERY, eans)).thenReturn(List.of(p111, p222));
+            // The EAN lookup is BATCHED (productsByEan): the IN clause receives a
+            // List built by iterating the set, not the set itself.
+            panache.when(() -> Product.list(EAN_QUERY, new ArrayList<>(eans)))
+                    .thenReturn(List.of(p111, p222));
             panache.when(() -> ProductFamily.list(CODE_QUERY, subCodes)).thenReturn(List.of(s1, s2));
             Map<String, Object> context = resource.processChunkWithFallback(lines, targetCodes, new int[]{0, 0}, new ArrayList<>());
             assertSame(f1, context.get("F1"));

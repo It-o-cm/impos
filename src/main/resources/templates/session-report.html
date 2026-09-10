@@ -1,0 +1,103 @@
+{!
+ ! The X report, ON SCREEN.
+ !
+ ! An X is a READING — where the session stands right now — so it is shown before it
+ ! is printed: mid-shift check, handover between two cashiers, control before a
+ ! withdrawal. The paper is what one asks for after reading, never instead of it.
+ ! Same SessionReport as the printed version, so the two cannot disagree.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Rapport X</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid var(--border-strong); border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+
+        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 20px; gap: 10px; }
+        .lead { color: var(--text-muted); font-size: var(--fs-body); flex-shrink: 0; }
+
+        /* Two columns: the session's identity and its takings on the left, the
+           settlement detail on the right — the two things one compares. */
+        .work { flex: 1; display: flex; gap: 20px; min-height: 0; }
+        .col { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        .col-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid var(--border-strong); flex-shrink: 0; }
+        .rows { flex: 1; overflow: hidden; }
+        .row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 2px; border-bottom: 1px dashed var(--border-strong); font-size: var(--fs-row); }
+        .row .label { color: var(--text-muted); }
+        .row .value { font-weight: bold; }
+        .row.strong .value { color: var(--success); font-size: var(--fs-amount); }
+        .row.cash .value { color: var(--warning); font-size: var(--fs-amount); }
+        .empty { color: var(--text-muted); padding: 14px 2px; font-size: var(--fs-body); }
+
+        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        /* The application's button base, declared verbatim as every screen does; the
+           theme include supplies the colour modifiers alone. */
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+
+    <div class="top-bar">
+        <span class="store-name">RAPPORT X — LECTURE</span>
+        <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+        <div class="lead">
+            Où en est la session à cet instant. Une lecture ne clôt rien et ne remet aucun
+            compteur à zéro : on peut la reprendre autant de fois qu'on veut. La clôture,
+            c'est le rapport Z.
+        </div>
+
+        <div class="work">
+            <div class="col">
+                <div class="col-title">Session</div>
+                <div class="rows">
+                    <div class="row"><span class="label">Numéro</span><span class="value">{report.session.sessionNumber}</span></div>
+                    <div class="row"><span class="label">Caisse</span><span class="value">{report.session.terminalId}</span></div>
+                    <div class="row"><span class="label">Ouverte le</span><span class="value">{report.session.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
+                    <div class="row"><span class="label">Tickets clos</span><span class="value">{report.ticketCount}</span></div>
+                    <div class="row strong"><span class="label">CA TTC</span><span class="value">{report.totalIncludingTaxFormatted} €</span></div>
+                    <div class="row"><span class="label">Remboursements</span><span class="value">{report.totalRefundsFormatted} €</span></div>
+                </div>
+            </div>
+
+            <div class="col">
+                <div class="col-title">Règlements</div>
+                <div class="rows">
+                    {#if report.methodRows.isEmpty()}
+                        <div class="empty">Aucun règlement encaissé depuis l'ouverture.</div>
+                    {#else}
+                        {#for row in report.methodRows}
+                        <div class="row"><span class="label">{row.method}</span><span class="value">{row.amountFormatted} €</span></div>
+                        {/for}
+                    {/if}
+                    <div class="row"><span class="label">Fond de caisse</span><span class="value">{report.session.openingFloatFormatted} €</span></div>
+                    <div class="row"><span class="label">Mouvements nets</span><span class="value">{report.netCashMovementsFormatted} €</span></div>
+                    <div class="row cash"><span class="label">Espèces théoriques</span><span class="value">{report.theoreticalCashFormatted} €</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bottom-nav">
+        <a href="/session" class="btn btn-muted">RETOUR SESSION</a>
+        <a href="/action/session/x-report" class="btn btn-primary">IMPRIMER LE RAPPORT X</a>
+    </div>
+</div>
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+</script>
+</body>
+</html>

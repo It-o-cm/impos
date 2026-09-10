@@ -18,8 +18,8 @@
       display: grid; grid-template-rows: 60px 1fr 45px 80px;
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
     }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
-    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
 
     .main-area { display: flex; flex-direction: column; overflow: hidden; }
 
@@ -27,14 +27,14 @@
       padding: 15px 20px; background: var(--bg-panel);
       border-bottom: 1px solid var(--border-strong); text-align: center;
     }
-    .ticket-title { font-size: 1.4rem; font-weight: bold; color: var(--text-main); }
-    .ticket-date { color: var(--text-muted); font-size: 0.9rem; margin-top: 5px; }
+    .ticket-title { font-size: var(--fs-title); font-weight: bold; color: var(--text-main); }
+    .ticket-date { color: var(--text-muted); font-size: var(--fs-row-sub); margin-top: 5px; }
 
-    .receipt-area { flex: 1; overflow-y: auto; padding: 15px; background: var(--bg-dark); }
+    .receipt-area { flex: 1; overflow: hidden; padding: 15px; background: var(--bg-dark); }
 
     .receipt-item {
       display: flex; justify-content: space-between; align-items: center;
-      font-size: 1.1rem; border-bottom: 1px dashed var(--border-strong);
+      font-size: var(--fs-row); border-bottom: 1px dashed var(--border-strong);
       padding: 10px 0; color: var(--text-main);
     }
     .item-label { flex: 1; }
@@ -44,8 +44,8 @@
     .item-price { color: var(--success); font-weight: bold; min-width: 80px; text-align: right; }
 
     .total-line { border-top: 2px solid white; padding-top: 15px; margin-top: 15px; border-bottom: none; }
-    .total-label { font-weight: bold; font-size: 1.2rem; }
-    .total-price { font-weight: bold; font-size: 1.4rem; }
+    .total-label { font-weight: bold; font-size: var(--fs-label); }
+    .total-price { font-weight: bold; font-size: var(--fs-amount); }
 
     .ticket-nav {
       display: flex; justify-content: space-between; align-items: center;
@@ -53,16 +53,20 @@
       margin: 0 10px; flex-shrink: 0;
     }
     .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
-    .nav-info { color: var(--text-muted); font-size: 0.9rem; }
+    .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
 
     .bottom-nav {
       background-color: var(--bg-page); border-top: 1px solid var(--border-color);
       display: flex; justify-content: center; gap: 20px; align-items: center; padding: 0 20px;
     }
 
-    .btn { padding: 15px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; }
-    .btn:active { transform: translateY(4px); box-shadow: none; }
-    .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+    /* Bon pour échange : les lignes deviennent des cibles tactiles marquées, et
+       aucun montant n'apparaît — c'est tout l'objet du bon. */
+    .exchange-row { text-decoration: none; color: inherit; cursor: pointer; }
+    .exchange-row.on { background-color: rgba(0,200,83,0.18); }
+    .exchange-mark { display: inline-block; width: 22px; color: var(--success); font-weight: bold; }
+    .exchange-note { color: var(--text-muted); font-size: var(--fs-row-sub); font-weight: normal; }
+
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -81,20 +85,39 @@
     </div>
 
     <div class="receipt-area">
-      {#for line in state.reprint.visibleLines}
-        <div class="receipt-item">
-          <div class="item-label">
-            <span class="item-qty">{line.formattedQuantity}</span>
-            {line.productLabel}
+      {#if state.reprint.exchangeMode}
+        {#for line in state.reprint.visibleLines}
+          <a class="receipt-item exchange-row {#if state.reprint.isSelected(line.id)}on{/if}"
+             href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/toggle/{line.id}">
+            <div class="item-label">
+              <span class="exchange-mark">{#if state.reprint.isSelected(line.id)}&#10003;{#else}&nbsp;{/if}</span>
+              <span class="item-qty">{line.formattedQuantity}</span>
+              {line.productLabel}
+            </div>
+          </a>
+        {/for}
+        <div class="receipt-item total-line">
+          <div class="item-label total-label">
+            {#if state.reprint.wholeTicketExchange}TOUT LE TICKET{#else}ARTICLES CHOISIS : {state.reprint.exchangeSelection.size}{/if}
           </div>
-          <span class="item-price">{line.totalFormatted} €</span>
+          <span class="item-price exchange-note">aucun montant sur le bon</span>
         </div>
-      {/for}
+      {#else}
+        {#for line in state.reprint.visibleLines}
+          <div class="receipt-item">
+            <div class="item-label">
+              <span class="item-qty">{line.formattedQuantity}</span>
+              {line.productLabel}
+            </div>
+            <span class="item-price">{line.totalFormatted} €</span>
+          </div>
+        {/for}
 
-      <div class="receipt-item total-line">
-        <div class="item-label total-label">TOTAL TTC</div>
-        <span class="item-price total-price">{state.reprint.viewedTicket.totalFormatted} €</span>
-      </div>
+        <div class="receipt-item total-line">
+          <div class="item-label total-label">TOTAL TTC</div>
+          <span class="item-price total-price">{state.reprint.viewedTicket.totalFormatted} €</span>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -115,8 +138,14 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/reprint" class="btn btn-muted">RETOUR LISTE</a>
-    <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">IMPRIMER</a>
+    {#if state.reprint.exchangeMode}
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/cancel" class="btn btn-muted">ANNULER</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/print" class="btn btn-success">IMPRIMER LE BON</a>
+    {#else}
+      <a href="/reprint" class="btn btn-muted">RETOUR LISTE</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange" class="btn btn-muted">BON POUR ÉCHANGE</a>
+      <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">IMPRIMER</a>
+    {/if}
   </div>
 </div>
 

@@ -16,8 +16,8 @@
     }
 
     /* Header & Footer Layout */
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
-    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
     .main-area { display: grid; grid-template-columns: 1.5fr 1fr; background-color: var(--bg-dark); }
 
@@ -32,15 +32,11 @@
     }
 
     .error-icon { font-size: 5rem; animation: pulse 1.5s infinite; text-shadow: 0 0 20px var(--danger); }
-    .error-title { font-size: 3.2rem; color: var(--danger); font-weight: bold; text-align: center; line-height: 1.1; text-transform: uppercase; letter-spacing: 2px; }
-    .error-sub { color: #ddd; font-size: 1.3rem; text-align: center; max-width: 600px; }
+    .error-title { font-size: var(--fs-total-xl); color: var(--danger); font-weight: bold; text-align: center; line-height: 1.1; text-transform: uppercase; letter-spacing: 2px; }
+    .error-sub { color: #ddd; font-size: var(--fs-section); text-align: center; max-width: 600px; }
 
     /* Bouton Reprendre */
-    .btn {
-      padding: 18px 50px; font-size: 1.4rem; border-radius: 8px;
-      font-weight: bold; border: none; cursor: pointer; text-transform: uppercase;
-      text-decoration: none; display: inline-block;
-    }
+    .btn { display: inline-block; }
     .btn-warning:active { transform: translateY(4px); box-shadow: none; }
 
     @keyframes pulse {

@@ -41,11 +41,21 @@ public class PaymentResource {
     @Inject
     TicketPrinterService ticketPrinterService;
     @Inject PosState state;
+    /** The back-office parameters read by the payment page (LC-07-07-09). */
+    @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
 
     /** Ticket lifecycle service — used by the payment-phase ticket abandon. */
     @Inject com.intermarche.pos.ui.ticket.TicketService ticketService;
     /** Loyalty lease renewal on payment-screen refresh (imfid lot 2). */
     @Inject com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
+    /** The conditional-printing rule — drives the end-of-transaction choice (LC-08-03). */
+    @Inject com.intermarche.pos.ui.hardware.PrintPolicy printPolicy;
+    /** The customer-credit panel of the payment screen (LC-07-09). */
+    @Inject CreditClientService creditClientService;
+    /** The foreign-currency panel of the payment screen (LC-07-14). */
+    @Inject ForeignCurrencyService foreignCurrencyService;
+    /** The backup-monetics panel of the payment screen (LC-07-07-06/09). */
+    @Inject BackupPaymentService backupPaymentService;
 
     /**
      * Shows the payment page, creating the draft ticket on first entry.
@@ -63,7 +73,12 @@ public class PaymentResource {
         state.payment.temporaryInput = "0,00";
         return pay.data("state", state)
                 .data("couponTypes", CouponType.listActivePaymentTypes())
-                .data("digitalPath", digitalPath());
+                .data("currencies", foreignCurrencyService.listCurrencies())
+                .data("backupEndorsement", posSettingsService.backupManualEndorsement())
+                .data("digitalPath", digitalPath())
+                .data("printConditional", printPolicy.isConditionalEnabled())
+                .data("printChoices",
+                        java.util.List.of(com.intermarche.pos.ui.hardware.PrintChoice.values()));
     }
 
     /**
@@ -87,6 +102,18 @@ public class PaymentResource {
     @Path("/action/card-cancel")
     public Response cancelPendingCard() {
         paymentService.cancelPendingCard(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Cancels the pending cheque reading from the register.
+     *
+     * @return a redirect back to the payment page
+     */
+    @GET
+    @Path("/action/cheque-cancel")
+    public Response cancelPendingCheque() {
+        paymentService.cancelPendingCheque(state);
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -198,6 +225,257 @@ public class PaymentResource {
         state.payment.clearPendingVoucher();
         state.payment.voucherPanelOpen = true;
         state.touch();
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    // --------------------------------------------------
+    // Backup monetics (LC-07-07-06/09)
+    // --------------------------------------------------
+
+    /**
+     * Opens the backup-monetics panel and emits the request QR code
+     * (LC-07-07-06/07).
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/backup-open")
+    public Response openBackupPanel() {
+        backupPaymentService.openPanel(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Closes the backup-monetics panel, abandoning the pending request.
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/backup-cancel")
+    public Response closeBackupPanel() {
+        backupPaymentService.closePanel(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Validates the answer scanned off the mobile terminal (LC-07-07-08).
+     *
+     * @param payload the scanned text
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/backup-scan")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response validateBackupScan(@FormParam("payload") String payload) {
+        backupPaymentService.validateScanned(state, payload);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Switches the panel to keying the outcome in, for a till whose scanner cannot
+     * read 2D codes (LC-07-07-09).
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/backup-manual")
+    public Response openBackupManualEntry() {
+        state.payment.backupManualEntry = true;
+        state.payment.backupError = null;
+        state.touch();
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Registers the amount the operator keyed in (LC-07-07-09).
+     *
+     * @param amountStr the amount the mobile terminal accepted
+     * @param login the supervisor's login, when one is required
+     * @param password the supervisor's password
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-backup")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doBackupPayment(@FormParam("amount") String amountStr,
+            @FormParam("login") String login, @FormParam("password") String password) {
+        backupPaymentService.validateManually(state, parseAmount(amountStr), login, password);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    // --------------------------------------------------
+    // Foreign currency (LC-07-14)
+    // --------------------------------------------------
+
+    /**
+     * Opens the foreign-currency panel over the payment screen.
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/currency-open")
+    public Response openCurrencyPanel() {
+        foreignCurrencyService.openPanel(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Closes the foreign-currency panel without settling anything.
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/currency-cancel")
+    public Response closeCurrencyPanel() {
+        foreignCurrencyService.closePanel(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Selects the currency the customer is paying in, which reveals the rate and
+     * the amount due in that currency (LC-07-14-04).
+     *
+     * @param code the ISO code of the selected currency
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/currency-select")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response selectCurrency(@FormParam("code") String code) {
+        foreignCurrencyService.selectCurrency(state, code);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Registers a settlement handed over in the selected currency (LC-07-14-03).
+     *
+     * @param amountStr the amount handed over, in that currency
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-currency")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doCurrencyPayment(@FormParam("amount") String amountStr) {
+        foreignCurrencyService.processCurrency(state, parseAmount(amountStr));
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    // --------------------------------------------------
+    // Customer credit (LC-07-09)
+    // --------------------------------------------------
+
+    /**
+     * Opens the customer-credit panel over the payment screen.
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-open")
+    public Response openCreditPanel() {
+        creditClientService.openPanel(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Closes the customer-credit panel without settling anything.
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-cancel")
+    public Response closeCreditPanel() {
+        creditClientService.closePanel(state);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Names the account by its number (LC-07-09-02).
+     *
+     * @param number the account number typed by the cashier
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-number")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response selectCreditAccountByNumber(@FormParam("number") String number) {
+        creditClientService.selectByNumber(state, number);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Looks accounts up by name (LC-07-09-07).
+     *
+     * @param search the name fragment typed by the cashier
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-search")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response searchCreditAccounts(@FormParam("search") String search) {
+        creditClientService.searchByName(state, search);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Names the account picked from the search results (LC-07-09-08).
+     *
+     * @param customerId the database id of the picked account
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-select")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response selectCreditAccount(@FormParam("customerId") String customerId) {
+        Long id = null;
+        try {
+            id = customerId == null ? null : Long.valueOf(customerId.trim());
+        } catch (NumberFormatException e) {
+            id = null;
+        }
+        creditClientService.selectById(state, id);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Charges the named account (LC-07-09-01/03).
+     *
+     * @param amountStr the amount typed by the cashier, blank for the whole due
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-credit")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doCreditPayment(@FormParam("amount") String amountStr) {
+        creditClientService.processCredit(state, parseAmount(amountStr));
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Lets a supervisor allow the account's ceiling to be passed (LC-07-09-04).
+     *
+     * @param login the supervisor's login
+     * @param password the supervisor's password
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-authorize")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response authorizeCreditOverLimit(@FormParam("login") String login,
+            @FormParam("password") String password) {
+        creditClientService.authorizeOverLimit(state, login, password);
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Gives up on the settlement held back for authorization, keeping the account
+     * named so a smaller amount can be typed (LC-07-09-04).
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/credit-authorize-cancel")
+    public Response cancelCreditOverLimit() {
+        creditClientService.cancelOverLimit(state);
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -348,6 +626,12 @@ public class PaymentResource {
      */
     @GET
     @Path("/action/finish")
+    // The drawer is OPEN at this exact moment on a cash sale, and closing the
+    // sale is not "selling on": the guard must not block it, or the cashier
+    // cannot finish and is sent back to the payment page once the drawer is
+    // shut. The guard still stands on the home page this redirects to, so no
+    // NEW sale starts with the drawer out.
+    @DrawerMayBeOpen
     public Response validatePayment() {
         paymentService.finalizeTransaction(state);
         return Response.seeOther(URI.create("/")).build();
@@ -392,6 +676,37 @@ public class PaymentResource {
             return Response.seeOther(URI.create("/pay")).build();
         }
         return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Applies the cashier's end-of-transaction printing choice (LC-08-03-01 to
+     * LC-08-03-06) and returns to the completion modal, which then shows the
+     * choice as applied.
+     * <p>
+     * In training nothing is persisted, so the choice can only produce the
+     * in-memory training receipt: it is printed when the choice asks for the
+     * sale ticket, and the choice is recorded so the buttons stop offering
+     * themselves — exactly as on a real sale.
+     *
+     * @param choice the raw choice name posted by the modal
+     * @return a 303 redirect to the payment page (PRG pattern, so a browser
+     *         reload never prints a second time)
+     */
+    @POST
+    @Path("/action/print-choice")
+    public Response applyPrintChoice(@FormParam("choice") String choice) {
+        com.intermarche.pos.ui.hardware.PrintChoice picked =
+                com.intermarche.pos.ui.hardware.PrintChoice.of(choice);
+        if (state.trainingMode) {
+            if (picked.isSaleTicket()) {
+                ticketPrinterService.printTrainingReceipt(state);
+            }
+            state.payment.printChoice = picked;
+            state.payment.printApplied = true;
+        } else {
+            paymentService.applyPrintChoice(state, picked);
+        }
+        return Response.seeOther(URI.create("/pay")).build();
     }
 
     /**

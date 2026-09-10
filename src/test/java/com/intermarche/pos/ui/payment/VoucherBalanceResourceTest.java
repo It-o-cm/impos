@@ -67,6 +67,9 @@ class VoucherBalanceResourceTest {
         TemplateInstance instance = mock(TemplateInstance.class);
         when(resource.voucherBalance.data(eq("state"), any())).thenReturn(instance);
         when(instance.data(eq("result"), any())).thenReturn(instance);
+        // The page echoes the consulted number back into the entry, so the chain
+        // carries one more link than it used to.
+        when(instance.data(eq("number"), any())).thenReturn(instance);
         return instance;
     }
 
@@ -93,7 +96,7 @@ class VoucherBalanceResourceTest {
         VoucherBalanceResource resource = newResource();
         TemplateInstance instance = wireTemplate(resource);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
-            assertSame(instance, resource.voucherBalancePage(null));
+            assertSame(instance, resource.voucherBalancePage(null, false));
             ms.verifyNoInteractions();
         }
         verify(instance).data("result", null);
@@ -108,7 +111,7 @@ class VoucherBalanceResourceTest {
         VoucherBalanceResource resource = newResource();
         TemplateInstance instance = wireTemplate(resource);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
-            assertSame(instance, resource.voucherBalancePage("   "));
+            assertSame(instance, resource.voucherBalancePage("   ", false));
             ms.verifyNoInteractions();
         }
         verify(instance).data("result", null);
@@ -123,7 +126,7 @@ class VoucherBalanceResourceTest {
         VoucherBalanceResource resource = newResource();
         Response response = resource.consult(" 2960001 ");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
-        assertEquals("/voucher-balance?number=2960001", response.getLocation().toString());
+        assertEquals("/voucher-balance?number=2960001&asked=true", response.getLocation().toString());
     }
 
     /**
@@ -135,7 +138,7 @@ class VoucherBalanceResourceTest {
         VoucherBalanceResource resource = newResource();
         Response response = resource.consult(null);
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
-        assertEquals("/voucher-balance?number=", response.getLocation().toString());
+        assertEquals("/voucher-balance?number=&asked=true", response.getLocation().toString());
     }
 
     /**
@@ -155,7 +158,7 @@ class VoucherBalanceResourceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> found = query(instrument);
             ms.when(() -> PanacheEntityBase.find("number", "2960001")).thenReturn(found);
-            resource.voucherBalancePage(" 2960001 ");
+            resource.voucherBalancePage(" 2960001 ", true);
         }
         VoucherBalanceResource.BalanceView view = capturedView(instance);
         assertTrue(view.found);
@@ -181,7 +184,7 @@ class VoucherBalanceResourceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> found = query(instrument);
             ms.when(() -> PanacheEntityBase.find("number", "0007")).thenReturn(found);
-            resource.voucherBalancePage("0007");
+            resource.voucherBalancePage("0007", true);
         }
         VoucherBalanceResource.BalanceView view = capturedView(instance);
         assertTrue(view.found);
@@ -201,7 +204,7 @@ class VoucherBalanceResourceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<StoredValue> none = query(null);
             ms.when(() -> PanacheEntityBase.find("number", "9999")).thenReturn(none);
-            resource.voucherBalancePage("9999");
+            resource.voucherBalancePage("9999", true);
         }
         VoucherBalanceResource.BalanceView view = capturedView(instance);
         assertFalse(view.found);
@@ -219,5 +222,65 @@ class VoucherBalanceResourceTest {
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
         verify(instance).data(eq("result"), captor.capture());
         return (VoucherBalanceResource.BalanceView) captor.getValue();
+    }
+
+    /**
+     * An EMPTY consultation is answered rather than ignored: the operator pressed the
+     * button, so the screen says what is missing instead of redrawing itself
+     * ({@code asked} true, number blank).
+     */
+    @Test
+    void blankConsultationIsAnswered() {
+        VoucherBalanceResource resource = newResource();
+        TemplateInstance instance = wireTemplate(resource);
+        org.mockito.ArgumentCaptor<VoucherBalanceResource.BalanceView> captor =
+                org.mockito.ArgumentCaptor.forClass(VoucherBalanceResource.BalanceView.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            assertSame(instance, resource.voucherBalancePage("", true));
+        }
+        verify(instance).data(eq("result"), captor.capture());
+        VoucherBalanceResource.BalanceView view = captor.getValue();
+        assertTrue(view.blank);
+        assertFalse(view.found);
+    }
+
+    /**
+     * A bare arrival — nobody pressed anything — shows no answer at all
+     * ({@code asked} false, number blank).
+     */
+    @Test
+    void bareArrivalShowsNoAnswer() {
+        VoucherBalanceResource resource = newResource();
+        TemplateInstance instance = wireTemplate(resource);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            assertSame(instance, resource.voucherBalancePage("", false));
+        }
+        verify(instance).data("result", null);
+    }
+
+    /**
+     * The consulted number is echoed back, trimmed, so the operator sees what was
+     * looked up instead of an emptied field.
+     */
+    @Test
+    void theConsultedNumberIsEchoedBack() {
+        VoucherBalanceResource resource = newResource();
+        TemplateInstance instance = wireTemplate(resource);
+        StoredValue instrument = new StoredValue();
+        instrument.number = "2960001";
+        instrument.kind = StoredValue.Kind.GIFT_CARD;
+        instrument.status = StoredValue.Status.ACTIVE;
+        instrument.balance = new BigDecimal("12.5");
+        // The lookup runs on a non-blank number: without the finder stubbed it
+        // resolves to a null query and the page throws before echoing anything
+        // back. The query is built BEFORE the finder is stubbed — query() stubs
+        // firstResult(), and a stubbing opened inside another one is what
+        // Mockito reports as unfinished.
+        PanacheQuery<StoredValue> found = query(instrument);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PanacheEntityBase.find("number", "2960001")).thenReturn(found);
+            resource.voucherBalancePage("  2960001  ", true);
+        }
+        verify(instance).data("number", "2960001");
     }
 }

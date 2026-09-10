@@ -32,6 +32,9 @@ public class ReprintResource {
     @Inject @Location("reprint-ticket") Template reprintTicketPage;
     @Inject @Location("reprint-ticket-detail") Template reprintDetailPage;
 
+    /** The mask naming a ticket held by another register (LC-08-05-05). */
+    @Inject @Location("reprint-foreign") Template reprintForeignPage;
+
     @GET
     @Produces(MediaType.TEXT_HTML)
     /**
@@ -133,5 +136,98 @@ public class ReprintResource {
     public Response doReprint(@PathParam("id") Long id) {
         reprintService.print(id);
         return Response.seeOther(URI.create("/reprint/view/" + id)).build();
+    }
+
+    /**
+     * Opens the bon-pour-échange preparation on the viewed ticket (LC-08-05-10).
+     *
+     * @param id the database id of the viewed ticket
+     * @return the reprint page on its detail view
+     */
+    @GET
+    @Path("/view/{id}/exchange")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance startExchange(@PathParam("id") Long id) {
+        if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            return showReprintDetail(id);
+        }
+        reprintService.startExchange();
+        return reprintDetailPage.data("state", state);
+    }
+
+    /**
+     * Leaves the bon-pour-échange preparation without printing.
+     *
+     * @param id the database id of the viewed ticket
+     * @return the reprint page on its detail view
+     */
+    @GET
+    @Path("/view/{id}/exchange/cancel")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance cancelExchange(@PathParam("id") Long id) {
+        reprintService.cancelExchange();
+        return showReprintDetail(id);
+    }
+
+    /**
+     * Names a line for the bon pour échange, or unnames it (LC-08-05-12).
+     *
+     * @param id the database id of the viewed ticket
+     * @param lineId the database id of the line touched
+     * @return the reprint page on its detail view
+     */
+    @GET
+    @Path("/view/{id}/exchange/toggle/{lineId}")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance toggleExchangeLine(@PathParam("id") Long id,
+            @PathParam("lineId") Long lineId) {
+        if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            return showReprintDetail(id);
+        }
+        reprintService.toggleExchangeLine(lineId);
+        return reprintDetailPage.data("state", state);
+    }
+
+    /**
+     * Prints the bon pour échange of the viewed ticket (LC-08-05-13).
+     *
+     * @param id the database id of the ticket
+     * @return a redirect to the detail view (PRG pattern, so a reload never prints a
+     *         second bon)
+     */
+    @GET
+    @Path("/view/{id}/exchange/print")
+    public Response printExchange(@PathParam("id") Long id) {
+        reprintService.printExchange(id);
+        return Response.seeOther(URI.create("/reprint/view/" + id)).build();
+    }
+
+    /**
+     * Opens the mask naming a ticket held by another register (LC-08-05-05).
+     *
+     * @return the foreign-duplicata page
+     */
+    @GET
+    @Path("/foreign")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance showForeign() {
+        reprintService.startForeign();
+        return reprintForeignPage.data("state", state);
+    }
+
+    /**
+     * Prints the duplicata of a ticket made on another register (LC-08-05-05).
+     *
+     * @param ticketNumber the number typed
+     * @return the foreign-duplicata page, carrying the failure when there was one
+     */
+    @jakarta.ws.rs.POST
+    @Path("/foreign")
+    @jakarta.ws.rs.Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance printForeign(
+            @jakarta.ws.rs.FormParam("ticketNumber") String ticketNumber) {
+        reprintService.printForeign(ticketNumber);
+        return reprintForeignPage.data("state", state);
     }
 }

@@ -65,6 +65,7 @@ class CashSessionResourceTest {
         resource.technicalEventService = mock(TechnicalEventService.class);
         resource.hardwareService = mock(HardwareService.class);
         resource.session = mock(Template.class);
+        resource.sessionReportPage = mock(Template.class);
         return resource;
     }
 
@@ -225,7 +226,8 @@ class CashSessionResourceTest {
 
     /**
      * {@code printXReport()} builds and prints the report, logs the event and
-     * redirects to the session page ({@code current == null} false arm).
+     * redirects BACK TO THE REPORT the operator was reading ({@code current == null}
+     * false arm).
      */
     @Test
     void printXReportPrintsAndLogs() {
@@ -236,7 +238,7 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(current);
         CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
         when(resource.cashSessionService.buildReport(current)).thenReturn(report);
-        assertRedirect(resource.printXReport(), "/session");
+        assertRedirect(resource.printXReport(), "/session/x-report");
         verify(resource.ticketPrinterService).printSessionReport(report);
         verify(resource.technicalEventService).log(TechnicalEvent.EventType.X_REPORT_PRINTED, "S-42");
     }
@@ -331,5 +333,40 @@ class CashSessionResourceTest {
         assertRedirect(resource.closeSession("100,50", "20", "{}"), "/lock");
         verify(resource.ticketPrinterService).printSessionReport(report);
         verify(resource.state).touch();
+    }
+
+    // --- showXReport ---
+
+    /**
+     * {@code showXReport()} renders the report of the open session and journals
+     * NOTHING: a reading on screen is not an edition ({@code current == null} false
+     * arm).
+     */
+    @Test
+    void showXReportRendersTheReport() {
+        CashSessionResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        CashSession current = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(current);
+        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
+        when(resource.cashSessionService.buildReport(current)).thenReturn(report);
+        TemplateInstance instance = mock(TemplateInstance.class);
+        when(resource.sessionReportPage.data("report", report)).thenReturn(instance);
+        assertSame(instance, resource.showXReport());
+        verifyNoInteractions(resource.ticketPrinterService);
+        verifyNoInteractions(resource.technicalEventService);
+    }
+
+    /**
+     * {@code showXReport()} sends the operator back to the session page when no
+     * session is open ({@code current == null} true arm).
+     */
+    @Test
+    void showXReportWithoutSessionRedirects() {
+        CashSessionResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(null);
+        assertRedirect((Response) resource.showXReport(), "/session?error=no-session");
+        verifyNoInteractions(resource.ticketPrinterService);
     }
 }

@@ -35,6 +35,33 @@ public class ReprintState implements Serializable {
     public Ticket viewedTicket = null;
     public int detailPage = 0;
 
+    /**
+     * True while the operator is preparing a BON POUR ECHANGE of the viewed ticket
+     * (LC-08-05-10): the detail rows become selectable instead of being read-only.
+     */
+    public boolean exchangeMode = false;
+
+    /**
+     * The lines named for the bon pour échange (LC-08-05-12), by database id.
+     * <p>
+     * EMPTY MEANS THE WHOLE TICKET, which is the plain "duplicata sans prix" of
+     * LC-08-05-10: an operator who wants the lot touches nothing. Insertion-ordered so
+     * the screen shows the marks in a stable order.
+     */
+    public java.util.Set<Long> exchangeSelection = new java.util.LinkedHashSet<>();
+
+    /**
+     * The number of a ticket held by ANOTHER register, as the operator typed it
+     * (LC-08-05-05). Blank until the foreign-duplicata mask is used.
+     */
+    public String foreignTicketNumber = "";
+
+    /**
+     * The operator-facing error of the last foreign-duplicata attempt, empty when it
+     * worked or when none was attempted.
+     */
+    public String foreignError = "";
+
     // --- Logique Liste ---
 
     /**
@@ -47,6 +74,7 @@ public class ReprintState implements Serializable {
         this.listPage = 0;
         this.viewedTicket = null;
         this.detailPage = 0;
+        clearExchange();
     }
 
     /**
@@ -92,6 +120,51 @@ public class ReprintState implements Serializable {
     public void setViewedTicket(Ticket ticket) {
         this.viewedTicket = ticket;
         this.detailPage = 0;
+        clearExchange();
+    }
+
+    /**
+     * Leaves the bon-pour-échange preparation and forgets what was named: a selection
+     * belongs to the ticket it was made on, never to the next one.
+     */
+    public void clearExchange() {
+        this.exchangeMode = false;
+        this.exchangeSelection.clear();
+    }
+
+    /**
+     * Names a line for the bon pour échange, or unnames it when it already was
+     * (LC-08-05-12).
+     *
+     * @param lineId the database id of the line touched
+     */
+    public void toggleExchangeLine(Long lineId) {
+        if (lineId == null) {
+            return;
+        }
+        if (!exchangeSelection.remove(lineId)) {
+            exchangeSelection.add(lineId);
+        }
+    }
+
+    /**
+     * Tells whether a line is named for the bon pour échange.
+     *
+     * @param lineId the database id of the line
+     * @return true when the line carries a mark
+     */
+    public boolean isSelected(Long lineId) {
+        return lineId != null && exchangeSelection.contains(lineId);
+    }
+
+    /**
+     * Tells whether the bon pour échange covers the whole ticket, which is what an
+     * empty selection means.
+     *
+     * @return true when nothing was named
+     */
+    public boolean isWholeTicketExchange() {
+        return exchangeSelection.isEmpty();
     }
 
     /**

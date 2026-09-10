@@ -18,7 +18,7 @@ class ProductAttributeCatalogTest {
      */
     @Test
     void catalogDeclaresSevenWellKnownBooleanAttributes() {
-        Assertions.assertEquals(7, ProductAttributeCatalog.CATALOG.size());
+        Assertions.assertEquals(8, ProductAttributeCatalog.CATALOG.size());
         Assertions.assertEquals(ProductAttributeCatalog.DISCOUNT_FORBIDDEN,
                 ProductAttributeCatalog.CATALOG.get(0).code());
         Assertions.assertEquals(ProductAttributeCatalog.VAT_EXEMPT,

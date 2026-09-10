@@ -4,7 +4,6 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -20,11 +19,12 @@ import static org.mockito.Mockito.when;
  * link allowed to answer "I don't know". It has two guards and one effect: it
  * bails when the context is already {@code handled}, it bails silently when the
  * register is locked (so no "CODE INCONNU" leaks onto the lock screen), and
- * otherwise it stamps {@code "CODE INCONNU: " + code} onto the ticket's
- * {@code transientError} and consumes the context. Both collaborators are
- * Mockito mocks: the {@link PosState} whose {@code isLocked()} decides the
- * second guard and whose public {@code ticket} sub-state is a
- * {@link TicketState} mock carrying the {@code transientError} field. Two
+ * otherwise it stamps {@code "CODE INCONNU: " + code} onto the ticket through
+ * {@code setError} — which is what bumps the polling version, so the test
+ * verifies the CALL and not the field — and consumes the context. Both
+ * collaborators are Mockito mocks: the {@link PosState} whose
+ * {@code isLocked()} decides the second guard and whose public
+ * {@code ticket} sub-state is a {@link TicketState} mock. Two
  * decision points, four branches, are exercised by three isolated cases.
  */
 class UnknownScanHandlerTest {
@@ -90,6 +90,6 @@ class UnknownScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         new UnknownScanHandler().handle(ctx);
         assertTrue(ctx.handled);
-        assertEquals("CODE INCONNU: " + CODE, ticket.transientError);
+        verify(ticket).setError("CODE INCONNU: " + CODE);
     }
 }

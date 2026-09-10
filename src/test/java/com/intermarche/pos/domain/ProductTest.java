@@ -251,7 +251,7 @@ class ProductTest {
         product.name = "Melon";
         product.productType = ProductType.WEIGHT;
         int expected = Objects.hash("3760001", "", "Melon", null, null, null, null,
-                ProductType.WEIGHT, null, true, false, null, null);
+                ProductType.WEIGHT, null, true, false, null, null, false);
         Assertions.assertEquals(expected, product.getChecksum());
     }
 
@@ -277,7 +277,7 @@ class ProductTest {
         product.internalCode = "INT-42";
         int expected = Objects.hash("3760001", "1234", "Melon", "Sweet", "Farm",
                 new BigDecimal("1.500"), new BigDecimal("0.750"), ProductType.UNIT,
-                "pcs", false, true, "MELON JAUNE", "INT-42");
+                "pcs", false, true, "MELON JAUNE", "INT-42", false);
         Assertions.assertEquals(expected, product.getChecksum());
     }
 }

@@ -28,6 +28,14 @@ import java.util.*;
  * POSTAL_CODE, CITY, COUNTRY, and optionally LATITUDE and LONGITUDE
  * (absent column or empty cell = no coordinate).
  * <p>
+ * The store's IDENTITY columns are optional too and were added with the invoice:
+ * LEGAL_NAME, RCS, SHARE_CAPITAL, SIRET, VAT_NUMBER, PHONE, FAX and
+ * BANK_ACCOUNT_NUMBER. A receipt can
+ * be anonymous, an invoice cannot — its seller's block and its legal footer state
+ * who is liable — and until now none of them could be fed at all, so a store row
+ * carried them only if someone typed them into the database. They are optional so
+ * that a feed written before they existed still imports unchanged.
+ * <p>
  * Place in the POS architecture since the phase 6 centralized referentials:
  * these CSV endpoints exist on every node, but their proper home is the
  * STORE node — an import performed on a register is transient (the next
@@ -65,6 +73,28 @@ public class StoreCsvResource extends ImporterCsvResource {
     static final String COL_LATITUDE = "LATITUDE";
     /** Header name of the optional longitude. */
     static final String COL_LONGITUDE = "LONGITUDE";
+    /** Header name of the optional legal entity operating the store. */
+    static final String COL_LEGAL_NAME = "LEGAL_NAME";
+    /** Header name of the optional trade and companies register entry. */
+    static final String COL_RCS = "RCS";
+    /** Header name of the optional share capital. */
+    static final String COL_SHARE_CAPITAL = "SHARE_CAPITAL";
+    /** Header name of the optional SIRET. */
+    static final String COL_SIRET = "SIRET";
+    /** Header name of the optional intra-community VAT number. */
+    static final String COL_VAT_NUMBER = "VAT_NUMBER";
+    /** Header name of the optional telephone number. */
+    static final String COL_PHONE = "PHONE";
+    /** Header name of the optional fax number. */
+    static final String COL_FAX = "FAX";
+    /**
+     * Header name of the optional cheque account number.
+     * <p>
+     * Fed here although no document prints it yet, because {@link Store#getChecksum()}
+     * hashes it: a column the feed cannot write is a field the incoming checksum
+     * cannot know, and the comparison would report every line as changed forever.
+     */
+    static final String COL_BANK_ACCOUNT_NUMBER = "BANK_ACCOUNT_NUMBER";
 
     /** The columns this importer cannot work without (coordinates optional). */
     private static final List<String> REQUIRED_COLUMNS = List.of(
@@ -189,34 +219,35 @@ public class StoreCsvResource extends ImporterCsvResource {
         store.address.country = safeGet(data, COL_COUNTRY);
         store.address.latitude = safeParseDouble(data, COL_LATITUDE);
         store.address.longitude = safeParseDouble(data, COL_LONGITUDE);
+        store.legalName = safeGet(data, COL_LEGAL_NAME);
+        store.rcs = safeGet(data, COL_RCS);
+        store.shareCapital = safeParseBigDecimal(data, COL_SHARE_CAPITAL);
+        store.siret = safeGet(data, COL_SIRET);
+        store.vatNumber = safeGet(data, COL_VAT_NUMBER);
+        store.phone = safeGet(data, COL_PHONE);
+        store.fax = safeGet(data, COL_FAX);
+        store.bankAccountNumber = safeGet(data, COL_BANK_ACCOUNT_NUMBER);
     }
 
     /**
-     * Computes the checksum for the incoming CSV data.
+     * Computes the checksum the incoming CSV line WOULD have once stored.
      * <p>
-     * Replicates {@link Store#getChecksum()} and {@link Address#getChecksum()} logic.
+     * Built by feeding a throw-away {@link Store} and asking it, rather than by
+     * replaying the hash by hand. The hand-written replica this replaces had already
+     * drifted: it hashed the code, the name and the address while
+     * {@link Store#getChecksum()} also hashed the VAT number, the SIRET, the phone
+     * and the bank account, so the two never matched and every line counted as
+     * changed. A copy of a hash is a copy that goes stale on the next field added —
+     * this one cannot.
      *
      * @param data The parsed CSV line data.
-     * @return The integer hash of the incoming data.
+     * @return The integer hash the stored row would carry.
      */
     private int computeIncomingChecksum(LineData data) {
-        // 1. Calculate Address Hash
-        int addressHash = Objects.hash(
-                safeGet(data, COL_STREET_LINE1),
-                safeGet(data, COL_STREET_LINE2),
-                safeGet(data, COL_POSTAL_CODE),
-                safeGet(data, COL_CITY),
-                safeGet(data, COL_COUNTRY),
-                safeParseDouble(data, COL_LATITUDE),
-                safeParseDouble(data, COL_LONGITUDE)
-        );
-        // 2. Calculate Store Hash
-        int storeChecksum = Objects.hash(
-                data.code,                    // code
-                safeGet(data, COL_NAME),      // name
-                addressHash                   // address checksum
-        );
-        return storeChecksum;
+        Store candidate = new Store();
+        candidate.code = data.code;
+        feedStore(data, candidate);
+        return candidate.getChecksum();
     }
 
 }

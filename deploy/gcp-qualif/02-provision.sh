@@ -56,7 +56,7 @@ SQL
 cp impos.service imvaluation.service imfid.service /etc/systemd/system/
 cp Caddyfile /etc/caddy/Caddyfile
 sed -i "s/__DB_PASSWORD__/${DB_PASSWORD}/" /etc/systemd/system/imfid.service
-sed -i "s/__BOOTSTRAP_PASSWORD__/${BOOTSTRAP_PASSWORD:-${DB_PASSWORD}}/" /etc/systemd/system/imvaluation.service /etc/systemd/system/imfid.service
+sed -i "s/__BOOTSTRAP_PASSWORD__/${BOOTSTRAP_PASSWORD:-${DB_PASSWORD}}/" /etc/systemd/system/impos.service /etc/systemd/system/imvaluation.service /etc/systemd/system/imfid.service
 sed -i "s/__ADMIN_EMAIL__/${ADMIN_EMAIL:-admin@example.org}/" /etc/systemd/system/imfid.service
 
 systemctl daemon-reload

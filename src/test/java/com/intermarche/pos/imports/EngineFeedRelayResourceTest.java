@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -30,12 +31,18 @@ class EngineFeedRelayResourceTest {
     private EngineFeedRelayResource resource;
 
     /**
-     * Wires a fresh resource on a mocked feed keeper.
+     * Wires a fresh resource on a mocked feed keeper and mocked dedicated
+     * importers (the delegation table of the unified grammar).
      */
     @BeforeEach
     void setUp() {
         resource = new EngineFeedRelayResource();
         resource.engineFeedService = mock(EngineFeedService.class);
+        resource.storeCsvResource = mock(StoreCsvResource.class);
+        resource.productCsvResource = mock(ProductCsvResource.class);
+        resource.productFamilyCsvResource = mock(ProductFamilyCsvResource.class);
+        resource.priceCsvResource = mock(PriceCsvResource.class);
+        resource.employeeCsvResource = mock(EmployeeCsvResource.class);
     }
 
     /**
@@ -49,14 +56,45 @@ class EngineFeedRelayResourceTest {
     }
 
     /**
-     * An unknown feed code is rejected with a 400 naming the catalog
-     * (unknown arm), nothing stored.
+     * An unknown feed code is rejected with a 400 naming BOTH families of
+     * known codes — delegated and sealed (unknown arm), nothing stored.
      */
     @Test
     void unknownCodeRejected() {
         Response response = resource.importFeed("NOPE", stream("CODE|X\n"));
         assertEquals(400, response.getStatus());
         assertTrue(String.valueOf(response.getEntity()).contains("OFFERS"));
+        assertTrue(String.valueOf(response.getEntity()).contains("EMPLOYEES"));
+        verify(resource.engineFeedService, never()).store(any(), any());
+    }
+
+    /**
+     * A code owned by a dedicated importer is delegated to it under the
+     * unified grammar — the importer's own response comes back verbatim,
+     * nothing is sealed here (delegated arm).
+     */
+    @Test
+    void delegatedCodeRoutesToItsImporter() {
+        Response delegated = Response.ok("{\"createdCount\":312, \"updatedCount\":0}").build();
+        InputStream body = stream("EAN|NAME\n1|A\n");
+        when(resource.productCsvResource.importProducts(body)).thenReturn(delegated);
+        Response response = resource.importFeed("products", body);
+        assertSame(delegated, response);
+        verify(resource.engineFeedService, never()).store(any(), any());
+    }
+
+    /**
+     * EMPLOYEES delegates too, although it is no engine-catalog code: the
+     * unified grammar covers the whole referential, and the secrets never
+     * reach the sealed-parcel store.
+     */
+    @Test
+    void employeesCodeDelegatesOutsideTheEngineCatalog() {
+        Response delegated = Response.ok("{\"createdCount\":4, \"updatedCount\":0}").build();
+        InputStream body = stream("BADGE_ID|LOGIN\n1|a\n");
+        when(resource.employeeCsvResource.importEmployees(body)).thenReturn(delegated);
+        Response response = resource.importFeed("EMPLOYEES", body);
+        assertSame(delegated, response);
         verify(resource.engineFeedService, never()).store(any(), any());
     }
 

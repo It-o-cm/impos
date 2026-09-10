@@ -212,6 +212,30 @@ class TicketRecoveryServiceTest {
     }
 
     /**
+     * The reduction ban (BO-02-03-09) is read back from the draft on recovery,
+     * on both arms. Without it the ban vanished at the first restart and a
+     * banned article became discountable again — the guards of
+     * {@code applyRemise}/{@code applyDiscount} read the in-memory flag only.
+     */
+    @Test
+    void recoverRestoresTheReductionBanOfEachLine() {
+        TicketRecoveryService service = newService();
+        Ticket draft = draft(7L, Ticket.TicketStatus.OPEN);
+        TicketLine banned = line(1, "U1", "4.00", null, null);
+        banned.discountForbidden = true;
+        TicketLine plain = line(2, "U2", "3.00", null, null);
+        plain.discountForbidden = false;
+        draft.lines = new ArrayList<>(List.of(banned, plain));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(QUERY, Ticket.TicketStatus.OPEN, TERMINAL))
+                    .thenReturn(new ArrayList<>(List.of(draft)));
+            service.recover();
+            assertTrue(service.state.ticket.items.get(0).discountForbidden);
+            assertFalse(service.state.ticket.items.get(1).discountForbidden);
+        }
+    }
+
+    /**
      * Covers the leftover-cancel loop of {@code recover}: the most recent draft
      * is restored while the two older OPEN leftovers of the same terminal are
      * flipped to CANCELLED and persisted.

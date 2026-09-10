@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>{document.title} {document.number}</title>
+<style>
+  {#include theme /}
+  /*
+   * TWO GEOMETRIES, ONE DOCUMENT. On screen this is a till: 1000 x 600, the register's
+   * chrome, a scrolling working area and an action bar always under the thumb. The A4
+   * sheet -- 210 x 297 mm, its margins and its white void -- belongs to PAPER and lives
+   * in the print block alone. Rendering that sheet on the screen, which is what this
+   * page used to do, fills four fifths of a 768 px display with blank paper.
+   */
+  * { box-sizing: border-box; }
+  body { margin: 0; background-color: var(--bg-page); color: var(--text-main);
+         font-family: Arial, Helvetica, sans-serif;
+         display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+  .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark);
+                  border: 2px solid var(--border-strong); border-radius: 10px;
+                  display: grid; grid-template-rows: 60px 1fr 80px;
+                  overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+  .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color);
+             display: flex; justify-content: space-between; align-items: center;
+             padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+  .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+  /* No finger-scrolling of a document: the article rows are PAGINATED, exactly as
+     the reprint list and the ticket lines are. The overflow rule is a safety net for
+     an unusually tall theme, not the way this screen is meant to be read. */
+  .paper-area { overflow: hidden; padding: 12px; }
+  /* La barre du bas empile la mention et les touches DANS ses 80 px : le
+     bandeau ne peut pas prendre sa hauteur au document, qui est calibré à
+     436 px près et dont les lignes d'articles se paginent dessus. */
+  .bottom-nav { display: flex; flex-direction: column; justify-content: center; gap: 4px;
+                padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+  .bottom-nav .nav-controls { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+  .draft-note { text-align: center; font-size: var(--fs-label); color: var(--warning); letter-spacing: 1px; text-transform: uppercase; }
+
+  /* The document itself: black on white, because a document is not a screen theme. */
+  /* Sized for the 436 px the terminal leaves, not for paper: the fixed zones alone
+     used to be taller than the whole working area, which no amount of paginating the
+     article rows could fix. */
+  .sheet { background: #fff; color: #111; font-size: 11px; line-height: 1.3;
+           padding: 6px 10px; border-radius: 4px; }
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .top img { height: 26px; width: auto; }
+  .top .spacer { width: 90px; }
+  .titleblock { flex: 1; text-align: center; }
+  .titleblock h1 { font-size: 17px; margin: 0; letter-spacing: .5px; }
+  .titleblock .num { font-size: 11px; }
+  .titleblock .dup { font-weight: bold; letter-spacing: 1px; }
+  .parties { display: flex; gap: 8px; margin-bottom: 6px; align-items: stretch; }
+  .box { border: 1px solid #111; padding: 5px 7px; }
+  .parties .box { flex: 1; line-height: 1.15; }
+  .box .name { font-weight: bold; }
+  .box .gap { height: 2px; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 0; vertical-align: top; }
+  .meta td.k { font-weight: bold; padding-right: 6px; white-space: nowrap; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.lines th, table.lines td { border: 1px solid #111; padding: 2px 5px; }
+  table.lines th { font-size: 10.5px; text-align: center; }
+  table.lines td.num { text-align: center; white-space: nowrap; }
+  table.lines td.amt { text-align: right; white-space: nowrap; }
+  table.lines .attrs { color: #666; font-size: 10px; margin-left: 6px; }
+  /* THREE columns, not two. Stacking the VAT table over the settlement made the
+     left side twice the height of the right one, and a document with three VAT rates
+     and four tenders — an ordinary one — went straight past the bottom of the screen.
+     Side by side, each block is as tall as its own content. */
+  .bottom { display: flex; gap: 10px; align-items: flex-start; }
+  .bottom .left { flex: 1.35; }
+  .bottom .mid { flex: 1; }
+  .bottom .right { flex: 1.1; }
+  table.vat { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.vat th, table.vat td { border: 1px solid #111; padding: 2px 5px; font-size: 10.5px; }
+  table.vat th { text-align: center; }
+  table.vat td.amt { text-align: right; }
+  table.vat td.rate { text-align: center; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 2px 5px; }
+  .totals tr.due td { font-weight: bold; border-top: 1px solid #111; }
+  .totals td.amt { text-align: right; white-space: nowrap; }
+  .settle { margin-top: 0; }
+  .settle .h { font-weight: bold; margin-bottom: 2px; }
+  .settle table { width: 100%; border-collapse: collapse; }
+  .settle td { padding: 1px 0; }
+  .settle td.amt { text-align: right; }
+  .legal { margin-top: 6px; font-size: 9.5px; color: #666; line-height: 1.25; }
+  .foot { margin-top: 6px; padding-top: 3px; border-top: 1px solid #111;
+          display: flex; justify-content: space-between; font-size: 10px; }
+
+  /* Paper. The only place A4 exists. */
+  @media print {
+    @page { size: A4; margin: 12mm; }
+    body { background: #fff; display: block; }
+    .pos-terminal { width: auto; height: auto; border: none; border-radius: 0;
+                    display: block; box-shadow: none; overflow: visible; }
+    .top-bar, .bottom-nav { display: none; }
+    .paper-area { overflow: visible; padding: 0; }
+    .sheet { font-size: 11px; line-height: 1.45; padding: 0; border-radius: 0; }
+    .top img { height: auto; width: 46mm; }
+    .top .spacer { width: 46mm; }
+    .parties { gap: 6mm; }
+    .parties .box { line-height: 1.45; }
+    .box { padding: 3mm 3.5mm; }
+    .box .gap { height: 2.5mm; }
+    table.lines th, table.lines td, table.vat th, table.vat td { padding: 1.4mm 2mm; }
+    table.lines .attrs { display: block; margin-left: 0; }
+  }
+</style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+
+  <div class="top-bar">
+    <span class="store-name">{document.title}</span>
+    <span id="clock"></span>
+  </div>
+
+  <div class="paper-area">
+    <div class="sheet">
+  <div class="top">
+    {#if document.logo}<img src="{document.logo}" alt="Intermarché">{#else}<div class="spacer"></div>{/if}
+    <div class="titleblock">
+      <h1>{document.title}</h1>
+      {#if document.number}
+      <div class="num">N° de {document.title.toLowerCase} {document.number}</div>
+      {#else}
+      <div class="num draft">N° attribué à l'émission</div>
+      {/if}
+      {#if document.duplicate}
+      <div class="dup">*** DUPLICATA N°{document.duplicateNumber} ***</div>
+      {/if}
+    </div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="parties">
+    <div class="box">
+      <div class="name">{document.seller.name}</div>
+      {#if document.seller.legalName}<div>{document.seller.legalName}</div>{/if}
+      <div class="gap"></div>
+      {#for line in document.seller.addressLines}<div>{line}</div>{/for}
+      <div class="gap"></div>
+      {#if document.seller.phone}<div>Tél. : {document.seller.phone}</div>{/if}
+      {#if document.seller.fax}<div>Fax : {document.seller.fax}</div>{/if}
+      {#if document.seller.siret}<div>SIRET : {document.seller.siret}</div>{/if}
+      {#if document.seller.vatNumber}<div>TVA intracom. : {document.seller.vatNumber}</div>{/if}
+    </div>
+    <div class="box">
+      <div class="name">{document.customer.name}</div>
+      {#if document.customer.contact}<div>{document.customer.contact}</div>{/if}
+      <div class="gap"></div>
+      {#for line in document.customer.addressLines}<div>{line}</div>{/for}
+      <div class="gap"></div>
+      {#if document.customer.accountNumber}<div>N° de compte client : {document.customer.accountNumber}</div>{/if}
+      {#if document.customer.siret}<div>SIRET : {document.customer.siret}</div>{/if}
+      {#if document.customer.vatNumber}<div>TVA intracom. : {document.customer.vatNumber}</div>{/if}
+    </div>
+    <div class="box meta">
+    <table>
+      <tr>
+        <td class="k">Date de facturation</td><td class="v">{document.issueDate}</td>
+        <td class="k2">N° de ticket</td><td>{document.ticketNumber}</td>
+      </tr>
+      <tr>
+        <td class="k">Type de document</td><td class="v">{document.title}</td>
+        <td class="k2">Date de la vente</td><td>{document.saleDate}</td>
+      </tr>
+      <tr>
+        <td class="k">Point de vente</td><td class="v">Caisse {document.terminal}</td>
+        <td class="k2">Moyen de paiement</td><td>{document.paymentMethods}</td>
+      </tr>
+    </table>
+    </div>
+  </div>
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th style="width:46%">Description</th>
+        <th>Quantité</th>
+        <th>TVA</th>
+        <th>PV HT</th>
+        <th>PV TTC</th>
+        <th>Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#for line in pageLines}
+      <tr>
+        <td>{line.label}{#if line.attributes}<span class="attrs">{line.attributes}</span>{/if}{#if line.ean}<span class="attrs">{line.ean}</span>{/if}</td>
+        <td class="num">{line.quantity}</td>
+        <td class="num">{line.vatRate}</td>
+        <td class="amt">{line.unitExcludingTax} €</td>
+        <td class="amt">{line.unitIncludingTax} €</td>
+        <td class="amt">{line.totalIncludingTax} €</td>
+      </tr>
+      {/for}
+    </tbody>
+  </table>
+
+  <div class="bottom">
+    <div class="left">
+      <table class="vat">
+        <thead>
+          <tr><th>Taux TVA</th><th>Base HT</th><th>Montant TVA</th><th>Total TTC</th></tr>
+        </thead>
+        <tbody>
+          {#for row in document.vatRows}
+          <tr>
+            <td class="rate">{row.rate}</td>
+            <td class="amt">{row.excludingTax} €</td>
+            <td class="amt">{row.vat} €</td>
+            <td class="amt">{row.includingTax} €</td>
+          </tr>
+          {/for}
+        </tbody>
+      </table>
+    </div>
+    <div class="mid">
+      {#if document.tenders.size > 0}
+      <div class="settle">
+        <div class="h">Mode de règlement :</div>
+        <table>
+          {#for tender in document.tenders}
+          <tr><td>- {tender.label}</td><td class="amt">{tender.amount} €</td></tr>
+          {/for}
+        </table>
+      </div>
+      {/if}
+    </div>
+    <div class="right">
+      <div class="box totals">
+        <table>
+          <tr><td>Sous-total HT</td><td class="amt">{document.totalExcludingTax} €</td></tr>
+          <tr><td>Total TVA</td><td class="amt">{document.totalVat} €</td></tr>
+          <tr><td>Sous-total TTC</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+          <tr class="due"><td>Montant à payer</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="legal">{document.legalMentions}</div>
+
+  <div class="foot">
+    <div>{document.legalFooter}</div>
+    <div>{page} / {pageCount}</div>
+  </div>
+
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <!-- LA MENTION EST ICI, pas un écran plus tôt : elle ne sert qu'au moment
+         où le doigt est sur ÉMETTRE. Un numéro de facture est une séquence
+         légale sans trou ; tant qu'il n'est pas tiré, abandonner ne coûte rien. -->
+    {#if !issued}
+    <div class="draft-note">Brouillon — aucun numéro attribué, rien n'est écrit</div>
+    {/if}
+    <div class="nav-controls">
+    {#if issued}
+    <a class="btn btn-muted" href="/">RETOUR</a>
+    {#else}
+    <a class="btn btn-muted" href="/invoice/abandon">ABANDONNER</a>
+    {/if}
+
+    <span class="pos-pager">
+      {#if pageCount > 1}
+        {#if hasPrev}
+        <a class="btn btn-sm btn-muted" href="{pageUrl}{prevPage}">PRÉCÉDENT</a>
+        {#else}
+        <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
+        {/if}
+        <span class="pos-pager-info">PAGE {page} / {pageCount}</span>
+        {#if hasNext}
+        <a class="btn btn-sm btn-muted" href="{pageUrl}{nextPage}">SUIVANT</a>
+        {#else}
+        <span class="btn btn-sm btn-muted off">SUIVANT</span>
+        {/if}
+      {/if}
+    </span>
+
+    {#if issued}
+    <a class="btn btn-primary" href="/invoice">NOUVELLE FACTURE</a>
+    {#else}
+    <form method="post" action="/invoice/issue" style="margin:0">
+      <button class="btn btn-success" type="submit">ÉMETTRE ET IMPRIMER</button>
+    </form>
+    {/if}
+    </div>
+  </div>
+
+</div>
+<script>
+  setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+</script>
+</body>
+</html>

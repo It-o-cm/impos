@@ -70,7 +70,7 @@ class ManualResourceTest {
     }
 
     /**
-     * {@code manualCategoryPage(code)} renders the category grid seeded with the
+     * {@code manualCategoryPage(code, page)} renders the category grid seeded with the
      * state, the category tiles, the way back up and the (single-page) pager.
      */
     @Test
@@ -80,7 +80,7 @@ class ManualResourceTest {
                 new ManualService.ManualItem("Banane", false, null, "3000", "size-normal", false));
         ManualService.ManualViewData viewData = new ManualService.ManualViewData(
                 tiles, "Accueil > Fruits", false, "/manual", 1, 1, null, null);
-        when(resource.manualService.getManualCategoryData("F")).thenReturn(viewData);
+        when(resource.manualService.getManualCategoryData("F", 1)).thenReturn(viewData);
         TemplateInstance withState = mock(TemplateInstance.class);
         TemplateInstance withItems = mock(TemplateInstance.class);
         TemplateInstance withBreadcrumb = mock(TemplateInstance.class);
@@ -99,6 +99,6 @@ class ManualResourceTest {
         when(withPage.data("totalPages", viewData.totalPages)).thenReturn(withTotalPages);
         when(withTotalPages.data("prevUrl", viewData.prevUrl)).thenReturn(withPrevUrl);
         when(withPrevUrl.data("nextUrl", viewData.nextUrl)).thenReturn(withNextUrl);
-        assertSame(withNextUrl, resource.manualCategoryPage("F"));
+        assertSame(withNextUrl, resource.manualCategoryPage("F", 1));
     }
 }

@@ -8,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -179,5 +181,106 @@ class SyncIngestResourceTest {
         Response response = resource.ingestEvent(null, dto);
         assertEquals(500, response.getStatus());
         assertEquals("Boom", response.getEntity());
+    }
+
+    // --------------------------------------------------
+    // balance ticket (LC-06-01-02)
+    // --------------------------------------------------
+
+    /**
+     * {@code ingestBalanceTicket} goes through the shared guard like every other
+     * push: a store node with no token configured answers 200 and the payload
+     * reaches the service.
+     */
+    @Test
+    void balanceTicketPushOkWhenStoreAndNoTokenConfigured() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        SyncPayloads.BalanceTicketDto dto = new SyncPayloads.BalanceTicketDto();
+        Response response = resource("store", Optional.empty(), service)
+                .ingestBalanceTicket(null, dto);
+        assertEquals(200, response.getStatus());
+        verify(service).ingestBalanceTicket(dto);
+    }
+
+    /**
+     * {@code ingestBalanceTicket} on a register is refused: only the shop holds
+     * counter tickets (role-check true arm).
+     */
+    @Test
+    void balanceTicketPushForbiddenOffRole() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        Response response = resource("register", Optional.of("jeton"), service)
+                .ingestBalanceTicket("jeton", new SyncPayloads.BalanceTicketDto());
+        assertEquals(403, response.getStatus());
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * The pick-up repeats the role gate inline: a register may not serve counter
+     * tickets to another register.
+     */
+    @Test
+    void pickUpForbiddenOffRole() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        Response response = resource("register", Optional.empty(), service)
+                .consumeBalanceTicket(null, "B1", "CAISSE-01");
+        assertEquals(403, response.getStatus());
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * The pick-up repeats the token gate inline: a configured token that does not
+     * match is a 401, and nothing is consumed.
+     */
+    @Test
+    void pickUpUnauthorizedOnTokenMismatch() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        Response response = resource("store", Optional.of("jeton"), service)
+                .consumeBalanceTicket("mauvais", "B1", "CAISSE-01");
+        assertEquals(401, response.getStatus());
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * With no token configured the presented one is ignored (token blank arm
+     * short-circuiting the mismatch) and the pick-up proceeds.
+     */
+    @Test
+    void pickUpSkipsTheTokenGateWhenNoneIsConfigured() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        SyncPayloads.BalanceTicketDto served = new SyncPayloads.BalanceTicketDto();
+        when(service.consumeBalanceTicket("B1", "CAISSE-01")).thenReturn(served);
+        Response response = resource("store", Optional.empty(), service)
+                .consumeBalanceTicket("peu importe", "B1", "CAISSE-01");
+        assertEquals(200, response.getStatus());
+        assertSame(served, response.getEntity());
+    }
+
+    /**
+     * A reference the shop no longer holds is a 404 — the answer that tells the
+     * register the paper was already used, and the whole point of the route.
+     */
+    @Test
+    void pickUpNotFoundWhenAlreadyConsumed() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        when(service.consumeBalanceTicket("B2", "CAISSE-01")).thenReturn(null);
+        Response response = resource("store", Optional.of("jeton"), service)
+                .consumeBalanceTicket("jeton", "B2", "CAISSE-01");
+        assertEquals(404, response.getStatus());
+    }
+
+    /**
+     * A matching token on a store node serves the detail with 200.
+     */
+    @Test
+    void pickUpServesTheDetailOnMatchingToken() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        SyncPayloads.BalanceTicketDto served = new SyncPayloads.BalanceTicketDto();
+        served.reference = "B3";
+        when(service.consumeBalanceTicket("B3", "CAISSE-02")).thenReturn(served);
+        Response response = resource("store", Optional.of("jeton"), service)
+                .consumeBalanceTicket("jeton", "B3", "CAISSE-02");
+        assertEquals(200, response.getStatus());
+        assertSame(served, response.getEntity());
     }
 }

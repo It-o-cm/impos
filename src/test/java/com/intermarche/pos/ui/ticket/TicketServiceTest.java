@@ -7,6 +7,7 @@ import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.valuation.ValuationService;
+import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.scanner.ScanContext;
@@ -60,6 +61,9 @@ class TicketServiceTest {
     /** Journal of the age-check decisions (confirmed / refused). */
     private com.intermarche.pos.service.TechnicalEventService technicalEventService;
 
+    /** Mocked register identity — whose last sale to recover. */
+    private com.intermarche.pos.service.TicketNumberService ticketNumberService;
+
     /** Real POS state graph shared as both the injected and the parameter state. */
     private PosState state;
 
@@ -110,6 +114,8 @@ class TicketServiceTest {
         service.state = state;
         technicalEventService = mock(com.intermarche.pos.service.TechnicalEventService.class);
         service.technicalEventService = technicalEventService;
+        ticketNumberService = mock(com.intermarche.pos.service.TicketNumberService.class);
+        service.ticketNumberService = ticketNumberService;
         service.scanHandlers = scanHandlers;
         service.defaultVatRate = new BigDecimal("0.20");
     }
@@ -1586,6 +1592,112 @@ class TicketServiceTest {
     @Test
     void reprintTicketNullIdDoesNothing() {
         service.reprintTicket(null);
+        verifyNoInteractions(ticketPrinterService);
+    }
+
+    // --- printTicketIdentityBarcode (LC-08-01-04) ---
+
+    /**
+     * {@code printTicketIdentityBarcode} prints when the id is present (non-null arm).
+     */
+    @Test
+    void printTicketIdentityBarcodeWithIdPrints() {
+        service.printTicketIdentityBarcode(5L);
+        verify(ticketPrinterService).printTicketIdentityBarcode(5L);
+    }
+
+    /**
+     * {@code printTicketIdentityBarcode} does nothing on a null id (null arm).
+     */
+    @Test
+    void printTicketIdentityBarcodeNullIdDoesNothing() {
+        service.printTicketIdentityBarcode(null);
+        verifyNoInteractions(ticketPrinterService);
+    }
+
+    // --- resolveLastClosedTicketId: the DERNIER keys survive a restart ---
+
+    /**
+     * The id already in memory is returned untouched and the database is never
+     * asked (in-memory arm).
+     */
+    @Test
+    void resolveLastClosedTicketIdKeepsTheOneInMemory() {
+        PosState state = new PosState();
+        state.lastClosedTicketId = 42L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            assertEquals(42L, service.resolveLastClosedTicketId(state));
+            panache.verifyNoInteractions();
+        }
+    }
+
+    /**
+     * With nothing in memory — a register that restarted — the last CLOSED
+     * ticket of this terminal is recovered from the database and remembered
+     * (recovery arm).
+     */
+    @Test
+    void resolveLastClosedTicketIdRecoversFromTheDatabase() {
+        PosState state = new PosState();
+        state.lastClosedTicketId = null;
+        when(ticketNumberService.getTerminalId()).thenReturn("C04");
+        Ticket closed = new Ticket();
+        closed.id = 77L;
+        try (MockedStatic<Ticket> tickets = mockStatic(Ticket.class)) {
+            tickets.when(() -> Ticket.findLastClosedByTerminal("C04")).thenReturn(closed);
+            assertEquals(77L, service.resolveLastClosedTicketId(state));
+        }
+        assertEquals(77L, state.lastClosedTicketId);
+    }
+
+    /**
+     * A register that has closed no sale at all still answers null, and stores
+     * nothing — the guard then says AUCUN TICKET, which is the truth
+     * (nothing-found arm).
+     */
+    @Test
+    void resolveLastClosedTicketIdStaysNullWhenNothingWasEverClosed() {
+        PosState state = new PosState();
+        state.lastClosedTicketId = null;
+        when(ticketNumberService.getTerminalId()).thenReturn("C04");
+        try (MockedStatic<Ticket> tickets = mockStatic(Ticket.class)) {
+            tickets.when(() -> Ticket.findLastClosedByTerminal("C04")).thenReturn(null);
+            assertNull(service.resolveLastClosedTicketId(state));
+        }
+        assertNull(state.lastClosedTicketId);
+    }
+
+    // --- printCardReceiptDuplicate (LC-08-05-09) ---
+
+    /**
+     * {@code printCardReceiptDuplicate} prints the slip with the DUPLICATA mention
+     * when the id is present (non-null arm).
+     */
+    @Test
+    void printCardReceiptDuplicateWithIdPrints() {
+        when(ticketPrinterService.printCardReceipt(5L, false, "DUPLICATA")).thenReturn(1);
+        assertEquals(1, service.printCardReceiptDuplicate(5L));
+        verify(ticketPrinterService).printCardReceipt(5L, false, "DUPLICATA");
+    }
+
+    /**
+     * {@code printCardReceiptDuplicate} passes the printer's count back, zero
+     * included: a sale settled without a card prints nothing, and the caller is
+     * what turns that into a message (printed-zero arm).
+     */
+    @Test
+    void printCardReceiptDuplicateReportsNothingPrinted() {
+        when(ticketPrinterService.printCardReceipt(5L, false, "DUPLICATA")).thenReturn(0);
+        assertEquals(0, service.printCardReceiptDuplicate(5L));
+    }
+
+    /**
+     * {@code printCardReceiptDuplicate} does nothing on a null id and reports
+     * zero (null arm).
+     */
+    @Test
+    void printCardReceiptDuplicateNullIdDoesNothing() {
+        assertEquals(0, service.printCardReceiptDuplicate(null));
         verifyNoInteractions(ticketPrinterService);
     }
 

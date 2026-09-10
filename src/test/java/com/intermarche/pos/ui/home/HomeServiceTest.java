@@ -37,6 +37,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -161,12 +162,13 @@ class HomeServiceTest {
     // --- Navigation ---
 
     /**
-     * {@code toggleSecondaryMenu()} stores the flag and touches the state.
+     * {@code selectMenu()} shows the asked menu and bumps the state version so the
+     * screen redraws.
      */
     @Test
-    void toggleSecondaryMenuStoresFlagAndTouches() {
-        service.toggleSecondaryMenu(true);
-        assertTrue(service.state.showSecondaryMenu);
+    void selectMenuShowsTheAskedMenu() {
+        service.selectMenu(com.intermarche.pos.ui.PosMenu.TICKET);
+        assertEquals(com.intermarche.pos.ui.PosMenu.TICKET, service.state.menu);
         verify(service.state).touch();
     }
 
@@ -284,40 +286,103 @@ class HomeServiceTest {
     // --- Print last ticket ---
 
     /**
-     * {@code printLastTicket()} refuses the reprint in training mode
-     * (training arm true).
+     * {@code printLastTicket()} prints nothing when the guard refuses.
+     *
+     * <p>The guard's own legs — training mode, no closed ticket — are covered
+     * once in {@code PosStateTest}; what belongs here is that the service asks
+     * it and obeys it.
      */
     @Test
-    void printLastTicketRefusedInTraining() {
-        service.state.trainingMode = true;
+    void printLastTicketPrintsNothingWhenGuardRefuses() {
+        when(service.state.requireLastClosedTicket()).thenReturn(false);
         service.printLastTicket();
-        verify(service.state.ticket).setError("RÉIMPRESSION INDISPONIBLE EN FORMATION");
-        verify(service.state).touch();
-        verifyNoInteractions(service.ticketService);
+        // The RECOVERY still happens, and must: the DERNIER keys work on the last
+        // sale this REGISTER closed, not the last one this PROCESS closed, so the
+        // service looks the ticket up BEFORE asking the guard. What the refusal
+        // forbids is the printing.
+        verify(service.ticketService).resolveLastClosedTicketId(service.state);
+        verifyNoMoreInteractions(service.ticketService);
     }
 
     /**
-     * {@code printLastTicket()} reprints the last closed ticket when one exists
-     * (training false, id non-null).
+     * {@code printLastTicket()} reprints the last closed ticket when the guard
+     * allows it.
      */
     @Test
-    void printLastTicketReprintsWhenIdPresent() {
-        service.state.trainingMode = false;
+    void printLastTicketReprintsWhenGuardAllows() {
+        when(service.state.requireLastClosedTicket()).thenReturn(true);
         service.state.lastClosedTicketId = 42L;
         service.printLastTicket();
         verify(service.ticketService).reprintTicket(42L);
+        verify(service.state.ticket).setNotice("TICKET RÉIMPRIMÉ");
+    }
+
+    // --- Print last ticket identity barcode (LC-08-01-04) ---
+
+    /**
+     * {@code printLastTicketBarcode()} prints nothing when the guard refuses.
+     */
+    @Test
+    void printLastTicketBarcodePrintsNothingWhenGuardRefuses() {
+        when(service.state.requireLastClosedTicket()).thenReturn(false);
+        service.printLastTicketBarcode();
+        verify(service.ticketService).resolveLastClosedTicketId(service.state);
+        verifyNoMoreInteractions(service.ticketService);
     }
 
     /**
-     * {@code printLastTicket()} does nothing when there is no last closed ticket
-     * (training false, id null).
+     * {@code printLastTicketBarcode()} prints the identity of the last closed
+     * ticket when the guard allows it.
      */
     @Test
-    void printLastTicketDoesNothingWhenNoId() {
-        service.state.trainingMode = false;
-        service.state.lastClosedTicketId = null;
-        service.printLastTicket();
-        verifyNoInteractions(service.ticketService);
+    void printLastTicketBarcodePrintsWhenGuardAllows() {
+        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        service.state.lastClosedTicketId = 42L;
+        service.printLastTicketBarcode();
+        verify(service.ticketService).printTicketIdentityBarcode(42L);
+        verify(service.state.ticket).setNotice("CODE-BARRES IMPRIMÉ");
+    }
+
+    // --- Duplicata du dernier ticket carte bancaire (LC-08-05-09) ---
+
+    /**
+     * {@code printLastCardReceiptDuplicate()} prints nothing when the guard
+     * refuses.
+     */
+    @Test
+    void printLastCardReceiptDuplicatePrintsNothingWhenGuardRefuses() {
+        when(service.state.requireLastClosedTicket()).thenReturn(false);
+        service.printLastCardReceiptDuplicate();
+        verify(service.ticketService).resolveLastClosedTicketId(service.state);
+        verifyNoMoreInteractions(service.ticketService);
+    }
+
+    /**
+     * {@code printLastCardReceiptDuplicate()} prints the slip of the last closed
+     * ticket when the guard allows it.
+     */
+    @Test
+    void printLastCardReceiptDuplicatePrintsWhenGuardAllows() {
+        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        service.state.lastClosedTicketId = 42L;
+        when(service.ticketService.printCardReceiptDuplicate(42L)).thenReturn(1);
+        service.printLastCardReceiptDuplicate();
+        verify(service.ticketService).printCardReceiptDuplicate(42L);
+        verify(service.state.ticket).setNotice("DUPLICATA CB IMPRIMÉ");
+    }
+
+    /**
+     * A sale settled without a card prints no slip: the key answers, and it
+     * answers a refusal rather than a confirmation (printed == 0 arm).
+     */
+    @Test
+    void printLastCardReceiptDuplicateTellsWhenTheSaleCarriedNoCard() {
+        when(service.state.requireLastClosedTicket()).thenReturn(true);
+        service.state.lastClosedTicketId = 42L;
+        when(service.ticketService.printCardReceiptDuplicate(42L)).thenReturn(0);
+        service.printLastCardReceiptDuplicate();
+        verify(service.state.ticket).setError("AUCUN PAIEMENT CARTE SUR CE TICKET");
+        verify(service.state.ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
     }
 
     // --- Open / cancel price modification ---
@@ -344,7 +409,8 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         when(service.state.getTargetItem()).thenReturn(it);
         service.openPriceMod("remise");
-        verify(service.state.priceModState).set("REMISE", "A", "L");
+        verify(service.state.priceModState).set("REMISE", "A", "L", it.getHtml(),
+                it.getPriceFormatted(), it.getModifierLabel());
         verify(service.state).touch();
     }
 
@@ -421,7 +487,8 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         when(service.state.getTargetItem()).thenReturn(it);
         service.openPriceMod("remise_global");
-        verify(service.state.priceModState).set("REMISE_GLOBAL", "A", "L");
+        verify(service.state.priceModState).set("REMISE_GLOBAL", "A", "L", it.getHtml(),
+                it.getPriceFormatted(), it.getModifierLabel());
     }
 
     /**

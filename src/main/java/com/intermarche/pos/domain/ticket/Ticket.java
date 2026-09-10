@@ -67,6 +67,22 @@ public class Ticket extends BaseEntity {
         CANCELLED
     }
 
+    /**
+     * Returns the last ticket this register CLOSED, or null when it has closed
+     * none.
+     *
+     * <p>Ordered by id, which on this register is the closing order: the number
+     * sequence and the primary key are both handed out by the same serialization
+     * point, so the highest id of a terminal IS its last sale.
+     *
+     * @param terminalId the identifier of this register
+     * @return the last closed ticket, or null
+     */
+    public static Ticket findLastClosedByTerminal(String terminalId) {
+        return find("terminalId = ?1 and status = ?2 order by id desc",
+                terminalId, TicketStatus.CLOSED).firstResult();
+    }
+
     /** The lifecycle status; defaults to OPEN. */
     @Column(name = "status", nullable = false)
     @NotNull
@@ -82,6 +98,22 @@ public class Ticket extends BaseEntity {
     public String ticketNumber;
 
     /** The identifier of the register that created the ticket (pos.terminal.id). */
+    /**
+     * The ticket AS PRINTED, in the register's 42-column format (LC-08-02-02).
+     * <p>
+     * Frozen at the fiscal moment and carried up to the store node, which puts it at
+     * the disposal of third-party services (the customer's online account, the
+     * enseigne's mobile application). The RAW sale already travels as structured
+     * data; this is the same sale as the customer's paper reads it, and only the
+     * register that made it can produce that — it is the only place that knows what
+     * its own printer put on the roll, loyalty section included.
+     * <p>
+     * Null on a draft, and on any ticket closed before this field existed.
+     */
+    @jakarta.persistence.Lob
+    @Column(name = "formatted_content")
+    public String formattedContent;
+
     @Column(name = "terminal_id", nullable = false, length = 20)
     @NotNull
     public String terminalId;

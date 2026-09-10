@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.ticket;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.attribute.ProductAttributes;
+import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
@@ -108,6 +109,10 @@ public class TicketService {
 
     @Inject
     com.intermarche.pos.service.TechnicalEventService technicalEventService;
+
+    /** The register's identity — which terminal's last sale to recover. */
+    @Inject
+    com.intermarche.pos.service.TicketNumberService ticketNumberService;
 
     /**
      * Applies (or clears, value 0) the ticket-level discount after its
@@ -598,6 +603,32 @@ public class TicketService {
     }
 
     /**
+     * Resolves the ticket the DERNIER keys work on: the last sale this register
+     * closed.
+     *
+     * <p>{@code PosState.lastClosedTicketId} only remembers a sale closed by
+     * THIS process. It is the right answer while the register runs, and the
+     * wrong one the moment it restarts: the ticket is still in the database, the
+     * register still printed it a minute ago, and every DERNIER key answered
+     * "AUCUN TICKET" — four keys that looked broken because the memory of the
+     * sale, not the sale, had gone. The database is asked once and the answer is
+     * kept in the state.
+     *
+     * @param state the current POS state
+     * @return the id of the last closed ticket of this register, or null when it
+     *         has closed none
+     */
+    public Long resolveLastClosedTicketId(PosState state) {
+        if (state.lastClosedTicketId == null) {
+            Ticket recovered = Ticket.findLastClosedByTerminal(ticketNumberService.getTerminalId());
+            if (recovered != null) {
+                state.lastClosedTicketId = recovered.id;
+            }
+        }
+        return state.lastClosedTicketId;
+    }
+
+    /**
      * Reprints a closed ticket by its database id.
      *
      * @param ticketId the ticket database id
@@ -606,5 +637,30 @@ public class TicketService {
         if (ticketId != null) {
             ticketPrinterService.printTicket(ticketId);
         }
+    }
+
+    /**
+     * Prints the identification barcode of a closed ticket, alone (LC-08-01-04).
+     *
+     * @param ticketId the ticket database id
+     */
+    public void printTicketIdentityBarcode(Long ticketId) {
+        if (ticketId != null) {
+            ticketPrinterService.printTicketIdentityBarcode(ticketId);
+        }
+    }
+
+    /**
+     * Prints a duplicate of a ticket's card receipt, carrying the DUPLICATA mention
+     * (LC-08-05-09).
+     *
+     * @param ticketId the ticket database id
+     * @return the number of slips printed; zero when the sale carried no card
+     */
+    public int printCardReceiptDuplicate(Long ticketId) {
+        if (ticketId != null) {
+            return ticketPrinterService.printCardReceipt(ticketId, false, "DUPLICATA");
+        }
+        return 0;
     }
 }

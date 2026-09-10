@@ -57,6 +57,14 @@ public class TerminalOutcome {
     public boolean degradedMode;
 
     /**
+     * True when the accepted transaction asks for the customer's handwritten
+     * signature, which forces the card receipt to print (LC-08-03-11). Only a
+     * real monetique reports it; the virtual, auto-accept and degraded clients
+     * leave it false, exactly as they leave the print frames null.
+     */
+    public boolean signatureRequired;
+
+    /**
      * Builds an outcome carrying only the amount — what the virtual
      * terminal can report.
      *

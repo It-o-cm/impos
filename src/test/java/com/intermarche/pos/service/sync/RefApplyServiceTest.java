@@ -105,10 +105,16 @@ class RefApplyServiceTest {
         update.description = "Légumes";
         update.flags = "LOCAL";
         ProductFamily existing = mock(ProductFamily.class);
+        existing.productFamilies = new java.util.HashSet<>();
+        existing.products = new java.util.HashSet<>();
         PanacheQuery<ProductFamily> absentQuery = queryReturning(null);
         PanacheQuery<ProductFamily> existingQuery = queryReturning(existing);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<ProductFamily> created = mockConstruction(ProductFamily.class)) {
+                MockedConstruction<ProductFamily> created = mockConstruction(ProductFamily.class,
+                        (family, ctx) -> {
+                            family.productFamilies = new java.util.HashSet<>();
+                            family.products = new java.util.HashSet<>();
+                        })) {
             mocked.when(() -> ProductFamily.find("code", "F1")).thenReturn(absentQuery);
             mocked.when(() -> ProductFamily.find("code", "F2")).thenReturn(existingQuery);
             service.applyFamilies(List.of(insert, update));
@@ -116,10 +122,83 @@ class RefApplyServiceTest {
             assertEquals("F1", inserted.code);
             assertEquals("Fruits", inserted.description);
             assertEquals("BIO", inserted.flags);
-            verify(inserted, times(1)).persist();
             assertEquals("Légumes", existing.description);
             assertEquals("LOCAL", existing.flags);
-            verify(existing, times(1)).persist();
+            // Persisted twice: once for the row, once for its (empty) edges.
+            verify(inserted, times(2)).persist();
+            verify(existing, times(2)).persist();
+        }
+    }
+
+    /**
+     * The group TREE and the article memberships of the snapshot are rebuilt:
+     * a child declaring its parent lands in that parent's collection even when
+     * the parent comes later in the snapshot, and an article is attached by
+     * EAN. Without this the register would receive flat, empty groups.
+     */
+    @Test
+    void applyFamiliesRebuildsTheTreeAndTheMemberships() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.FamilyDto child = new RefPayloads.FamilyDto();
+        child.code = "CHILD";
+        child.parentCodes = List.of("PARENT");
+        child.productEans = List.of("3001", "9999");
+        RefPayloads.FamilyDto parent = new RefPayloads.FamilyDto();
+        parent.code = "PARENT";
+        ProductFamily childRow = mock(ProductFamily.class);
+        childRow.productFamilies = new java.util.HashSet<>();
+        childRow.products = new java.util.HashSet<>();
+        ProductFamily parentRow = mock(ProductFamily.class);
+        parentRow.productFamilies = new java.util.HashSet<>();
+        parentRow.products = new java.util.HashSet<>();
+        Product apple = mock(Product.class);
+        // Every query mock is built BEFORE the static stubbing: calling a
+        // helper that stubs, inside a when(...) that is not finished, is
+        // nested stubbing and Mockito rejects it.
+        PanacheQuery<ProductFamily> childQuery = queryReturning(childRow);
+        PanacheQuery<ProductFamily> parentQuery = queryReturning(parentRow);
+        PanacheQuery<Product> appleQuery = queryReturning(apple);
+        PanacheQuery<Product> unknownQuery = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.find("code", "CHILD")).thenReturn(childQuery);
+            mocked.when(() -> ProductFamily.find("code", "PARENT")).thenReturn(parentQuery);
+            mocked.when(() -> Product.find("ean", "3001")).thenReturn(appleQuery);
+            mocked.when(() -> Product.find("ean", "9999")).thenReturn(unknownQuery);
+            service.applyFamilies(List.of(child, parent));
+            assertTrue(parentRow.productFamilies.contains(childRow));
+            assertTrue(childRow.products.contains(apple));
+            assertEquals(1, childRow.products.size());
+            assertTrue(childRow.productFamilies.isEmpty());
+        }
+    }
+
+    /**
+     * The edge collections are emptied before any wiring: a family whose row
+     * comes AFTER a child that just joined it does not lose that child.
+     */
+    @Test
+    void applyFamiliesClearsEveryEdgeBeforeWiringAny() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.FamilyDto child = new RefPayloads.FamilyDto();
+        child.code = "CHILD";
+        child.parentCodes = List.of("PARENT");
+        RefPayloads.FamilyDto parent = new RefPayloads.FamilyDto();
+        parent.code = "PARENT";
+        ProductFamily childRow = mock(ProductFamily.class);
+        childRow.productFamilies = new java.util.HashSet<>();
+        childRow.products = new java.util.HashSet<>();
+        ProductFamily parentRow = mock(ProductFamily.class);
+        ProductFamily stale = mock(ProductFamily.class);
+        parentRow.productFamilies = new java.util.HashSet<>(java.util.Set.of(stale));
+        parentRow.products = new java.util.HashSet<>();
+        PanacheQuery<ProductFamily> childQuery = queryReturning(childRow);
+        PanacheQuery<ProductFamily> parentQuery = queryReturning(parentRow);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.find("code", "CHILD")).thenReturn(childQuery);
+            mocked.when(() -> ProductFamily.find("code", "PARENT")).thenReturn(parentQuery);
+            service.applyFamilies(List.of(child, parent));
+            assertTrue(parentRow.productFamilies.contains(childRow));
+            assertFalse(parentRow.productFamilies.contains(stale));
         }
     }
 
@@ -153,6 +232,7 @@ class RefApplyServiceTest {
         insert.ageRestriction = 18;
         insert.checkoutLabel = "POMME";
         insert.internalCode = "INT-1";
+        insert.variableWeight = true;
         insert.attributes.put("VAT_EXEMPT", "true");
         RefPayloads.ProductDto update = new RefPayloads.ProductDto();
         update.ean = "E2";
@@ -185,6 +265,7 @@ class RefApplyServiceTest {
             assertEquals(18, inserted.ageRestriction);
             assertEquals("POMME", inserted.checkoutLabel);
             assertEquals("INT-1", inserted.internalCode);
+            assertTrue(inserted.variableWeight);
             assertEquals("true", inserted.attributes.get("VAT_EXEMPT"));
             verify(inserted, times(1)).persist();
             assertNull(existing.productType);

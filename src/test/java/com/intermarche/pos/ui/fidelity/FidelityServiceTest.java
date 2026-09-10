@@ -1577,7 +1577,7 @@ class FidelityServiceTest {
     void attachRefusesResiliatedCard() {
         FidelityService service = lookupService();
         PosState state = new PosState();
-        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "RESILIATED");
+        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "RESILIATED", null);
         assertEquals("CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL", message);
         assertFalse(state.fidelity.active);
     }
@@ -1593,7 +1593,7 @@ class FidelityServiceTest {
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         PosState state = new PosState();
-        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION");
+        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION", null);
         assertNull(message);
         assertTrue(state.fidelity.active);
         assertEquals("Dupont", state.fidelity.holderLastName);
@@ -1613,7 +1613,7 @@ class FidelityServiceTest {
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         PosState state = new PosState();
-        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", null, "ACTIVE");
+        String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", null, "ACTIVE", null);
         assertNull(message);
         assertEquals("ACTIVE", state.fidelity.accountStatus);
         assertNull(state.ticket.transientError);
@@ -1630,7 +1630,7 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.account("2990000000019")).thenReturn(account("ACTIVE", "10", "10"));
         PosState state = new PosState();
-        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION");
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION", null);
         assertEquals("ACTIVE", state.fidelity.accountStatus);
     }
 
@@ -1713,5 +1713,68 @@ class FidelityServiceTest {
         assertNull(state.fidelity.accountStatus);
         service.validateCard(state, "2990000000019");
         verify(service.imfidClient, times(1)).account("2990000000019");
+    }
+
+    /**
+     * Builds a service and a real state for the holder-address cases: no imfid is
+     * needed, the address travels from the lookup match the caller echoes back.
+     *
+     * @return the service, its imfid client reporting itself unconfigured
+     */
+    private FidelityService attachService() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        return service;
+    }
+
+    // --- attachLookedUpCard : l'adresse du porteur (LC-08-02-09) ---
+
+    /**
+     * The holder's address travels from the lookup match into the register state, so
+     * the till can offer it before sending the receipt.
+     */
+    @Test
+    void attachLookedUpCardKeepsTheHolderEmail() {
+        FidelityService service = attachService();
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE",
+                " Jean.Dupont@example.org ");
+        assertEquals("Jean.Dupont@example.org", state.fidelity.holderEmail);
+    }
+
+    /**
+     * A referential that holds no address leaves the field empty rather than a blank
+     * string the screen would offer as an address (blank arm).
+     */
+    @Test
+    void attachLookedUpCardWithABlankEmailKeepsNone() {
+        FidelityService service = attachService();
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE", "   ");
+        assertNull(state.fidelity.holderEmail);
+    }
+
+    /**
+     * A match carrying no address at all leaves the field empty (null arm).
+     */
+    @Test
+    void attachLookedUpCardWithoutEmailKeepsNone() {
+        FidelityService service = attachService();
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE", null);
+        assertNull(state.fidelity.holderEmail);
+    }
+
+    /**
+     * A refused card records nothing, its address included.
+     */
+    @Test
+    void aRefusedCardRecordsNoEmail() {
+        FidelityService service = attachService();
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "RESILIATED",
+                "jean@example.org");
+        assertNull(state.fidelity.holderEmail);
     }
 }

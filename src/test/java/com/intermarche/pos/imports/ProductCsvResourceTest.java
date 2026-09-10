@@ -180,6 +180,73 @@ class ProductCsvResourceTest {
     }
 
     /**
+     * {@code feedProduct} lands a blank PLU cell as NULL — never "" — and
+     * reads the VARIABLE_WEIGHT marker (blank-PLU true arm, marker declared
+     * arm): the plu column is unique, and a feed holding several products
+     * without a PLU must not collide on the empty string.
+     */
+    @Test
+    void processLineLogicNullifiesBlankPluAndReadsVariableWeight() {
+        ProductCsvResource resource = new ProductCsvResource();
+        ImporterCsvResource.LineData data = weighLine(1, new String[]{"111", "Milk", "Fresh milk",
+                "BrandX", "1.500", "2.000", "unit", "kg", "true", "", "true"});
+        Map<String, Object> context = new HashMap<>();
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+            verify(em).persist(captor.capture());
+            assertNull(captor.getValue().plu);
+            assertTrue(captor.getValue().variableWeight);
+        }
+    }
+
+    /**
+     * {@code feedProduct} keeps a filled PLU verbatim (blank-PLU false arm)
+     * and a false VARIABLE_WEIGHT cell lands false.
+     */
+    @Test
+    void processLineLogicKeepsFilledPluAndFalseVariableWeight() {
+        ProductCsvResource resource = new ProductCsvResource();
+        ImporterCsvResource.LineData data = weighLine(1, new String[]{"111", "Milk", "Fresh milk",
+                "BrandX", "1.500", "2.000", "unit", "kg", "true", "4020", "false"});
+        Map<String, Object> context = new HashMap<>();
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+            verify(em).persist(captor.capture());
+            assertEquals("4020", captor.getValue().plu);
+            assertFalse(captor.getValue().variableWeight);
+        }
+    }
+
+    /**
+     * {@code computeIncomingChecksum} mirrors the VARIABLE_WEIGHT touch rule:
+     * an absent column reads the existing product's value (existing arm), a
+     * declared column reads the cell (declared arm) — so only a real change
+     * flips the checksum.
+     */
+    @Test
+    void computeIncomingChecksumMirrorsVariableWeightTouchRule() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product existing = new Product();
+        existing.ean = "111";
+        existing.variableWeight = true;
+        int absent = incomingChecksum(resource, line(1, fullParts()), existing);
+        int declaredTrue = incomingChecksum(resource, weighLine(1, new String[]{"111", "Milk",
+                "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true", "", "true"}), existing);
+        int declaredFalse = incomingChecksum(resource, weighLine(1, new String[]{"111", "Milk",
+                "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true", "", "false"}), existing);
+        assertEquals(absent, declaredTrue);
+        assertNotEquals(declaredTrue, declaredFalse);
+    }
+
+    /**
      * {@code processLineLogic} creates a fresh product when the context map
      * lacks the line's EAN ({@code product == null} true arm), populating every
      * field via {@code feedProduct}, incrementing the created counter and
@@ -381,6 +448,28 @@ class ProductCsvResourceTest {
     private static final String[] EXTRAS_HEADER = {"EAN", "NAME", "DESCRIPTION", "BRAND",
             "REFERENCE_WEIGHT", "REFERENCE_VOLUME", "PRODUCT_TYPE", "UNIT_NAME", "ACTIVE",
             "CHECKOUT_LABEL", "INTERNAL_CODE"};
+
+    /**
+     * Header including the optional register-only PLU and VARIABLE_WEIGHT
+     * columns appended after the canonical nine.
+     */
+    private static final String[] WEIGH_HEADER = {"EAN", "NAME", "DESCRIPTION", "BRAND",
+            "REFERENCE_WEIGHT", "REFERENCE_VOLUME", "PRODUCT_TYPE", "UNIT_NAME", "ACTIVE",
+            "PLU", "VARIABLE_WEIGHT"};
+
+    /**
+     * Builds a header-bound row declaring the optional PLU and
+     * VARIABLE_WEIGHT columns.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells of the row
+     * @return the header-bound line
+     */
+    private static ImporterCsvResource.LineData weighLine(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < WEIGH_HEADER.length; i++) header.put(WEIGH_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, WEIGH_HEADER[0]);
+    }
 
     /**
      * Builds a header-bound row declaring the optional CHECKOUT_LABEL and

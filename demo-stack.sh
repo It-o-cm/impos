@@ -1,19 +1,32 @@
 #!/usr/bin/env bash
-# demo-stack.sh — starts the demo's three applications, feeds the whole
-# stack THROUGH IMPOS (single-import-line doctrine: the engine receives its
-# data from the register's feed delivery, never from its own seed), waits
-# until the engine acknowledged every feed, runs the automated demo
-# pre-flight (Demo*), and leaves the stack RUNNING and demo-ready on green.
+# demo-stack.sh — starts the demo's FOUR applications, feeds the whole
+# stack THROUGH THE STORE NODE (single-import-line doctrine: one injection
+# point, everything downstream is diffusion), waits until the engine
+# acknowledged every feed, runs the automated demo pre-flight (Demo*), and
+# leaves the stack RUNNING and demo-ready on green.
 #
 # Data path demonstrated here:
-#   demo/feeds/*.csv --> impos (imports + relay) --> engine_feeds -->
-#   delivery loop (5s in demo) --> imvaluation (empty at boot: its own
-#   seed is DISABLED by this script).
+#   demo/feeds/*.csv --> STORE NODE (imports + verbatim ENGINE_FEEDS
+#   capture) --> referential pull (5s in demo, ENGINE_FEEDS included) -->
+#   register --> delivery loop (5s in demo) --> imvaluation (empty at
+#   boot: its own seed is DISABLED by this script).
+#
+# Injecting at the register instead would NOT survive: the register pulls
+# its referential from the store node every cycle, and the pull DEACTIVATES
+# whatever the store node does not know — a catalog injected register-side
+# is wiped back to the store's referential within one pull period.
 #
 # Usage:
-#   ./demo/demo-stack.sh            # start stack, feed via impos, pre-flight
-#   ./demo/demo-stack.sh --no-tests # same without the pre-flight
-#   ./demo/demo-stack.sh stop       # stop everything started by this script
+#   ./demo-stack.sh            # start stack, feed via impos, pre-flight
+#
+# The stack is the whole ecosystem, on four ports:
+#   8090 imvaluation (engine)   8060 imfid (loyalty)
+#   8082 the STORE NODE         8080 the register
+# Store node and register are THE SAME application in two roles, so they need
+# two ports and two databases (one H2 file for both locks itself — the trap
+# documented in store-node.sh).
+#   ./demo-stack.sh --no-tests # same without the pre-flight
+#   ./demo-stack.sh stop       # stop everything started by this script
 #
 # Layout assumption (override by env): the three workspaces are siblings —
 #   IMPOS_DIR       (default: the directory containing this script's parent)
@@ -24,6 +37,7 @@ set -u
 lsof -ti :8080 | xargs kill
 lsof -ti :8060 | xargs kill
 lsof -ti :8090 | xargs kill
+lsof -ti :8082 | xargs kill
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Location-agnostic: the script may live at the impos root OR under demo/ —
@@ -39,14 +53,12 @@ IMVALUATION_DIR="${IMVALUATION_DIR:-$IMPOS_DIR/../imvaluation}"
 IMFID_DIR="${IMFID_DIR:-$IMPOS_DIR/../imfid}"
 FEEDS_DIR="$IMPOS_DIR/demo/feeds"
 RUN_DIR="$IMPOS_DIR/.demo-stack"
-# Compte ADMIN du seed (DataInitializer) : identifiant "manager", mot de passe
-# BACK-OFFICE "changeme00" -- surtout pas le PIN "0000", qui n'ouvre que la
-# caisse. Depuis que la securite HTTP est active ces identifiants sont
-# reellement verifies contre la table employees ; le couple admin:admin d'avant
-# ne correspondait a aucun compte et ne passait que parce que rien ne
-# controlait. Le drapeau mustChangePassword du seed ne gene pas ces appels :
-# le filtre de changement laisse passer toute requete en HTTP Basic.
-ADMIN_AUTH="manager:changeme00"
+# Compte ADMIN du seed (DataInitializer) : identifiant "admin", mot de passe
+# BACK-OFFICE "admin" -- surtout pas le PIN "0000", qui n'ouvre que la caisse.
+# Depuis que la securite HTTP est active ces identifiants sont reellement
+# verifies contre la table employees : ce couple doit correspondre au seed,
+# sinon les injections ci-dessous echouent en 401.
+ADMIN_AUTH="admin:admin"
 mkdir -p "$RUN_DIR"
 
 # ---------- stop ----------
@@ -105,7 +117,7 @@ inject_feed() { # path label file
   local path="$1" label="$2" file="$3" http
   http=$(curl -s -o "$RUN_DIR/inject-$label.json" -w "%{http_code}" \
       -u "$ADMIN_AUTH" -H "Content-Type: text/plain; charset=utf-8" \
-      --data-binary "@$FEEDS_DIR/$file" "http://localhost:8080$path")
+      --data-binary "@$FEEDS_DIR/$file" "http://localhost:8082$path")
   if [ "$http" != "200" ]; then
     echo "✗ Injection $label refusée (HTTP $http) — voir $RUN_DIR/inject-$label.json"
     exit 1
@@ -121,25 +133,60 @@ start_app imfid       "$IMFID_DIR"       8060
 wait_ready imvaluation 8090 180
 wait_ready imfid       8060 180
 
-# ---------- 2. la caisse de démo (livraison des flux accélérée à 5s) ----------
-start_app impos "$IMPOS_DIR" 8080 -Dpos.valuation.feed-delivery-seconds=5
+# ---------- 2. le nœud magasin (même appli, rôle store, base à part) -------
+# Il monte AVANT la caisse pour que celle-ci ait où pousser dès son premier
+# ticket. Mode dev obligatoire: le seed du référentiel est @IfBuildProfile
+# (dev, test), un jar de prod ne le contient pas et le nœud refuserait toute
+# ingestion par « 409 Aucun magasin ».
+# Le port DOIT etre passe a l'application: le 3e argument de start_app ne sert
+# qu'a l'attente de disponibilite. Sans -Dquarkus.http.port le noeud demarre
+# sur le 8080 par defaut d'impos, wait_ready interroge le 8082 dans le vide et
+# la pile s'arrete sur « store-node muet ».
+# URL moteur VIDE au noeud: sa livraison des flux est coupée — c'est la
+# caisse qui livre le moteur, avec les ENGINE_FEEDS qu'elle tire du noeud.
+# Sans cela les deux instances livreraient le même moteur en double.
+start_app store-node "$IMPOS_DIR" 8082 \
+    -Dquarkus.http.port=8082 \
+    -Dquarkus.datasource.jdbc.url="jdbc:h2:file:./data/store-node" \
+    -Dpos.role=store \
+    -Dpos.valuation.url=
+wait_ready store-node 8082 180
+
+# ---------- 3. la caisse de démo (livraison des flux accélérée à 5s) -------
+# pos.sync.store-url fait remonter ventes, sessions et appels superviseur
+# au nœud (sans lui le dashboard magasin reste à zéro), ET arme le tirage
+# référentiel descendant — accéléré à 5s ici pour que la caisse reflète
+# l'injection au nœud sans attendre les 300s de production.
+start_app impos "$IMPOS_DIR" 8080 -Dpos.valuation.feed-delivery-seconds=5 \
+    -Dpos.sync.store-url=http://localhost:8082 \
+    -Dpos.referential.pull-seconds=5
 wait_ready impos 8080 180
 
-# ---------- 3. l'alimentation PAR impos ----------
-# Les fichiers partagés passent par les imports de la caisse (appliqués au
-# référentiel POS + capturés verbatim); les fichiers propres au moteur
-# passent par le relais (capturés sans être ouverts). Ordre du catalogue:
-# partagés avant spécifiques, offres en dernier.
-echo "· Injection des flux dans impos (ordre du catalogue)…"
-inject_feed "/stores/import"                     STORES            stores.csv
+# ---------- 4. l'alimentation PAR LE NŒUD MAGASIN ----------
+# Tous les flux entrent au nœud (8082): les fichiers partagés y sont
+# appliqués au référentiel magasin ET capturés verbatim; les fichiers
+# propres au moteur passent par le relais (capturés sans être ouverts).
+# La caisse reçoit ensuite TOUT par le tirage (référentiel + ENGINE_FEEDS)
+# et livre elle-même le moteur. Grammaire unifiée /feeds/import/{code}:
+# les codes partagés sont délégués aux imports dédiés, les codes propres
+# au moteur sont capturés verbatim. Ordre du catalogue: partagés avant
+# spécifiques, offres en dernier.
+# NB: STORES n'est pas un domaine du tirage — la fiche magasin de la
+# caisse reste celle de son seed; stores.csv sert le nœud et le moteur.
+echo "· Injection des flux dans le nœud magasin (ordre du catalogue)…"
+inject_feed "/feeds/import/STORES"               STORES            stores.csv
 inject_feed "/feeds/import/STORE_GROUPS"         STORE_GROUPS      store-groups.csv
-inject_feed "/products/import"                   PRODUCTS          products.csv
-inject_feed "/product-families/import"           FAMILIES          product-families.csv
+inject_feed "/feeds/import/PRODUCTS"             PRODUCTS          products.csv
+inject_feed "/feeds/import/FAMILIES"             FAMILIES          product-families.csv
 inject_feed "/feeds/import/CATEGORY_STORAGES"    CATEGORY_STORAGES product-category-storages.csv
-inject_feed "/prices/import"                     PRICES            prices.csv
+inject_feed "/feeds/import/PRICES"               PRICES            prices.csv
 inject_feed "/feeds/import/OFFERS"               OFFERS            offers.csv
 
-# ---------- 4. attendre l'ACK du moteur sur les 7 flux ----------
+# ---------- 5. attendre l'ACK du moteur sur les 7 flux ----------
+# Le statut est lu SUR LA CAISSE (8080): un flux n'y existe qu'une fois
+# tiré du nœud, et n'est 'applied' qu'une fois le moteur servi — ce
+# compteur 7/7 prouve donc la chaîne entière nœud → tirage → caisse →
+# livraison → moteur.
 printf "· Livraison au moteur (ACK 7/7 attendu) "
 waited=0
 while [ $waited -lt 120 ]; do
@@ -152,11 +199,12 @@ if [ "${applied:-0}" != "7" ]; then
   echo
   echo "✗ Moteur pas à jour après 120s ($applied/7 flux acquittés) :"
   curl -s -u "$ADMIN_AUTH" "http://localhost:8080/feeds/import/status"; echo
-  echo "  — voir $RUN_DIR/impos.log et $RUN_DIR/imvaluation.log"
+  echo "  — voir $RUN_DIR/store-node.log (imports), $RUN_DIR/impos.log (tirage" 
+  echo "    + livraison) et $RUN_DIR/imvaluation.log"
   exit 1
 fi
 
-# ---------- 5. le pre-flight (la démo déroulée automatiquement) ----------
+# ---------- 6. le pre-flight (la démo déroulée automatiquement) ----------
 if [ "${1:-}" != "--no-tests" ]; then
   echo "· Pre-flight de démo (Demo*) — la caisse de test boote, le parcours se joue…"
   ( cd "$IMPOS_DIR" && mvn verify -DskipITs=false -DskipUTs=true -Dit.test='Demo*' ) \
@@ -167,14 +215,17 @@ fi
 cat <<READY
 
 ════════════════════════════════════════════════════════
-  PILE DE DÉMO PRÊTE — moteur alimenté PAR impos
+  PILE DE DÉMO PRÊTE — quatre applications, alimentées PAR LE NŒUD MAGASIN
     Caisse        http://localhost:8080/
-    Simulateur    http://localhost:8080/simulateur
+    Simulateur    $IMPOS_DIR/docs/simulateur.html   (page STATIQUE: 'open' ce
+                  fichier — l'appli ne la sert pas, elle parle au 8080)
     Écran client  http://localhost:8080/customer
+    NŒUD MAGASIN  http://localhost:8082/dashboard   ← LE seul agrégateur
+    Back-office   http://localhost:8082/admin       (admin / admin)
     Moteur        http://localhost:8090/   (IHM admin — données reçues d'impos)
     imfid         http://localhost:8060/   (IHM programme)
-    État des flux http://localhost:8080/feeds/import/status  (admin/admin)
-  Logs: $RUN_DIR/   —   Arrêt: ./demo/demo-stack.sh stop
-  Module XIII (nœud magasin) : à lancer à part (voir PDF 0.1).
+    État des flux http://localhost:8080/feeds/import/status  ($ADMIN_AUTH)
+  Logs: $RUN_DIR/   —   Arrêt: ./demo-stack.sh stop
+  La caisse pousse vers :8082 — le dashboard se remplit à la première vente.
 ════════════════════════════════════════════════════════
 READY

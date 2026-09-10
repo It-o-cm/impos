@@ -334,6 +334,7 @@ class TicketStateTest {
         ts.currentWeight = 2.0;
         ts.lastRecordedWeight = 3.0;
         ts.transientError = "err";
+        ts.transientOk = true;
         long before = parent.version;
         ts.clear();
         assertTrue(ts.items.isEmpty());
@@ -342,17 +343,48 @@ class TicketStateTest {
         assertEquals(0.0, ts.currentWeight);
         assertTrue(Double.isNaN(ts.lastRecordedWeight));
         assertNull(ts.transientError);
+        assertFalse(ts.transientOk);
         assertEquals(before + 1, parent.version);
     }
 
     /**
-     * setError stores the message and notifies.
+     * setError stores the message, notifies, and marks the zone as a REFUSAL.
      */
     @Test
     void setErrorStoresMessage() {
         TicketState ts = new TicketState();
         ts.setError("oops");
         assertEquals("oops", ts.transientError);
+        assertFalse(ts.transientOk);
+    }
+
+    /**
+     * setNotice stores the message in the same zone and marks it as a
+     * CONFIRMATION, so a successful print is not drawn as an error.
+     */
+    @Test
+    void setNoticeStoresConfirmation() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        long before = parent.version;
+        ts.setNotice("TICKET RÉIMPRIMÉ");
+        assertEquals("TICKET RÉIMPRIMÉ", ts.transientError);
+        assertTrue(ts.transientOk);
+        assertEquals(before + 1, parent.version);
+    }
+
+    /**
+     * A refusal after a confirmation takes the zone back: the OK marker must not
+     * survive the next failure.
+     */
+    @Test
+    void setErrorAfterNoticeClearsTheConfirmationFlag() {
+        TicketState ts = new TicketState();
+        ts.setNotice("TICKET RÉIMPRIMÉ");
+        ts.setError("AUCUN TICKET");
+        assertEquals("AUCUN TICKET", ts.transientError);
+        assertFalse(ts.transientOk);
     }
 
     /**
@@ -451,12 +483,25 @@ class TicketStateTest {
     }
 
     /**
-     * getHtml renders a weighed line with three decimals (plu non-empty arm).
+     * getHtml renders a weighed line with three decimals (plu non-empty arm,
+     * priceEmbedded false arm).
      */
     @Test
     void getHtmlWeighedLine() {
         TicketItem item = new TicketItem("1", "9", "Apples", new BigDecimal("1.00"), new BigDecimal("1.234"), null);
         assertEquals("<span class='qty'>1,234 kg</span> Apples", item.getHtml());
+    }
+
+    /**
+     * getHtml on a price-embedded sticker line (PLU present) renders the label
+     * alone: the sticker fixed the price, the weight is unknown, so no
+     * quantity fragment — never a phantom "1,000 kg" (priceEmbedded true arm).
+     */
+    @Test
+    void getHtmlPriceEmbeddedStickerShowsNoWeight() {
+        TicketItem item = new TicketItem("1", "9", "Apples", new BigDecimal("2.67"), BigDecimal.ONE, null);
+        item.priceEmbedded = true;
+        assertEquals("Apples", item.getHtml());
     }
 
     /**

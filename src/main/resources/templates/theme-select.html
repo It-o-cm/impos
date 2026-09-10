@@ -4,6 +4,12 @@
  ! empty value — the service clears the preference). The current resolution
  ! is highlighted. The page is itself themed, so the cashier previews the
  ! change on the very next screen after choosing.
+ !
+ ! Built on the register's standard chrome (top bar / work area / bottom bar
+ ! inside the 1000x600 terminal) like every other screen: it used to be a bare
+ ! panel with a floating "back" link pinned to a corner, which was the only
+ ! place in the application where the way out was not the RETOUR key at the
+ ! bottom left.
  !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -13,36 +19,56 @@
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .panel {
+        .pos-terminal {
             width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px; position: relative;
-            display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px;
+            border: 2px solid var(--border-strong); border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
-        h1 { font-size: 1.4rem; letter-spacing: 2px; color: var(--text-muted); }
-        .choices { display: flex; gap: 20px; }
-        .choice { min-width: 220px; padding: 40px 20px; font-size: 1.3rem; font-weight: bold;
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
+
+        .main-area { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; padding: 20px; }
+        .lead { font-size: var(--fs-body); color: var(--text-muted); }
+        .choices { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+        .choice { min-width: 220px; padding: 40px 20px; font-size: var(--fs-btn); font-weight: bold;
                   border-radius: 10px; border: 2px solid var(--border-color);
-                  background: var(--bg-panel); color: var(--text-main); cursor: pointer; }
+                  background: var(--bg-panel); color: var(--text-main); cursor: pointer;
+                  text-transform: uppercase; }
         .choice.current { border-color: var(--primary); }
-        .back { position: absolute; top: 15px; left: 15px; }
     </style>
 </head>
 <body data-theme="{posTheme}">
-    <div class="panel">
-        <a href="/" class="btn btn-muted back">&larr; RETOUR</a>
-        <h1>THÈME D'AFFICHAGE</h1>
-        <div class="choices">
-            {#for t in themes}
-            <form method="post" action="/action/theme">
-                <input type="hidden" name="theme" value="{t}">
-                <button type="submit" class="choice {#if t == current}current{/if}">{t.toUpperCase()}</button>
-            </form>
-            {/for}
-            <form method="post" action="/action/theme">
-                <input type="hidden" name="theme" value="">
-                <button type="submit" class="choice">DÉFAUT MAGASIN</button>
-            </form>
+    <div class="pos-terminal">
+        <div class="top-bar">
+            <span class="title">Thème d'affichage</span>
+            <span id="clock"></span>
+        </div>
+
+        <div class="main-area">
+            <span class="lead">Le thème choisi s'applique dès l'écran suivant.</span>
+            <div class="choices">
+                {#for t in themes}
+                <form method="post" action="/action/theme">
+                    <input type="hidden" name="theme" value="{t}">
+                    <button type="submit" class="choice {#if t == current}current{/if}">{t.toUpperCase()}</button>
+                </form>
+                {/for}
+                <form method="post" action="/action/theme">
+                    <input type="hidden" name="theme" value="">
+                    <button type="submit" class="choice">DÉFAUT MAGASIN</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="bottom-nav">
+            <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
         </div>
     </div>
+
+    <script>
+        setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    </script>
 </body>
 </html>

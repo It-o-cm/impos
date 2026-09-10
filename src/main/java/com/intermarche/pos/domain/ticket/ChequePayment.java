@@ -1,6 +1,7 @@
 package com.intermarche.pos.domain.ticket;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.Column;
 import jakarta.persistence.DiscriminatorValue;
 import jakarta.persistence.Entity;
 import java.math.BigDecimal;
@@ -11,12 +12,28 @@ import java.math.BigDecimal;
  * Semantic contract: the drawer opens at registration so the cashier can
  * store the cheque; the amount is taken as typed (a cheque above the
  * remaining due is a cashier decision, change is rendered in cash and
- * computed by the shared change logic of {@code PaymentService}). Carries no
- * field of its own: identity is the discriminator value "CHEQUE".
+ * computed by the shared change logic of {@code PaymentService}).
+ * <p>
+ * Carries the magnetic line the reader read off the cheque. Like the card traces,
+ * it DESCRIBES THE SALE — which cheque settled this ticket — and not the register's
+ * local state, so it belongs on the entity and travels with the store synchronization.
+ * It is kept RAW, exactly as read: the bank, branch and account codes are derived from
+ * it and can be derived again, whereas a line stored already split could never be
+ * re-split differently the day a layout turns out to be wrong. Nullable on the shared
+ * payment table: a cheque registered in training mode, or before this till had a
+ * reader, has none.
  */
 @Entity
 @DiscriminatorValue("CHEQUE")
 public class ChequePayment extends TicketPayment {
+
+    /**
+     * The CMC7 magnetic line as the reader read it, or null when the cheque was not
+     * read — training mode, or a till with no reader. Nullable on the shared payment
+     * table, so the other payment methods leave the column untouched.
+     */
+    @Column(name = "cheque_micr_line", length = 64)
+    public String magneticLine;
 
     /**
      * Default constructor for JPA.

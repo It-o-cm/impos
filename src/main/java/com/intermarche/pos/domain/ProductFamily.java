@@ -315,10 +315,16 @@ public class ProductFamily extends BaseEntity {
 
     /**
      * Helper method to parse the comma-separated flags string into a Set.
+     * A null or blank flags string parses as the empty set, so the first
+     * {@link #addFlag(String)} on a freshly created family works instead of
+     * faulting on the null field.
      *
-     * @return A Set of trimmed flag strings.
+     * @return A mutable Set of trimmed flag strings.
      */
     private Set<String> getFlagsSet() {
+        if (this.flags == null || this.flags.isBlank()) {
+            return new java.util.HashSet<>();
+        }
         return Arrays.stream(this.flags.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())

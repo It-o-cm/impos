@@ -24,6 +24,41 @@ public final class SyncPayloads {
     private SyncPayloads() {}
 
     /**
+     * A COUNTER TICKET pushed by a scale system to the store node (LC-06-01-02),
+     * and served back to the register that picks it up.
+     *
+     * <p>It travels in ONE direction on the way in — scale to shop — and the
+     * other on the way out, which is why the same shape serves both: what the
+     * register integrates must be exactly what the counter weighed.
+     */
+    public static class BalanceTicketDto {
+        /** The reference printed on the counter paper (upsert key). */
+        public String reference;
+        /** The counter that weighed it, for the operator's eyes. */
+        public String counterLabel;
+        /** The emission timestamp, ISO-8601. */
+        public String emittedAt;
+        /** The weighed lines, in the order the counter served them. */
+        public List<BalanceTicketLineDto> lines = new ArrayList<>();
+    }
+
+    /**
+     * One weighed line of a {@link BalanceTicketDto}.
+     */
+    public static class BalanceTicketLineDto {
+        /** The article's EAN. */
+        public String ean;
+        /** The label as the counter printed it. */
+        public String label;
+        /** The weighed quantity in kilograms. */
+        public BigDecimal quantity;
+        /** The line total including tax, as the scale computed it. */
+        public BigDecimal totalIncludingTax;
+        /** The VAT rate as a fraction, or null to let the register resolve it. */
+        public BigDecimal vatRate;
+    }
+
+    /**
      * A cash session, pushed at opening and again at closing (upsert by
      * session number).
      */
@@ -61,6 +96,12 @@ public final class SyncPayloads {
      * ticket number).
      */
     public static class TicketDto {
+        /**
+         * The ticket as the selling register printed it, 42-column text
+         * (LC-08-02-02), or null on a ticket closed before the field existed.
+         */
+        public String formattedContent;
+
         /** The ticket number (upsert key). */
         public String ticketNumber;
         /** The register identifier. */
@@ -169,6 +210,26 @@ public final class SyncPayloads {
         public String authorizationNumber;
         /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
         public boolean degradedMode;
+        /** The CMC7 magnetic line read off the cheque, or null. */
+        public String magneticLine;
+        /** The account charged by a customer-credit settlement (LC-07-09), or null. */
+        public String creditAccountNumber;
+        /** The account name as it stood at sale time, or null. */
+        public String creditAccountName;
+        /** True when a supervisor authorized the settlement over the ceiling. */
+        public boolean creditOverLimit;
+        /** The scheme a backup-monetics settlement reported (LC-07-07-08), or null. */
+        public String backupMethodLabel;
+        /** The transaction number the two backup QR codes were matched on, or null. */
+        public String backupTransaction;
+        /** True when a backup-monetics outcome was keyed in rather than scanned. */
+        public boolean backupManual;
+        /** The ISO code of the currency handed over (LC-07-14), or null. */
+        public String currencyCode;
+        /** The amount handed over in that currency, or null. */
+        public BigDecimal currencyAmount;
+        /** The euros-for-one-unit rate applied, or null. */
+        public BigDecimal currencyRate;
     }
 
     /**
@@ -240,6 +301,36 @@ public final class SyncPayloads {
         public String movementDate;
         /** The badge of the endorsing manager, or null. */
         public String endorsedBy;
+    }
+
+    /**
+     * An account customer created at the register (upsert by account number,
+     * LC-08-04-09). It references nothing: a business the store bills is a
+     * first-class party, not a satellite of a sale.
+     */
+    public static class CustomerDto {
+        /** The account number (upsert key). */
+        public String accountNumber;
+        /** The business name. */
+        public String companyName;
+        /** The contact's last name, or null. */
+        public String lastName;
+        /** The contact's first name, or null. */
+        public String firstName;
+        /** The street line, or null. */
+        public String street;
+        /** The postal code, or null. */
+        public String postalCode;
+        /** The town, or null. */
+        public String city;
+        /** The SIRET, or null. */
+        public String siret;
+        /** The intra-community VAT number, or null. */
+        public String vatNumber;
+        /** The telephone number, or null. */
+        public String phone;
+        /** The electronic address, or null. */
+        public String email;
     }
 
     /**

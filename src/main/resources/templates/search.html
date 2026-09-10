@@ -3,7 +3,9 @@
  ! alpha keyboard is a FIXED 10-column grid needing ~604px minimum — hence
  ! results on top and the input zone full-width below, which fits the keys
  ! at their STANDARD size (the historical compact override is gone: keys
- ! render identically on every screen, theme.html owns the metrics). Alpha keyboard AND numeric search pad feed the SAME PosInput
+ ! render identically on every screen, theme.html owns the metrics). The hits are
+ ! PAGINATED, eight at a time: this register paginates everywhere and never asks a
+ ! finger to drag a list. Alpha keyboard AND numeric search pad feed the SAME PosInput
  ! buffer (renderSearchPad routed through PosInput.handleKey), so names, EANs
  ! and PLUs mix freely. A hit tap routes /action/search/add/{code} through
  ! processScan: tapping = scanning, same chain, same guards. The display MUST
@@ -26,30 +28,33 @@
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
     }
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
-    .top-bar .title { color: var(--primary); font-weight: bold; font-size: 1.2rem; text-transform: uppercase; }
-    .close-btn { color: var(--danger); font-size: 1.8rem; text-decoration: none; font-weight: bold; }
+    .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
 
-    .results-area { padding: 10px 15px; overflow-y: auto; }
-    .results-empty { color: var(--text-muted); text-align: center; margin-top: 30px; font-size: 1.05rem; }
-    .results-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-content: start; }
+    /* PAGINATED, NOT SCROLLED: eight hits fill the area exactly, and the pager sits
+       under them. Nothing on this register asks a finger to drag a list. */
+    .results-area { padding: 8px 15px; overflow: hidden; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .results-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; font-size: var(--fs-body); }
+    .results-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); gap: 8px; min-height: 0; }
     .hit-btn {
-      background: var(--bg-row); border: 2px solid var(--border-color); color: #ddd; border-radius: 8px;
+      background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-main); border-radius: 8px;
       cursor: pointer; text-align: center; text-transform: uppercase;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 4px; padding: 8px 6px; min-height: 62px; text-decoration: none;
-      font-size: 0.82rem; font-weight: bold; line-height: 1.15; overflow: hidden;
+      gap: 2px; padding: 4px 6px; min-height: 0; text-decoration: none;
+      font-size: var(--fs-btn-sm); font-weight: bold; line-height: 1.15; overflow: hidden;
     }
-    .hit-btn:active { background: #444; transform: scale(0.98); }
-    .hit-price { color: var(--success); font-size: 0.9rem; }
+    .hit-btn:active { background: var(--bg-panel); transform: scale(0.98); }
+    .hit-price { color: var(--success); font-size: var(--fs-row-sub); }
+
 
     .input-zone { background: var(--bg-inset); border-top: 1px solid var(--border-color); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px; }
     .input-row { display: flex; gap: 10px; }
     .search-display {
-      flex: 1; font-size: 1.4rem; color: var(--primary); font-weight: bold;
+      flex: 1; font-size: var(--fs-field); color: var(--primary); font-weight: bold;
       background: var(--bg-page); border: 2px solid var(--primary); border-radius: 4px;
       padding: 8px 12px; text-transform: uppercase;
     }
-    .btn-search { width: 220px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; background-color: var(--primary); }
+    .btn-back { width: 150px; display: flex; align-items: center; justify-content: center; }
+    .btn-search { width: 220px; font-size: var(--fs-btn); font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; background-color: var(--primary); }
 
     .kb-row { display: grid; grid-template-columns: 1fr 235px; gap: 12px; }
     /* Compact keys so both pads fit the 600px terminal with room for results */
@@ -59,7 +64,6 @@
   <div class="pos-terminal">
     <div class="top-bar">
       <span class="title">Recherche produit — nom, EAN ou code article</span>
-      <a href="/" class="close-btn">&times;</a>
     </div>
 
     <div class="results-area">
@@ -71,12 +75,25 @@
         {/if}
       {#else}
         <div class="results-grid">
-          {#for hit in hits}
+          {#for hit in pageHits}
             <a href="/action/search/add/{hit.code}" class="hit-btn">
               <span>{hit.label}</span>
               <span class="hit-price">{hit.priceFormatted}</span>
             </a>
           {/for}
+        </div>
+        <div class="pos-pager">
+          {#if hasPrev}
+            <a href="{pageUrl}{prevPage}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
+          {#else}
+            <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
+          {/if}
+          <span class="pos-pager-info">PAGE {page} / {pageCount} — {hits.size} RÉSULTATS</span>
+          {#if hasNext}
+            <a href="{pageUrl}{nextPage}" class="btn btn-sm btn-muted">SUIVANT</a>
+          {#else}
+            <span class="btn btn-sm btn-muted off">SUIVANT</span>
+          {/if}
         </div>
       {/if}
     </div>
@@ -84,10 +101,21 @@
     <div class="input-zone">
       <form action="/search" method="GET" id="searchForm">
         <div class="input-row">
+          <a href="/" class="btn btn-muted btn-back">RETOUR</a>
           <input type="text" id="searchDisplay" class="search-display" value="{q}" readonly>
           <input type="hidden" name="q" id="searchHidden" value="{q}">
           <button type="submit" class="btn-search">RECHERCHER</button>
         </div>
+      </form>
+      {! LC-06-01-01: a SECOND destination for the same buffer. The search above only
+       ! offers catalog articles; a counter-ticket reference, a voucher or a loyalty
+       ! card are codes the catalog has never heard of and that no result list can
+       ! ever show. This one walks what was typed through the scan chain — typing is
+       ! scanning. It posts the same hidden field, so the two buttons cannot disagree
+       ! about what the operator typed. !}
+      <form action="/action/search/scan" method="POST" id="scanForm" style="margin-top:8px;">
+        <input type="hidden" name="q" id="scanHidden" value="{q}">
+        <button type="submit" class="btn btn-primary" style="width:100%;">VALIDER CE CODE (COMME UN SCAN)</button>
       </form>
       <div class="kb-row">
         <div id="alphaKbArea"></div>
@@ -111,6 +139,14 @@
     });
     /* Numeric pad (EAN / article code) feeding the same buffer */
     PosKeyboards.renderSearchPad(document.getElementById('numKbArea'), k => PosInput.handleKey(k));
+
+    /* PosInput writes into ONE hidden field, and the scan form has its own: it is
+       filled from that single source at submit time rather than kept in step key by
+       key, so the two buttons can never send different codes. */
+    document.getElementById('scanForm').addEventListener('submit', () => {
+      document.getElementById('scanHidden').value =
+          document.getElementById('searchHidden').value;
+    });
   </script>
 </body>
 </html>

@@ -1,5 +1,7 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.domain.ticket.DocumentCounter;
+import com.intermarche.pos.domain.ticket.DocumentType;
 import com.intermarche.pos.domain.ticket.TicketCounter;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
@@ -76,6 +78,66 @@ public class TicketNumberService {
         TicketCounter counter = lockCounter(terminalId);
         counter.lastRefundNumber++;
         return String.format("%s-R%06d", terminalId, counter.lastRefundNumber);
+    }
+
+    /**
+     * Reserves and returns the next account-customer number for this terminal, e.g.
+     * {@code C04-CLI000042}, under the same counter row lock as the sale sequences.
+     *
+     * @return the next customer number
+     */
+    @Transactional
+    public String nextCustomerNumber() {
+        TicketCounter counter = lockCounter(terminalId);
+        counter.lastCustomerNumber++;
+        return String.format("%s-CLI%06d", terminalId, counter.lastCustomerNumber);
+    }
+
+    /**
+     * Reserves and returns the next number of a commercial document for this
+     * terminal, e.g. {@code C04-F000123} for an invoice.
+     * <p>
+     * On its OWN counter row, one per document type, and deliberately not on the
+     * ticket counter. That row carries the three sale sequences and the fiscal
+     * chaining anchors together so that a single lock serialises them; a document
+     * is issued on a ticket that is already closed and chained, and has no business
+     * holding that lock. Two document types are therefore numbered independently,
+     * and issuing an invoice never blocks a sale.
+     *
+     * @param type the kind of document to number
+     * @return the next document number for that type
+     */
+    @Transactional
+    public String nextDocumentNumber(DocumentType type) {
+        DocumentCounter counter = lockDocumentCounter(terminalId, type);
+        counter.lastNumber++;
+        return String.format("%s-%s%06d", terminalId, type.getPrefix(), counter.lastNumber);
+    }
+
+    /**
+     * Loads the document counter of the given terminal and type with a pessimistic
+     * write lock, creating it lazily on first use (the unique constraint on the pair
+     * protects against a concurrent first creation).
+     *
+     * @param terminal the terminal identifier whose counter is needed
+     * @param type     the document type whose sequence is needed
+     * @return the locked counter row
+     */
+    @Transactional
+    public DocumentCounter lockDocumentCounter(String terminal, DocumentType type) {
+        DocumentCounter counter = DocumentCounter
+                .<DocumentCounter>find("terminalId = ?1 and documentType = ?2", terminal, type)
+                .withLock(LockModeType.PESSIMISTIC_WRITE)
+                .firstResult();
+
+        if (counter == null) {
+            counter = new DocumentCounter();
+            counter.terminalId = terminal;
+            counter.documentType = type;
+            counter.lastNumber = 0;
+            counter.persist();
+        }
+        return counter;
     }
 
     /**

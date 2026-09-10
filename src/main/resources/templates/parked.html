@@ -19,26 +19,24 @@
       display: grid; grid-template-rows: 60px 1fr 80px;
       overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
     }
-    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
-    .top-bar .title { color: var(--warning); font-weight: bold; font-size: 1.3rem; text-transform: uppercase; }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .title { color: var(--warning); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
 
-    .list-area { padding: 20px; overflow-y: auto; }
-    .list-empty { color: var(--text-muted); text-align: center; margin-top: 60px; font-size: 1.3rem; }
+    .list-area { padding: 20px 20px 12px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
     .parked-row {
       display: grid; grid-template-columns: 220px 120px 1fr 150px;
       align-items: center; gap: 15px;
       background: var(--bg-panel); border: 1px solid var(--border-color);
-      border-radius: 8px; padding: 16px 20px; margin-bottom: 10px;
-      text-decoration: none; color: var(--text-main); font-size: 1.1rem;
+      border-radius: 6px; padding: 12px 20px;
+      text-decoration: none; color: var(--text-main); font-size: var(--fs-row);
     }
     .parked-row:active { background: #2a2a2a; }
     .parked-number { font-weight: bold; color: var(--warning); }
     .parked-time { color: var(--text-muted); }
     .parked-count { color: var(--text-muted); }
-    .parked-total { font-weight: bold; color: var(--success); text-align: right; font-size: 1.3rem; }
+    .parked-total { font-weight: bold; color: var(--success); text-align: right; font-size: var(--fs-amount); }
 
-    .btn { padding: 15px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; text-decoration: none; text-align: center; }
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -50,16 +48,33 @@
 
     <div class="list-area">
       {#if tickets.isEmpty}
-        <div class="list-empty">AUCUN TICKET EN ATTENTE SUR CETTE CAISSE</div>
+        <div class="pos-list-empty">AUCUN TICKET EN ATTENTE SUR CETTE CAISSE</div>
       {#else}
-        {#for ticket in tickets}
-          <a href="/action/parked/resume/{ticket.id}" class="parked-row">
-            <span class="parked-number">{ticket.ticketNumber}</span>
-            <span class="parked-time">{ticket.creationDate.format('HH:mm')}</span>
-            <span class="parked-count">{ticket.itemCount} article(s)</span>
-            <span class="parked-total">{ticket.getTotalFormatted()} €</span>
-          </a>
-        {/for}
+        <div class="pos-list">
+          {#for ticket in tickets}
+            <a href="/action/parked/resume/{ticket.id}" class="parked-row">
+              <span class="parked-number">{ticket.ticketNumber}</span>
+              <span class="parked-time">{ticket.creationDate.format('HH:mm')}</span>
+              <span class="parked-count">{ticket.itemCount} article(s)</span>
+              <span class="parked-total">{ticket.getTotalFormatted()} €</span>
+            </a>
+          {/for}
+        </div>
+        {#if pageCount > 1}
+        <div class="pos-pager">
+          {#if hasPrev}
+          <a href="/parked?page={prevPage}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
+          {#else}
+          <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
+          {/if}
+          <span class="pos-pager-info">PAGE {page} / {pageCount}</span>
+          {#if hasNext}
+          <a href="/parked?page={nextPage}" class="btn btn-sm btn-muted">SUIVANT</a>
+          {#else}
+          <span class="btn btn-sm btn-muted off">SUIVANT</span>
+          {/if}
+        </div>
+        {/if}
       {/if}
     </div>
 

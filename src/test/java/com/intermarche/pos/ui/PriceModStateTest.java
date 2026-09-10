@@ -35,17 +35,171 @@ class PriceModStateTest {
     }
 
     /**
-     * Verifies that clear() closes the modal and forgets the target.
+     * The three-argument set() is the ticket-level gesture: it opens the modal
+     * with no line to recall.
+     */
+    @Test
+    void setWithoutRecallLeavesNoLineToShow() {
+        PriceModState state = new PriceModState();
+        state.set("GLOBAL_REMISE", null, "TICKET COMPLET");
+        Assertions.assertFalse(state.isTargetLine());
+        Assertions.assertNull(state.targetHtml);
+        Assertions.assertNull(state.targetPriceFormatted);
+        Assertions.assertNull(state.targetModifierLabel);
+    }
+
+    /**
+     * The six-argument set() carries the recall of the targeted line — the
+     * fragment the ticket shows, the current total and any modification already
+     * applied.
+     */
+    @Test
+    void setWithRecallStoresTheLineAsTheTicketShowsIt() {
+        PriceModState state = new PriceModState();
+        state.set("REMISE", "uid-1", "Bananes", "<span class='qty'>x2</span> Bananes",
+                "4,60", "REMISE 1,00");
+        Assertions.assertTrue(state.isTargetLine());
+        Assertions.assertEquals("<span class='qty'>x2</span> Bananes", state.targetHtml);
+        Assertions.assertEquals("4,60", state.targetPriceFormatted);
+        Assertions.assertEquals("REMISE 1,00", state.targetModifierLabel);
+    }
+
+    /**
+     * A line carrying no modification yet recalls the line all the same, with no
+     * modification line to show (modifier null arm).
+     */
+    @Test
+    void setWithRecallAcceptsALineWithoutModification() {
+        PriceModState state = new PriceModState();
+        state.set("FORCE_PRICE", "uid-3", "Pain", "<span class='qty'>x1</span> Pain",
+                "1,20", null);
+        Assertions.assertTrue(state.isTargetLine());
+        Assertions.assertNull(state.targetModifierLabel);
+    }
+
+    /**
+     * Verifies that clear() closes the modal and forgets the target, recall
+     * included — the next gesture must not inherit the previous line.
      */
     @Test
     void clearDeactivatesAndForgetsTarget() {
         PriceModState state = new PriceModState();
-        state.set("QUANTITY", "uid-2", "Pommes");
+        state.set("QUANTITY", "uid-2", "Pommes", "<span class='qty'>x3</span> Pommes",
+                "6,00", "DISCOUNT 10%");
         state.clear();
         Assertions.assertFalse(state.active);
         Assertions.assertNull(state.type);
         Assertions.assertNull(state.targetUid);
         Assertions.assertNull(state.targetLabel);
+        Assertions.assertNull(state.targetHtml);
+        Assertions.assertNull(state.targetPriceFormatted);
+        Assertions.assertNull(state.targetModifierLabel);
+        Assertions.assertFalse(state.isTargetLine());
+    }
+
+    // --- isLineModes: one case per leg of the three-legged disjunction ---
+
+    /**
+     * REMISE offers the mode selector (first leg true).
+     */
+    @Test
+    void isLineModesTrueForRemise() {
+        PriceModState state = new PriceModState();
+        state.type = "REMISE";
+        Assertions.assertTrue(state.isLineModes());
+    }
+
+    /**
+     * DISCOUNT offers the mode selector (second leg true).
+     */
+    @Test
+    void isLineModesTrueForDiscount() {
+        PriceModState state = new PriceModState();
+        state.type = "DISCOUNT";
+        Assertions.assertTrue(state.isLineModes());
+    }
+
+    /**
+     * FORCE_PRICE offers the mode selector (third leg true).
+     */
+    @Test
+    void isLineModesTrueForForcePrice() {
+        PriceModState state = new PriceModState();
+        state.type = "FORCE_PRICE";
+        Assertions.assertTrue(state.isLineModes());
+    }
+
+    /**
+     * QUANTITY shares the modal but asks another question — how many, not how
+     * much — so it gets no mode selector (all three legs false).
+     */
+    @Test
+    void isLineModesFalseForQuantity() {
+        PriceModState state = new PriceModState();
+        state.type = "QUANTITY";
+        Assertions.assertFalse(state.isLineModes());
+    }
+
+    /**
+     * A ticket-level gesture is not a line gesture: it has its own two modes
+     * (all three legs false).
+     */
+    @Test
+    void isLineModesFalseForTicketGesture() {
+        PriceModState state = new PriceModState();
+        state.type = "GLOBAL_REMISE";
+        Assertions.assertFalse(state.isLineModes());
+    }
+
+    /**
+     * A null type answers false rather than throwing — the constants are on the
+     * left of every equals (null arm).
+     */
+    @Test
+    void isLineModesFalseWhenTypeIsNull() {
+        PriceModState state = new PriceModState();
+        Assertions.assertFalse(state.isLineModes());
+    }
+
+    // --- isTicketModes: one case per leg of the two-legged disjunction ---
+
+    /**
+     * GLOBAL_REMISE offers the euro/percent selector (first leg true).
+     */
+    @Test
+    void isTicketModesTrueForGlobalRemise() {
+        PriceModState state = new PriceModState();
+        state.type = "GLOBAL_REMISE";
+        Assertions.assertTrue(state.isTicketModes());
+    }
+
+    /**
+     * GLOBAL_DISCOUNT offers the euro/percent selector (second leg true).
+     */
+    @Test
+    void isTicketModesTrueForGlobalDiscount() {
+        PriceModState state = new PriceModState();
+        state.type = "GLOBAL_DISCOUNT";
+        Assertions.assertTrue(state.isTicketModes());
+    }
+
+    /**
+     * A line gesture gets the line selector, not this one (both legs false).
+     */
+    @Test
+    void isTicketModesFalseForLineGesture() {
+        PriceModState state = new PriceModState();
+        state.type = "REMISE";
+        Assertions.assertFalse(state.isTicketModes());
+    }
+
+    /**
+     * A null type answers false rather than throwing (null arm).
+     */
+    @Test
+    void isTicketModesFalseWhenTypeIsNull() {
+        PriceModState state = new PriceModState();
+        Assertions.assertFalse(state.isTicketModes());
     }
 
     /**

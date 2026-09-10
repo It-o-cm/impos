@@ -19,8 +19,10 @@ import org.jboss.logging.Logger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -47,12 +49,25 @@ public class RefApplyService {
 
     /**
      * Applies a family snapshot: upsert by code (families carry no active
-     * flag; absents are left in place).
+     * flag; absents are left in place), then rebuilds the GROUP TREE and the
+     * article memberships the snapshot describes.
+     * <p>
+     * The edges matter as much as the rows: without them a register receives
+     * flat, empty groups, and the touch grid shows buttons with nothing behind
+     * them — everything the back office administered would stop at the store
+     * node. They are rebuilt in three passes because a snapshot ordered by code
+     * puts parents and children in any order, and because clearing a collection
+     * while wiring another would erase what an earlier row had just received.
+     * Articles are resolved by EAN and are already applied at this point:
+     * PRODUCTS comes before FAMILIES in {@code DOMAINS} for that reason.
      *
      * @param dtos the snapshot rows
      */
     @Transactional
     public void applyFamilies(List<RefPayloads.FamilyDto> dtos) {
+        // FIRST PASS: the rows themselves. The edges cannot be wired here —
+        // a parent may appear after its child in a snapshot ordered by code.
+        Map<String, ProductFamily> byCode = new HashMap<>();
         for (RefPayloads.FamilyDto dto : dtos) {
             ProductFamily family = ProductFamily.find("code", dto.code).firstResult();
             if (family == null) {
@@ -65,6 +80,35 @@ public class RefApplyService {
             family.buttonSize = dto.buttonSize;
             family.displayOrder = dto.displayOrder;
             family.salesVolume = dto.salesVolume;
+            family.persist();
+            byCode.put(dto.code, family);
+        }
+        // SECOND PASS: empty every edge collection BEFORE wiring any of them.
+        // Clearing inside the wiring loop would erase the children a family
+        // received from a row processed earlier — the snapshot is applied in
+        // code order, a parent can come after its child.
+        for (RefPayloads.FamilyDto dto : dtos) {
+            ProductFamily family = byCode.get(dto.code);
+            family.productFamilies.clear();
+            family.products.clear();
+        }
+        // THIRD PASS: the tree and the memberships. Both collections are
+        // REPLACED, never merged: the snapshot is the truth, so a family
+        // removed from a group upstream leaves it here too.
+        for (RefPayloads.FamilyDto dto : dtos) {
+            ProductFamily family = byCode.get(dto.code);
+            for (String parentCode : dto.parentCodes) {
+                ProductFamily parent = byCode.get(parentCode);
+                if (parent != null) {
+                    parent.productFamilies.add(family);
+                }
+            }
+            for (String ean : dto.productEans) {
+                Product product = Product.find("ean", ean).firstResult();
+                if (product != null) {
+                    family.products.add(product);
+                }
+            }
             family.persist();
         }
         LOG.infof("Référentiel familles appliqué: %d ligne(s)", dtos.size());
@@ -99,6 +143,7 @@ public class RefApplyService {
             product.ageRestriction = dto.ageRestriction;
             product.checkoutLabel = dto.checkoutLabel;
             product.internalCode = dto.internalCode;
+            product.variableWeight = dto.variableWeight;
             product.attributes = dto.attributes != null
                     ? new java.util.HashMap<>(dto.attributes) : new java.util.HashMap<>();
             product.persist();
@@ -218,6 +263,108 @@ public class RefApplyService {
             }
         }
         LOG.infof("Référentiel types de bons appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+    }
+
+    /**
+     * Applies the foreign-currency snapshot ({@code LC-07-14}): upsert by ISO code,
+     * and the currencies absent from the snapshot are DEACTIVATED rather than
+     * deleted — a receipt from last month still names one, and a code that comes
+     * back keeps its history.
+     *
+     * @param dtos the full currency snapshot
+     */
+    @Transactional
+    public void applyCurrencies(List<RefPayloads.CurrencyDto> dtos) {
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.CurrencyDto dto : dtos) {
+            com.intermarche.pos.domain.Currency currency =
+                    com.intermarche.pos.domain.Currency.find("code", dto.code).firstResult();
+            if (currency == null) {
+                currency = new com.intermarche.pos.domain.Currency();
+                currency.code = dto.code;
+            }
+            currency.label = dto.label;
+            currency.symbol = dto.symbol;
+            java.math.BigDecimal rate = amount(dto.euroPerUnit);
+            currency.euroPerUnit = rate == null ? java.math.BigDecimal.ONE : rate;
+            currency.active = dto.active;
+            currency.displayOrder = dto.displayOrder;
+            currency.persist();
+            seen.add(dto.code);
+        }
+        long deactivated = 0;
+        for (com.intermarche.pos.domain.Currency currency
+                : com.intermarche.pos.domain.Currency.<com.intermarche.pos.domain.Currency>listAll()) {
+            if (!seen.contains(currency.code) && currency.active) {
+                currency.active = false;
+                currency.persist();
+                deactivated++;
+            }
+        }
+        LOG.infof("Référentiel devises appliqué: %d ligne(s), %d désactivée(s)",
+                dtos.size(), deactivated);
+    }
+
+    /**
+     * Applies the account-customer snapshot ({@code LC-07-09}): upsert by account
+     * number, credit ceiling and outstanding balance included.
+     *
+     * <p>UNLIKE THE OTHER DOMAINS, nothing is deactivated or deleted for the
+     * customers absent from the snapshot. A customer created AT THE TILL — the
+     * invoice flow does exactly that — has not reached the commercial management
+     * yet at the next pull, and wiping it would destroy, on the way back, the
+     * declaration the register just made. The commercial management remains the
+     * authority on the credit figures; it is not the authority on the existence
+     * of a customer the register itself opened five minutes ago.
+     *
+     * @param dtos the full customer snapshot
+     */
+    @Transactional
+    public void applyCustomers(List<RefPayloads.CustomerDto> dtos) {
+        for (RefPayloads.CustomerDto dto : dtos) {
+            com.intermarche.pos.domain.AccountCustomer customer =
+                    com.intermarche.pos.domain.AccountCustomer
+                            .find("accountNumber", dto.accountNumber).firstResult();
+            if (customer == null) {
+                customer = new com.intermarche.pos.domain.AccountCustomer();
+                customer.accountNumber = dto.accountNumber;
+            }
+            customer.companyName = dto.companyName;
+            customer.lastName = dto.lastName;
+            customer.firstName = dto.firstName;
+            if (customer.address == null) {
+                customer.address = new com.intermarche.pos.domain.Address();
+            }
+            customer.address.streetLine1 = dto.street;
+            customer.address.postalCode = dto.postalCode;
+            customer.address.city = dto.city;
+            customer.siret = dto.siret;
+            customer.vatNumber = dto.vatNumber;
+            customer.phone = dto.phone;
+            customer.email = dto.email;
+            customer.creditLimit = amount(dto.creditLimit);
+            java.math.BigDecimal balance = amount(dto.creditBalance);
+            customer.creditBalance = balance == null ? java.math.BigDecimal.ZERO : balance;
+            customer.persist();
+        }
+        LOG.infof("Référentiel clients en compte appliqué: %d ligne(s)", dtos.size());
+    }
+
+    /**
+     * Reads a decimal amount carried as text by a snapshot row.
+     *
+     * @param text the amount as exported, possibly null or blank
+     * @return the amount, or null when nothing readable was sent
+     */
+    private static java.math.BigDecimal amount(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(text.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** The settings cache to drop after an apply. */

@@ -3,7 +3,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.intermarche</groupId>
-    <artifactId>imvaluation</artifactId>
+    <artifactId>impos</artifactId>
     <version>1.0-SNAPSHOT</version>
 
     <properties>
@@ -21,6 +21,11 @@
              failsafe: -DskipUTs=true for the E2E campaign / rafale. -->
         <skipUTs>false</skipUTs>
         <surefire-plugin.version>3.5.4</surefire-plugin.version>
+        <jacoco-plugin.version>0.8.13</jacoco-plugin.version>
+        <!-- Filled by jacoco:prepare-agent and injected into surefire's argLine.
+             Declared empty here so the @{surefireArgLine} late replacement still
+             resolves when coverage is skipped (-Djacoco.skip=true). -->
+        <surefireArgLine></surefireArgLine>
     </properties>
 
     <dependencyManagement>
@@ -201,6 +206,13 @@
             <artifactId>json-schema-validator</artifactId>
             <version>1.5.1</version>
         </dependency>
+        <!-- Native access to the Linux input layer (evdev open/ioctl/read)
+             for the REAL barcode-scanner reader; see ui.hardware.scanner. -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.14.0</version>
+        </dependency>
 
     </dependencies>
 
@@ -234,7 +246,11 @@
                 <version>${surefire-plugin.version}</version>
                 <configuration>
                     <skip>${skipUTs}</skip>
-                    <argLine>--add-opens java.base/java.lang=ALL-UNNAMED</argLine>
+                    <!-- @{surefireArgLine} is what attaches the JaCoCo agent to the
+                         unit-test JVM. Without it the agent is never passed and the
+                         coverage report silently describes almost nothing, whatever
+                         the tests actually exercise. Keep the late replacement. -->
+                    <argLine>@{surefireArgLine} --add-opens java.base/java.lang=ALL-UNNAMED</argLine>
                     <systemPropertyVariables>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                         <maven.home>${maven.home}</maven.home>
@@ -300,6 +316,73 @@
                         <maven.home>${maven.home}</maven.home>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <!-- Coverage of the UNIT tests, which is where this project's tests live:
+                 the quarkus-jacoco extension only instruments @QuarkusTest runs, and
+                 every @QuarkusTest here is an IT under failsafe, so on its own it
+                 measures next to nothing. This agent covers the surefire JVM and
+                 writes target/jacoco.exec; the report lands in target/site/jacoco. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>unit-tests-agent</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <destFile>${project.build.directory}/jacoco.exec</destFile>
+                            <propertyName>surefireArgLine</propertyName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>unit-tests-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                            <outputDirectory>${project.build.directory}/site/jacoco</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <!-- The gate. Locks in what is achieved today (95,53 % of branches,
+                         96,56 % of lines, measured 01/09/2026) so a lot can add code
+                         without adding its tests only by making the build red. Raise the
+                         minimums when the ratio rises; never lower them to get a build
+                         through. -->
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                            <haltOnFailure>true</haltOnFailure>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.95</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.96</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

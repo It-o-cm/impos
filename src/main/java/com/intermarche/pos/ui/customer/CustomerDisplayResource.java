@@ -54,6 +54,7 @@ public class CustomerDisplayResource {
     @Path("/customer")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance customerPage() {
+        state.customerDisplaySeenAt = System.currentTimeMillis();
         return customer.data("state", state);
     }
 
@@ -68,6 +69,10 @@ public class CustomerDisplayResource {
     @Path("/customer-data")
     @Produces(MediaType.APPLICATION_JSON)
     public Map<String, Object> customerData(@QueryParam("v") Long clientVersion) {
+        // Every poll is the proof that a customer screen exists and is showing this
+        // page: it is the only evidence there is, a screen being no device on any bus.
+        // The hardware gate reads this timestamp.
+        state.customerDisplaySeenAt = System.currentTimeMillis();
         Map<String, Object> result = new HashMap<>();
         if (clientVersion != null && state.version == clientVersion) {
             result.put("changed", false);
@@ -82,9 +87,17 @@ public class CustomerDisplayResource {
                 ? posSettingsService.customerClosedMessage()
                 : posSettingsService.customerOpenMessage());
         result.put("training", state.trainingMode);
+        // The one PUSHED value of this page: what a line display would have shown.
+        // Everything else here is derived from the sale, but "PAIEMENT REFUSE" is an
+        // event, and this screen is the only customer display this till has.
+        result.put("message", state.customerMessage);
         result.put("empty", state.ticket.items.isEmpty());
         result.put("total", state.ticket.getTotalFormatted());
         result.put("remaining", state.getRemainingFormatted());
+        // LC-07-03-03: the customer display carries BOTH figures where the shop
+        // rounds — what the sale owes, and what the customer hands over.
+        result.put("roundedRemaining", state.getCashRoundedRemainingFormatted());
+        result.put("rounding", state.isCashRoundingVisible());
         result.put("paying", state.payment.paymentInProgress);
         result.put("complete", state.payment.transactionComplete);
         result.put("change", state.payment.lastChangeAmount != null
@@ -124,12 +137,17 @@ public class CustomerDisplayResource {
 
     /**
      * Formats an item quantity for the customer display: kilograms for
-     * weighed lines, a unit count otherwise.
+     * weighed lines, a unit count otherwise. A price-embedded sticker line
+     * shows no quantity at all — the sticker fixed the price, the weight is
+     * unknown at the register.
      *
      * @param item the ticket item
-     * @return the formatted quantity
+     * @return the formatted quantity, empty for price-embedded stickers
      */
     private String quantityDisplay(TicketState.TicketItem item) {
+        if (item.priceEmbedded) {
+            return "";
+        }
         if (item.plu != null && !item.plu.isEmpty()) {
             return String.format("%.3f kg", item.quantity).replace(".", ",");
         }

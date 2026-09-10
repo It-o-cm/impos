@@ -316,6 +316,24 @@ public class TicketPersistenceService {
             cardPayment.authorizationNumber = entry.authorizationNumber;
             cardPayment.degradedMode = entry.degradedMode;
         }
+        if (payment instanceof com.intermarche.pos.domain.ticket.ChequePayment chequePayment) {
+            chequePayment.magneticLine = entry.magneticLine;
+        }
+        if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment backupPayment) {
+            backupPayment.methodLabel = entry.backupMethodLabel;
+            backupPayment.transactionNumber = entry.backupTransaction;
+            backupPayment.manual = entry.backupManual;
+        }
+        if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment currencyPayment) {
+            currencyPayment.currencyCode = entry.currencyCode;
+            currencyPayment.foreignAmount = entry.currencyAmount;
+            currencyPayment.exchangeRate = entry.currencyRate;
+        }
+        if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment creditPayment) {
+            creditPayment.accountNumber = entry.creditAccountNumber;
+            creditPayment.accountName = entry.creditAccountName;
+            creditPayment.overLimit = entry.creditOverLimit;
+        }
         payment.paymentIndex = ticket.payments.size() + 1;
         ticket.addPayment(payment);
         ticket.persist();
@@ -375,6 +393,29 @@ public class TicketPersistenceService {
     // --------------------------------------------------
     // 3. FINALIZATION / CANCELLATION
     // --------------------------------------------------
+
+    /**
+     * Freezes the printed form of a closed ticket (LC-08-02-02).
+     *
+     * <p>Written by the register that made the sale, right after the fiscal moment,
+     * because it is the only place that can render what its own printer produced. The
+     * store synchronization carries it up from here.
+     *
+     * @param ticketId the database id of the closed ticket
+     * @param content the ticket as printed, or null to leave the field alone
+     */
+    @Transactional
+    public void storeFormattedContent(Long ticketId, String content) {
+        if (ticketId == null || content == null || content.isBlank()) {
+            return;
+        }
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            return;
+        }
+        ticket.formattedContent = content;
+        ticket.persist();
+    }
 
     /**
      * Marks the ticket as closed and chains it to the previous closed ticket
@@ -535,6 +576,7 @@ public class TicketPersistenceService {
         line.deposit = item.isNegative();
         line.moneyProduct = item.moneyProduct;
         line.priceEmbedded = item.priceEmbedded;
+        line.discountForbidden = item.discountForbidden;
         return line;
     }
 

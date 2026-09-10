@@ -286,7 +286,7 @@ public class GroupMIT {
     private void openThemeSelector(Page page) {
         Locator themeLink = page.locator("a[href='/theme-select']");
         if (themeLink.count() == 0) {
-            page.locator("a[href='/action/menu/secondary']").click();
+            page.locator("a[href='/action/menu/poste']").click();
         }
         themeLink.first().click();
         page.getByRole(AriaRole.HEADING,

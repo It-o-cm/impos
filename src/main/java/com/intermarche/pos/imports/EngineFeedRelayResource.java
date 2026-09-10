@@ -1,6 +1,8 @@
 package com.intermarche.pos.imports;
 
 import com.intermarche.pos.service.sync.EngineFeedService;
+import java.util.Map;
+import java.util.function.Function;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -21,16 +23,21 @@ import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
- * Pass-through entry of the engine-specific feeds (OFFERS, STORE_GROUPS,
- * CATEGORY_STORAGES…): files the POS does NOT consume itself but must
- * carry down the chain to the valuation engines — the "sealed parcel" leg
- * of the single-import-line doctrine. The content is stored VERBATIM (a
- * light sanity check only: known code, non-empty body); parsing belongs to
- * imvaluation, which ingests the shared header-named format itself.
- * <p>
- * The shared feeds (PRODUCTS, PRICES, FAMILIES, STORES) do not need this
- * endpoint: their own import resources capture the verbatim file while
- * importing it into the POS referential.
+ * SINGLE front door of every CSV feed: {@code POST /feeds/import/{code}}
+ * accepts all codes with one grammar, and routes each to its rightful
+ * treatment.
+ * <ul>
+ *   <li>Codes the POS consumes itself (STORES, PRODUCTS, FAMILIES, PRICES,
+ *       EMPLOYEES) are DELEGATED to their dedicated import resource: the
+ *       file is applied to the POS referential, and the resource captures
+ *       the verbatim copy for the engine when relevant — exactly as if the
+ *       historical route ({@code /products/import}…) had been called. Those
+ *       historical routes remain in place, strictly equivalent.</li>
+ *   <li>Engine-specific codes (OFFERS, STORE_GROUPS, CATEGORY_STORAGES) are
+ *       stored VERBATIM without being opened — the "sealed parcel" leg of
+ *       the single-import-line doctrine; parsing belongs to imvaluation,
+ *       which ingests the shared header-named format itself.</li>
+ * </ul>
  */
 @Path("/feeds/import")
 @ApplicationScoped
@@ -41,13 +48,36 @@ public class EngineFeedRelayResource {
     @Inject
     EngineFeedService engineFeedService;
 
+    /** The dedicated store importer (STORES delegation). */
+    @Inject
+    StoreCsvResource storeCsvResource;
+
+    /** The dedicated product importer (PRODUCTS delegation). */
+    @Inject
+    ProductCsvResource productCsvResource;
+
+    /** The dedicated family importer (FAMILIES delegation). */
+    @Inject
+    ProductFamilyCsvResource productFamilyCsvResource;
+
+    /** The dedicated price importer (PRICES delegation). */
+    @Inject
+    PriceCsvResource priceCsvResource;
+
+    /** The dedicated employee importer (EMPLOYEES delegation). */
+    @Inject
+    EmployeeCsvResource employeeCsvResource;
+
     /**
-     * Stores the verbatim content of an engine-specific feed.
+     * Imports one feed under the unified grammar: a code owned by a
+     * dedicated importer is delegated to it (its own response shape —
+     * created/updated counts — comes back), any other catalog code is
+     * stored verbatim for the engine.
      *
-     * @param code the feed code (case-insensitive, catalog-checked)
+     * @param code the feed code (case-insensitive)
      * @param inputStream the raw CSV stream
-     * @return 200 with the stored version, 400 on an unknown code or an
-     *         empty body
+     * @return the delegated importer's response, or 200 with the stored
+     *         version, or 400 on an unknown code or an empty body
      */
     @POST
     @Path("/{code}")
@@ -56,9 +86,15 @@ public class EngineFeedRelayResource {
     @RolesAllowed("ADMIN")
     public Response importFeed(@PathParam("code") String code, InputStream inputStream) {
         String normalized = code == null ? "" : code.trim().toUpperCase(Locale.ROOT);
+        Function<InputStream, Response> delegate = delegates().get(normalized);
+        if (delegate != null) {
+            return delegate.apply(inputStream);
+        }
         if (EngineFeedService.catalogEntry(normalized).isEmpty()) {
-            String known = EngineFeedService.CATALOG.stream()
+            String known = String.join(", ", delegates().keySet().stream().sorted().toList())
+                    + ", " + EngineFeedService.CATALOG.stream()
                     .map(EngineFeedService.FeedDef::code)
+                    .filter(c -> !delegates().containsKey(c))
                     .collect(Collectors.joining(", "));
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("{\"error\":\"Unknown feed code '" + normalized
@@ -78,6 +114,22 @@ public class EngineFeedRelayResource {
         }
         String version = engineFeedService.store(normalized, content);
         return Response.ok("{\"code\":\"" + normalized + "\", \"version\":\"" + version + "\"}").build();
+    }
+
+    /**
+     * The codes owned by a dedicated importer, each mapped to its import
+     * entry — the delegation table of the unified grammar. Built per call:
+     * five entries, no state worth caching against injection timing.
+     *
+     * @return the code-to-importer delegation map
+     */
+    private Map<String, Function<InputStream, Response>> delegates() {
+        return Map.of(
+                "STORES", storeCsvResource::importStores,
+                "PRODUCTS", productCsvResource::importProducts,
+                "FAMILIES", productFamilyCsvResource::importProductFamilies,
+                "PRICES", priceCsvResource::importPrices,
+                "EMPLOYEES", employeeCsvResource::importEmployees);
     }
 
     /**

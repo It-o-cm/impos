@@ -1,11 +1,9 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.domain.ticket.VatBreakdown;
 import com.intermarche.pos.ui.customer.QrCodeService;
-import com.intermarche.pos.service.TechnicalEventService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -16,7 +14,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.net.URI;
-import org.jboss.logging.Logger;
 
 /**
  * Public digital receipt (phase 4): the customer opens the short link printed
@@ -25,8 +22,10 @@ import org.jboss.logging.Logger;
  * generated at draft creation; only closed tickets are shown.
  * <p>
  * The email capture lives on this page (the customer's device has a real
- * keyboard); the actual SMTP delivery is mocked in the log until a mailer is
- * configured, and journaled either way.
+ * keyboard); the delivery itself is {@link TicketMailService}'s business — a
+ * real send when an SMTP relay is configured, a journal entry either way. The
+ * register-side capture, with the loyalty holder's address offered, is the
+ * separate {@code /ticket-email} screen (LC-08-02-09).
  * <p>
  * Security model: the URL is a CAPABILITY — possession of the link is the
  * whole authorization (it is printed on the customer's own paper ticket),
@@ -35,22 +34,27 @@ import org.jboss.logging.Logger;
  * creation so the link exists before the closing signature does, and the
  * CLOSED-only rule is what keeps the capability harmless: a guessed or
  * leaked id/key pair can never expose a live cart or a cancelled draft.
- * The QR endpoint sits under the SAME key so the QR is no wider a door
- * than the link it encodes. {@code pos.digital.base-url} only widens the
- * printed/encoded prefix (absent = relative paths, LAN demo mode).
+ * The QR endpoint sits under the same key but NOT under the CLOSED gate:
+ * the image carries no ticket data, only the very URL its caller already
+ * presented, and the customer display has to show it while the ticket is
+ * still OPEN (the payment is complete, the operator has not pressed
+ * TERMINER yet — after which the display loses the id altogether). Under
+ * the CLOSED gate the QR was therefore 404 at the only moment it is shown.
+ * A CANCELLED draft still gets none: its link would never resolve.
+ * {@code pos.digital.base-url} only widens the printed/encoded prefix
+ * (absent = relative paths, LAN demo mode).
  */
 @Path("/t")
 public class DigitalTicketResource {
 
-    private static final Logger LOG = Logger.getLogger(DigitalTicketResource.class);
-
     @Inject @Location("digital-ticket") Template digitalTicket;
 
     @Inject
-    TechnicalEventService technicalEventService;
-
-    @Inject
     QrCodeService qrCodeService;
+
+    /** Actually delivers the receipt (LC-08-02-04/07/08). */
+    @Inject
+    TicketMailService ticketMailService;
 
     /** Public base URL encoded in the QR (e.g. "http://caisse04:8080"); absent = path only. */
     @ConfigProperty(name = "pos.digital.base-url")
@@ -96,10 +100,10 @@ public class DigitalTicketResource {
         if (ticket != null && email != null && email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
             ticket.customerEmail = email.trim();
             ticket.persist();
-            // Mocked delivery until a mailer is configured
-            LOG.infof("Ticket dématérialisé %s envoyé à %s (mock)", ticket.ticketNumber, ticket.customerEmail);
-            technicalEventService.log(TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
-                    ticket.ticketNumber + " -> " + ticket.customerEmail);
+            // The mail service journals the request either way and answers whether a
+            // letter actually left; the customer is told the request was taken, which
+            // is what this page can honestly promise.
+            ticketMailService.send(ticket, ticket.customerEmail);
             sent = true;
         }
         return Response.seeOther(URI.create("/t/" + id + "/" + key + (sent ? "?sent=true" : ""))).build();
@@ -109,16 +113,22 @@ public class DigitalTicketResource {
      * Renders the QR code of the digital receipt link, under the same access
      * key as the page (shown on the customer display for the customer to
      * scan).
+     * <p>
+     * The CLOSED gate of {@link #load} does NOT apply here: the display shows
+     * this image while the ticket is still open, and the image discloses
+     * nothing beyond the id and key its caller already holds.
      *
      * @param id the ticket database id
      * @param key the access key printed on the paper ticket
-     * @return the SVG QR code, or 404 when the ticket is unavailable
+     * @return the SVG QR code, or 404 when the key does not match or the
+     *         ticket was cancelled
      */
     @GET
     @Path("/{id}/{key}/qr.svg")
     @Produces("image/svg+xml")
     public jakarta.ws.rs.core.Response qr(@PathParam("id") Long id, @PathParam("key") String key) {
-        if (load(id, key) == null) {
+        Ticket ticket = loadByKey(id, key);
+        if (ticket == null || ticket.status == Ticket.TicketStatus.CANCELLED) {
             return jakarta.ws.rs.core.Response.status(jakarta.ws.rs.core.Response.Status.NOT_FOUND).build();
         }
         String target = baseUrl.orElse("") + "/t/" + id + "/" + key;
@@ -126,18 +136,35 @@ public class DigitalTicketResource {
     }
 
     /**
-     * Loads a ticket when the key matches and the ticket is closed.
+     * Loads a ticket when the key matches and the ticket is closed — the gate
+     * of the receipt page itself, which must never expose a live cart.
      *
      * @param id the ticket database id
      * @param key the presented access key
      * @return the ticket, or null when unavailable
      */
     private Ticket load(Long id, String key) {
+        Ticket ticket = loadByKey(id, key);
+        if (ticket == null || ticket.status != Ticket.TicketStatus.CLOSED) {
+            return null;
+        }
+        return ticket;
+    }
+
+    /**
+     * Loads a ticket on the sole strength of its access key, whatever its
+     * lifecycle status.
+     *
+     * @param id the ticket database id
+     * @param key the presented access key
+     * @return the ticket, or null when it does not exist or the key does not
+     *         match
+     */
+    private Ticket loadByKey(Long id, String key) {
         Ticket ticket = Ticket.findById(id);
         if (ticket == null
                 || ticket.digitalKey == null
-                || !ticket.digitalKey.equals(key)
-                || ticket.status != Ticket.TicketStatus.CLOSED) {
+                || !ticket.digitalKey.equals(key)) {
             return null;
         }
         return ticket;

@@ -320,29 +320,29 @@ class HomeResourceTest {
     // --- Menu navigation ---
 
     /**
-     * {@code showSecondaryMenu()} toggles the secondary menu on and returns the home
+     * {@code showMenu()} shows the menu the bottom bar named and returns the home
      * view.
      */
     @Test
-    void showSecondaryMenuTogglesOnAndReturnsHome() {
+    void showMenuSelectsTheNamedMenuAndReturnsHome() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.showSecondaryMenu());
-        verify(resource.homeService).toggleSecondaryMenu(true);
+        assertSame(mainView, resource.showMenu("client"));
+        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.CLIENT);
     }
 
     /**
-     * {@code showMainMenu()} toggles the secondary menu off and returns the home
-     * view.
+     * {@code showMenu()} lands on the sale menu when the key is unreadable: a stale
+     * link must never leave the cashier in front of a blank grid.
      */
     @Test
-    void showMainMenuTogglesOffAndReturnsHome() {
+    void showMenuFallsBackToTheSaleMenu() {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.showMainMenu());
-        verify(resource.homeService).toggleSecondaryMenu(false);
+        assertSame(mainView, resource.showMenu("rayon"));
+        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.VENTE);
     }
 
     // --- Ticket navigation ---
@@ -598,28 +598,56 @@ class HomeResourceTest {
     }
 
     /**
-     * {@code cancelTicket()} requests the whole-ticket cancellation and returns the
-     * home view.
+     * {@code cancelTicket()} requests the whole-ticket cancellation and redirects
+     * to the sale screen.
      */
     @Test
-    void cancelTicketRequestsCancellationAndReturnsHome() {
+    void cancelTicketRequestsCancellationAndRedirectsHome() {
         HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.cancelTicket());
+        Response response = resource.cancelTicket();
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).cancelTicket();
     }
 
     /**
-     * {@code printLast()} reprints the last closed ticket and returns the home view.
+     * {@code printLast()} reprints the last closed ticket and redirects to the
+     * sale screen — like every other function of the TICKET menu, so a refresh
+     * cannot print the ticket twice.
      */
     @Test
-    void printLastReprintsAndReturnsHome() {
+    void printLastReprintsAndRedirectsHome() {
         HomeResource resource = newResource();
-        when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.printLast());
+        Response response = resource.printLast();
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).printLastTicket();
+    }
+
+    /**
+     * {@code printLastBarcode()} prints the identity slip and redirects to the
+     * sale screen (LC-08-01-04).
+     */
+    @Test
+    void printLastBarcodePrintsAndRedirectsHome() {
+        HomeResource resource = newResource();
+        Response response = resource.printLastBarcode();
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).printLastTicketBarcode();
+    }
+
+    /**
+     * {@code printLastCard()} prints the card-receipt duplicate and redirects to
+     * the sale screen (LC-08-05-09).
+     */
+    @Test
+    void printLastCardPrintsAndRedirectsHome() {
+        HomeResource resource = newResource();
+        Response response = resource.printLastCard();
+        assertEquals(303, response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).printLastCardReceiptDuplicate();
     }
 
     /**

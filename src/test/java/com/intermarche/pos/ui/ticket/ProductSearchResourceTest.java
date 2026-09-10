@@ -65,6 +65,23 @@ class ProductSearchResourceTest {
     }
 
     /**
+     * Wires the search template so every {@code data(...)} call chains onto the
+     * same instance, and returns it. The endpoint now seeds a dozen keys — the
+     * page, the page count, the pager links — so naming each link of the chain
+     * would say nothing about the view and everything about the order of the
+     * calls.
+     *
+     * @param resource the resource whose template is wired
+     * @return the instance every {@code data(...)} call returns
+     */
+    private TemplateInstance wireTemplate(ProductSearchResource resource) {
+        TemplateInstance instance = mock(TemplateInstance.class);
+        when(resource.search.data(org.mockito.ArgumentMatchers.anyString(), any())).thenReturn(instance);
+        when(instance.data(org.mockito.ArgumentMatchers.anyString(), any())).thenReturn(instance);
+        return instance;
+    }
+
+    /**
      * {@code searchPage(null)} normalizes a null query to the empty string
      * (ternary null arm), skips the search because the length is below two
      * (length guard false arm) and renders the page with an empty result list.
@@ -73,14 +90,15 @@ class ProductSearchResourceTest {
     void searchPageWithNullQueryRendersEmpty() {
         ProductSearchResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withQ = mock(TemplateInstance.class);
-        TemplateInstance withHits = mock(TemplateInstance.class);
-        when(resource.search.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("q", "")).thenReturn(withQ);
-        when(withQ.data(eq("hits"), any())).thenReturn(withHits);
-        assertSame(withHits, resource.searchPage(null));
-        assertTrue(captureHits(withQ).getValue().isEmpty());
+        TemplateInstance instance = wireTemplate(resource);
+        assertSame(instance, resource.searchPage(null, null));
+        verify(resource.search).data("state", resource.state);
+        verify(instance).data("q", "");
+        assertTrue(captureHits(instance).getValue().isEmpty());
+        verify(instance).data("pageCount", 1);
+        verify(instance).data("page", 1);
+        verify(instance).data("hasPrev", false);
+        verify(instance).data("hasNext", false);
     }
 
     /**
@@ -92,14 +110,10 @@ class ProductSearchResourceTest {
     void searchPageWithShortQueryRendersEmpty() {
         ProductSearchResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withQ = mock(TemplateInstance.class);
-        TemplateInstance withHits = mock(TemplateInstance.class);
-        when(resource.search.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("q", "a")).thenReturn(withQ);
-        when(withQ.data(eq("hits"), any())).thenReturn(withHits);
-        assertSame(withHits, resource.searchPage("  a  "));
-        assertTrue(captureHits(withQ).getValue().isEmpty());
+        TemplateInstance instance = wireTemplate(resource);
+        assertSame(instance, resource.searchPage("  a  ", null));
+        verify(instance).data("q", "a");
+        assertTrue(captureHits(instance).getValue().isEmpty());
     }
 
     /**
@@ -137,20 +151,15 @@ class ProductSearchResourceTest {
         PanacheQuery<Product> paged = mock(PanacheQuery.class);
         when(query.page(0, 24)).thenReturn(paged);
         when(paged.list()).thenReturn(found);
-        TemplateInstance withState = mock(TemplateInstance.class);
-        TemplateInstance withQ = mock(TemplateInstance.class);
-        TemplateInstance withHits = mock(TemplateInstance.class);
-        when(resource.search.data("state", resource.state)).thenReturn(withState);
-        when(withState.data("q", "ab")).thenReturn(withQ);
-        when(withQ.data(eq("hits"), any())).thenReturn(withHits);
+        TemplateInstance instance = wireTemplate(resource);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
             panache.when(() -> Product.find(QUERY, "%ab%", "ab%", "ab")).thenReturn(query);
             prices.when(() -> Price.findCurrentPrice(3L)).thenReturn(price);
             prices.when(() -> Price.findCurrentPrice(4L)).thenReturn(null);
-            assertSame(withHits, resource.searchPage("ab"));
+            assertSame(instance, resource.searchPage("ab", null));
         }
-        List<ProductSearchResource.SearchHit> hits = captureHits(withQ).getValue();
+        List<ProductSearchResource.SearchHit> hits = captureHits(instance).getValue();
         assertEquals(2, hits.size());
         assertEquals("MILK", hits.get(0).label);
         assertEquals("EAN1", hits.get(0).code);
@@ -179,13 +188,13 @@ class ProductSearchResourceTest {
      * Captures the {@code hits} list handed to the {@code search} template on
      * the given query-seeded template instance.
      *
-     * @param withQ the template instance on which the {@code hits} data is set
+     * @param instance the template instance on which the {@code hits} data is set
      * @return the captor holding the captured {@code hits} list
      */
     @SuppressWarnings("unchecked")
-    private ArgumentCaptor<List<ProductSearchResource.SearchHit>> captureHits(TemplateInstance withQ) {
+    private ArgumentCaptor<List<ProductSearchResource.SearchHit>> captureHits(TemplateInstance instance) {
         ArgumentCaptor<List<ProductSearchResource.SearchHit>> hitsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(withQ).data(eq("hits"), hitsCaptor.capture());
+        verify(instance).data(eq("hits"), hitsCaptor.capture());
         return hitsCaptor;
     }
 }

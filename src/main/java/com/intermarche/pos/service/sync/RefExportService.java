@@ -11,6 +11,7 @@ import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.ProductFamily;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.transaction.Transactional;
 import jakarta.inject.Inject;
 
 import java.nio.charset.StandardCharsets;
@@ -42,10 +43,18 @@ import java.util.Map;
 @ApplicationScoped
 public class RefExportService {
 
-    /** The referential domains a REGISTER pulls from its store node, in apply order. */
+    /**
+     * The referential domains a REGISTER pulls from its store node, in apply
+     * order.
+     * <p>
+     * PRODUCTS comes BEFORE FAMILIES: a family payload carries the articles it
+     * contains, so the articles must already exist when the family is wired.
+     * Nothing points the other way — an article holds no family reference, the
+     * association is owned by the family — so the swap is safe.
+     */
     public static final List<String> DOMAINS =
-            List.of("FAMILIES", "PRODUCTS", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS",
-                    "ENGINE_FEEDS");
+            List.of("PRODUCTS", "FAMILIES", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS",
+                    "ENGINE_FEEDS", "CUSTOMERS", "CURRENCIES");
 
     /**
      * The echelon domains a STORE node pulls from the CENTRAL node (route A),
@@ -103,6 +112,10 @@ public class RefExportService {
 
     /**
      * Returns one page of a domain's snapshot, in canonical order.
+     * <p>
+     * Transactional because a family payload now reads its lazy article
+     * collection: a snapshot page must never depend on whether a session
+     * happens to be open around the call.
      *
      * @param domain the referential domain
      * @param page the 0-based page index
@@ -110,6 +123,7 @@ public class RefExportService {
      * @return the page payloads, empty past the end
      * @throws IllegalArgumentException on an unknown domain
      */
+    @Transactional
     public List<?> getPage(String domain, int page, int size) {
         return switch (domain) {
             case "FAMILIES" -> ProductFamily.<ProductFamily>find("order by code")
@@ -121,6 +135,12 @@ public class RefExportService {
             case "EMPLOYEES" -> Employee.<Employee>find("order by loginName")
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "COUPON_TYPES" -> CouponType.<CouponType>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "CUSTOMERS" -> com.intermarche.pos.domain.AccountCustomer
+                    .<com.intermarche.pos.domain.AccountCustomer>find("order by accountNumber")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "CURRENCIES" -> com.intermarche.pos.domain.Currency
+                    .<com.intermarche.pos.domain.Currency>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "SETTINGS" -> settingsPage(page, size);
             case "ENGINE_FEEDS" -> com.intermarche.pos.domain.EngineFeed
@@ -163,6 +183,54 @@ public class RefExportService {
             return List.of();
         }
         return all.subList(from, Math.min(from + size, all.size()));
+    }
+
+    /**
+     * Maps a foreign currency to its snapshot payload.
+     *
+     * @param currency the currency entity
+     * @return the transport DTO
+     */
+    private RefPayloads.CurrencyDto toDto(com.intermarche.pos.domain.Currency currency) {
+        RefPayloads.CurrencyDto dto = new RefPayloads.CurrencyDto();
+        dto.code = currency.code;
+        dto.label = currency.label;
+        dto.symbol = currency.symbol;
+        dto.euroPerUnit = currency.euroPerUnit == null
+                ? null : currency.euroPerUnit.toPlainString();
+        dto.active = currency.active;
+        dto.displayOrder = currency.displayOrder;
+        return dto;
+    }
+
+    /**
+     * Maps an account customer to its snapshot payload.
+     *
+     * <p>The two credit figures travel as TEXT like every other amount here: the
+     * canonical row that feeds the fingerprint is a string, and a decimal formatted
+     * twice must read the same twice or the register would re-pull the whole
+     * customer base on every cycle.
+     *
+     * @param customer the account customer entity
+     * @return the transport DTO
+     */
+    private RefPayloads.CustomerDto toDto(com.intermarche.pos.domain.AccountCustomer customer) {
+        RefPayloads.CustomerDto dto = new RefPayloads.CustomerDto();
+        dto.accountNumber = customer.accountNumber;
+        dto.companyName = customer.companyName;
+        dto.lastName = customer.lastName;
+        dto.firstName = customer.firstName;
+        dto.street = customer.address == null ? null : customer.address.streetLine1;
+        dto.postalCode = customer.address == null ? null : customer.address.postalCode;
+        dto.city = customer.address == null ? null : customer.address.city;
+        dto.siret = customer.siret;
+        dto.vatNumber = customer.vatNumber;
+        dto.phone = customer.phone;
+        dto.email = customer.email;
+        dto.creditLimit = customer.creditLimit == null ? null : customer.creditLimit.toPlainString();
+        dto.creditBalance = customer.creditBalance == null
+                ? null : customer.creditBalance.toPlainString();
+        return dto;
     }
 
     /**
@@ -281,14 +349,15 @@ public class RefExportService {
         if (row instanceof RefPayloads.FamilyDto f) {
             return String.join("|", n(f.code), n(f.description), n(f.flags),
                     String.valueOf(f.pinned), n(f.buttonSize), String.valueOf(f.displayOrder),
-                    String.valueOf(f.salesVolume));
+                    String.valueOf(f.salesVolume), String.join(",", f.parentCodes),
+                    String.join(",", f.productEans));
         }
         if (row instanceof RefPayloads.ProductDto p) {
             return String.join("|", n(p.ean), n(p.plu), n(p.name), n(p.description), n(p.icon),
                     n(p.imageData), n(p.brand), n(p.referenceWeight), n(p.referenceVolume),
                     n(p.productType), n(p.unitName), String.valueOf(p.active),
                     String.valueOf(p.forbiddenToSale), n(p.ageRestriction), n(p.checkoutLabel),
-                    n(p.internalCode), attributes(p.attributes));
+                    n(p.internalCode), String.valueOf(p.variableWeight), attributes(p.attributes));
         }
         if (row instanceof RefPayloads.PriceDto p) {
             return String.join("|", n(p.productEan), n(p.priceExcludingTax), n(p.priceIncludingTax),
@@ -325,6 +394,15 @@ public class RefExportService {
             return String.join("|", n(c.code), n(c.label), n(c.matchPattern), n(c.amountSource),
                     n(c.amountPattern), String.valueOf(c.priority), String.valueOf(c.active),
                     String.valueOf(c.depositLine));
+        }
+        if (row instanceof RefPayloads.CurrencyDto c) {
+            return String.join("|", n(c.code), n(c.label), n(c.symbol), n(c.euroPerUnit),
+                    String.valueOf(c.active), String.valueOf(c.displayOrder));
+        }
+        if (row instanceof RefPayloads.CustomerDto c) {
+            return String.join("|", n(c.accountNumber), n(c.companyName), n(c.lastName),
+                    n(c.firstName), n(c.street), n(c.postalCode), n(c.city), n(c.siret),
+                    n(c.vatNumber), n(c.phone), n(c.email), n(c.creditLimit), n(c.creditBalance));
         }
         return String.valueOf(row);
     }
@@ -376,6 +454,12 @@ public class RefExportService {
         dto.buttonSize = family.buttonSize;
         dto.displayOrder = family.displayOrder;
         dto.salesVolume = family.salesVolume;
+        dto.parentCodes = ProductFamily.<ProductFamily>find(
+                "select p from ProductFamily p join p.productFamilies c where c.code = ?1"
+                        + " order by p.code", family.code)
+                .list().stream().map(p -> p.code).toList();
+        dto.productEans = family.products.stream()
+                .map(product -> product.ean).sorted().toList();
         return dto;
     }
 
@@ -403,6 +487,7 @@ public class RefExportService {
         dto.ageRestriction = product.ageRestriction;
         dto.checkoutLabel = product.checkoutLabel;
         dto.internalCode = product.internalCode;
+        dto.variableWeight = product.variableWeight;
         dto.attributes = product.attributes != null
                 ? new java.util.TreeMap<>(product.attributes) : new java.util.TreeMap<>();
         return dto;

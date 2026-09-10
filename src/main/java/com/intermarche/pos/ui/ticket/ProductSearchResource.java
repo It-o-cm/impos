@@ -24,8 +24,18 @@ import java.util.List;
 @Path("/")
 public class ProductSearchResource {
 
-    /** Maximum number of results shown on the search page. */
+    /** Maximum number of results the search brings back. */
     private static final int MAX_RESULTS = 24;
+
+    /**
+     * Hits per screen.
+     *
+     * <p>EIGHT, in four columns of two rows: what the results area holds between the
+     * title bar and the two keyboards WITHOUT a scrollbar. This register paginates,
+     * it does not scroll — dragging a list with a finger while the other hand holds
+     * an article is not a gesture a till can ask for, and nothing else here does it.
+     */
+    private static final int PAGE_SIZE = 8;
 
     @Inject @Location("search") Template search;
     @Inject TicketService ticketService;
@@ -67,12 +77,14 @@ public class ProductSearchResource {
      * article code (PLU).
      *
      * @param query the typed query, or null
+     * @param page the page of results asked for, null for the first
      * @return the search page
      */
     @GET
     @Path("/search")
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance searchPage(@QueryParam("q") String query) {
+    public TemplateInstance searchPage(@QueryParam("q") String query,
+                                       @QueryParam("page") Integer page) {
         String q = (query != null) ? query.trim() : "";
         List<SearchHit> hits = new ArrayList<>();
         if (q.length() >= 2) {
@@ -97,10 +109,56 @@ public class ProductSearchResource {
                 hits.add(new SearchHit(product.name.toUpperCase(), code, priceFormatted));
             }
         }
+        // A page outside the results is brought back inside rather than answered with
+        // an error: a stale link is not an incident.
+        int pageCount = Math.max(1, (hits.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        int current = page == null ? 1 : Math.min(Math.max(page, 1), pageCount);
+        int from = (current - 1) * PAGE_SIZE;
+        int to = Math.min(from + PAGE_SIZE, hits.size());
         return search
                 .data("state", state)
                 .data("q", q)
-                .data("hits", hits);
+                .data("hits", hits)
+                .data("pageHits", hits.subList(from, to))
+                .data("page", current)
+                .data("pageCount", pageCount)
+                .data("hasPrev", current > 1)
+                .data("hasNext", current < pageCount)
+                .data("prevPage", current - 1)
+                .data("nextPage", current + 1)
+                // The pager's link is built HERE, encoded once: a query carrying a
+                // space or an accent must not produce a link the browser mangles.
+                .data("pageUrl", "/search?q="
+                        + java.net.URLEncoder.encode(q, java.nio.charset.StandardCharsets.UTF_8)
+                        + "&page=");
+    }
+
+    /**
+     * Hands a code the operator TYPED to the scan chain ({@code LC-06-01-01}).
+     *
+     * <p>The search above only ever offers CATALOG articles, which is the right
+     * answer for a product and the wrong one for everything else: a counter-ticket
+     * reference, a voucher, a loyalty card are all codes that exist and that the
+     * catalog has never heard of, so they can never appear in a result list. When a
+     * scanner cannot read a damaged barcode, the operator reads it out — and what
+     * they type must reach exactly what the scanner would have reached.
+     *
+     * <p>So this route does NOT look anything up: it walks the code through
+     * {@code processScan}, the same chain, in the same order, under the same guards.
+     * Typing is scanning.
+     *
+     * @param code the code typed by the operator
+     * @return a redirect to the home page
+     */
+    @POST
+    @Path("/action/search/scan")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response scanTypedCode(@FormParam("q") String code) {
+        String typed = code == null ? "" : code.trim();
+        if (!typed.isEmpty()) {
+            ticketService.processScan(typed);
+        }
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

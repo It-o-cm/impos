@@ -1,0 +1,304 @@
+{!
+ ! Invoice screen: name the ticket, then the customer. Nothing here writes anything
+ ! and nothing draws a number — the commitment is the issue.
+ !
+ ! TOUCH TILL, NOT A DESKTOP FORM. There is no physical keyboard on this machine and
+ ! the working area is 1000 x 460: every text entry goes through the application's
+ ! on-screen keyboard, ONE FIELD AT A TIME, exactly as the loyalty screen does. The
+ ! left column lists what there is to fill or to pick, the right column carries the
+ ! field being typed and its keyboard.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Facture</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid var(--border-strong); border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
+
+        /* Progress indicator, NOT a menu: nothing here promises a click. The flow is
+           linear — one goes forward by validating, back by ABANDONNER. */
+        .steps { display: flex; gap: 22px; font-size: var(--fs-label); color: var(--text-muted); flex-shrink: 0; }
+        .steps .s.on { color: var(--danger); font-weight: bold; }
+        .chosen { color: var(--text-muted); font-size: var(--fs-label); flex-shrink: 0; }
+        .error { background: var(--danger); color: #fff; padding: 8px 12px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
+
+        .work { flex: 1; display: flex; gap: 16px; min-height: 0; }
+        .side { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        .entry { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+        .side-title, .entry-title { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+
+        .list { flex: 1; overflow: hidden; border-top: 1px solid var(--border-strong); }
+        .list a { display: flex; justify-content: space-between; align-items: center; text-decoration: none;
+                  color: inherit; padding: 10px; border-bottom: 1px dashed var(--border-strong); font-size: var(--fs-row); }
+        .list a:active { background-color: rgba(255,255,255,.08); }
+        .list .sub { color: var(--text-muted); font-size: var(--fs-row-sub); }
+        .empty-state { flex: 1; display: flex; flex-direction: column; justify-content: center;
+                       align-items: center; text-align: center; color: var(--text-muted);
+                       font-size: var(--fs-body); line-height: 1.7; border-top: 1px solid var(--border-strong); }
+
+        /* The fields of a new customer, tapped one at a time. */
+        .fields { flex: 1; overflow-y: auto; border-top: 1px solid var(--border-strong); }
+        .field { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+                 padding: 8px 10px; border-bottom: 1px dashed var(--border-strong);
+                 font-size: var(--fs-body); cursor: pointer; }
+        .field.on { background: rgba(255,255,255,.08); }
+        .field .lab { color: var(--text-muted); white-space: nowrap; }
+        .field .val { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .field .val.empty { color: var(--text-muted); font-weight: normal; }
+        /* The short masks (ticket, customer lookup) carry their fields inside the
+           entry column, above the keyboard; the nine-field creation mask keeps the
+           whole left column. Same rows, same script — only the container moves. */
+        .fields.compact { flex: 0 0 auto; overflow: visible; border-bottom: 1px solid var(--border-strong); }
+        /* The compact rows carry the label themselves, so these masks drop the entry
+           title: on a 600 px screen every line taken here is a keyboard row lost. */
+        .fields.compact .field { padding: 4px 9px; font-size: var(--fs-label); }
+
+        .display { width: 100%; font-size: var(--fs-field); padding: 10px 12px; border-radius: 4px;
+                   border: 2px solid var(--border-strong); background: var(--bg-panel);
+                   color: var(--text-main); text-align: left; flex-shrink: 0; }
+        .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+        .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
+        .hint { font-size: var(--fs-label); color: var(--text-muted); flex-shrink: 0; }
+
+        .centered { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; text-align: center; }
+        .centered h2 { margin: 0; font-size: var(--fs-section); }
+        /* Le récapitulatif : chaque choix avec, en face, de quoi le refaire.
+           C'est le dernier point avant l'irréversible, donc le seul endroit où
+           se corriger doit coûter un geste et non tout recommencer. */
+        .recap { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 620px; }
+        .recap-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; background: var(--bg-row); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px; text-align: left; }
+        .recap-row .recap-label { font-size: var(--fs-label); color: var(--text-muted); display: block; }
+        .recap-row .recap-value { font-size: var(--fs-row); font-weight: bold; }
+
+        .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+        /* The application's button base, declared verbatim as every screen does; the
+           theme include supplies the colour modifiers. */
+    </style>
+</head>
+<body data-theme="{posTheme}">
+<div class="pos-terminal">
+
+    <div class="top-bar">
+        <span class="store-name">FACTURE</span>
+        <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+
+        <div class="steps">
+            <span class="s {#if state.invoice.onTicketStep}on{/if}">1. Ticket</span>
+            <span class="s {#if state.invoice.onCustomerStep}on{/if}">2. Client</span>
+            <span class="s {#if state.invoice.onPreviewStep}on{/if}">3. Document</span>
+        </div>
+
+        {#if state.invoice.error}
+        <div class="error">{state.invoice.error}</div>
+        {/if}
+
+        {#if state.invoice.onTicketStep}
+        <div class="work">
+            <div class="side">
+                <div class="side-title">Derniers tickets</div>
+                <div class="list">
+                    {#for t in state.invoice.visibleTickets}
+                    <a href="/invoice/ticket/{t.ticketNumber}">
+                        <span>{t.ticketNumber}</span>
+                        <span class="sub">{t.creationDate.format('dd/MM/yyyy')} · caisse {t.terminalId} · {t.totalIncludingTax} €</span>
+                    </a>
+                    {/for}
+                </div>
+            </div>
+            <form class="entry" method="post" action="{formAction}" id="entryForm">
+                <div class="fields compact" id="fieldList"></div>
+                <input type="text" id="kbDisplay" class="display" readonly value="">
+                <div class="keyboard pos-kb-compact" id="kbArea"></div>
+                <div class="actions">
+                    <button class="btn btn-primary" type="submit">VALIDER</button>
+                </div>
+                {#for f in fields}
+                <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
+                {/for}
+            </form>
+        </div>
+        {/if}
+
+        {#if state.invoice.onCustomerStep}
+        <div class="chosen">Ticket : <strong>{state.invoice.ticket.ticketNumber}</strong></div>
+
+        {#if state.invoice.creatingCustomer}
+        <form class="work" method="post" action="{formAction}" id="entryForm">
+            <div class="side">
+                <div class="side-title">Nouveau client — touchez un champ</div>
+                <div class="fields" id="fieldList"></div>
+            </div>
+            <div class="entry">
+                <div class="entry-title" id="entryTitle"></div>
+                <input type="text" id="kbDisplay" class="display" readonly value="">
+                <div class="keyboard pos-kb-compact" id="kbArea"></div>
+                <div class="actions">
+                    <button class="btn btn-success" type="submit">CRÉER ET CONTINUER</button>
+                </div>
+            </div>
+            {#for f in fields}
+            <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
+            {/for}
+        </form>
+        {#else}
+        <div class="work">
+            <div class="side">
+                {#if state.invoice.searchWithoutMatch}
+                <div class="side-title">Résultat</div>
+                <div class="empty-state">
+                    Aucun client ne correspond à « {state.invoice.customerSearch} ».<br>
+                    Créez-le avec <strong>NOUVEAU</strong>.
+                </div>
+                {#else}
+                <div class="side-title">Clients trouvés</div>
+                <div class="list">
+                    {#for c in state.invoice.visibleCustomers}
+                    <a href="/invoice/customer/{c.id}">
+                        <span>{c.companyName}</span>
+                        <span class="sub">{c.accountNumber}</span>
+                    </a>
+                    {/for}
+                </div>
+                {/if}
+            </div>
+            <form class="entry" method="post" action="{formAction}" id="entryForm">
+                <div class="fields compact" id="fieldList"></div>
+                <input type="text" id="kbDisplay" class="display" readonly value="">
+                <div class="keyboard pos-kb-compact" id="kbArea"></div>
+                <div class="hint">Quelques lettres suffisent, ou le n° client exact.</div>
+                <div class="actions">
+                    <a class="btn btn-muted" href="/invoice/customer/new">NOUVEAU</a>
+                    <button class="btn btn-primary" type="submit">RECHERCHER</button>
+                </div>
+                {#for f in fields}
+                <input type="hidden" name="{f.name}" id="f_{f.name}" value="{f.value}">
+                {/for}
+            </form>
+        </div>
+        {/if}
+        {/if}
+
+        {#if state.invoice.onPreviewStep}
+        <div class="centered">
+            <h2>Vérifiez avant d'émettre</h2>
+            <div class="recap">
+                <div class="recap-row">
+                    <span>
+                        <span class="recap-label">Ticket facturé</span>
+                        <span class="recap-value">{state.invoice.ticket.ticketNumber}</span>
+                    </span>
+                    <a class="btn btn-sm btn-muted" href="/invoice/back/ticket">CHANGER</a>
+                </div>
+                <div class="recap-row">
+                    <span>
+                        <span class="recap-label">Client facturé</span>
+                        <span class="recap-value">{state.invoice.customer.companyName}</span>
+                        <span class="recap-label">Compte {state.invoice.customer.accountNumber}</span>
+                    </span>
+                    <a class="btn btn-sm btn-muted" href="/invoice/back/customer">CHANGER</a>
+                </div>
+            </div>
+            <a class="btn btn-success" href="/invoice/preview">VOIR LE DOCUMENT</a>
+        </div>
+        {/if}
+
+    </div>
+
+    <div class="bottom-nav">
+        <a href="/invoice/abandon" class="btn btn-muted">ABANDONNER</a>
+        <a href="/" class="btn btn-muted">RETOUR</a>
+    </div>
+</div>
+
+{#include keyboard-lib /}
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /*
+     * The fields of the mask this step carries, as the server describes them: the
+     * ticket mask (LC-08-04-02), the customer lookup (LC-08-04-06/07) or the
+     * ADMINISTERED customer-creation mask (LC-08-04-10). One list, one mechanism —
+     * the step decides its content, never its behaviour.
+     *
+     * Each field carries the keyboard its content needs: letters for names and towns,
+     * digits for a postal code, a SIRET or a telephone, letters AND digits for a
+     * street, a VAT number or an e-mail. Nothing here may exceed the column it is
+     * stored in.
+     */
+    const FIELDS = [
+        {#for f in fields}
+        { name: '{f.name}', label: '{f.displayLabel}', kb: '{f.keyboard}', up: {f.uppercase}, max: {f.maxLength} }{#if f_hasNext},{/if}
+        {/for}
+    ];
+
+    let currentField = 0;
+
+    /* Redraws the field list from the hidden inputs that actually carry the values. */
+    function refreshFields() {
+        const list = document.getElementById('fieldList');
+        if (!list) return;
+        list.innerHTML = '';
+        FIELDS.forEach((field, index) => {
+            const value = document.getElementById('f_' + field.name).value;
+            const row = document.createElement('div');
+            row.className = 'field' + (index === currentField ? ' on' : '');
+            const label = document.createElement('span');
+            label.className = 'lab';
+            label.innerText = field.label;
+            const shown = document.createElement('span');
+            shown.className = 'val' + (value ? '' : ' empty');
+            shown.innerText = value || '\u2014';
+            row.appendChild(label);
+            row.appendChild(shown);
+            row.onclick = () => selectField(index);
+            list.appendChild(row);
+        });
+    }
+
+    /* Points the on-screen keyboard at one field. */
+    function selectField(index) {
+        refreshFields();
+        currentField = index;
+        const field = FIELDS[index];
+        // The compact masks carry their labels in the rows themselves and have no
+        // title line to feed.
+        const title = document.getElementById('entryTitle');
+        if (title) title.innerText = field.label;
+        PosInput.setup({
+            displayId: 'kbDisplay',
+            hiddenId: 'f_' + field.name,
+            containerId: 'kbArea',
+            keyboardType: field.kb,
+            mode: 'text',
+            uppercase: field.up,
+            maxLength: field.max,
+            initialValue: document.getElementById('f_' + field.name).value || ''
+        });
+        refreshFields();
+    }
+
+    /* Wires the mask of whichever step is on screen. */
+    (function () {
+        if (!FIELDS.length || !document.getElementById('fieldList')) return;
+        selectField(0);
+        const form = document.getElementById('entryForm');
+        if (form) form.addEventListener('submit', refreshFields);
+    })();
+</script>
+</body>
+</html>

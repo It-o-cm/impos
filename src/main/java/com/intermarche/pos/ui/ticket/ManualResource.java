@@ -49,10 +49,13 @@ public class ManualResource {
      * Shows one category level of the drill-down.
      *
      * @param code the family code
+     * @param page the 1-based page of the grid, defaulting to the first
      * @return the manual page
      */
-    public TemplateInstance manualCategoryPage(@PathParam("code") String code) {
-        ManualService.ManualViewData viewData = manualService.getManualCategoryData(code);
+    public TemplateInstance manualCategoryPage(@PathParam("code") String code,
+                                               @jakarta.ws.rs.QueryParam("page")
+                                               @jakarta.ws.rs.DefaultValue("1") int page) {
+        ManualService.ManualViewData viewData = manualService.getManualCategoryData(code, page);
         return manual.data("state", state)
                 .data("items", viewData.items)
                 .data("breadcrumb", viewData.breadcrumb)

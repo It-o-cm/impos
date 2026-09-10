@@ -73,6 +73,9 @@ public class ProductCsvResource extends ImporterCsvResource {
     static final String COL_ACTIVE = "ACTIVE";
     /** Header name of the OPTIONAL register-only PLU code. */
     static final String COL_PLU = "PLU";
+
+    /** Header name of the OPTIONAL variable-weight (bulk) marker. */
+    static final String COL_VARIABLE_WEIGHT = "VARIABLE_WEIGHT";
     /** Header name of the OPTIONAL register-only display icon. */
     static final String COL_ICON = "ICON";
     /** Header name of the OPTIONAL forbidden-to-sale flag. */
@@ -209,7 +212,13 @@ public class ProductCsvResource extends ImporterCsvResource {
         product.unitName = safeGet(data, COL_UNIT_NAME);
         product.active = safeParseBoolean(data, COL_ACTIVE);
         if (data.has(COL_PLU)) {
-            product.plu = safeGet(data, COL_PLU);
+            String plu = safeGet(data, COL_PLU);
+            // A blank PLU cell must land as NULL, never "": the plu column is
+            // unique, and empty strings are equal values in a unique index, so
+            // a feed holding two products without a PLU would break the import
+            // on the second one. NULLs never collide in a unique index, and
+            // every register-side read treats a null PLU as "no PLU".
+            product.plu = (plu == null || plu.isEmpty()) ? null : plu;
         }
         if (data.has(COL_ICON)) {
             product.icon = safeGet(data, COL_ICON);
@@ -222,6 +231,9 @@ public class ProductCsvResource extends ImporterCsvResource {
         }
         if (data.has(COL_INTERNAL_CODE)) {
             product.internalCode = safeGet(data, COL_INTERNAL_CODE);
+        }
+        if (data.has(COL_VARIABLE_WEIGHT)) {
+            product.variableWeight = safeParseBoolean(data, COL_VARIABLE_WEIGHT);
         }
     }
 
@@ -246,6 +258,8 @@ public class ProductCsvResource extends ImporterCsvResource {
                 ? safeGet(data, COL_CHECKOUT_LABEL) : existing.checkoutLabel;
         String internalCode = data.has(COL_INTERNAL_CODE)
                 ? safeGet(data, COL_INTERNAL_CODE) : existing.internalCode;
+        boolean variableWeight = data.has(COL_VARIABLE_WEIGHT)
+                ? safeParseBoolean(data, COL_VARIABLE_WEIGHT) : existing.variableWeight;
         return Objects.hash(
                 data.code,                                      // ean
                 plu == null ? "" : plu,                         // plu
@@ -259,7 +273,8 @@ public class ProductCsvResource extends ImporterCsvResource {
                 safeParseBoolean(data, COL_ACTIVE),             // active
                 forbidden,                                      // forbiddenToSale
                 checkoutLabel,                                  // checkoutLabel
-                internalCode                                    // internalCode
+                internalCode,                                   // internalCode
+                variableWeight                                  // variableWeight
         );
     }
 

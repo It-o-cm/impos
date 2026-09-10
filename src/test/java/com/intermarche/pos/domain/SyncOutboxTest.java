@@ -64,20 +64,22 @@ class SyncOutboxTest {
     }
 
     /**
-     * values exposes exactly the five declared constants in declaration order,
+     * values exposes exactly the six declared constants in declaration order,
      * the ordinal being the documented drain order: MOVEMENT drains right after
      * SESSION (its sole dependency) and ahead of the tickets and refunds it is
-     * independent of (lot C5a).
+     * independent of (lot C5a), CUSTOMER last since it references nothing
+     * (LC-08-04-09).
      */
     @Test
-    void entityTypeValuesHoldsFiveConstantsInOrder() {
+    void entityTypeValuesHoldsSixConstantsInOrder() {
         EntityType[] values = EntityType.values();
-        Assertions.assertEquals(5, values.length);
+        Assertions.assertEquals(6, values.length);
         Assertions.assertEquals(EntityType.SESSION, values[0]);
         Assertions.assertEquals(EntityType.MOVEMENT, values[1]);
         Assertions.assertEquals(EntityType.TICKET, values[2]);
         Assertions.assertEquals(EntityType.REFUND, values[3]);
         Assertions.assertEquals(EntityType.EVENT, values[4]);
+        Assertions.assertEquals(EntityType.CUSTOMER, values[5]);
     }
 
     /**
@@ -90,6 +92,7 @@ class SyncOutboxTest {
         Assertions.assertEquals(2, EntityType.TICKET.ordinal());
         Assertions.assertEquals(3, EntityType.REFUND.ordinal());
         Assertions.assertEquals(4, EntityType.EVENT.ordinal());
+        Assertions.assertEquals(5, EntityType.CUSTOMER.ordinal());
     }
 
     /**
@@ -102,6 +105,7 @@ class SyncOutboxTest {
         Assertions.assertEquals("TICKET", EntityType.TICKET.name());
         Assertions.assertEquals("REFUND", EntityType.REFUND.name());
         Assertions.assertEquals("EVENT", EntityType.EVENT.name());
+        Assertions.assertEquals("CUSTOMER", EntityType.CUSTOMER.name());
     }
 
     /**
@@ -114,6 +118,7 @@ class SyncOutboxTest {
         Assertions.assertSame(EntityType.TICKET, EntityType.valueOf("TICKET"));
         Assertions.assertSame(EntityType.REFUND, EntityType.valueOf("REFUND"));
         Assertions.assertSame(EntityType.EVENT, EntityType.valueOf("EVENT"));
+        Assertions.assertSame(EntityType.CUSTOMER, EntityType.valueOf("CUSTOMER"));
     }
 
     /**

@@ -134,6 +134,7 @@ public class FidelityResource {
      * @param lastName the holder's last name, echoed from the lookup
      * @param firstName the holder's first name, echoed from the lookup
      * @param status the account status, echoed from the lookup
+     * @param email the holder's e-mail, echoed from the lookup (LC-08-02-09)
      * @return a 303 redirect (PRG pattern, so a browser reload never replays
      *         the POST): to the main page on success, or back to the fidelity
      *         page with the refusal stored in the fidelity state
@@ -144,8 +145,10 @@ public class FidelityResource {
     public Response selectFidelity(@FormParam("card") String card,
                                            @FormParam("lastName") String lastName,
                                            @FormParam("firstName") String firstName,
-                                           @FormParam("status") String status) {
-        String refusal = fidelityService.attachLookedUpCard(state, card, lastName, firstName, status);
+                                           @FormParam("status") String status,
+                                           @FormParam("email") String email) {
+        String refusal = fidelityService.attachLookedUpCard(state, card, lastName, firstName,
+                status, email);
         if (refusal != null) {
             // The refusal replaces the stored result list; the search mode
             // and criterion are kept so the operator stays in context.

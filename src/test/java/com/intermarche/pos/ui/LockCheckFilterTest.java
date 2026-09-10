@@ -110,6 +110,28 @@ class LockCheckFilterTest {
     }
 
     /**
+     * Every CSV import surface passes on a locked register. They are machine
+     * surfaces fed by the back office, not cashier screens, and a register spends
+     * most of its life locked: an import that is not allowlisted is answered with a
+     * redirect to the lock page and never runs — silently, since the caller is a
+     * script reading a body that never comes.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedImportSurfacesAllPass() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        for (String path : java.util.List.of("/products/import", "/prices/import",
+                "/product-families/import", "/stores/import", "/employees/import",
+                "/feeds/import/STORE_GROUPS")) {
+            ContainerRequestContext ctx = ctxFor(path);
+            filter.filter(ctx);
+            verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+        }
+    }
+
+    /**
      * An unlocked register on a cashier path with the idle pause disabled
      * (delay-zero arm) passes and stamps the activity clock (reset arm).
      *

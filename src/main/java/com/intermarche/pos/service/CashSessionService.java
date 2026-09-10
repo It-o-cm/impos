@@ -77,6 +77,82 @@ public class CashSessionService {
         public BigDecimal totalRefunds = BigDecimal.ZERO;
         /** True when this report closes the session (Z), false for an X snapshot. */
         public boolean closing;
+
+        /**
+         * One settlement line of the report: a payment method and its total.
+         *
+         * <p>The map above is what the report COMPUTES; this is what a screen and a
+         * roll of paper both need — a label and an already-formatted amount. Deriving
+         * it here rather than in each renderer is what keeps the printed X and the
+         * displayed X from ever disagreeing.
+         *
+         * @param method the payment method key
+         * @param amountFormatted the total, French format
+         */
+        public record MethodRow(String method, String amountFormatted) {
+        }
+
+        /**
+         * Returns the settlement lines, in the order the methods were first seen.
+         *
+         * @return the settlement rows, possibly empty
+         */
+        public List<MethodRow> getMethodRows() {
+            List<MethodRow> rows = new java.util.ArrayList<>();
+            for (Map.Entry<String, BigDecimal> entry : totalsByMethod.entrySet()) {
+                rows.add(new MethodRow(entry.getKey(), money(entry.getValue())));
+            }
+            return rows;
+        }
+
+        /**
+         * Returns the tax-included revenue, French format.
+         *
+         * @return the formatted revenue
+         */
+        public String getTotalIncludingTaxFormatted() {
+            return money(totalIncludingTax);
+        }
+
+        /**
+         * Returns the theoretical cash in the drawer, French format.
+         *
+         * @return the formatted theoretical cash
+         */
+        public String getTheoreticalCashFormatted() {
+            return money(theoreticalCash);
+        }
+
+        /**
+         * Returns the total refunded during the session, French format.
+         *
+         * @return the formatted refund total
+         */
+        public String getTotalRefundsFormatted() {
+            return money(totalRefunds);
+        }
+
+        /**
+         * Returns the net cash impact of the session's movements, French format.
+         *
+         * @return the formatted net movement
+         */
+        public String getNetCashMovementsFormatted() {
+            return money(netCashMovements);
+        }
+
+        /**
+         * Formats an amount the way every screen and every ticket of the register
+         * does, tolerating a missing value.
+         *
+         * @param amount the amount, possibly null
+         * @return the amount with two decimals and a French comma
+         */
+        private static String money(BigDecimal amount) {
+            BigDecimal value = amount == null ? BigDecimal.ZERO : amount;
+            return String.format("%.2f",
+                    value.setScale(2, RoundingMode.HALF_UP)).replace('.', ',');
+        }
     }
 
     /**

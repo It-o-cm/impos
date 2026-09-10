@@ -19,6 +19,40 @@
                theming): page letterbox, inset wells/rows, strong borders. */
             --bg-page: #000000; --bg-inset: #181818; --bg-row: #222222;
             --border-strong: #444444;
+
+            /* TYPOGRAPHY. One family, one scale, and the scale is indexed by
+               the ROLE the text plays on the screen — never by the screen it
+               happens to be on. Before this block the 30 register screens
+               spelled 56 different font sizes between them, so the same thing
+               (a field label, a list row, a button) was a different size
+               depending on where the operator was looking. A role that needs
+               a new size is a role that is missing here; add it here. */
+            --font-ui: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --font-doc: 'Courier New', Courier, monospace;
+            --fs-title: 1.4rem;      /* the name of the screen or of an overlay */
+            --fs-bar: 1.2rem;        /* the running text of the top bar */
+            --fs-section: 1.1rem;    /* the heading of a block inside the work area */
+            --fs-label: 0.85rem;     /* what a field, a figure or a column is called */
+            --fs-body: 1rem;         /* running text, help, empty states */
+            --fs-row: 1.1rem;        /* the main text of a list row */
+            --fs-row-sub: 0.85rem;   /* the secondary text of a list row */
+            --fs-field: 1.4rem;      /* what the operator typed, letters */
+            --fs-field-num: 2rem;    /* what the operator typed on a numeric pad */
+            --fs-amount: 1.3rem;     /* a money figure inside a row or a panel */
+            --fs-total: 1.8rem;      /* a total restated inside a panel or an overlay */
+            --fs-total-xl: 3rem;     /* THE figure the screen exists for */
+            --fs-btn: 1rem;          /* an ordinary key */
+            --fs-btn-lg: 1.2rem;     /* the screen's main key */
+            --fs-btn-sm: 0.85rem;    /* a key in a dense bar, a tile grid or a pager */
+            --fs-key: 1.5rem;        /* a keyboard key */
+            --fs-key-sm: 1rem;       /* a keyboard key on a crowded screen */
+            /* THE GLASS. A popup is a popup: the register stays visible behind
+               it. The screens used to lay an almost-opaque sheet over the
+               terminal — four different opacities between them, 0.88 to 0.97 —
+               which reads as "another screen", not as "something on top of
+               this one". The operator loses the sale they are in the middle of. */
+            --scrim: rgba(0, 0, 0, 0.55);
+            --scrim-blur: 8px;
         }
 
         /* THEMES: a theme is a token block keyed by the body's data-theme
@@ -35,8 +69,9 @@
             --accent: #F9A825; --muted: #DDDDDD;
             --bg-page: #E4E4E4; --bg-inset: #F7F7F7; --bg-row: #ECECEC;
             --border-strong: #BBBBBB;
+            --scrim: rgba(0, 0, 0, 0.35);
         }
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
+        * { box-sizing: border-box; font-family: var(--font-ui); margin: 0; padding: 0; }
 
         /* Overlay banners: full-width strips laid OVER the positional grids
            (never grid children). Stacking order is semantic: training wins
@@ -44,6 +79,14 @@
            suggestions. */
         .overlay-banner { position: absolute; left: 0; right: 0; text-align: center; font-weight: bold; padding: 3px; letter-spacing: 1px; }
         .overlay-training { top: 0; z-index: 50; background: var(--warning); color: #000; letter-spacing: 2px; font-size: 0.95rem; }
+        /* LC-07-08-05. Its OWN class and not overlay-degraded, which already names
+           the valuation banner of the payment screen: two strips that mean different
+           things must not share a rule, or moving one moves the other. Both this and
+           the training strip can be up at once, and they are both absolutely
+           positioned at the top of the terminal, so the second steps down by exactly
+           one strip height. */
+        .overlay-monetics { top: 0; z-index: 49; background: var(--danger); color: #FFF; letter-spacing: 2px; font-size: 0.95rem; }
+        .overlay-monetics-second { top: 23px; }
         .overlay-degraded { top: 0; z-index: 49; background: var(--danger); color: #FFF; }
         .overlay-advantage { top: 0; z-index: 48; background: var(--success); color: #000; }
         .overlay-suggestion { bottom: 0; z-index: 47; background: var(--accent); color: #000; }
@@ -76,11 +119,37 @@
         .pos-key--alpha { font-size: 1.5rem; text-transform: uppercase; }
         .pos-key--wide { grid-column: span 2; }
 
+        /* THE BUTTON BASE, here and not only in the screens.
+           The rule used to be "colors central, metrics local", each screen
+           redeclaring .btn itself. Eight till screens and the whole admin
+           gabarit simply forgot to, and their buttons rendered as bare
+           underlined links — a colored strip with no padding, no radius and no
+           relief, which on a touch screen is not a target at all. A default
+           that has to be copied into every file is a default that will be
+           missing somewhere.
+           A screen that wants its own metrics still declares .btn AFTER this
+           include and wins at equal specificity, exactly as before; what
+           changes is that forgetting no longer produces a broken button. */
+        .btn {
+            padding: 15px; font-size: var(--fs-btn); font-weight: bold; border: none;
+            border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; text-align: center;
+        }
+        .btn:active { transform: translateY(4px); box-shadow: none; }
+        /* THE THREE BUTTON SIZES, and there are only three. A key is either
+           ordinary, the one key the screen exists for, or a key in a dense bar
+           (a pager, a tab strip, a ten-key menu grid). The screens used to pick
+           a size each — 0.8, 0.85, 1.1, 1.2rem, three paddings — so RETOUR was
+           a different button on every screen it appeared on. */
+        .btn-lg { padding: 18px 15px; font-size: var(--fs-btn-lg); }
+        .btn-sm { padding: 8px 14px; font-size: var(--fs-btn-sm); box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+        .btn-sm:active { transform: translateY(3px); box-shadow: none; }
+        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
         /* Button colors: SEMANTIC and central. The strong variants keep
            their meaning across themes (a danger button is red everywhere —
            deliberate touch-screen safety); muted follows the theme through
-           --muted with theme-side text. Screens keep their LOCAL .btn base
-           blocks for per-screen sizing — metrics local, colors central. */
+           --muted with theme-side text. */
         .btn-primary { background-color: var(--primary); }
         .btn-danger { background-color: var(--danger); }
         .btn-success { background-color: var(--success); }
@@ -90,3 +159,65 @@
            source order, so the themed text colors hold. */
         .btn.btn-warning { background-color: var(--warning); color: #000; }
         .btn.btn-muted { background-color: var(--muted); color: var(--text-main); }
+
+        /* A CROWDED SCREEN GETS THE SAME KEYBOARD, SMALLER — not another one.
+           Six screens each shrank .pos-key on their own (6px/1rem here,
+           8px/1.05rem there) because the pad did not fit under their chrome.
+           There is one shrunk pad now, and it is asked for by putting
+           pos-kb-compact on the keyboard's container. */
+        .pos-kb-compact .pos-key { padding: 6px 4px; font-size: var(--fs-key-sm); }
+        .pos-kb-compact .pos-key--alpha { font-size: var(--fs-key-sm); }
+
+        /* LISTS. One behaviour on this register: a list PAGES, it never
+           scrolls — there is no scrollbar to grab and no way to tell, at a
+           glance, that something is hidden below the fold. One row, one empty
+           state, one pager, one wording ("PAGE 1 / 3"), whether the rows are
+           search hits, parked tickets, customers or session lines. */
+        .pos-list { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow: hidden; }
+        .pos-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            background: var(--bg-row); border: 1px solid var(--border-color); border-radius: 6px;
+            padding: 8px 12px; color: var(--text-main); text-decoration: none;
+            font-size: var(--fs-row); text-align: left; cursor: pointer;
+        }
+        .pos-row:active { filter: brightness(1.3); }
+        .pos-row.on { background: var(--primary); border-color: var(--primary); }
+        .pos-row-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold; }
+        .pos-row-sub { font-size: var(--fs-row-sub); color: var(--text-muted); font-weight: normal; }
+        .pos-row.on .pos-row-sub { color: var(--text-main); }
+        .pos-row-amount { font-size: var(--fs-row); font-weight: bold; white-space: nowrap; }
+        .pos-list-empty {
+            display: flex; align-items: center; justify-content: center; flex: 1;
+            color: var(--text-muted); font-size: var(--fs-body);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        .pos-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; padding-top: 8px; }
+        .pos-pager-info { font-size: var(--fs-label); color: var(--text-muted); font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+        /* A pager key that cannot go anywhere stays in place and stops being a
+           target, rather than disappearing and shifting the two others. */
+        .pos-pager .btn.off { background: var(--bg-inset); color: var(--border-strong); pointer-events: none; box-shadow: none; }
+
+        /* TEXT ROLES. The screens name their own blocks (.title, .card-title,
+           .hint, .amount...); what they must not do is invent a size for them. */
+        .pos-title { font-size: var(--fs-title); font-weight: bold; letter-spacing: 1px; }
+        .pos-section { font-size: var(--fs-section); font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+        .pos-label { font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+        .pos-body { font-size: var(--fs-body); color: var(--text-main); }
+        .pos-amount { font-size: var(--fs-amount); font-weight: bold; }
+        .pos-total { font-size: var(--fs-total); font-weight: bold; }
+
+        /* POPUPS: TWO LAYERS, ALWAYS. The glass lets the register through,
+           blurred, so the operator keeps their bearings; the panel is opaque,
+           so what is asked of them stays readable. Text laid straight on the
+           glass is the one thing this must never become. */
+        .pos-glass {
+            background: var(--scrim);
+            -webkit-backdrop-filter: blur(var(--scrim-blur));
+            backdrop-filter: blur(var(--scrim-blur));
+        }
+        .pos-modal-panel {
+            background: var(--bg-panel);
+            border: 2px solid var(--border-strong);
+            border-radius: 12px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        }

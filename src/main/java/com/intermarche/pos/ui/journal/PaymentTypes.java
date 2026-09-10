@@ -1,9 +1,13 @@
 package com.intermarche.pos.ui.journal;
 
+import com.intermarche.pos.domain.ticket.BackupPayment;
 import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.CashPayment;
 import com.intermarche.pos.domain.ticket.ChequePayment;
+import com.intermarche.pos.domain.ticket.CreditPayment;
 import com.intermarche.pos.domain.ticket.FidelityPayment;
+import com.intermarche.pos.domain.ticket.ForeignCurrencyPayment;
+import com.intermarche.pos.domain.ticket.RoundingPayment;
 import com.intermarche.pos.domain.ticket.TicketRestoPayment;
 import com.intermarche.pos.domain.ticket.VoucherPayment;
 
@@ -29,6 +33,10 @@ public final class PaymentTypes {
         BY_KEY.put("VOUCHER", VoucherPayment.class);
         BY_KEY.put("FIDELITY", FidelityPayment.class);
         BY_KEY.put("TR", TicketRestoPayment.class);
+        BY_KEY.put("CREDIT", CreditPayment.class);
+        BY_KEY.put("ARRONDI", RoundingPayment.class);
+        BY_KEY.put("DEVISE", ForeignCurrencyPayment.class);
+        BY_KEY.put("SECOURS", BackupPayment.class);
     }
 
     /**

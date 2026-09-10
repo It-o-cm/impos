@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -48,7 +49,156 @@ class ReprintServiceTest {
         service.state.reprint = mock(ReprintState.class);
         service.state.ticket = mock(TicketState.class);
         service.ticketPrinterService = mock(TicketPrinterService.class);
+        // The store-node client (LC-08-05-05): left un-stubbed it reports no node,
+        // which is what every case written before this lot assumed.
+        service.storeTicketClient = mock(StoreTicketClient.class);
         return service;
+    }
+
+    // --- Bon pour échange (LC-08-05-10 to -13) ---
+
+    /**
+     * {@code startExchange()} opens the preparation on a cleared selection: what was
+     * named on a previous ticket never carries over.
+     */
+    @Test
+    void startExchangeOpensOnAClearedSelection() {
+        ReprintService service = newService();
+        service.startExchange();
+        verify(service.state.reprint).clearExchange();
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code cancelExchange()} leaves the preparation without printing.
+     */
+    @Test
+    void cancelExchangeLeavesWithoutPrinting() {
+        ReprintService service = newService();
+        service.cancelExchange();
+        verify(service.state.reprint).clearExchange();
+        verifyNoInteractions(service.ticketPrinterService);
+    }
+
+    /**
+     * {@code toggleExchangeLine()} hands the touched line to the state.
+     */
+    @Test
+    void toggleExchangeLineDelegatesToTheState() {
+        ReprintService service = newService();
+        service.toggleExchangeLine(7L);
+        verify(service.state.reprint).toggleExchangeLine(7L);
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code printExchange()} prints the bon and leaves the preparation
+     * (training false, id non-null).
+     */
+    @Test
+    void printExchangePrintsAndLeavesThePreparation() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        service.state.reprint.exchangeSelection = new java.util.LinkedHashSet<>(java.util.List.of(3L));
+        service.printExchange(5L);
+        verify(service.ticketPrinterService).printExchangeVoucher(eq(5L), any());
+        verify(service.state.reprint).clearExchange();
+    }
+
+    /**
+     * {@code printExchange()} refuses in training: the bon carries a real ticket's
+     * references (training arm true).
+     */
+    @Test
+    void printExchangeRefusedInTraining() {
+        ReprintService service = newService();
+        service.state.trainingMode = true;
+        service.printExchange(5L);
+        verify(service.state.ticket).setError("IMPRESSION INDISPONIBLE EN FORMATION");
+        verifyNoInteractions(service.ticketPrinterService);
+    }
+
+    /**
+     * {@code printExchange()} prints nothing on a null id, and still leaves the
+     * preparation (null-id arm).
+     */
+    @Test
+    void printExchangeWithoutIdPrintsNothing() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        service.state.reprint.exchangeSelection = new java.util.LinkedHashSet<>();
+        service.printExchange(null);
+        verifyNoInteractions(service.ticketPrinterService);
+        verify(service.state.reprint).clearExchange();
+    }
+
+    // --- Duplicata d'une autre caisse (LC-08-05-05) ---
+
+    /**
+     * {@code printForeign()} prints verbatim what the store node returned.
+     */
+    @Test
+    void printForeignPrintsWhatTheStoreNodeReturned() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        when(service.storeTicketClient.isAvailable()).thenReturn(true);
+        when(service.storeTicketClient.fetchDuplicate("C09-000012"))
+                .thenReturn(java.util.Optional.of("TICKET RENDU"));
+        service.printForeign("C09-000012");
+        verify(service.ticketPrinterService).printRenderedTicket("TICKET RENDU");
+    }
+
+    /**
+     * {@code printForeign()} refuses in training (training arm true).
+     */
+    @Test
+    void printForeignRefusedInTraining() {
+        ReprintService service = newService();
+        service.state.trainingMode = true;
+        service.printForeign("C09-000012");
+        verifyNoInteractions(service.ticketPrinterService);
+        verifyNoInteractions(service.storeTicketClient);
+    }
+
+    /**
+     * {@code printForeign()} refuses a blank number without asking the node
+     * (blank arm).
+     */
+    @Test
+    void printForeignRefusesABlankNumber() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        service.printForeign("   ");
+        verifyNoInteractions(service.storeTicketClient);
+        verifyNoInteractions(service.ticketPrinterService);
+    }
+
+    /**
+     * {@code printForeign()} says so when no store node is configured — a standalone
+     * register has nowhere to ask (availability arm false).
+     */
+    @Test
+    void printForeignWithoutAStoreNodeSaysSo() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        when(service.storeTicketClient.isAvailable()).thenReturn(false);
+        service.printForeign("C09-000012");
+        verifyNoInteractions(service.ticketPrinterService);
+    }
+
+    /**
+     * {@code printForeign()} says so when the shop holds no such ticket (empty answer
+     * arm).
+     */
+    @Test
+    void printForeignWithoutAMatchSaysSo() {
+        ReprintService service = newService();
+        service.state.trainingMode = false;
+        when(service.storeTicketClient.isAvailable()).thenReturn(true);
+        when(service.storeTicketClient.fetchDuplicate("C09-000012"))
+                .thenReturn(java.util.Optional.empty());
+        service.printForeign("C09-000012");
+        verifyNoInteractions(service.ticketPrinterService);
     }
 
     // --- loadHistory ---

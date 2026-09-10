@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -36,6 +37,19 @@ public class ManualService {
 
     /** The page size used when no settings service is wired (unit context). */
     static final int DEFAULT_PER_PAGE = 12;
+
+    /** Tiles the grid shows at once, three columns by four rows. */
+    private static final int GRID_TILES = 12;
+
+    /**
+     * Every database read this screen needs.
+     *
+     * <p>Package-private so a unit test can put a fake in its place: the queries are
+     * the only part of this screen that needs a database, and keeping them behind one
+     * collaborator is what keeps the paging and ordering logic testable without one.
+     */
+    @Inject
+    ManualRepository repository;
 
     /**
      * The back-office parameters: the display order and page size. Null on a
@@ -118,12 +132,12 @@ public class ManualService {
      */
     public ManualViewData getManualRootData(int page) {
         List<ProductFamily> allFamilies = ProductFamily.listAll();
-        Set<Long> childIds = collectChildIds(allFamilies);
+        Tree tree = readTree();
         Comparator<ProductFamily> order = orderComparator(mode());
         List<ProductFamily> pinned = new ArrayList<>();
         List<ProductFamily> rest = new ArrayList<>();
         for (ProductFamily f : allFamilies) {
-            if (childIds.contains(f.id) || !hasManualProducts(f)) {
+            if (tree.childIds().contains(f.id) || !tree.qualifying().contains(f.id)) {
                 continue;
             }
             if (f.pinned) {
@@ -134,7 +148,7 @@ public class ManualService {
         }
         pinned.sort(order);
         rest.sort(order);
-        int perPage = perPage();
+        int perPage = pageBudget(pinned.size());
         int totalPages = rest.isEmpty() ? 1 : (rest.size() + perPage - 1) / perPage;
         int current = clamp(page, totalPages);
         List<ManualItem> items = new ArrayList<>();
@@ -153,63 +167,126 @@ public class ManualService {
 
     /**
      * Builds one category level: the permanently pinned groups first (Lot 5F),
-     * then qualifying sub-families ordered by the configured mode, then the
-     * category's own EAN-only products.
+     * then the requested page of the qualifying sub-families ordered by the configured
+     * mode, followed by the category's own EAN-only products.
+     *
+     * <p>Sub-families and products are paged as ONE sequence, sub-families first: a
+     * category that holds both must not show its groups on one page and jump to its
+     * articles on the next by a rule of its own.
+     *
+     * <p>Only the page is read from the database. The obvious version iterates
+     * {@code family.products} to build the tiles, which loads every article of the
+     * category -- 4 174 for the largest of this park -- to display eleven.
      *
      * @param code the family code
+     * @param page the 1-based page requested
      * @return the category level
      */
-    public ManualViewData getManualCategoryData(String code) {
+    public ManualViewData getManualCategoryData(String code, int page) {
         List<ManualItem> items = new ArrayList<>();
         String breadcrumb = "Accueil";
         String parentUrl = "/manual";
         List<ProductFamily> allFamilies = ProductFamily.listAll();
-        Set<Long> childIds = collectChildIds(allFamilies);
+        Tree tree = readTree();
         Comparator<ProductFamily> order = orderComparator(mode());
-        for (ProductFamily f : pinnedTopFamilies(allFamilies, childIds, order)) {
+        List<ProductFamily> pinned = pinnedTopFamilies(allFamilies, tree, order);
+        for (ProductFamily f : pinned) {
             items.add(categoryItem(f));
         }
         ProductFamily family = ProductFamily.findByCode(code);
-        if (family != null) {
-            breadcrumb = "Accueil > " + family.description;
-            if (family.productFamilies != null) {
-                List<ProductFamily> children = new ArrayList<>();
-                for (ProductFamily child : family.productFamilies) {
-                    if (hasManualProducts(child)) {
-                        children.add(child);
-                    }
-                }
-                children.sort(order);
-                for (ProductFamily child : children) {
-                    items.add(categoryItem(child));
+        if (family == null) {
+            return new ManualViewData(items, breadcrumb, false, parentUrl, 1, 1, null, null);
+        }
+        breadcrumb = "Accueil > " + family.description;
+        List<ProductFamily> children = new ArrayList<>();
+        if (family.productFamilies != null) {
+            for (ProductFamily child : family.productFamilies) {
+                if (tree.qualifying().contains(child.id)) {
+                    children.add(child);
                 }
             }
-            if (family.products != null) {
-                for (Product p : family.products) {
-                    if (p.plu == null) {
-                        items.add(new ManualItem(p.name, false, null, p.ean, "size-normal", false));
-                    }
-                }
+            children.sort(order);
+        }
+        long productCount = repository.countProducts(family.id);
+        int perPage = pageBudget(pinned.size());
+        long total = children.size() + productCount;
+        int totalPages = total == 0 ? 1 : (int) ((total + perPage - 1) / perPage);
+        int current = clamp(page, totalPages);
+        int from = (current - 1) * perPage;
+        int to = from + perPage;
+        for (int i = Math.min(from, children.size()); i < Math.min(to, children.size()); i++) {
+            items.add(categoryItem(children.get(i)));
+        }
+        int productFrom = Math.max(0, from - children.size());
+        int productTo = Math.max(0, to - children.size());
+        if (productTo > productFrom) {
+            for (Product p : repository.products(family.id, productFrom, productTo - productFrom)) {
+                items.add(new ManualItem(p.name, false, null, p.ean, "size-normal", false));
             }
         }
-        return new ManualViewData(items, breadcrumb, false, parentUrl, 1, 1, null, null);
+        String base = "/manual/cat/" + code + "?page=";
+        String prevUrl = current > 1 ? base + (current - 1) : null;
+        String nextUrl = current < totalPages ? base + (current + 1) : null;
+        return new ManualViewData(items, breadcrumb, false, parentUrl, current, totalPages, prevUrl, nextUrl);
     }
 
     /**
-     * Collects the ids of every family that is a sub-family of another, so a
-     * child is never shown at the root.
+     * How many tiles one page may hold, once the permanent ones are deducted.
      *
-     * @param allFamilies every family
-     * @return the ids of the child families
+     * <p>The grid is twelve tiles and its first one is always taken -- NON RECONNU at
+     * the root, RETOUR below it -- so eleven remain, and the pinned groups shown on
+     * every page eat into those. Deducting them is what makes the overflow impossible:
+     * before, the configured page size was added ON TOP of the pinned groups, and the
+     * surplus tiles fell into rows the grid clips away, invisible and unreachable.
+     * At least one tile is always granted, so a till pinned to saturation still turns
+     * pages instead of showing nothing.
+     *
+     * @param pinnedCount how many pinned groups are shown on every page
+     * @return the number of tiles the page may hold
      */
-    private Set<Long> collectChildIds(List<ProductFamily> allFamilies) {
-        Set<Long> childIds = new HashSet<>();
-        for (ProductFamily f : allFamilies) {
-            for (ProductFamily child : f.productFamilies) {
-                childIds.add(child.id);
+    private int pageBudget(int pinnedCount) {
+        return Math.max(1, Math.min(perPage(), GRID_TILES - 1 - pinnedCount));
+    }
+
+
+    /**
+     * What the screen needs to know about the family tree, read in two queries.
+     *
+     * @param childIds   the ids of every family that is a sub-family of another, so a
+     *                   child is never shown at the root
+     * @param qualifying the ids of every family leading, directly or through its
+     *                   descendants, to at least one EAN-only product
+     */
+    private record Tree(Set<Long> childIds, Set<Long> qualifying) {
+    }
+
+    /**
+     * Reads the shape of the family tree.
+     *
+     * <p>TWO QUERIES, whatever the size of the catalogue, and not one product entity
+     * loaded. The obvious version -- walk the tree in Java and ask each family whether
+     * it holds a product -- costs a lazy load per family and, worse, MATERIALISES the
+     * whole product collection of a family just to test that it is not empty. On a real
+     * store that is thousands of queries and tens of thousands of entities to draw
+     * eleven tiles; the demo catalogue was too small to show it.
+     *
+     * <p>The qualifying set is computed the other way round: the database names the
+     * families that DIRECTLY hold an EAN-only product, and the answer is then carried
+     * up the parent chain in memory. Walking up stops as soon as an ancestor is already
+     * known, which also makes a malformed cycle terminate instead of hanging.
+     *
+     * @return the child ids and the qualifying ids
+     */
+    private Tree readTree() {
+        Map<Long, Long> parentOf = repository.parentByChild();
+        Set<Long> qualifying = new HashSet<>();
+        for (Long holder : repository.familiesHoldingProducts()) {
+            Long current = holder;
+            while (current != null && qualifying.add(current)) {
+                current = parentOf.get(current);
             }
         }
-        return childIds;
+        return new Tree(new HashSet<>(parentOf.keySet()), qualifying);
     }
 
     /**
@@ -221,11 +298,11 @@ public class ManualService {
      * @param order the configured ordering
      * @return the ordered pinned top families
      */
-    private List<ProductFamily> pinnedTopFamilies(List<ProductFamily> allFamilies, Set<Long> childIds,
+    private List<ProductFamily> pinnedTopFamilies(List<ProductFamily> allFamilies, Tree tree,
                                                   Comparator<ProductFamily> order) {
         List<ProductFamily> pinned = new ArrayList<>();
         for (ProductFamily f : allFamilies) {
-            if (f.pinned && !childIds.contains(f.id) && hasManualProducts(f)) {
+            if (f.pinned && !tree.childIds().contains(f.id) && tree.qualifying().contains(f.id)) {
                 pinned.add(f);
             }
         }
@@ -319,16 +396,4 @@ public class ManualService {
         return page;
     }
 
-    /**
-     * Tells whether a family leads, directly or through descendants, to an
-     * EAN-only product.
-     *
-     * @param family the family to probe
-     * @return true when the branch is worth showing
-     */
-    private boolean hasManualProducts(ProductFamily family) {
-        if (family.products != null) { for (Product p : family.products) { if (p.plu == null) return true; } }
-        if (family.productFamilies != null) { for (ProductFamily child : family.productFamilies) { if (hasManualProducts(child)) return true; } }
-        return false;
-    }
 }

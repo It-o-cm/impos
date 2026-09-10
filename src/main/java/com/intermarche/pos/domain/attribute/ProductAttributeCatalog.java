@@ -48,6 +48,9 @@ public final class ProductAttributeCatalog {
     /** Whether a quantity must be entered at the register for this article (BO-02-03-22). */
     public static final String QUANTITY_TO_ENTER = "QUANTITY_TO_ENTER";
 
+    /** Whether the article is covered by the legal conformity guarantee, which forces the sale ticket to print (LC-08-03-09). */
+    public static final String LEGAL_WARRANTY = "LEGAL_WARRANTY";
+
     /**
      * The declared well-known attributes, in admin-render order. Each entry is
      * the contract of a code the register understands.
@@ -66,7 +69,9 @@ public final class ProductAttributeCatalog {
             new ProductAttributeDef(PRICE_TO_ENTER, ProductAttributeType.BOOL,
                     "Prix à saisir en caisse", "false"),
             new ProductAttributeDef(QUANTITY_TO_ENTER, ProductAttributeType.BOOL,
-                    "Quantité à saisir en caisse", "false"));
+                    "Quantité à saisir en caisse", "false"),
+            new ProductAttributeDef(LEGAL_WARRANTY, ProductAttributeType.BOOL,
+                    "Soumis à la garantie légale de conformité", "false"));
 
     /** Fast lookup of a definition by its code, preserving catalog order. */
     private static final Map<String, ProductAttributeDef> BY_CODE = index();

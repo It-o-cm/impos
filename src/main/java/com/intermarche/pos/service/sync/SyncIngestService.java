@@ -1,5 +1,7 @@
 package com.intermarche.pos.service.sync;
 
+import com.intermarche.pos.domain.BalanceTicket;
+import com.intermarche.pos.domain.BalanceTicketLine;
 import com.intermarche.pos.domain.CashMovement;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.Product;
@@ -49,6 +51,14 @@ public class SyncIngestService {
 
     @Inject
     Instance<TicketPayment.Factory> factoryInstances;
+
+    /**
+     * The register's own ticket renderer, used on the store node to answer a
+     * foreign-duplicata request (LC-08-05-05) with exactly the text the selling
+     * register would have printed.
+     */
+    @Inject
+    com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
 
     /** Payment factories indexed by their method key. */
     private final Map<String, TicketPayment.Factory> paymentFactories = new HashMap<>();
@@ -124,6 +134,13 @@ public class SyncIngestService {
         ticket.totalIncludingTax = dto.totalIncludingTax;
         ticket.totalVat = dto.totalVat;
         ticket.signature = dto.signature;
+        // LC-08-02-02: the printed form travels with the sale, so the shop can put
+        // the ticket at the disposal of third-party services exactly as the customer
+        // read it. A push from a register that predates the field leaves it null
+        // rather than blanking what a previous push already delivered.
+        if (dto.formattedContent != null && !dto.formattedContent.isBlank()) {
+            ticket.formattedContent = dto.formattedContent;
+        }
         ticket.previousSignature = dto.previousSignature;
         ticket.grandTotal = dto.grandTotal;
         ticket.valuationStatus = Ticket.ValuationStatus.valueOf(dto.valuationStatus);
@@ -180,6 +197,24 @@ public class SyncIngestService {
             if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment card) {
                 card.authorizationNumber = paymentDto.authorizationNumber;
                 card.degradedMode = paymentDto.degradedMode;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.ChequePayment cheque) {
+                cheque.magneticLine = paymentDto.magneticLine;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment secours) {
+                secours.methodLabel = paymentDto.backupMethodLabel;
+                secours.transactionNumber = paymentDto.backupTransaction;
+                secours.manual = paymentDto.backupManual;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+                devise.currencyCode = paymentDto.currencyCode;
+                devise.foreignAmount = paymentDto.currencyAmount;
+                devise.exchangeRate = paymentDto.currencyRate;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+                credit.accountNumber = paymentDto.creditAccountNumber;
+                credit.accountName = paymentDto.creditAccountName;
+                credit.overLimit = paymentDto.creditOverLimit;
             }
             payment.paymentIndex = paymentDto.paymentIndex;
             ticket.addPayment(payment);
@@ -245,6 +280,69 @@ public class SyncIngestService {
     }
 
     /**
+     * Renders the duplicata of a ticket the shop holds, for a register that does not
+     * hold it (LC-08-05-05).
+     *
+     * <p>The store node runs the REGISTER'S OWN renderer over the ingested ticket, so
+     * what comes back reads exactly like the paper the customer got at the other till.
+     * Nothing is written: the print counter and its journal entry belong to the
+     * register that made the sale, not to the node that keeps a copy.
+     *
+     * @param ticketNumber the number of the ticket asked for
+     * @return the rendered duplicata, or null when the shop holds no such ticket
+     */
+    public String renderTicketDuplicate(String ticketNumber) {
+        if (ticketNumber == null || ticketNumber.isBlank()) {
+            return null;
+        }
+        com.intermarche.pos.domain.ticket.Ticket ticket =
+                com.intermarche.pos.domain.ticket.Ticket
+                        .find("ticketNumber", ticketNumber.trim()).firstResult();
+        if (ticket == null) {
+            return null;
+        }
+        return ticketPrinterService.renderTicket(ticket, true, Math.max(1, ticket.printCount));
+    }
+
+    /**
+     * Upserts an account customer created at a register, by its account number
+     * (LC-08-04-09).
+     *
+     * <p>The number is the upsert key and not the register's local id: the same
+     * customer pushed twice, or pushed again after an edit, must land on one row
+     * here. The payload references nothing, so this ingestion never parks.
+     *
+     * @param dto the pushed customer payload
+     */
+    @Transactional
+    public void ingestCustomer(SyncPayloads.CustomerDto dto) {
+        com.intermarche.pos.domain.AccountCustomer customer =
+                com.intermarche.pos.domain.AccountCustomer
+                        .find("accountNumber", dto.accountNumber).firstResult();
+        boolean created = false;
+        if (customer == null) {
+            customer = new com.intermarche.pos.domain.AccountCustomer();
+            customer.accountNumber = dto.accountNumber;
+            created = true;
+        }
+        customer.companyName = dto.companyName;
+        customer.lastName = dto.lastName;
+        customer.firstName = dto.firstName;
+        if (customer.address == null) {
+            customer.address = new com.intermarche.pos.domain.Address();
+        }
+        customer.address.streetLine1 = dto.street;
+        customer.address.postalCode = dto.postalCode;
+        customer.address.city = dto.city;
+        customer.siret = dto.siret;
+        customer.vatNumber = dto.vatNumber;
+        customer.phone = dto.phone;
+        customer.email = dto.email;
+        customer.persist();
+        LOG.infof("Client en compte %s %s", dto.accountNumber, created ? "créé" : "mis à jour");
+    }
+
+    /**
      * Upserts a technical journal event by its uid.
      *
      * @param dto the pushed event payload
@@ -272,6 +370,88 @@ public class SyncIngestService {
      *
      * @param dto the pushed movement payload
      */
+    /**
+     * Ingests a counter ticket pushed by a scale system (LC-06-01-02).
+     *
+     * <p>Upsert by reference, like every other ingestion here: a scale that
+     * retries after a timeout must not create a second ticket. A ticket ALREADY
+     * CONSUMED is left untouched — the sale has happened, and letting a late
+     * retry resurrect it would hand the same goods to a second customer.
+     *
+     * @param dto the counter ticket payload
+     */
+    @Transactional
+    public void ingestBalanceTicket(SyncPayloads.BalanceTicketDto dto) {
+        BalanceTicket ticket = BalanceTicket.findByReference(dto.reference);
+        boolean created = false;
+        if (ticket == null) {
+            ticket = new BalanceTicket();
+            ticket.reference = dto.reference;
+            created = true;
+        } else if (ticket.isConsumed()) {
+            LOG.infof("Ticket balance %s déjà consommé : poussée ignorée", dto.reference);
+            return;
+        }
+        ticket.counterLabel = dto.counterLabel;
+        ticket.emittedAt = dto.emittedAt != null ? parse(dto.emittedAt) : java.time.LocalDateTime.now();
+        ticket.lines.clear();
+        if (dto.lines != null) {
+            for (SyncPayloads.BalanceTicketLineDto lineDto : dto.lines) {
+                BalanceTicketLine line = new BalanceTicketLine();
+                line.balanceTicket = ticket;
+                line.ean = lineDto.ean;
+                line.label = lineDto.label;
+                line.quantity = lineDto.quantity;
+                line.totalIncludingTax = lineDto.totalIncludingTax;
+                line.vatRate = lineDto.vatRate;
+                ticket.lines.add(line);
+            }
+        }
+        ticket.persist();
+        LOG.infof("Ticket balance %s %s (%d ligne(s))", dto.reference,
+                created ? "créé" : "mis à jour", ticket.lines.size());
+    }
+
+    /**
+     * Serves a counter ticket to the register picking it up, AND consumes it in
+     * the same transaction (LC-06-01-02).
+     *
+     * <p>Reading and consuming are ONE act on purpose. The shop is the only
+     * place that can tell a first pick-up from a second, and it can only tell it
+     * if no window exists between answering and marking: two registers scanning
+     * the same paper at the same instant would otherwise both be served.
+     *
+     * @param reference the reference scanned at the till
+     * @param terminalId the register picking it up
+     * @return the ticket as served, or null when the shop holds no such reference
+     *         or has already served it
+     */
+    @Transactional
+    public SyncPayloads.BalanceTicketDto consumeBalanceTicket(String reference, String terminalId) {
+        BalanceTicket ticket = BalanceTicket.findByReference(reference);
+        if (ticket == null || ticket.isConsumed()) {
+            return null;
+        }
+        ticket.consumedAt = java.time.LocalDateTime.now();
+        ticket.consumedByTerminal = terminalId;
+        ticket.persist();
+        SyncPayloads.BalanceTicketDto dto = new SyncPayloads.BalanceTicketDto();
+        dto.reference = ticket.reference;
+        dto.counterLabel = ticket.counterLabel;
+        dto.emittedAt = ticket.emittedAt != null ? ticket.emittedAt.toString() : null;
+        for (BalanceTicketLine line : ticket.lines) {
+            SyncPayloads.BalanceTicketLineDto lineDto = new SyncPayloads.BalanceTicketLineDto();
+            lineDto.ean = line.ean;
+            lineDto.label = line.label;
+            lineDto.quantity = line.quantity;
+            lineDto.totalIncludingTax = line.totalIncludingTax;
+            lineDto.vatRate = line.vatRate;
+            dto.lines.add(lineDto);
+        }
+        LOG.infof("Ticket balance %s servi à %s (%d ligne(s))", reference, terminalId, dto.lines.size());
+        return dto;
+    }
+
     @Transactional
     public void ingestMovement(SyncPayloads.MovementDto dto) {
         CashMovement movement = CashMovement.find("movementUid", dto.movementUid).firstResult();

@@ -164,16 +164,21 @@ public class FidelityService {
      * @param lastName the holder's last name from the lookup
      * @param firstName the holder's first name from the lookup
      * @param status the account status from the lookup
+     * @param email the holder's e-mail from the lookup, or null when the referential
+     *        holds none (LC-08-02-09)
      * @return null on success, or the refusal message to display
      */
     public String attachLookedUpCard(PosState state, String card, String lastName,
-                                     String firstName, String status) {
+                                     String firstName, String status, String email) {
         if ("RESILIATED".equals(status)) {
             return "CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL";
         }
         validateCard(state, card);
         state.fidelity.holderLastName = lastName;
         state.fidelity.holderFirstName = firstName;
+        // LC-08-02-09: the address the register offers before sending the receipt.
+        // Blank means the referential holds none — the operator types one.
+        state.fidelity.holderEmail = email == null || email.isBlank() ? null : email.trim();
         if (state.fidelity.accountStatus == null) {
             state.fidelity.accountStatus = status;
         }

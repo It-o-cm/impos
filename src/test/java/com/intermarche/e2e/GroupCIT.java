@@ -461,7 +461,7 @@ public class GroupCIT {
     private void openGesture(Page page, String type, String linkName) {
         // Deterministically show the primary menu (same GET the visible toggle
         // fires), then tap the now-visible gesture button.
-        page.navigate(base.toString() + "action/menu/main");
+        page.navigate(base.toString() + "action/menu/vente");
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName(linkName).setExact(true)).click();
         page.locator("#priceKbArea").waitFor();
     }

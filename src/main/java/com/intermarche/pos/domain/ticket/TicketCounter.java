@@ -58,6 +58,18 @@ public class TicketCounter extends PanacheEntity {
     public long lastRefundNumber;
 
     /**
+     * The last account-customer sequence number issued for this terminal (0 = none yet).
+     * <p>
+     * A customer created at the register needs an account number, and until the
+     * commercial-management system sends its own population there is nothing that
+     * number could collide with. It sits on this row rather than on a counter of its
+     * own because it is a register-scoped sequence exactly like the refund one, and
+     * it is drawn outside any sale.
+     */
+    @Column(name = "last_customer_number", nullable = false)
+    public long lastCustomerNumber;
+
+    /**
      * The signature of the last closed ticket of this terminal, anchor of the
      * per-register fiscal chain; null until the first closing.
      */

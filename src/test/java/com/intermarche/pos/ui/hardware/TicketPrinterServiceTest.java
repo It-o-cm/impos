@@ -348,6 +348,78 @@ class TicketPrinterServiceTest {
         }
     }
 
+    // --- printCardReceipt: what it printed, and how much of it (LC-08-03-11) ---
+
+    /**
+     * A card payment yields one slip, and the method says so — the count is what
+     * lets DERNIER : DUPLICATA CB tell a printed duplicate from a silent one
+     * (card-payment arm).
+     */
+    @Test
+    void printCardReceiptCountsTheSlipItPrinted() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        com.intermarche.pos.domain.ticket.CardPayment card =
+                new com.intermarche.pos.domain.ticket.CardPayment(new BigDecimal("12.00"));
+        card.authorizationNumber = "A1234";
+        ticket.payments.add(card);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printCardReceipt(1L, false, "DUPLICATA"));
+        }
+        assertTrue(captureReceipt(service).contains("DUPLICATA"));
+    }
+
+    /**
+     * A sale settled without a card prints nothing and counts nothing — the
+     * loop's continue arm, and the case the operator must be told about.
+     */
+    @Test
+    void printCardReceiptCountsNothingWithoutACardPayment() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        com.intermarche.pos.domain.ticket.CashPayment cash =
+                new com.intermarche.pos.domain.ticket.CashPayment(
+                        new BigDecimal("12.00"), new BigDecimal("12.00"));
+        ticket.payments.add(cash);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(0, service.printCardReceipt(1L, false, "DUPLICATA"));
+        }
+        verifyNoInteractions(service.hardwareService);
+    }
+
+    /**
+     * An unknown ticket prints nothing and counts nothing (ticket-null arm).
+     */
+    @Test
+    void printCardReceiptCountsNothingOnAnUnknownTicket() {
+        TicketPrinterService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(null);
+            assertEquals(0, service.printCardReceipt(7L, false, "DUPLICATA"));
+        }
+        verifyNoInteractions(service.hardwareService);
+    }
+
+    /**
+     * Returns the last line of a receipt that is printed in clear — the
+     * identification barcode directive and the blank lines around it excluded.
+     *
+     * @param receipt the rendered receipt
+     * @return the last non-blank, non-directive line, trimmed
+     */
+    private String lastPrintedTextLine(String receipt) {
+        String[] lines = receipt.split("\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (!line.isEmpty() && !line.startsWith("[[BARCODE")) {
+                return line;
+            }
+        }
+        return "";
+    }
+
     /**
      * Covers the administered ticket messages of {@code printTicket}
      * (BO-03-08-03 / BO-03-08-05): a non-blank header message is printed under
@@ -369,7 +441,11 @@ class TicketPrinterServiceTest {
             String out = captureReceipt(service);
             assertTrue(out.contains("PROMO DU JOUR"));
             assertTrue(out.contains("SUIVEZ-NOUS EN LIGNE"));
-            assertTrue(out.trim().endsWith("SUIVEZ-NOUS EN LIGNE"));
+            // The receipt ends on the identification barcode (LC-08-01-03); the
+            // footer message is the last thing PRINTED IN CLEAR before it.
+            assertTrue(out.trim().endsWith("[[BARCODE C04-00000001]]"));
+            assertTrue(out.indexOf("SUIVEZ-NOUS EN LIGNE") < out.indexOf("[[BARCODE"));
+            assertTrue(out.indexOf("A BIENTOT") < out.indexOf("SUIVEZ-NOUS EN LIGNE"));
         }
     }
 
@@ -393,7 +469,10 @@ class TicketPrinterServiceTest {
             service.printTicket(1L);
             String out = captureReceipt(service);
             assertTrue(out.contains("LYON\n" + "-".repeat(42)));
-            assertTrue(out.trim().endsWith("A BIENTOT"));
+            // Nothing between the courtesy line and the identification barcode:
+            // a blank footer message prints no line at all.
+            assertTrue(out.trim().endsWith("[[BARCODE C04-00000001]]"));
+            assertEquals("A BIENTOT", lastPrintedTextLine(out));
         }
     }
 

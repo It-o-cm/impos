@@ -1,0 +1,90 @@
+{!
+ ! Hardware status page (AuthResource unlock gate): shown at EVERY entry, whatever
+ ! the peripherals answered, so the operator takes the lane knowing what this till
+ ! carries. Two faces, decided by allAvailable: everything green, CONTINUER is the
+ ! only button and it is green too; anything else, the panel turns red and RETRY
+ ! appears beside it. The operator is still authenticated behind this page:
+ ! CONTINUER posts the override that opens the lane, RETRY goes back to /lock,
+ ! which logs out.
+ ! The operator was logged back out — the register does not go further until
+ ! the hardware is back; the RETRY button returns to the lock screen.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matériel indisponible</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal {
+            width: 1000px; height: 600px; background-color: var(--bg-dark);
+            border: 2px solid var(--border-strong); border-radius: 10px;
+            display: grid; grid-template-rows: 60px 1fr 80px;
+            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+        .main-area { display: flex; justify-content: center; align-items: center; }
+        .panel { background: var(--bg-panel); border: 1px solid var(--danger); border-radius: 10px; padding: 40px; width: 620px; }
+        .panel.all-ok { border-color: var(--success); }
+        .panel h2 { color: var(--danger); text-transform: uppercase; margin-bottom: 10px; text-align: center; letter-spacing: 1px; }
+        .panel.all-ok h2 { color: var(--success); }
+        .panel p.hint { color: var(--text-muted); text-align: center; margin-bottom: 25px; }
+        .device-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); font-weight: bold; }
+        .device-row:last-of-type { border-bottom: none; }
+        .device-state-ok { color: var(--success); }
+        .device-state-ko { color: var(--danger); }
+        .device-state-absent { color: var(--text-muted); }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+        .btn-retry { padding: 15px 40px; font-size: var(--fs-btn-lg); font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; background: var(--primary); text-transform: uppercase; text-decoration: none; }
+        .btn-override { padding: 15px 40px; font-size: var(--fs-btn-lg); font-weight: bold; border: 1px solid var(--danger); border-radius: 6px; cursor: pointer; color: var(--danger); background: transparent; text-transform: uppercase; font-family: inherit; }
+        .btn-override.all-ok { border: none; color: white; background: var(--success); }
+        .override-form { margin: 0; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>CONTRÔLE DU MATÉRIEL</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel{#if allAvailable} all-ok{/if}">
+        {#if allAvailable}
+          <h2>Matériel disponible</h2>
+          <p class="hint">Tout le matériel de cette caisse répond.</p>
+        {#else}
+          <h2>Matériel indisponible</h2>
+          <p class="hint">Rétablissez le matériel, ou ouvrez la caisse malgré la panne.</p>
+        {/if}
+        {#for device in devices}
+          <div class="device-row">
+            <span>{device.name}</span>
+            {#if device.failed}
+              <span class="device-state-ko">INDISPONIBLE</span>
+            {#else if device.absent}
+              <span class="device-state-absent">NON ÉQUIPÉ</span>
+            {#else}
+              <span class="device-state-ok">DISPONIBLE</span>
+            {/if}
+          </div>
+        {/for}
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <form method="post" action="/action/hardware-override" class="override-form">
+        <button type="submit" class="btn-override{#if allAvailable} all-ok{/if}">Continuer</button>
+      </form>
+      {#if !allAvailable}<a href="/lock" class="btn-retry">Réessayer</a>{/if}
+    </div>
+  </div>
+  <script>
+    setInterval(function() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

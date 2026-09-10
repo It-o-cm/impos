@@ -406,4 +406,110 @@ class ReprintStateTest {
         state.setViewedTicket(ticketWithLines(7));
         assertEquals(2, state.getDetailTotalPages());
     }
+
+    // --- Bon pour échange : la sélection (LC-08-05-12) ---
+
+    /**
+     * A fresh state prepares no bon and names no line.
+     */
+    @Test
+    void freshStatePreparesNoExchange() {
+        ReprintState state = new ReprintState();
+        assertFalse(state.exchangeMode);
+        assertTrue(state.exchangeSelection.isEmpty());
+        assertTrue(state.isWholeTicketExchange());
+    }
+
+    /**
+     * Touching a line names it; touching it again unnames it.
+     */
+    @Test
+    void togglingALineNamesThenUnnamesIt() {
+        ReprintState state = new ReprintState();
+        state.toggleExchangeLine(7L);
+        assertTrue(state.isSelected(7L));
+        assertFalse(state.isWholeTicketExchange());
+        state.toggleExchangeLine(7L);
+        assertFalse(state.isSelected(7L));
+        assertTrue(state.isWholeTicketExchange());
+    }
+
+    /**
+     * A line that was never touched carries no mark.
+     */
+    @Test
+    void anUntouchedLineIsNotSelected() {
+        ReprintState state = new ReprintState();
+        state.toggleExchangeLine(7L);
+        assertFalse(state.isSelected(8L));
+    }
+
+    /**
+     * A missing line id names nothing rather than failing (null arm).
+     */
+    @Test
+    void togglingANullLineNamesNothing() {
+        ReprintState state = new ReprintState();
+        state.toggleExchangeLine(null);
+        assertTrue(state.exchangeSelection.isEmpty());
+    }
+
+    /**
+     * A missing line id carries no mark either (null arm of the read).
+     */
+    @Test
+    void aNullLineIsNotSelected() {
+        assertFalse(new ReprintState().isSelected(null));
+    }
+
+    /**
+     * Several lines can be named, and they keep the order they were touched in.
+     */
+    @Test
+    void severalLinesCanBeNamed() {
+        ReprintState state = new ReprintState();
+        state.toggleExchangeLine(3L);
+        state.toggleExchangeLine(1L);
+        assertEquals(List.of(3L, 1L), new ArrayList<>(state.exchangeSelection));
+    }
+
+    /**
+     * Leaving the preparation forgets both the mode and what was named.
+     */
+    @Test
+    void clearExchangeForgetsEverything() {
+        ReprintState state = new ReprintState();
+        state.exchangeMode = true;
+        state.toggleExchangeLine(7L);
+        state.clearExchange();
+        assertFalse(state.exchangeMode);
+        assertTrue(state.exchangeSelection.isEmpty());
+    }
+
+    /**
+     * Opening another ticket forgets the selection made on the previous one: a
+     * selection belongs to the ticket it was made on.
+     */
+    @Test
+    void openingAnotherTicketForgetsTheSelection() {
+        ReprintState state = new ReprintState();
+        state.exchangeMode = true;
+        state.toggleExchangeLine(7L);
+        state.setViewedTicket(new Ticket());
+        assertFalse(state.exchangeMode);
+        assertTrue(state.exchangeSelection.isEmpty());
+    }
+
+    /**
+     * Reloading the history forgets it too.
+     */
+    @Test
+    void reloadingTheHistoryForgetsTheSelection() {
+        ReprintState state = new ReprintState();
+        state.exchangeMode = true;
+        state.toggleExchangeLine(7L);
+        state.setTickets(List.of());
+        assertFalse(state.exchangeMode);
+        assertTrue(state.exchangeSelection.isEmpty());
+    }
 }

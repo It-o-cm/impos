@@ -24,7 +24,7 @@
 
         .overlay {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.97);
+            background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur));
             display: flex; flex-direction: column;
             z-index: 10; border-radius: 10px; padding: 20px;
         }
@@ -33,8 +33,7 @@
             margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px;
             flex-shrink: 0;
         }
-        .overlay-title { font-size: 1.5rem; }
-        .close-btn { font-size: 2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; text-decoration: none; line-height: 1; }
+        .overlay-title { font-size: var(--fs-title); }
         .manual-form { display: flex; gap: 20px; flex: 1; min-height: 0; }
 
         .product-selection {
@@ -45,7 +44,7 @@
 
         .flash-label {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: var(--danger); color: white; font-weight: bold; font-size: 1.4rem;
+            background: var(--danger); color: white; font-weight: bold; font-size: var(--fs-section);
             padding: 12px 28px; border-radius: 8px; pointer-events: none; z-index: 5;
             text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 0 20px rgba(211,47,47,0.6);
             display: none;
@@ -53,7 +52,7 @@
         .flash-label.show { display: block; }
 
         .breadcrumb {
-            font-size: 1.1rem; color: var(--text-muted); margin-bottom: 10px;
+            font-size: var(--fs-section); color: var(--text-muted); margin-bottom: 10px;
             background: var(--bg-inset); padding: 10px 15px; border-radius: 4px;
             border-left: 4px solid var(--primary); flex-shrink: 0;
         }
@@ -68,7 +67,7 @@
         }
 
         .grid-btn {
-            background: var(--bg-row); border: 2px solid var(--border-color); color: #ddd; font-size: 0.85rem;
+            background: var(--bg-row); border: 2px solid var(--border-color); color: #ddd; font-size: var(--fs-btn-sm);
             font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center;
             text-transform: uppercase; transition: 0.2s; display: flex;
             align-items: center; justify-content: center; padding: 6px 5px;
@@ -82,10 +81,6 @@
         .grid-btn.size-small { font-size: 0.7rem; }
         .grid-btn.pinned { border-color: var(--warning); box-shadow: inset 0 0 0 1px var(--warning); }
 
-        .grid-pager { display: flex; justify-content: space-between; align-items: center; padding-top: 8px; flex-shrink: 0; }
-        .grid-pager .btn { padding: 8px 16px; font-size: 0.95rem; }
-        .grid-pager .btn.disabled { background: #333; color: #555; pointer-events: none; box-shadow: none; }
-        .grid-pager .grid-page-info { color: var(--text-muted); font-size: 1rem; font-weight: bold; }
 
         .price-section {
             width: 260px; display: flex; flex-direction: column; gap: 8px;
@@ -94,19 +89,13 @@
         }
 
         .price-display {
-            font-size: 2.2rem; text-align: right; color: var(--success);
+            font-size: var(--fs-field-num); text-align: right; color: var(--success);
             font-weight: bold; background: var(--bg-page); border: 2px solid var(--success);
             border-radius: 4px; padding: 8px; flex-shrink: 0;
         }
 
         .numpad-dynamic-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-        .btn {
-            padding: 15px; font-size: 1.2rem; font-weight: bold; border: none;
-            border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none;
-        }
-        .btn:active { transform: translateY(4px); box-shadow: none; }
     </style>
 </head>
 <body data-theme="{posTheme}">
@@ -115,7 +104,6 @@
     <div class="overlay active">
         <div class="overlay-header">
             <div class="overlay-title">SAISIE DIRECTE</div>
-            <a href="/" class="close-btn">&times;</a>
         </div>
 
         <div class="manual-form">
@@ -140,16 +128,16 @@
                 </div>
 
                 {#if totalPages > 1}
-                <div class="grid-pager">
-                    {#if prevUrl}<a href="{prevUrl}" class="btn btn-primary">PRÉCÉDENT</a>{#else}<span class="btn btn-primary disabled">PRÉCÉDENT</span>{/if}
-                    <span class="grid-page-info">{page} / {totalPages}</span>
-                    {#if nextUrl}<a href="{nextUrl}" class="btn btn-primary">SUIVANT</a>{#else}<span class="btn btn-primary disabled">SUIVANT</span>{/if}
+                <div class="pos-pager">
+                    {#if prevUrl}<a href="{prevUrl}" class="btn btn-sm btn-primary">PRÉCÉDENT</a>{#else}<span class="btn btn-sm btn-primary off">PRÉCÉDENT</span>{/if}
+                    <span class="pos-pager-info">PAGE {page} / {totalPages}</span>
+                    {#if nextUrl}<a href="{nextUrl}" class="btn btn-sm btn-primary">SUIVANT</a>{#else}<span class="btn btn-sm btn-primary off">SUIVANT</span>{/if}
                 </div>
                 {/if}
             </div>
 
             <div class="price-section">
-                <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:1.05rem;">SAISIE QUANTITÉ</div>
+                <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:var(--fs-section);">SAISIE QUANTITÉ</div>
                 <input type="text" id="displayValue" class="price-display" value="" placeholder="1" readonly>
 
                 <form action="/action/manual-add-known" method="POST" id="formKnown" style="display:none;">
@@ -163,7 +151,10 @@
 
                 <div class="numpad-dynamic-area" id="keyboardArea"></div>
 
-                <button type="button" class="btn btn-success" style="width:100%;margin-top:8px;" onclick="submitForm()">VALIDER</button>
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <a href="/" class="btn btn-muted" style="flex:0 0 130px; display:flex; align-items:center; justify-content:center;">RETOUR</a>
+                    <button type="button" class="btn btn-success" style="flex:1;" onclick="submitForm()">VALIDER</button>
+                </div>
             </div>
         </div>
     </div>

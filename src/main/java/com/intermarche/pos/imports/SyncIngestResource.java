@@ -121,6 +121,115 @@ public class SyncIngestResource {
     }
 
     /**
+     * Ingests an account customer created at a register (LC-08-04-09).
+     *
+     * @param presentedToken the shared token presented by the register
+     * @param dto the customer payload
+     * @return 200 on upsert, 401 on a bad token, 403 off-role, 409 retryable
+     */
+    @POST
+    @Path("/customer")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response ingestCustomer(@HeaderParam("X-Sync-Token") String presentedToken,
+                                   SyncPayloads.CustomerDto dto) {
+        return handle(presentedToken, () -> syncIngestService.ingestCustomer(dto));
+    }
+
+    /**
+     * Ingests a counter ticket pushed by a scale system (LC-06-01-02).
+     *
+     * <p>The scale is the emitter and it pushes — but it pushes HERE, never to a
+     * register: at weighing time nobody knows which lane the customer will walk
+     * to. The shop holds it until one of them asks.
+     *
+     * @param presentedToken the shared token presented by the scale system
+     * @param dto the counter ticket payload
+     * @return 200 on upsert, 401 on a bad token, 403 off-role, 409 retryable
+     */
+    @POST
+    @Path("/balance-ticket")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response ingestBalanceTicket(@HeaderParam("X-Sync-Token") String presentedToken,
+                                        SyncPayloads.BalanceTicketDto dto) {
+        return handle(presentedToken, () -> syncIngestService.ingestBalanceTicket(dto));
+    }
+
+    /**
+     * Serves a counter ticket to the register picking it up, AND consumes it
+     * (LC-06-01-02).
+     *
+     * <p>A GET that WRITES, deliberately, and the only one here. The shop is the
+     * single place able to tell a first pick-up from a second; it can only tell
+     * it if serving and marking are one act. A second scan of the same paper —
+     * at this register or at another — gets 404, which is the whole point.
+     *
+     * @param presentedToken the shared token presented by the register
+     * @param reference the reference scanned at the till
+     * @param terminalId the register picking the ticket up
+     * @return 200 with the detail, 401 on a bad token, 403 off-role, 404 when the
+     *         shop holds no such reference or has already served it
+     */
+    @jakarta.ws.rs.GET
+    @Path("/balance-ticket/{reference}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response consumeBalanceTicket(@HeaderParam("X-Sync-Token") String presentedToken,
+                                         @jakarta.ws.rs.PathParam("reference") String reference,
+                                         @jakarta.ws.rs.QueryParam("terminal") String terminalId) {
+        if (!"store".equalsIgnoreCase(role)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("Ce nœud n'a pas le rôle store").build();
+        }
+        String expectedToken = token.orElse("");
+        if (!expectedToken.isBlank() && !expectedToken.equals(presentedToken)) {
+            return Response.status(Response.Status.UNAUTHORIZED)
+                    .entity("Jeton de synchronisation invalide").build();
+        }
+        SyncPayloads.BalanceTicketDto served =
+                syncIngestService.consumeBalanceTicket(reference, terminalId);
+        if (served == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return Response.ok(served).build();
+    }
+
+    /**
+     * Serves the duplicata of a ticket the shop holds, to a register that does not
+     * hold it (LC-08-05-05).
+     *
+     * <p>A READ, unlike every other route here: it writes nothing and bumps no
+     * counter. It stands under the same role and token gates all the same — the
+     * shop's sales are not public.
+     *
+     * @param presentedToken the shared token presented by the register
+     * @param ticketNumber the number of the ticket asked for
+     * @return 200 with the rendered duplicata, 401 on a bad token, 403 off-role,
+     *         404 when the shop holds no such ticket
+     */
+    @jakarta.ws.rs.GET
+    @Path("/ticket/{ticketNumber}/duplicata")
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response ticketDuplicate(@HeaderParam("X-Sync-Token") String presentedToken,
+                                    @jakarta.ws.rs.PathParam("ticketNumber") String ticketNumber) {
+        if (!"store".equalsIgnoreCase(role)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("Ce nœud n'a pas le rôle store").build();
+        }
+        String expectedToken = token.orElse("");
+        if (!expectedToken.isBlank() && !expectedToken.equals(presentedToken)) {
+            return Response.status(Response.Status.UNAUTHORIZED)
+                    .entity("Jeton de synchronisation invalide").build();
+        }
+        String rendered = syncIngestService.renderTicketDuplicate(ticketNumber);
+        if (rendered == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("Ticket inconnu du magasin").build();
+        }
+        return Response.ok(rendered).build();
+    }
+
+    /**
      * Runs an ingestion under the role gate, the shared-token gate and the
      * retryable-failure contract.
      *

@@ -18,7 +18,11 @@ import org.jboss.logging.Logger;
  *       ({@link AutoAcceptTerminalClient});</li>
  *   <li>{@code verifone} — the integrated monetique skeleton
  *       ({@link VerifoneTerminalClient}), configured by
- *       {@code pos.tpe.verifone.host/port/timeout-ms}.</li>
+ *       {@code pos.tpe.verifone.host/port/timeout-ms};</li>
+ *   <li>{@code bridge} — the real terminal, reached through the hardware
+ *       daemon like every other peripheral
+ *       ({@link HardwareBridgeTerminalClient}), configured by
+ *       {@code pos.tpe.bridge.poll-ms} and {@code pos.tpe.bridge.deadline-ms}.</li>
  * </ul>
  * An unknown mode falls back to {@code virtual} with a warning, so a typo
  * in configuration can never leave the register without a terminal path.
@@ -50,6 +54,23 @@ public class TerminalClientProducer {
     @ConfigProperty(name = "pos.tpe.verifone.timeout-ms", defaultValue = "60000")
     int verifoneTimeoutMs;
 
+    /** How long the bridge client waits between two readings of the payment state. */
+    @ConfigProperty(name = "pos.tpe.bridge.poll-ms", defaultValue = "500")
+    long bridgePollMs;
+
+    /**
+     * How long the bridge client follows one payment before giving up.
+     * <p>
+     * Generous on purpose: it bounds a cardholder, not a machine.
+     */
+    @ConfigProperty(name = "pos.tpe.bridge.deadline-ms", defaultValue = "300000")
+    long bridgeDeadlineMs;
+
+    /** The hardware bridge, the same boundary the scale and the drawer go through. */
+    @Inject
+    @org.eclipse.microprofile.rest.client.inject.RestClient
+    com.intermarche.pos.ui.hardware.HardwareClient hardwareClient;
+
     /** The simulator implementation, always available as a CDI bean. */
     @Inject
     VirtualTerminalClient virtualTerminalClient;
@@ -57,6 +78,10 @@ public class TerminalClientProducer {
     /** The catalog holding the live value of the degraded-mode toggle. */
     @Inject
     PosSettingsService posSettingsService;
+
+    /** The register state carrying the operator's own forcing (LC-07-08-02). */
+    @Inject
+    com.intermarche.pos.ui.PosState state;
 
     /**
      * Produces the terminal client matching the configured mode, wrapped
@@ -68,7 +93,7 @@ public class TerminalClientProducer {
     @ApplicationScoped
     public PaymentTerminalClient paymentTerminalClient() {
         return new DegradedModePaymentTerminalClient(
-                resolveConfigured(), new AutoAcceptTerminalClient(), posSettingsService);
+                resolveConfigured(), new AutoAcceptTerminalClient(), posSettingsService, state);
     }
 
     /**
@@ -83,6 +108,8 @@ public class TerminalClientProducer {
             case "verifone":
                 return new VerifoneTerminalClient(
                         new VerifoneTransport(verifoneHost, verifonePort, verifoneTimeoutMs));
+            case "bridge":
+                return new HardwareBridgeTerminalClient(hardwareClient, bridgePollMs, bridgeDeadlineMs);
             case "virtual":
                 return virtualTerminalClient;
             default:

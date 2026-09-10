@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware;
 
+import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.domain.ticket.RefundLine;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
@@ -102,8 +103,45 @@ public class TicketPrinterService {
         boolean duplicata = ticket.printCount >= 1;
         int duplicataNumber = ticket.printCount; // 1st reprint = duplicata n°1
 
+        String content = renderTicket(ticket, duplicata, duplicataNumber);
+
+        // Count the print and journal the duplicata before sending to the printer
+        ticket.printCount++;
+        ticket.persist();
+        if (duplicata) {
+            technicalEventService.log(TechnicalEvent.EventType.DUPLICATA_PRINTED,
+                    ticket.ticketNumber + " n°" + duplicataNumber);
+        }
+
+        // Send to the printer
+        hardwareService.printReceipt(content);
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Renders a sale ticket as 42-column text, WITHOUT printing it and without
+     * touching a single row.
+     *
+     * <p>Split out of {@link #printTicket(Long)} so the store node can render a
+     * ticket a register asks it for (LC-08-05-05): a duplicata of a sale made on
+     * ANOTHER register must look exactly like the original, and the only way to
+     * guarantee that is to run the very same renderer over the very same entity
+     * rather than a second rendering of a payload.
+     *
+     * @param ticket the ticket to render
+     * @param duplicata whether the DUPLICATA banner is printed
+     * @param duplicataNumber the duplicata's rank, meaningless when not a duplicata
+     * @return the ticket as printable text
+     */
+    public String renderTicket(Ticket ticket, boolean duplicata, int duplicataNumber) {
         StringBuilder sb = new StringBuilder();
-        // Header
+        // Header. The logo prints above the store name when this till has one; the
+        // text line stays regardless, so a receipt is readable even on a printer that
+        // ignores images or a deployment with no logo file.
+        String logo = ReceiptLogo.directive();
+        if (!logo.isEmpty()) {
+            sb.append(logo).append("\n");
+        }
         sb.append(center("INTERMARCHE", WIDTH)).append("\n");
         sb.append(center(ticket.store.name, WIDTH)).append("\n");
         sb.append(center(ticket.store.address.city, WIDTH)).append("\n");
@@ -130,10 +168,23 @@ public class TicketPrinterService {
         for (TicketLineValuation v : TicketLineValuation.<TicketLineValuation>list("ticket.id", ticket.id)) {
             valuations.put(v.lineUid, v);
         }
-        for (TicketLine line : ticket.lines) {
+        // LC-08-01-07: the store administers the order the articles print in, and
+        // whether they are grouped under a family heading. The stored lines keep
+        // their own order — this is a rendering, not the record.
+        String lineOrder = TicketLineOrder.normalize(posSettingsService.ticketLineOrder());
+        boolean groupByFamily = TicketLineOrder.groupsByFamily(lineOrder);
+        String printedFamily = null;
+        for (TicketLine line : TicketLineOrder.apply(ticket.lines, lineOrder)) {
             // A cancelled article (lot C4, BO-04-01-16) is kept in the ticket
             // only as a journal witness; it never prints on the receipt.
             if (line.cancelled) continue;
+            if (groupByFamily) {
+                String family = TicketLineOrder.familyOf(line);
+                if (!family.equals(printedFamily)) {
+                    sb.append(center(family, WIDTH)).append("\n");
+                    printedFamily = family;
+                }
+            }
             // Product label (possibly truncated)
             String label = line.productLabel.length() > 20 ? line.productLabel.substring(0, 20) : line.productLabel;
             // Quantity and unit price
@@ -178,7 +229,7 @@ public class TicketPrinterService {
         if (posSettingsService.fidelityAdvantagesEnabled()
                 && posState != null && posState.fidelity.earnTotal != null
                 && posState.fidelity.earnTotal.signum() > 0
-                && ticketId.equals(currentOrLastTicketId())) {
+                && ticket.id.equals(currentOrLastTicketId())) {
             sb.append(formatLine("CAGNOTTE DU JOUR",
                     "+" + DF.format(posState.fidelity.earnTotal) + " E"));
             for (com.intermarche.pos.ui.fidelity.FidelityState.EarnLine earnLine
@@ -204,7 +255,41 @@ public class TicketPrinterService {
         sb.append(center("REGLEMENT", WIDTH)).append("\n");
         for (TicketPayment payment : ticket.payments) {
             String method = payment.getClass().getSimpleName().replace("Payment", "").toUpperCase();
+            // LC-07-03-06: the rounding is stored with the sign the ledger needs
+            // (so the settlements sum to the total) and PRINTED with the opposite
+            // one, because on paper it reads as the adjustment to what the customer
+            // hands over: "A PAYER 24,62 / ESPECES 24,60 / ARRONDI -0,02". This is
+            // the single place that inversion happens.
+            // LC-07-14-05: a foreign settlement states the three figures the
+            // customer and the accounts both need — what was handed over, what it
+            // was worth, and the rate that connects them.
+            if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+                sb.append(formatLine("DEVISE " + safe(devise.currencyCode),
+                        DF.format(payment.amount) + " E"));
+                sb.append("  ").append(DF.format(devise.foreignAmount)).append(" ")
+                        .append(safe(devise.currencyCode)).append("  TAUX ")
+                        .append(devise.exchangeRate == null ? "" : devise.exchangeRate.toPlainString())
+                        .append("\n");
+                continue;
+            }
+            if (payment instanceof com.intermarche.pos.domain.ticket.RoundingPayment) {
+                sb.append(formatLine("ARRONDI", DF.format(payment.amount.negate()) + " E"));
+                continue;
+            }
             sb.append(formatLine(method, DF.format(payment.amount) + " E"));
+            // LC-08-04-06 [sic LC-07-09-06]: a credit settlement names its debtor
+            // under its own line — date, account number, account name. A month
+            // later this receipt is what the account is reconciled against, and an
+            // amount owed by nobody cannot be reconciled against anything.
+            if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+                String saleDay = ticket.creationDate == null ? ""
+                        : ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+                sb.append("  ").append(saleDay).append("  COMPTE ")
+                        .append(credit.accountNumber == null ? "" : credit.accountNumber)
+                        .append("\n");
+                sb.append("  ").append(credit.accountName == null ? "" : credit.accountName)
+                        .append("\n");
+            }
         }
         // Footer, with the online digital receipt link
         sb.append("\n");
@@ -221,18 +306,45 @@ public class TicketPrinterService {
         if (footerMessage != null && !footerMessage.isBlank()) {
             sb.append(center(footerMessage, WIDTH)).append("\n");
         }
+        // The ticket number as a barcode, last thing on the receipt: it is what a
+        // return, a duplicate or a claim is looked up by, and typing it back by hand
+        // is where the mistakes happen. The hardware bridge turns the directive into
+        // the printer's own barcode command; the POS stays text.
+        sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
+        return sb.toString();
+    }
 
-        // Count the print and journal the duplicata before sending to the printer
-        ticket.printCount++;
-        ticket.persist();
-        if (duplicata) {
-            technicalEventService.log(TechnicalEvent.EventType.DUPLICATA_PRINTED,
-                    ticket.ticketNumber + " n°" + duplicataNumber);
+    /**
+     * Prints a ticket rendered ELSEWHERE, verbatim (LC-08-05-05).
+     *
+     * <p>The text comes from the store node, which holds the sales of every register
+     * of the shop; this one owns neither that ticket nor its print counter, so it
+     * counts nothing and journals nothing here — it is a printer, not the register of
+     * record. The DUPLICATA banner is part of what it received.
+     *
+     * @param content the ticket as the store node rendered it
+     */
+    public void printRenderedTicket(String content) {
+        if (content == null || content.isBlank()) {
+            return;
         }
-
-        // Send to the printer
-        hardwareService.printReceipt(sb.toString());
+        hardwareService.printReceipt(content);
         hardwareService.cutPaper();
+    }
+
+    /**
+     * Writes the directive asking the hardware bridge for a barcode.
+     *
+     * <p>The print contract is plain text and stays that way: a line of its own
+     * carrying this directive is the whole extension, and the bridge is what knows
+     * ESC/POS. A value the bridge cannot encode prints as the directive line itself,
+     * which is visible on the receipt rather than silently missing.
+     *
+     * @param value the value to encode
+     * @return the directive line
+     */
+    private static String barcode(String value) {
+        return "[[BARCODE " + value + "]]";
     }
 
     // --------------------------------------------------
@@ -472,6 +584,16 @@ public class TicketPrinterService {
      * @param width the receipt width in characters
      * @return the padded text
      */
+    /**
+     * Returns a printable string for a value that may be absent.
+     *
+     * @param value the value, possibly null
+     * @return the value, or an empty string
+     */
+    private String safe(String value) {
+        return value == null ? "" : value;
+    }
+
     private String center(String text, int width) {
         if (text.length() >= width) return text;
         int pad = (width - text.length()) / 2;
@@ -534,5 +656,213 @@ public class TicketPrinterService {
         sb.append(formatLine("TOTAL EN ATTENTE", DF.format(draft.totalIncludingTax) + " E"));
         sb.append(center("SCANNEZ CE NUMERO POUR REPRENDRE", WIDTH)).append("\n");
         hardwareService.printReceipt(sb.toString());
+    }
+
+    /**
+     * Prints the ticket's identification barcode ALONE (LC-08-01-04): the number in
+     * clear and the barcode the register scans it back with, and nothing else.
+     *
+     * <p>This is not a copy of the ticket. It is what lets a customer or a colleague
+     * carry the sale's identity to another desk — a return, a claim, a document — on
+     * a slip of paper instead of by reading a number out loud. So it does NOT count
+     * as a print: the duplicata counter and its journal entry belong to the ticket
+     * itself, and this slip states nothing about the sale.
+     *
+     * @param ticketId the database id of the ticket whose identity is printed
+     */
+    @Transactional
+    public void printTicketIdentityBarcode(Long ticketId) {
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("IDENTIFIANT TICKET", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center(ticket.ticketNumber, WIDTH)).append("\n");
+        sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    // --------------------------------------------------
+    // Card receipts (LC-08-03-04 / -10 / -11 / -12)
+    // --------------------------------------------------
+
+    /**
+     * Prints the card receipt of a closed sale: one slip per card payment of
+     * the ticket, carrying the monetique traces the register holds (amount,
+     * authorization number, degraded acceptance). A ticket settled without a
+     * card prints nothing — the caller does not have to know whether a card
+     * was used.
+     *
+     * @param ticketId the database id of the closed or draft ticket
+     * @param signatureRequired whether the customer must sign the slip
+     *        (LC-08-03-11): a signature line is then printed
+     * @param mention the mention qualifying the slip — {@code "DUPLICATA"} on a
+     *        reprint (LC-08-05-09) — or null on the original
+     * @return the number of slips printed — zero when the ticket is unknown or was
+     *         settled without a card, which is not a failure but IS something the
+     *         operator must be told when they asked for a duplicate
+     */
+    @Transactional
+    public int printCardReceipt(Long ticketId, boolean signatureRequired, String mention) {
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            return 0;
+        }
+        int printed = 0;
+        for (TicketPayment payment : ticket.payments) {
+            if (!(payment instanceof CardPayment card)) {
+                continue;
+            }
+            StringBuilder sb = new StringBuilder();
+            cardHeader(sb, ticket.store != null ? ticket.store.name : null, mention);
+            sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+            sb.append(String.format("Date   : %s%n",
+                    ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+            sb.append("-".repeat(WIDTH)).append("\n");
+            sb.append(formatLine("MONTANT", DF.format(card.amount) + " E"));
+            if (card.authorizationNumber != null && !card.authorizationNumber.isBlank()) {
+                sb.append(formatLine("AUTORISATION", card.authorizationNumber));
+            }
+            if (card.degradedMode) {
+                sb.append(center("MODE DEGRADE", WIDTH)).append("\n");
+            }
+            if (signatureRequired) {
+                sb.append("\n").append(center("SIGNATURE DU CLIENT", WIDTH)).append("\n\n\n");
+            }
+            sb.append("\n");
+            hardwareService.printReceipt(sb.toString());
+            hardwareService.cutPaper();
+            printed++;
+        }
+        return printed;
+    }
+
+    /**
+     * Prints a BON POUR ECHANGE of a closed ticket (LC-08-05-10 to -13): the
+     * references of the original sale and the articles it names, with their labels
+     * and quantities and NO amount at all.
+     *
+     * <p>Its whole point is the absence of prices: it is what a customer is handed to
+     * exchange a gift without being told what it cost. So it prints no unit price, no
+     * line total, no ticket total and no VAT — and it is not a receipt: it counts as
+     * no print of the ticket and bumps no duplicata counter, exactly like the identity
+     * barcode.
+     *
+     * <p>The selection is a FILTER, not a requirement: an empty or absent selection
+     * prints every sold article, which is the plain "duplicata sans prix" of
+     * LC-08-05-10; naming lines narrows it down (LC-08-05-12). A cancelled article is
+     * outside the sale and never appears either way.
+     *
+     * @param ticketId the database id of the original ticket
+     * @param lineIds the database ids of the lines to print, empty or null for all
+     */
+    @Transactional
+    public void printExchangeVoucher(Long ticketId, java.util.Set<Long> lineIds) {
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        if (ticket.store != null) {
+            sb.append(center(ticket.store.name, WIDTH)).append("\n");
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("BON POUR ECHANGE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+        if (ticket.terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+        }
+        if (ticket.creationDate != null) {
+            sb.append(String.format("Date   : %s%n",
+                    ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        boolean whole = lineIds == null || lineIds.isEmpty();
+        for (TicketLine line : ticket.lines) {
+            if (line.cancelled) continue;
+            if (!whole && !lineIds.contains(line.id)) continue;
+            String label = line.productLabel.length() > 30
+                    ? line.productLabel.substring(0, 30) : line.productLabel;
+            sb.append(formatLine(label, DF.format(line.quantity)));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("AUCUN MONTANT NE FIGURE SUR CE BON", WIDTH)).append("\n");
+        sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints the card receipt of a refund — a "credit" card transaction
+     * (LC-08-03-10). The register does not drive the terminal for a refund
+     * (the monetique credit is handled on the terminal itself), so the slip
+     * carries what the register knows: the restituted amount and the refund's
+     * own references.
+     *
+     * @param refund the persisted refund whose card credit is receipted
+     */
+    public void printCardCreditReceipt(Refund refund) {
+        StringBuilder sb = new StringBuilder();
+        cardHeader(sb, null, "CREDIT");
+        sb.append(String.format("Caisse : %s%n", refund.terminalId));
+        sb.append(String.format("Date   : %s%n",
+                refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("MONTANT CREDITE", DF.format(refund.totalAmount) + " E"));
+        sb.append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints the card receipt of a NOT-COMPLETED transaction (LC-08-03-12):
+     * the terminal's own TNA frame when it supplied one — printed verbatim,
+     * the monetique owns that text — and otherwise a register-built slip. The
+     * "ABANDON DEBIT" mention is what makes the slip a TNA proof, so it is
+     * printed either way.
+     *
+     * @param amount the amount the refused transaction was requested for
+     * @param frame the terminal's TNA frame, or null when it supplied none
+     */
+    public void printCardTnaReceipt(BigDecimal amount, String frame) {
+        StringBuilder sb = new StringBuilder();
+        cardHeader(sb, null, "ABANDON DEBIT");
+        if (frame != null && !frame.isBlank()) {
+            sb.append(frame);
+            if (!frame.endsWith("\n")) {
+                sb.append("\n");
+            }
+        } else if (amount != null) {
+            sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
+        }
+        sb.append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Writes the shared head of every card receipt: the banner, the optional
+     * store name and the optional mention that qualifies the slip.
+     *
+     * @param sb the receipt being built
+     * @param storeName the store name, or null when unavailable
+     * @param mention the qualifying mention (credit, TNA), or null for a plain
+     *        sale receipt
+     */
+    private void cardHeader(StringBuilder sb, String storeName, String mention) {
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        if (storeName != null) {
+            sb.append(center(storeName, WIDTH)).append("\n");
+        }
+        sb.append(center("TICKET CARTE BANCAIRE", WIDTH)).append("\n");
+        if (mention != null) {
+            sb.append(center("*** " + mention + " ***", WIDTH)).append("\n");
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
     }
 }

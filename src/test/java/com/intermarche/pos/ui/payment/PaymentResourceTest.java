@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -70,27 +71,73 @@ class PaymentResourceTest {
         // half-life renewal (imfid spec §5.1): the collaborator is asked on
         // EVERY GET /pay, so it belongs to the fixture, not to a single test.
         resource.fidelityService = mock(com.intermarche.pos.ui.fidelity.FidelityService.class);
+        // The conditional-printing rule (LC-08-03): every display of the payment
+        // screen asks it whether the choice buttons are offered.
+        resource.printPolicy = mock(com.intermarche.pos.ui.hardware.PrintPolicy.class);
+        // The payment screen also carries the foreign-currency list (LC-07-14) and
+        // the backup-monetics endorsement rule (LC-07-07-09): both are asked on
+        // EVERY GET /pay, so they belong to the fixture like the two above.
+        resource.foreignCurrencyService = mock(ForeignCurrencyService.class);
+        resource.creditClientService = mock(CreditClientService.class);
+        resource.backupPaymentService = mock(BackupPaymentService.class);
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         resource.pay = mock(Template.class);
         return resource;
     }
 
     /**
-     * Stubs the three-link {@code pay} template chain
-     * ({@code pay.data("state").data("couponTypes").data("digitalPath")}) with
-     * permissive matchers on the coupon and digital-path values.
+     * The data keys the payment page sets, in the order the resource sets them.
+     *
+     * <p>ONE declaration for the whole chain. The links used to be stubbed and
+     * verified by hand-written index, so inserting one data call renumbered every
+     * link and broke tests that were not about it. Both the stubbing and the lookup
+     * below derive from this list, which is therefore the only thing to touch when
+     * the page carries one more value.
+     */
+    private static final List<String> PAY_DATA_KEYS =
+            List.of("couponTypes", "currencies", "backupEndorsement", "digitalPath",
+                    "printConditional", "printChoices");
+
+    /**
+     * Stubs the whole {@code pay} template chain, one link per data key, with
+     * permissive matchers on every value but the state.
      *
      * @param resource the resource whose {@code pay} template is stubbed
-     * @return the three chained {@link TemplateInstance} mocks, the last of
-     *         which is the final rendered view
+     * @return the chained {@link TemplateInstance} mocks, the last of which is the
+     *         final rendered view
      */
     private TemplateInstance[] stubPayChain(PaymentResource resource) {
-        TemplateInstance ti1 = mock(TemplateInstance.class);
-        TemplateInstance ti2 = mock(TemplateInstance.class);
-        TemplateInstance ti3 = mock(TemplateInstance.class);
-        when(resource.pay.data("state", resource.state)).thenReturn(ti1);
-        when(ti1.data(eq("couponTypes"), any())).thenReturn(ti2);
-        when(ti2.data(eq("digitalPath"), any())).thenReturn(ti3);
-        return new TemplateInstance[]{ti1, ti2, ti3};
+        TemplateInstance[] chain = new TemplateInstance[PAY_DATA_KEYS.size() + 1];
+        for (int i = 0; i < chain.length; i++) {
+            chain[i] = mock(TemplateInstance.class);
+        }
+        when(resource.pay.data("state", resource.state)).thenReturn(chain[0]);
+        for (int i = 0; i < PAY_DATA_KEYS.size(); i++) {
+            when(chain[i].data(eq(PAY_DATA_KEYS.get(i)), any())).thenReturn(chain[i + 1]);
+        }
+        return chain;
+    }
+
+    /**
+     * Returns the link a given data key is set ON, so a test can verify the value
+     * without knowing where in the chain it falls.
+     *
+     * @param chain the chain returned by {@link #stubPayChain}
+     * @param key one of {@link #PAY_DATA_KEYS}
+     * @return the template instance the key is set on
+     */
+    private TemplateInstance linkSetting(TemplateInstance[] chain, String key) {
+        return chain[PAY_DATA_KEYS.indexOf(key)];
+    }
+
+    /**
+     * Returns the last link of a stubbed chain, which is the rendered view.
+     *
+     * @param chain the chain returned by {@link #stubPayChain}
+     * @return the final template instance
+     */
+    private TemplateInstance renderedView(TemplateInstance[] chain) {
+        return chain[chain.length - 1];
     }
 
     /**
@@ -132,12 +179,12 @@ class PaymentResourceTest {
         TemplateInstance[] chain = stubPayChain(resource);
         try (MockedStatic<CouponType> coupon = mockStatic(CouponType.class)) {
             coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
-            assertSame(chain[2], resource.showPaymentPage());
+            assertSame(renderedView(chain), resource.showPaymentPage());
         }
         verify(resource.paymentService).initPayment(resource.state);
         assertNull(resource.state.payment.inputMode);
         assertEquals("0,00", resource.state.payment.temporaryInput);
-        verify(chain[1]).data("digitalPath", null);
+        verify(linkSetting(chain, "digitalPath")).data("digitalPath", null);
     }
 
     /**
@@ -153,9 +200,9 @@ class PaymentResourceTest {
              MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
             panache.when(() -> Ticket.findById(5L)).thenReturn(null);
-            assertSame(chain[2], resource.showPaymentPage());
+            assertSame(renderedView(chain), resource.showPaymentPage());
         }
-        verify(chain[1]).data("digitalPath", null);
+        verify(linkSetting(chain, "digitalPath")).data("digitalPath", null);
     }
 
     /**
@@ -174,9 +221,9 @@ class PaymentResourceTest {
              MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
             panache.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            assertSame(chain[2], resource.showPaymentPage());
+            assertSame(renderedView(chain), resource.showPaymentPage());
         }
-        verify(chain[1]).data("digitalPath", null);
+        verify(linkSetting(chain, "digitalPath")).data("digitalPath", null);
     }
 
     /**
@@ -195,9 +242,9 @@ class PaymentResourceTest {
              MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             coupon.when(CouponType::listActivePaymentTypes).thenReturn(List.of());
             panache.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            assertSame(chain[2], resource.showPaymentPage());
+            assertSame(renderedView(chain), resource.showPaymentPage());
         }
-        verify(chain[1]).data("digitalPath", "/t/42/abcdef");
+        verify(linkSetting(chain, "digitalPath")).data("digitalPath", "/t/42/abcdef");
     }
 
     // --- cancelPendingCard / toggleDonation ---
@@ -567,6 +614,28 @@ class PaymentResourceTest {
     }
 
     /**
+     * The finish action opts OUT of the drawer guard, and that opt-out is the
+     * behaviour, not a detail: on a cash sale the drawer is open at that exact
+     * moment, and without it the guard blocks the close and sends the cashier
+     * back to the payment page once the drawer is shut.
+     */
+    @Test
+    void validatePaymentIsAllowedWithTheDrawerOpen() throws NoSuchMethodException {
+        assertTrue(PaymentResource.class.getMethod("validatePayment")
+                .isAnnotationPresent(com.intermarche.pos.ui.DrawerMayBeOpen.class));
+    }
+
+    /**
+     * The cancel action, by contrast, stays under the guard: it goes back to
+     * the sale screen, which is selling on.
+     */
+    @Test
+    void cancelPaymentStaysUnderTheDrawerGuard() throws NoSuchMethodException {
+        assertFalse(PaymentResource.class.getMethod("cancelPayment")
+                .isAnnotationPresent(com.intermarche.pos.ui.DrawerMayBeOpen.class));
+    }
+
+    /**
      * {@code cancelPayment()} cancels the registered payments and redirects
      * to the main page (same replay-safety rule as the finish action).
      */
@@ -655,6 +724,74 @@ class PaymentResourceTest {
         assertEquals("/", response.getLocation().toString());
         verify(resource.ticketPrinterService, never()).printTicket(any());
         verify(resource.ticketPrinterService, never()).printTrainingReceipt(any());
+    }
+
+    // --- applyPrintChoice ---
+
+    /**
+     * {@code applyPrintChoice()} hands the parsed choice to the payment
+     * service outside training and redirects to the payment page, where the
+     * modal then shows the choice as applied ({@code trainingMode} false; PRG
+     * pattern).
+     */
+    @Test
+    void applyPrintChoiceDelegatesOutsideTraining() {
+        PaymentResource resource = newResource();
+        resource.state.trainingMode = false;
+        Response response = resource.applyPrintChoice("SALE_TICKET");
+        assertRedirectPay(response);
+        verify(resource.paymentService).applyPrintChoice(resource.state,
+                com.intermarche.pos.ui.hardware.PrintChoice.SALE_TICKET);
+        verify(resource.ticketPrinterService, never()).printTrainingReceipt(any());
+    }
+
+    /**
+     * {@code applyPrintChoice()} prints the in-memory training receipt when the
+     * choice asks for the sale ticket in training, and records the choice
+     * itself ({@code trainingMode} true, sale-ticket leg true).
+     */
+    @Test
+    void applyPrintChoiceTrainingPrintsTheTrainingReceipt() {
+        PaymentResource resource = newResource();
+        resource.state.trainingMode = true;
+        Response response = resource.applyPrintChoice("ALL");
+        assertRedirectPay(response);
+        verify(resource.ticketPrinterService).printTrainingReceipt(resource.state);
+        verify(resource.paymentService, never()).applyPrintChoice(any(), any());
+        assertEquals(com.intermarche.pos.ui.hardware.PrintChoice.ALL,
+                resource.state.payment.printChoice);
+        assertTrue(resource.state.payment.printApplied);
+    }
+
+    /**
+     * {@code applyPrintChoice()} prints nothing in training when the choice
+     * excludes the sale ticket, but still records it so the buttons stop
+     * offering themselves ({@code trainingMode} true, sale-ticket leg false).
+     */
+    @Test
+    void applyPrintChoiceTrainingPrintsNothingWithoutTheSaleTicket() {
+        PaymentResource resource = newResource();
+        resource.state.trainingMode = true;
+        Response response = resource.applyPrintChoice("NONE");
+        assertRedirectPay(response);
+        verify(resource.ticketPrinterService, never()).printTrainingReceipt(any());
+        assertEquals(com.intermarche.pos.ui.hardware.PrintChoice.NONE,
+                resource.state.payment.printChoice);
+        assertTrue(resource.state.payment.printApplied);
+    }
+
+    /**
+     * {@code applyPrintChoice()} falls back to "tous les tickets" on an
+     * unreadable posted value: a lost form value never suppresses a document.
+     */
+    @Test
+    void applyPrintChoiceFallsBackToAllOnAnUnknownValue() {
+        PaymentResource resource = newResource();
+        resource.state.trainingMode = false;
+        Response response = resource.applyPrintChoice(null);
+        assertRedirectPay(response);
+        verify(resource.paymentService).applyPrintChoice(resource.state,
+                com.intermarche.pos.ui.hardware.PrintChoice.ALL);
     }
 
     // --- reprintLastTicket ---

@@ -7,8 +7,13 @@ import com.intermarche.pos.ui.ticket.ManualService.ManualItem;
 import com.intermarche.pos.ui.ticket.ManualService.ManualViewData;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,15 +27,15 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link ManualService}.
  * <p>
- * The service walks the {@link ProductFamily} tree through the Panache
- * finders {@code listAll()} and {@code findByCode(...)} (the latter delegating
- * to {@code find("code", ...)}). Under plain {@code mvn test} those static
- * finders resolve to {@link PanacheEntityBase} and are intercepted with
- * {@link org.mockito.Mockito#mockStatic}. Real {@code ProductFamily}/
- * {@code Product} instances are built and wired by hand so the tree shape and
- * the touch configuration, not persistence, drive every branch. The order mode
- * and page size are read from a mocked {@link PosSettingsService}, or defaulted
- * when the service is left unwired (the null-guard arms).
+ * The service reads the family tree through {@link ManualRepository}, which is the
+ * only part of the screen needing a database. Here it is replaced by an in-memory
+ * implementation built from the very {@link ProductFamily} graph each test wires by
+ * hand, so the fake answers what a database would answer of that graph and the tests
+ * exercise the real subject: which branches qualify, in what order, how the tiles are
+ * paged and how many a page may hold. The two Panache finders the service still calls
+ * directly, {@code listAll()} and {@code findByCode(...)}, are intercepted with
+ * {@link org.mockito.Mockito#mockStatic}. The order mode and page size come from a
+ * mocked {@link PosSettingsService}, or are defaulted when it is left unwired.
  */
 class ManualServiceTest {
 
@@ -74,15 +79,118 @@ class ManualServiceTest {
     }
 
     /**
-     * Builds a {@link ManualService} whose settings return the given order mode
-     * and page size (exercising the non-null arms of the settings guards).
+     * Builds the repository the service reads through, answering from a graph held in
+     * memory exactly what the queries would answer from a database: parents, families
+     * holding an EAN-only product, and one ordered page of such products.
+     *
+     * @param world every family the "database" knows
+     * @return the fake repository
+     */
+    private ManualRepository repositoryOf(List<ProductFamily> world) {
+        return new ManualRepository() {
+
+            /** {@inheritDoc} */
+            @Override
+            public Map<Long, Long> parentByChild() {
+                Map<Long, Long> parents = new HashMap<>();
+                for (ProductFamily f : world) {
+                    if (f.productFamilies == null) {
+                        continue;
+                    }
+                    for (ProductFamily child : f.productFamilies) {
+                        parents.put(child.id, f.id);
+                    }
+                }
+                return parents;
+            }
+
+            /** {@inheritDoc} */
+            @Override
+            public Set<Long> familiesHoldingProducts() {
+                Set<Long> holders = new HashSet<>();
+                for (ProductFamily f : world) {
+                    if (!eanProducts(f).isEmpty()) {
+                        holders.add(f.id);
+                    }
+                }
+                return holders;
+            }
+
+            /** {@inheritDoc} */
+            @Override
+            public long countProducts(Long familyId) {
+                return eanProducts(byId(familyId)).size();
+            }
+
+            /** {@inheritDoc} */
+            @Override
+            public List<Product> products(Long familyId, int offset, int limit) {
+                List<Product> ordered = eanProducts(byId(familyId));
+                int from = Math.min(offset, ordered.size());
+                return new ArrayList<>(ordered.subList(from, Math.min(from + limit, ordered.size())));
+            }
+
+            /**
+             * Finds a family of the world by id.
+             *
+             * @param familyId the id looked for
+             * @return the family, or null when the world does not hold it
+             */
+            private ProductFamily byId(Long familyId) {
+                for (ProductFamily f : world) {
+                    if (f.id != null && f.id.equals(familyId)) {
+                        return f;
+                    }
+                }
+                return null;
+            }
+
+            /**
+             * The EAN-only products of a family, in the order the query imposes.
+             *
+             * @param family the family, possibly null or holding no collection
+             * @return its EAN-only products, ordered by name then EAN
+             */
+            private List<Product> eanProducts(ProductFamily family) {
+                List<Product> ordered = new ArrayList<>();
+                if (family == null || family.products == null) {
+                    return ordered;
+                }
+                for (Product p : family.products) {
+                    if (p.plu == null) {
+                        ordered.add(p);
+                    }
+                }
+                ordered.sort(Comparator.comparing((Product p) -> p.name).thenComparing(p -> p.ean));
+                return ordered;
+            }
+        };
+    }
+
+    /**
+     * Builds a service reading the given world, with no settings wired so the
+     * null-guard arms of the order mode and page size are exercised.
+     *
+     * @param world every family the "database" knows
+     * @return the wired service
+     */
+    private ManualService serviceOver(List<ProductFamily> world) {
+        ManualService service = new ManualService();
+        service.repository = repositoryOf(world);
+        return service;
+    }
+
+    /**
+     * Builds a service whose settings return the given order mode and page size
+     * (exercising the non-null arms of the settings guards).
      *
      * @param mode the display-order mode
      * @param perPage the page size
+     * @param world every family the "database" knows
      * @return the wired service
      */
-    private ManualService serviceWith(String mode, int perPage) {
-        ManualService service = new ManualService();
+    private ManualService serviceWith(String mode, int perPage, List<ProductFamily> world) {
+        ManualService service = serviceOver(world);
         service.posSettings = mock(PosSettingsService.class);
         when(service.posSettings.touchDisplayOrder()).thenReturn(mode);
         when(service.posSettings.touchGroupsPerPage()).thenReturn(perPage);
@@ -107,8 +215,8 @@ class ManualServiceTest {
     /**
      * {@code getManualRootData} with no settings wired defaults to alphabetical
      * order (null-description first) and a single page: a child is excluded by
-     * the child filter, an empty family by {@code hasManualProducts}, and the
-     * three qualifying top families are ordered by description.
+     * the child-id arm, an empty family by the qualifying arm, and the three
+     * qualifying top families are ordered by description.
      */
     @Test
     void getManualRootDataDefaultsToAlphabeticalSinglePage() {
@@ -125,7 +233,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(bravo, child, alpha, noName, empty);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
-            ManualViewData data = new ManualService().getManualRootData(1);
+            ManualViewData data = serviceOver(all).getManualRootData(1);
             assertEquals("Accueil", data.breadcrumb);
             assertTrue(data.isRoot);
             assertNull(data.parentUrl);
@@ -141,6 +249,46 @@ class ManualServiceTest {
             assertFalse(data.items.get(0).pinned);
             assertEquals("Alpha", data.items.get(1).label);
             assertEquals("Bravo", data.items.get(2).label);
+        }
+    }
+
+    /**
+     * A family qualifies through a DEEP descendant, not only a direct child: the
+     * qualifying answer is carried up the whole parent chain.
+     */
+    @Test
+    void getManualRootDataQualifiesThroughDeepDescendant() {
+        ProductFamily grand = fam(1L, "G", "Grand");
+        grand.products = new HashSet<>(List.of(prod("DeepEan", "901", null)));
+        ProductFamily middle = fam(2L, "M", "Middle");
+        middle.productFamilies = new HashSet<>(List.of(grand));
+        ProductFamily top = fam(3L, "T", "Top");
+        top.productFamilies = new HashSet<>(List.of(middle));
+        List<ProductFamily> all = List.of(top, middle, grand);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            ManualViewData data = serviceOver(all).getManualRootData(1);
+            assertEquals(1, data.items.size());
+            assertEquals("Top", data.items.get(0).label);
+        }
+    }
+
+    /**
+     * A cycle in the parent chain terminates instead of looping: the walk upwards
+     * stops as soon as an ancestor is already known to qualify.
+     */
+    @Test
+    void getManualRootDataSurvivesAParentCycle() {
+        ProductFamily first = fam(1L, "F1", "First");
+        first.products = new HashSet<>(List.of(prod("CycleEan", "902", null)));
+        ProductFamily second = fam(2L, "F2", "Second");
+        first.productFamilies = new HashSet<>(List.of(second));
+        second.productFamilies = new HashSet<>(List.of(first));
+        List<ProductFamily> all = List.of(first, second);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            ManualViewData data = serviceOver(all).getManualRootData(1);
+            assertTrue(data.items.isEmpty());
         }
     }
 
@@ -164,7 +312,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(three, one, two);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
-            ManualViewData data = serviceWith("CUSTOM", 1).getManualRootData(2);
+            ManualViewData data = serviceWith("CUSTOM", 1, all).getManualRootData(2);
             assertEquals(2, data.page);
             assertEquals(3, data.totalPages);
             assertEquals("/manual?page=1", data.prevUrl);
@@ -199,7 +347,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(pinnedLow, pinnedHigh, restLow, restHigh);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
-            ManualViewData data = serviceWith("VOLUME", 2).getManualRootData(99);
+            ManualViewData data = serviceWith("VOLUME", 2, all).getManualRootData(99);
             assertEquals(1, data.page);
             assertEquals(1, data.totalPages);
             assertNull(data.prevUrl);
@@ -212,6 +360,62 @@ class ManualServiceTest {
             assertEquals("RestHigh", data.items.get(2).label);
             assertFalse(data.items.get(2).pinned);
             assertEquals("RestLow", data.items.get(3).label);
+        }
+    }
+
+    /**
+     * The page budget deducts what is permanent: with three pinned groups, the
+     * eleven free tiles leave eight for the page, so nine remaining groups no
+     * longer fit on one page even though the configured size is twelve.
+     */
+    @Test
+    void getManualRootDataBudgetDeductsPinnedAndFixedTile() {
+        List<ProductFamily> all = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            ProductFamily pinned = fam((long) i, "P" + i, "Pinned" + i);
+            pinned.products = new HashSet<>(List.of(prod("PE" + i, "10" + i, null)));
+            pinned.pinned = true;
+            all.add(pinned);
+        }
+        for (int i = 0; i < 9; i++) {
+            ProductFamily rest = fam((long) (10 + i), "R" + i, "Rest" + i);
+            rest.products = new HashSet<>(List.of(prod("RE" + i, "20" + i, null)));
+            all.add(rest);
+        }
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            ManualViewData data = serviceWith("ALPHA", 12, all).getManualRootData(1);
+            assertEquals(2, data.totalPages);
+            assertEquals(11, data.items.size());
+            assertEquals("/manual?page=2", data.nextUrl);
+        }
+    }
+
+    /**
+     * A till pinned to saturation still turns pages: the budget floors at one
+     * tile instead of falling to zero or below.
+     */
+    @Test
+    void getManualRootDataBudgetFloorsAtOneTile() {
+        List<ProductFamily> all = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            ProductFamily pinned = fam((long) i, "P" + i, "Pinned" + String.format("%02d", i));
+            pinned.products = new HashSet<>(List.of(prod("PE" + i, "30" + i, null)));
+            pinned.pinned = true;
+            all.add(pinned);
+        }
+        ProductFamily restA = fam(90L, "RA", "RestA");
+        restA.products = new HashSet<>(List.of(prod("RAE", "401", null)));
+        ProductFamily restB = fam(91L, "RB", "RestB");
+        restB.products = new HashSet<>(List.of(prod("RBE", "402", null)));
+        all.add(restA);
+        all.add(restB);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            ManualViewData data = serviceWith("ALPHA", 12, all).getManualRootData(1);
+            assertEquals(2, data.totalPages);
+            assertEquals(13, data.items.size());
+            assertEquals("RestA", data.items.get(12).label);
         }
     }
 
@@ -236,7 +440,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(large, small, normal, weird);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
-            ManualViewData data = new ManualService().getManualRootData(0);
+            ManualViewData data = serviceOver(all).getManualRootData(0);
             assertEquals(1, data.page);
             assertEquals(4, data.items.size());
             assertEquals("size-large", data.items.get(0).sizeClass);
@@ -262,7 +466,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(pinnedA, pinnedB);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
-            ManualViewData data = new ManualService().getManualRootData(1);
+            ManualViewData data = serviceOver(all).getManualRootData(1);
             assertEquals(1, data.totalPages);
             assertNull(data.prevUrl);
             assertNull(data.nextUrl);
@@ -298,7 +502,7 @@ class ManualServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
             stubFindByCode(mocked, "NONE", null);
-            ManualViewData data = new ManualService().getManualCategoryData("NONE");
+            ManualViewData data = serviceOver(all).getManualCategoryData("NONE", 1);
             assertEquals("Accueil", data.breadcrumb);
             assertFalse(data.isRoot);
             assertEquals("/manual", data.parentUrl);
@@ -310,9 +514,8 @@ class ManualServiceTest {
 
     /**
      * {@code getManualCategoryData} lists the pinned groups, then qualifying
-     * sub-families (a child qualifying only through a deeper descendant,
-     * exercising the recursive true arm) in order, then the category's own
-     * EAN-only products, skipping PLU products.
+     * sub-families (a child qualifying only through a deeper descendant), then
+     * the category's own EAN-only products, skipping PLU products.
      */
     @Test
     void getManualCategoryDataListsPinnedChildrenThenProducts() {
@@ -328,11 +531,11 @@ class ManualServiceTest {
         ProductFamily family = fam(13L, "CAT", "Cat");
         family.productFamilies = new HashSet<>(List.of(childRecurse));
         family.products = new HashSet<>(List.of(prod("Ean", "702", null), prod("Plu", "703", "1234")));
-        List<ProductFamily> all = List.of(pinnedQual);
+        List<ProductFamily> all = List.of(pinnedQual, childRecurse, grandQual, family);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
             stubFindByCode(mocked, "CAT", family);
-            ManualViewData data = new ManualService().getManualCategoryData("CAT");
+            ManualViewData data = serviceOver(all).getManualCategoryData("CAT", 1);
             assertEquals("Accueil > Cat", data.breadcrumb);
             assertFalse(data.isRoot);
             assertEquals("/manual", data.parentUrl);
@@ -356,6 +559,66 @@ class ManualServiceTest {
     }
 
     /**
+     * Sub-families and products are paged as ONE sequence: with two tiles per
+     * page and one qualifying sub-family, the first page carries that sub-family
+     * and the first product, and the second page the remaining products.
+     */
+    @Test
+    void getManualCategoryDataPagesChildrenAndProductsAsOneSequence() {
+        ProductFamily child = fam(40L, "CH", "Child");
+        child.products = new HashSet<>(List.of(prod("ChildEan", "800", null)));
+        ProductFamily family = fam(41L, "CAT5", "Cat5");
+        family.productFamilies = new HashSet<>(List.of(child));
+        family.products = new HashSet<>(List.of(
+                prod("Article A", "801", null),
+                prod("Article B", "802", null),
+                prod("Article C", "803", null)));
+        List<ProductFamily> all = List.of(family, child);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubFindByCode(mocked, "CAT5", family);
+            ManualService service = serviceWith("ALPHA", 2, all);
+            ManualViewData first = service.getManualCategoryData("CAT5", 1);
+            assertEquals(1, first.page);
+            assertEquals(2, first.totalPages);
+            assertNull(first.prevUrl);
+            assertEquals("/manual/cat/CAT5?page=2", first.nextUrl);
+            assertEquals(2, first.items.size());
+            assertTrue(first.items.get(0).isCategory);
+            assertEquals("Child", first.items.get(0).label);
+            assertEquals("Article A", first.items.get(1).label);
+            ManualViewData second = service.getManualCategoryData("CAT5", 2);
+            assertEquals(2, second.page);
+            assertEquals("/manual/cat/CAT5?page=1", second.prevUrl);
+            assertNull(second.nextUrl);
+            assertEquals(2, second.items.size());
+            assertEquals("Article B", second.items.get(0).label);
+            assertEquals("Article C", second.items.get(1).label);
+        }
+    }
+
+    /**
+     * A page beyond the last is clamped back to the last, and a non-positive one
+     * up to the first, on the category level too.
+     */
+    @Test
+    void getManualCategoryDataClampsPages() {
+        ProductFamily family = fam(50L, "CAT6", "Cat6");
+        family.products = new HashSet<>(List.of(
+                prod("Article A", "810", null), prod("Article B", "811", null)));
+        List<ProductFamily> all = List.of(family);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubFindByCode(mocked, "CAT6", family);
+            ManualService service = serviceWith("ALPHA", 1, all);
+            assertEquals(2, service.getManualCategoryData("CAT6", 99).page);
+            assertEquals("Article B", service.getManualCategoryData("CAT6", 99).items.get(0).label);
+            assertEquals(1, service.getManualCategoryData("CAT6", 0).page);
+            assertEquals("Article A", service.getManualCategoryData("CAT6", 0).items.get(0).label);
+        }
+    }
+
+    /**
      * {@code getManualCategoryData} handles a found family whose product and
      * sub-family collections are both null, yielding no tiles (no pinned groups
      * either) but the family-qualified breadcrumb.
@@ -365,23 +628,22 @@ class ManualServiceTest {
         ProductFamily family = fam(20L, "CAT3", "Cat3");
         family.products = null;
         family.productFamilies = null;
+        List<ProductFamily> all = List.of(family);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(List.of());
             stubFindByCode(mocked, "CAT3", family);
-            ManualViewData data = new ManualService().getManualCategoryData("CAT3");
+            ManualViewData data = serviceOver(all).getManualCategoryData("CAT3", 1);
             assertEquals("Accueil > Cat3", data.breadcrumb);
             assertFalse(data.isRoot);
             assertEquals("/manual", data.parentUrl);
+            assertEquals(1, data.totalPages);
             assertTrue(data.items.isEmpty());
         }
     }
 
     /**
      * {@code getManualCategoryData} excludes a sub-family whose whole branch
-     * carries only PLU products: the recursive probe descends, its inner check
-     * is false for every descendant, and the branch falls through to false, so
-     * no tile is emitted. A sibling with both collections null exercises the
-     * null sub-family arm reached after the products arm declines.
+     * carries only PLU products, and a sibling holding nothing at all.
      */
     @Test
     void getManualCategoryDataExcludesBranchWithoutEanProducts() {
@@ -395,10 +657,11 @@ class ManualServiceTest {
         ProductFamily family = fam(33L, "CAT4", "Cat4");
         family.products = null;
         family.productFamilies = new HashSet<>(List.of(childFalse, childNull));
+        List<ProductFamily> all = List.of(family, childFalse, childNull, grandFalse);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(List.of());
             stubFindByCode(mocked, "CAT4", family);
-            ManualViewData data = new ManualService().getManualCategoryData("CAT4");
+            ManualViewData data = serviceOver(all).getManualCategoryData("CAT4", 1);
             assertEquals("Accueil > Cat4", data.breadcrumb);
             assertFalse(data.isRoot);
             assertEquals("/manual", data.parentUrl);

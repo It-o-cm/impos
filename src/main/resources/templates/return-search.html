@@ -19,7 +19,7 @@
     }
 
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
-    .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+    .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
 
     .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
 
@@ -29,7 +29,7 @@
       padding: 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color);
       display: flex; gap: 10px; flex-shrink: 0; align-items: center; height: 50px;
     }
-    .search-info { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; }
+    .search-info { flex: 1; display: flex; align-items: center; justify-content: center; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
 
     .content-area { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
 
@@ -40,15 +40,15 @@
       display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit;
     }
     .search-result-item:hover { background: #252525; border-color: #444; }
-    .ticket-id { font-weight: bold; font-size: 1.1rem; color: var(--text-main); }
-    .ticket-date { font-size: 0.85rem; color: var(--text-muted); }
+    .ticket-id { font-weight: bold; font-size: var(--fs-row); color: var(--text-main); }
+    .ticket-date { font-size: var(--fs-row-sub); color: var(--text-muted); }
 
     .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; }
 
     #searchKeyboardZone { display: flex; flex-direction: column; height: 100%; }
 
     .search-display {
-      font-size: 1.8rem; text-align: center; color: var(--text-main); font-weight: bold;
+      font-size: var(--fs-field-num); text-align: center; color: var(--text-main); font-weight: bold;
       background: var(--bg-page); border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px;
       margin-bottom: 10px; min-height: 50px;
       width: 100%; outline: none; cursor: default; display: block;
@@ -106,7 +106,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/" class="btn-back">Retour</a>
+    <a href="/" class="btn-back">RETOUR</a>
   </div>
 </div>
 

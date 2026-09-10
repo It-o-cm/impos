@@ -106,6 +106,38 @@ public class Store extends BaseEntity {
     @jakarta.persistence.Column(name = "bank_account_number", length = 64)
     public String bankAccountNumber;
 
+    /**
+     * The legal entity that operates the store, when it differs from the trade name.
+     * <p>
+     * On a real Intermarché document the two are printed one under the other: the
+     * trade name identifies the shop ("Intermarché Super Alim. Talence"), the legal
+     * name identifies who is liable ("SA JANSELIN"). An invoice needs the second,
+     * a receipt only ever showed the first. Null when the two are the same.
+     */
+    @jakarta.persistence.Column(name = "legal_name", length = 120)
+    public String legalName;
+
+    /**
+     * The trade and companies register entry of the operating company, printed in
+     * the legal footer of an invoice; null when not filled in yet.
+     */
+    @jakarta.persistence.Column(name = "rcs", length = 64)
+    public String rcs;
+
+    /**
+     * The share capital of the operating company, printed in the same footer; null
+     * when not filled in yet.
+     */
+    @jakarta.persistence.Column(name = "share_capital", precision = 19, scale = 2)
+    public java.math.BigDecimal shareCapital;
+
+    /**
+     * Store fax number, printed in the seller's block of an invoice beside the
+     * telephone; null when not filled in yet.
+     */
+    @jakarta.persistence.Column(name = "fax", length = 32)
+    public String fax;
+
     // --------------------------------------------------
     // Panache Active Record Queries
     // --------------------------------------------------
@@ -127,7 +159,8 @@ public class Store extends BaseEntity {
     @Override
     public int getChecksum() {
         int addressChecksum = address == null ? 0 : address.getChecksum();
-        int checksum = Objects.hash(code, name, addressChecksum, vatNumber, siret, phone, bankAccountNumber);
+        int checksum = Objects.hash(code, name, addressChecksum, vatNumber, siret, phone,
+                bankAccountNumber, legalName, rcs, shareCapital, fax);
         return checksum;
     }
 }

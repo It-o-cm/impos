@@ -60,6 +60,10 @@ public class RefundService {
     @Inject
     TicketPrinterService ticketPrinterService;
 
+    /** The conditional-printing rule — carries the forced credit slip (LC-08-03-10). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.hardware.PrintPolicy printPolicy;
+
     /** Loyalty return-event outbox (imfid lot 3). */
     @jakarta.inject.Inject
     com.intermarche.pos.service.sync.FidEventOutboxService fidEventOutboxService;
@@ -451,7 +455,14 @@ public class RefundService {
                         refund.totalAmount.toPlainString().replace('.', ',')));
                 ticketPrinterService.printLoyaltyCredit(refund.totalAmount);
             }
-            case CARD -> LOG.info("Remboursement carte à traiter sur le TPE (monétique hors périmètre)");
+            case CARD -> {
+                LOG.info("Remboursement carte à traiter sur le TPE (monétique hors périmètre)");
+                // LC-08-03-10: a card refund is a "credit" card transaction —
+                // its slip is printed on its own when the back office forces it.
+                if (printPolicy.isCreditCardReceiptForced()) {
+                    ticketPrinterService.printCardCreditReceipt(refund);
+                }
+            }
         }
     }
 

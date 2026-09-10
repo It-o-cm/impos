@@ -4,6 +4,11 @@
   stripped). Talks to the register at hardcoded http://localhost:8080.
   Modules and their endpoints: scanner → POST /api/pos/scan ; scale →
   POST /weight ; 2x label builder (price/weight prefixes + checksum) ;
+  traditional counter (LC-06-01) → composes weighed lines, POSTs them to the
+  STORE NODE (POST {store}/api/sync/balance-ticket), then scans the 27-prefixed
+  reference at the register — the counter ticket is the one flow where the
+  simulator talks to two machines, because that is exactly what it simulates:
+  a scale that pushes to the shop and a till that picks up from it ;
   virtual TPE (phase 6) → polls GET /api/hardware/tpe every 1s, decides via
   POST /api/hardware/tpe/{accept|refuse} (409 when no pending request) ;
   line display / drawer / printer mirrors → poll the /api/hardware/*
@@ -52,6 +57,13 @@
 
         .module-double-width {
             grid-column: span 2;
+        }
+
+        /* A module taller than its neighbours claims its own rows instead of
+           inflating theirs: without the span, one 900px module stretches every
+           card on its line to 900px of white. */
+        .module-triple-height {
+            grid-row: span 3;
         }
 
         h1 { text-align: center; color: #333; margin-bottom: 20px; }
@@ -155,6 +167,11 @@
             100% { transform: translateY(0); opacity: 1; }
         }
         .paper-roll { animation: printMove 0.2s ease-in; }
+        .paper-text { white-space: pre-wrap; }
+        .paper-raster { display: block; margin: 4px auto; max-width: 100%; image-rendering: pixelated; }
+        .paper-barcode { text-align: center; margin: 6px 0; }
+        .paper-barcode-bars { letter-spacing: 3px; font-size: .7rem; color: #555; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 10px 0; }
+        .paper-barcode-hri { font-size: .8rem; letter-spacing: 2px; }
     </style>
 </head>
 <body>
@@ -293,6 +310,45 @@
             <div id="scaleLabelStatus" class="status">En attente...</div>
         </div>
 
+        <div class="module module-triple-height">
+            <h3>🥩 Comptoir Traditionnel (LC-06-01)</h3>
+            <!-- Two machines, deliberately. The counter scale PUSHES to the store
+                 node because at weighing time nobody knows which lane the customer
+                 will walk to; the register PULLS when the paper is finally
+                 presented. Emitting without scanning, or scanning twice, are the
+                 two cases worth exercising here. -->
+            <label for="counterStoreUrl">Nœud magasin :</label>
+            <input type="text" id="counterStoreUrl" value="http://localhost:8082">
+            <label for="counterToken">Jeton de synchronisation (vide = aucun) :</label>
+            <input type="text" id="counterToken" placeholder="X-Sync-Token">
+            <label for="counterLabel">Comptoir :</label>
+            <select id="counterLabel">
+                <option value="BOUCHERIE">Boucherie</option>
+                <option value="FROMAGE">Fromagerie</option>
+                <option value="TRAITEUR">Traiteur</option>
+            </select>
+            <label for="counterReference">Référence imprimée (10 chiffres) :</label>
+            <input type="text" id="counterReference" value="">
+            <label for="counterEan">Article pesé :</label>
+            <select id="counterEan">
+                <option value="3000000000014">3000000000014 - Pommes Golden</option>
+                <option value="3000000000175">3000000000175 - Concombre</option>
+                <option value="3000000000182">3000000000182 - Tomates Cerises 500g</option>
+                <option value="4004099000015">4004099000015 - Champignon sauvage (INTERDIT)</option>
+                <option value="9999999999994">9999999999994 - Article hors référentiel</option>
+            </select>
+            <label for="counterWeight">Poids (kg) :</label>
+            <input type="text" id="counterWeight" placeholder="Ex: 0.752">
+            <label for="counterTotal">Montant TTC (€) :</label>
+            <input type="text" id="counterTotal" placeholder="Ex: 13.54">
+            <button class="btn-plu" onclick="addCounterLine()">Ajouter la ligne</button>
+            <div id="counterLines" class="status">Aucune ligne</div>
+            <button class="btn-ean" onclick="emitCounterTicket()" style="margin-top:8px;">Émettre vers le magasin</button>
+            <button class="btn-fid" onclick="scanCounterTicket()">Scanner le ticket en caisse</button>
+            <button class="btn-danger" onclick="resetCounterTicket()">Nouveau ticket</button>
+            <div id="counterStatus" class="status">En attente...</div>
+        </div>
+
         <div class="module">
             <h3>barcode EAN-13 (Codes Longs)</h3>
             <label for="eanList">Produits scannables :</label>
@@ -303,35 +359,35 @@
             <select id="eanList">
                 <option value="">-- Sélectionner --</option>
                 <optgroup label="🍎 Fruits &amp; légumes (au poids)">
-                    <option value="3300000000001">3300000000001 - Pommes Golden</option>
-                    <option value="3300000000017">3300000000017 - Concombre</option>
-                    <option value="3300000000018">3300000000018 - Tomates Cerises 500g</option>
+                    <option value="3000000000014">3000000000014 - Pommes Golden</option>
+                    <option value="3000000000175">3000000000175 - Concombre</option>
+                    <option value="3000000000182">3000000000182 - Tomates Cerises 500g</option>
                 </optgroup>
                 <optgroup label="🥖 Épicerie">
-                    <option value="3300000000002">3300000000002 - Lait UHT 1L</option>
-                    <option value="3300000000003">3300000000003 - Baguette Tradition</option>
-                    <option value="3300000000004">3300000000004 - Café Grains 500g</option>
-                    <option value="3300000000006">3300000000006 - Huile d'Olive 1L</option>
-                    <option value="3300000000010">3300000000010 - Yaourt Nature 4x125g</option>
-                    <option value="3300000000013">3300000000013 - Biscuits Chocolat 200g</option>
-                    <option value="3300000000014">3300000000014 - Chips Classiques 150g</option>
-                    <option value="3300000000019">3300000000019 - Oeufs Bio 6 unités</option>
+                    <option value="3000000000021">3000000000021 - Lait UHT 1L</option>
+                    <option value="3000000000038">3000000000038 - Baguette Tradition</option>
+                    <option value="3000000000045">3000000000045 - Café Grains 500g</option>
+                    <option value="3000000000069">3000000000069 - Huile d'Olive 1L</option>
+                    <option value="3000000000106">3000000000106 - Yaourt Nature 4x125g</option>
+                    <option value="3000000000137">3000000000137 - Biscuits Chocolat 200g</option>
+                    <option value="3000000000144">3000000000144 - Chips Classiques 150g</option>
+                    <option value="3000000000199">3000000000199 - Oeufs Bio 6 unités</option>
                 </optgroup>
                 <optgroup label="💧 Boissons">
-                    <option value="3300000000007">3300000000007 - Eau Minérale 1.5L</option>
-                    <option value="3300000000011">3300000000011 - Coca-Cola 1.5L</option>
-                    <option value="3300000000012">3300000000012 - Orangina 1.25L</option>
+                    <option value="3000000000076">3000000000076 - Eau Minérale 1.5L</option>
+                    <option value="3000000000113">3000000000113 - Coca-Cola 1.5L</option>
+                    <option value="3000000000120">3000000000120 - Orangina 1.25L</option>
                 </optgroup>
                 <optgroup label="🍷 Contrôle d'âge (18+)">
-                    <option value="3400018000001">3400018000001 - Vin Rouge Bordeaux 75cl</option>
+                    <option value="4000180000018">4000180000018 - Vin Rouge Bordeaux 75cl</option>
                 </optgroup>
                 <optgroup label="🎁 Cartes cadeau (produit-monnaie)">
-                    <option value="3400025000001">3400025000001 - Carte Cadeau 25 €</option>
-                    <option value="3400050000001">3400050000001 - Carte Cadeau 50 €</option>
+                    <option value="4000250000016">4000250000016 - Carte Cadeau 25 €</option>
+                    <option value="4000500000018">4000500000018 - Carte Cadeau 50 €</option>
                 </optgroup>
                 <optgroup label="⛔ Interdits à la vente">
-                    <option value="3400409900001">3400409900001 - Champignon sauvage (INTERDIT)</option>
-                    <option value="3660000099999">3660000099999 - Lot rappelé (INTERDIT)</option>
+                    <option value="4004099000015">4004099000015 - Champignon sauvage (INTERDIT)</option>
+                    <option value="6600000999997">6600000999997 - Lot rappelé (INTERDIT)</option>
                 </optgroup>
             </select>
             <button class="btn-ean" onclick="sendEan()">Scanner cet EAN</button>
@@ -385,6 +441,81 @@
 </div>
 
 <script>
+    /*
+     * Draws a print body the way the hardware bridge does.
+     *
+     * The print contract is plain text with two directives on lines of their own:
+     * [[IMAGE width height base64]] carries a packed 1-bit raster (8 dots per byte,
+     * most significant bit leftmost, rows padded to whole bytes) and [[BARCODE value]]
+     * carries a value the printer encodes itself. The bridge turns them into GS v 0 and
+     * GS k 73; this simulator has to do the same job, otherwise the operator reads a wall
+     * of base64 where a logo belongs -- which is exactly what it used to show.
+     */
+    function renderReceipt(target, content) {
+        target.innerHTML = "";
+        let buffer = [];
+        const flush = () => {
+            if (!buffer.length) return;
+            const block = document.createElement("div");
+            block.className = "paper-text";
+            block.innerText = buffer.join("\n");
+            target.appendChild(block);
+            buffer = [];
+        };
+        for (const line of content.split("\n")) {
+            const image = line.match(/^\s*\[\[IMAGE (\d+) (\d+) (\S+)\]\]\s*$/);
+            if (image) { flush(); target.appendChild(rasterCanvas(+image[1], +image[2], image[3])); continue; }
+            const barcode = line.match(/^\s*\[\[BARCODE (.+)\]\]\s*$/);
+            if (barcode) { flush(); target.appendChild(barcodeBand(barcode[1])); continue; }
+            buffer.push(line);
+        }
+        flush();
+    }
+
+    /* Paints a packed 1-bit raster onto a canvas, one dot per pixel. */
+    function rasterCanvas(width, height, base64) {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.className = "paper-raster";
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, width, height);
+        let bytes;
+        try {
+            const raw = atob(base64);
+            bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        } catch (e) {
+            context.fillStyle = "#900";
+            context.fillText("image illisible", 4, 12);
+            return canvas;
+        }
+        const bytesPerRow = Math.ceil(width / 8);
+        context.fillStyle = "#000";
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const byte = bytes[y * bytesPerRow + (x >> 3)];
+                if (byte === undefined) continue;
+                if (byte & (0x80 >> (x & 7))) context.fillRect(x, y, 1, 1);
+            }
+        }
+        return canvas;
+    }
+
+    /*
+     * Shows a barcode directive as the band the printer would encode, with its value
+     * underneath. Deliberately NOT a real CODE 128 rendering: a barcode drawn here could
+     * never be scanned, and one that merely looked scannable would mislead.
+     */
+    function barcodeBand(value) {
+        const band = document.createElement("div");
+        band.className = "paper-barcode";
+        band.innerHTML = '<div class="paper-barcode-bars">CODE 128</div><div class="paper-barcode-hri"></div>';
+        band.querySelector(".paper-barcode-hri").innerText = value;
+        return band;
+    }
+
     // --- POLLING ---
     async function refreshHardwareState() {
         try {
@@ -423,7 +554,7 @@
                 const btnPaper = document.getElementById('btnPaperStatus');
 
                 if (content && content.trim() !== "") {
-                    outputDiv.innerText = content;
+                    renderReceipt(outputDiv, content);
                     outputDiv.classList.remove("empty");
                 } else {
                     outputDiv.innerText = "En attente d'impression...";
@@ -562,6 +693,132 @@
         const body = mode + plu.padStart(5, '0') + String(units).padStart(5, '0');
         postPosAction('scan', body + ean13Checksum(body), status);
     }
+    /* ---------------- Comptoir traditionnel (LC-06-01) ----------------
+       The lines are composed here the way a counter scale composes them, then
+       pushed to the STORE NODE — never to the register. The register only ever
+       sees the 27-prefixed reference, and everything else it needs it goes and
+       fetches. Scanning twice is a supported experiment, not a bug: the second
+       scan must be refused. */
+    let counterLines = [];
+
+    /* A 10-digit reference, zero-padded, the way the counter printer numbers
+       its papers. Regenerated for each new ticket so two emissions never
+       collide on the store node's unique key. */
+    function newCounterReference() {
+        return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
+    }
+
+    function renderCounterLines() {
+        const box = document.getElementById('counterLines');
+        if (counterLines.length === 0) {
+            box.innerText = "Aucune ligne";
+            box.className = "status";
+            return;
+        }
+        box.innerText = counterLines
+            .map(l => `${l.ean} — ${l.quantity} kg — ${l.totalIncludingTax} €`)
+            .join("\n");
+        box.className = "status success";
+    }
+
+    function addCounterLine() {
+        const status = document.getElementById('counterStatus');
+        const ean = document.getElementById('counterEan').value;
+        const label = document.getElementById('counterEan').selectedOptions[0].text;
+        const quantity = parseFloat(document.getElementById('counterWeight').value.replace(',', '.'));
+        const total = parseFloat(document.getElementById('counterTotal').value.replace(',', '.'));
+        if (isNaN(quantity) || quantity <= 0 || isNaN(total) || total <= 0) {
+            status.innerText = "Poids et montant requis";
+            status.className = "status error";
+            return;
+        }
+        counterLines.push({
+            ean: ean,
+            label: label.split(' - ')[1] || label,
+            quantity: quantity,
+            totalIncludingTax: total,
+            vatRate: 0.055
+        });
+        document.getElementById('counterWeight').value = '';
+        document.getElementById('counterTotal').value = '';
+        renderCounterLines();
+        status.innerText = `${counterLines.length} ligne(s) composée(s)`;
+        status.className = "status";
+    }
+
+    async function emitCounterTicket() {
+        const status = document.getElementById('counterStatus');
+        const reference = document.getElementById('counterReference').value.trim();
+        if (!reference) {
+            status.innerText = "Référence requise";
+            status.className = "status error";
+            return;
+        }
+        if (counterLines.length === 0) {
+            status.innerText = "Aucune ligne à émettre";
+            status.className = "status error";
+            return;
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        const token = document.getElementById('counterToken').value.trim();
+        if (token) {
+            headers['X-Sync-Token'] = token;
+        }
+        status.innerText = "Envoi vers le magasin...";
+        status.className = "status";
+        try {
+            const response = await fetch(
+                document.getElementById('counterStoreUrl').value.replace(/\/+$/, '')
+                    + '/api/sync/balance-ticket',
+                {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        reference: reference,
+                        counterLabel: document.getElementById('counterLabel').value,
+                        emittedAt: new Date().toISOString().substring(0, 19),
+                        lines: counterLines
+                    })
+                });
+            if (response.ok) {
+                status.innerText = `Ticket ${reference} déposé au magasin (200 OK)`;
+                status.className = "status success";
+            } else {
+                status.innerText = `Refus du magasin (${response.status})`;
+                status.className = "status error";
+            }
+        } catch (error) {
+            status.innerText = "Nœud magasin injoignable";
+            status.className = "status error";
+        }
+    }
+
+    /* The rendezvous: the register reads 27 + the reference + the check digit
+       and goes asking the shop. Nothing of the lines travels through the scan. */
+    function scanCounterTicket() {
+        const status = document.getElementById('counterStatus');
+        const reference = document.getElementById('counterReference').value.trim();
+        if (!/^\d{10}$/.test(reference)) {
+            status.innerText = "Référence à 10 chiffres requise";
+            status.className = "status error";
+            return;
+        }
+        const body = '27' + reference;
+        postPosAction('scan', body + ean13Checksum(body), status);
+    }
+
+    function resetCounterTicket() {
+        counterLines = [];
+        document.getElementById('counterReference').value = newCounterReference();
+        renderCounterLines();
+        const status = document.getElementById('counterStatus');
+        status.innerText = "Nouveau ticket comptoir";
+        status.className = "status";
+    }
+
+    /* The counter starts with a fresh reference: nothing to type to try it. */
+    resetCounterTicket();
+
     function sendEan() { postPosAction('scan', document.getElementById('eanList').value, document.getElementById('eanStatus')); }
     function sendManualScan() { postPosAction('scan', document.getElementById('scanCode').value, document.getElementById('scanStatus')); }
 

@@ -20,7 +20,7 @@
     }
 
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
-    .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+    .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
 
     .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
 
@@ -33,7 +33,7 @@
     .search-info { display: none; }
 
     .active-ticket-display { display: flex; align-items: center; gap: 15px; flex: 1; padding-left: 10px; }
-    .ticket-name-label { color: var(--text-main); font-weight: bold; font-size: 1rem; }
+    .ticket-name-label { color: var(--text-main); font-weight: bold; font-size: var(--fs-label); }
 
     .content-area { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
 
@@ -51,42 +51,41 @@
     .receipt-line.selected { background: #252525; border: 1px solid var(--primary); z-index: 2; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
 
     .line-content { display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: inherit; }
-    .item-qty-info { font-weight: bold; margin-right: 8px; font-size: 0.9rem; color: var(--warning); }
+    .item-qty-info { font-weight: bold; margin-right: 8px; font-size: var(--fs-row-sub); color: var(--warning); }
     .qty-r { color: var(--danger); }
     .qty-slash { color: var(--danger); }
-    .item-label { color: var(--text-main); flex: 1; font-size: 1rem; }
-    .item-price { color: var(--success); font-weight: bold; font-size: 1rem; min-width: 60px; text-align: right; }
+    .item-label { color: var(--text-main); flex: 1; font-size: var(--fs-row); }
+    .item-price { color: var(--success); font-weight: bold; font-size: var(--fs-amount); min-width: 60px; text-align: right; }
 
     .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-strong); align-items: center; justify-content: center; gap: 10px; }
     .receipt-line.selected .qty-controls { display: flex; }
 
-    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid var(--border-strong); color: white; font-size: 1.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid var(--border-strong); color: white; font-size: var(--fs-btn-lg); font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
     .btn-qty:active { background: #444; }
     .btn-qty.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
-    .qty-input-display { font-size: 1.2rem; font-weight: bold; color: var(--warning); background: var(--bg-page); border: 1px solid var(--border-strong); width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
+    .qty-input-display { font-size: var(--fs-field); font-weight: bold; color: var(--warning); background: var(--bg-page); border: 1px solid var(--border-strong); width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
 
-    .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+    .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: var(--fs-btn); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; }
     .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: #111; }
 
     .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 50px; z-index: 5; }
-    .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: 0.8rem; }
-    .nav-info { color: var(--text-muted); font-size: 0.85rem; }
+    .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: var(--fs-btn-sm); }
+    .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
 
     .action-panel { display: flex; flex-direction: column; justify-content: flex-start; background: var(--bg-panel); padding: 15px; min-height: 0; }
 
     #ticketActionsZone { display: flex; flex-direction: column; height: 100%; }
-    .overlay-title { font-size: 1.4rem; margin-bottom: 10px; text-align: center; }
+    .overlay-title { font-size: var(--fs-title); margin-bottom: 10px; text-align: center; }
     .total-zone { text-align: center; margin-bottom: 10px; }
-    .sub-display { font-size: 2rem; text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; text-decoration: none; display: block;}
+    .sub-display { font-size: var(--fs-field-num); text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; text-decoration: none; display: block;}
     .sub-display.manual { border-color: var(--warning); color: var(--warning); }
 
     #numpadContainer { width: 100%; margin-bottom: 8px; flex-shrink: 0; min-height: 0; }
 
     .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
 
-    .btn { height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 12px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; text-align: center; }
-    .btn:active { transform: translateY(4px); box-shadow: none; }
+    .btn { height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 12px; }
 
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
     .btn-back { background: var(--bg-row); color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
@@ -107,7 +106,7 @@
       <div class="search-ticket-bar">
         <div class="search-info" id="searchInfo">Saisissez le N° de ticket</div>
         <div class="active-ticket-display" id="activeTicketDisplay">
-          <a href="/return" class="btn btn-primary" style="padding:6px 12px; font-size:0.8rem; box-shadow:none;">CHERCHER</a>
+          <a href="/return" class="btn btn-sm btn-primary">CHERCHER</a>
           <span class="ticket-name-label" id="currentTicketName">{state.refund.selectedTicket.ticketNumber}</span>
         </div>
       </div>
@@ -185,14 +184,14 @@
           </form>
           {/if}
 
-          <div style="color:var(--text-muted); font-size:0.8rem; height:1.2em;" id="helperText">&nbsp;</div>
+          <div style="color:var(--text-muted); font-size:var(--fs-label); height:1.2em;" id="helperText">&nbsp;</div>
         </div>
 
         <div id="numpadContainer"></div>
 
         <div class="payment-grid">
           {#if state.refund.errorMessage??}
-            <div style="grid-column: 1 / -1; background: rgba(211,47,47,0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; font-size: 0.85rem; text-align: center; border-radius: 6px;">{state.refund.errorMessage}</div>
+            <div style="grid-column: 1 / -1; background: rgba(211,47,47,0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; font-size: var(--fs-label); text-align: center; border-radius: 6px;">{state.refund.errorMessage}</div>
           {/if}
           <a href="/return/pay/cash" class="btn btn-success" onclick="return submitAction(this);">ESPÈCES</a>
           <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">CARTE BANCAIRE</a>
@@ -204,7 +203,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/" class="btn-back">Retour</a>
+    <a href="/" class="btn-back">RETOUR</a>
   </div>
 </div>
 

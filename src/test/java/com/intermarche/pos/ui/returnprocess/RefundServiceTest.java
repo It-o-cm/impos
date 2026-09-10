@@ -69,7 +69,7 @@ class RefundServiceTest {
             "status = ?1 and lower(ticketNumber) like lower(?2) and creationDate > ?3";
 
     /**
-     * Builds a {@link RefundService} whose seven collaborators are fresh mocks
+     * Builds a {@link RefundService} whose collaborators are fresh mocks
      * wired onto its package-private injection fields.
      *
      * @return a service with fully mocked collaborators
@@ -87,6 +87,9 @@ class RefundServiceTest {
         // feeds imfid's RETURN_DEBIT recomputation — in the refund's own
         // transaction, so the collaborator belongs to the fixture.
         s.fidEventOutboxService = mock(com.intermarche.pos.service.sync.FidEventOutboxService.class);
+        // The conditional-printing rule (LC-08-03): left un-stubbed, it forces
+        // nothing, which is the behaviour every case here was written against.
+        s.printPolicy = mock(com.intermarche.pos.ui.hardware.PrintPolicy.class);
         return s;
     }
 

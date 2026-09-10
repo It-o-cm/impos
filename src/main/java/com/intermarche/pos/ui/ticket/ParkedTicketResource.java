@@ -9,11 +9,13 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import java.util.List;
 
 /**
  * JAX-RS resource driving parked tickets: parking the current cart, listing
@@ -21,6 +23,13 @@ import java.net.URI;
  */
 @Path("/")
 public class ParkedTicketResource {
+
+    /**
+     * Rows per page. The list area is 460 px tall and a row is 72 px with its
+     * gap, so six rows and the pager fill it exactly — the register pages its
+     * lists, it never scrolls them.
+     */
+    private static final int PAGE_SIZE = 6;
 
     @Inject @Location("parked") Template parked;
     @Inject TicketParkingService ticketParkingService;
@@ -44,17 +53,36 @@ public class ParkedTicketResource {
     }
 
     /**
-     * Shows the parked tickets of this register.
+     * Shows one page of the parked tickets of this register.
      *
+     * @param page the zero-based page to show; null or out of range is clamped
+     *             to the nearest existing page
      * @return the parked-tickets page
      */
     @GET
     @Path("/parked")
     @Produces(MediaType.TEXT_HTML)
-    public TemplateInstance parkedPage() {
+    public TemplateInstance parkedPage(@QueryParam("page") Integer page) {
+        List<?> all = ticketParkingService.listParked();
+        int pageCount = Math.max(1, (all.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        int current = page == null ? 0 : page;
+        if (current < 0) {
+            current = 0;
+        }
+        if (current > pageCount - 1) {
+            current = pageCount - 1;
+        }
+        int from = current * PAGE_SIZE;
+        int to = Math.min(all.size(), from + PAGE_SIZE);
         return parked
                 .data("state", state)
-                .data("tickets", ticketParkingService.listParked());
+                .data("tickets", all.subList(from, to))
+                .data("page", current + 1)
+                .data("pageCount", pageCount)
+                .data("hasPrev", current > 0)
+                .data("hasNext", current < pageCount - 1)
+                .data("prevPage", current - 1)
+                .data("nextPage", current + 1);
     }
 
     /**

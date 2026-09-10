@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -187,15 +188,27 @@ class RefExportServiceTest {
         family.code = "F1";
         family.description = "Fruits";
         family.flags = "BIO";
+        com.intermarche.pos.domain.Product apple = mock(com.intermarche.pos.domain.Product.class);
+        apple.ean = "3001";
+        family.products = new java.util.HashSet<>(java.util.Set.of(apple));
+        ProductFamily parent = mock(ProductFamily.class);
+        parent.code = "RAYON";
         PanacheQuery<ProductFamily> query = singlePage(0, 10, List.of(family));
+        PanacheQuery<ProductFamily> parents = mock(PanacheQuery.class);
+        when(parents.list()).thenReturn(List.of(parent));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(query);
+            mocked.when(() -> ProductFamily.find(
+                    "select p from ProductFamily p join p.productFamilies c where c.code = ?1"
+                            + " order by p.code", "F1")).thenReturn(parents);
             List<?> result = service.getPage("FAMILIES", 0, 10);
             assertEquals(1, result.size());
             RefPayloads.FamilyDto dto = (RefPayloads.FamilyDto) result.get(0);
             assertEquals("F1", dto.code);
             assertEquals("Fruits", dto.description);
             assertEquals("BIO", dto.flags);
+            assertEquals(List.of("RAYON"), dto.parentCodes);
+            assertEquals(List.of("3001"), dto.productEans);
         }
     }
 
@@ -223,6 +236,7 @@ class RefExportServiceTest {
         typed.ageRestriction = 18;
         typed.checkoutLabel = "CL";
         typed.internalCode = "IC2";
+        typed.variableWeight = true;
         typed.attributes = new java.util.HashMap<>(java.util.Map.of("BULKY", "true"));
         Product untyped = mock(Product.class);
         untyped.ean = "E2";
@@ -247,11 +261,13 @@ class RefExportServiceTest {
             assertEquals(18, first.ageRestriction);
             assertEquals("CL", first.checkoutLabel);
             assertEquals("IC2", first.internalCode);
+            assertTrue(first.variableWeight);
             assertEquals("true", first.attributes.get("BULKY"));
             RefPayloads.ProductDto second = (RefPayloads.ProductDto) result.get(1);
             assertEquals("E2", second.ean);
             assertNull(second.productType);
             assertTrue(second.forbiddenToSale);
+            assertFalse(second.variableWeight);
             assertTrue(second.attributes.isEmpty());
         }
     }
@@ -518,6 +534,8 @@ class RefExportServiceTest {
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> customers = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.Currency> currencies = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
@@ -526,6 +544,8 @@ class RefExportServiceTest {
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
             mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
+            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code")).thenReturn(currencies);
             Map<String, String> fingerprints = service.getFingerprints();
             assertEquals(RefExportService.DOMAINS, List.copyOf(fingerprints.keySet()));
             assertEquals(EMPTY_SHA256, fingerprints.get("FAMILIES"));
@@ -535,6 +555,8 @@ class RefExportServiceTest {
             assertEquals(EMPTY_SHA256, fingerprints.get("COUPON_TYPES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("SETTINGS"));
             assertEquals(EMPTY_SHA256, fingerprints.get("ENGINE_FEEDS"));
+            assertEquals(EMPTY_SHA256, fingerprints.get("CUSTOMERS"));
+            assertEquals(EMPTY_SHA256, fingerprints.get("CURRENCIES"));
         }
     }
 
@@ -578,6 +600,8 @@ class RefExportServiceTest {
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> customers = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.Currency> currencies = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
@@ -586,15 +610,23 @@ class RefExportServiceTest {
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
             mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
+            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code")).thenReturn(currencies);
             Map<String, String> fingerprints = service.getFingerprints();
-            assertEquals(sha256hex("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT|kg|true|false||||"
-                    + "E2||Poire|||||||||false|true||||"), fingerprints.get("PRODUCTS"));
+            // The canonical product row carries EIGHTEEN fields: the two last —
+            // variableWeight and the declared attributes — joined the export
+            // after this reference was written, and a fingerprint that ignores
+            // a field is a field the store node never learns has changed.
+            assertEquals(sha256hex("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT|kg|true|false||||false|"
+                    + "E2||Poire|||||||||false|true||||false|"), fingerprints.get("PRODUCTS"));
             assertEquals(EMPTY_SHA256, fingerprints.get("FAMILIES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("PRICES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("EMPLOYEES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("COUPON_TYPES"));
             assertEquals(EMPTY_SHA256, fingerprints.get("SETTINGS"));
             assertEquals(EMPTY_SHA256, fingerprints.get("ENGINE_FEEDS"));
+            assertEquals(EMPTY_SHA256, fingerprints.get("CUSTOMERS"));
+            assertEquals(EMPTY_SHA256, fingerprints.get("CURRENCIES"));
         }
     }
 
@@ -640,6 +672,8 @@ class RefExportServiceTest {
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
         PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> customers = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.Currency> currencies = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
@@ -648,6 +682,8 @@ class RefExportServiceTest {
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
             mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
             mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
+            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code")).thenReturn(currencies);
             Map<String, String> fingerprints = service.getFingerprints();
             for (String domain : RefExportService.DOMAINS) {
                 assertEquals(EMPTY_SHA256, fingerprints.get(domain));
@@ -656,15 +692,23 @@ class RefExportServiceTest {
     }
 
     /**
-     * Covers the catch block of {@code computeFingerprint}: the first domain's
-     * finder throws, so the failure is wrapped in an {@link IllegalStateException}
-     * naming the domain and carrying the original cause.
+     * Covers the catch block of {@code computeFingerprint}: a domain's finder
+     * throws, so the failure is wrapped in an {@link IllegalStateException}
+     * naming THAT domain and carrying the original cause.
+     * <p>
+     * The domains before FAMILIES are stubbed to an empty page so the
+     * computation reaches the one that throws: the assertion is about the
+     * wrapping, not about which domain happens to come first in
+     * {@code DOMAINS} — that order changed once already (PRODUCTS moved ahead
+     * of FAMILIES so a family payload can resolve its articles).
      */
     @Test
     void getFingerprintsWrapsComputationFailure() {
         RefExportService service = new RefExportService();
         RuntimeException boom = new RuntimeException("boom");
+        PanacheQuery<Product> products = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Product.find("order by ean")).thenReturn(products);
             mocked.when(() -> ProductFamily.find("order by code")).thenThrow(boom);
             IllegalStateException ex = assertThrows(IllegalStateException.class, service::getFingerprints);
             assertEquals("Empreinte incalculable pour FAMILIES", ex.getMessage());
@@ -696,7 +740,7 @@ class RefExportServiceTest {
         family.code = "F1";
         family.description = "Fruits";
         family.flags = null;
-        assertEquals("F1|Fruits||false||0|0", canonical.invoke(service, family));
+        assertEquals("F1|Fruits||false||0|0||", canonical.invoke(service, family));
         RefPayloads.FamilyDto pinnedFamily = new RefPayloads.FamilyDto();
         pinnedFamily.code = "F2";
         pinnedFamily.description = "Frais";
@@ -705,7 +749,13 @@ class RefExportServiceTest {
         pinnedFamily.buttonSize = "LARGE";
         pinnedFamily.displayOrder = 3;
         pinnedFamily.salesVolume = 99L;
-        assertEquals("F2|Frais|BIO|true|LARGE|3|99", canonical.invoke(service, pinnedFamily));
+        pinnedFamily.parentCodes = List.of("RAYON", "PROMO");
+        pinnedFamily.productEans = List.of("3001", "3002");
+        // The edges are part of the canonical string: a re-parenting or an
+        // article joining a group must change the domain fingerprint, or the
+        // registers would never pull the new tree.
+        assertEquals("F2|Frais|BIO|true|LARGE|3|99|RAYON,PROMO|3001,3002",
+                canonical.invoke(service, pinnedFamily));
         RefPayloads.ProductDto product = new RefPayloads.ProductDto();
         product.ean = "E1";
         product.plu = "100";
@@ -724,17 +774,17 @@ class RefExportServiceTest {
         product.internalCode = "INT9";
         product.attributes.put("VAT_EXEMPT", "true");
         product.attributes.put("BULKY", "false");
-        assertEquals("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|BULKY=false,VAT_EXEMPT=true",
+        assertEquals("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|false|BULKY=false,VAT_EXEMPT=true",
                 canonical.invoke(service, product));
         // A picture renders in its own field, between the icon and the brand.
         product.imageData = "IMG";
-        assertEquals("E1|100|Pomme|Desc|IC|IMG|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|BULKY=false,VAT_EXEMPT=true",
+        assertEquals("E1|100|Pomme|Desc|IC|IMG|BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|false|BULKY=false,VAT_EXEMPT=true",
                 canonical.invoke(service, product));
         product.imageData = null;
         // A null attribute map renders as the empty trailing field (null arm of
         // the canonical attributes helper).
         product.attributes = null;
-        assertEquals("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|",
+        assertEquals("E1|100|Pomme|Desc|IC||BR|1.000|2.000|WEIGHT||true|false|18|CL|INT9|false|",
                 canonical.invoke(service, product));
         RefPayloads.PriceDto price = new RefPayloads.PriceDto();
         price.productEan = "E1";

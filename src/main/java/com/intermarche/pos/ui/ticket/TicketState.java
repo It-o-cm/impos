@@ -101,8 +101,20 @@ public class TicketState implements Serializable {
         }
     }
 
-    /** Transient error message shown once on the ticket area. */
+    /** Transient message shown on the ticket area — a refusal or a confirmation. */
     public String transientError = null;
+
+    /**
+     * True when {@link #transientError} carries a CONFIRMATION rather than a
+     * refusal.
+     *
+     * <p>The zone was named after errors and drawn as one — red, and an "ERR"
+     * marker on the right — but confirmations have always ridden it too
+     * (SUPERVISEUR PRÉVENU). A register that answers a successful print with a
+     * red ERR is a register the operator learns to distrust, so the zone now
+     * says which of the two it is showing.
+     */
+    public boolean transientOk = false;
 
     /**
      * Attaches the parent POS state so that mutations can bump its version.
@@ -300,6 +312,7 @@ public class TicketState implements Serializable {
         globalDiscountValue = null;
         globalDiscountApplied = null;
         transientError = null;
+        transientOk = false;
         onChange();
     }
 
@@ -310,6 +323,19 @@ public class TicketState implements Serializable {
      */
     public void setError(String err) {
         this.transientError = err;
+        this.transientOk = false;
+        onChange();
+    }
+
+    /**
+     * Sets a transient CONFIRMATION shown on the ticket area — the same zone as
+     * {@link #setError(String)}, drawn as an acknowledgement instead of a refusal.
+     *
+     * @param message the confirmation message
+     */
+    public void setNotice(String message) {
+        this.transientError = message;
+        this.transientOk = true;
         onChange();
     }
 
@@ -546,6 +572,14 @@ public class TicketState implements Serializable {
 
             // A filled PLU denotes a weighed sale
             if (plu != null && !plu.isEmpty()) {
+                // A price-embedded sticker fixed the PRICE, not the weight:
+                // the weight is unknown at the register, so the line shows no
+                // quantity at all — never a phantom "1,000 kg". The internal
+                // quantity stays 1 as the neutral multiplier so the line total
+                // remains exactly the sticker price.
+                if (priceEmbedded) {
+                    return label;
+                }
                 String weightFormatted = String.format("%.3f", quantity).replace(".", ",");
                 return String.format("<span class='qty'>%s kg</span> %s", weightFormatted, label);
             }

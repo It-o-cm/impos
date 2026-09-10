@@ -1,10 +1,8 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.domain.ticket.Ticket;
 import com.intermarche.pos.domain.ticket.TicketLine;
 import com.intermarche.pos.ui.customer.QrCodeService;
-import com.intermarche.pos.service.TechnicalEventService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -26,7 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -36,9 +33,11 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link DigitalTicketResource}, the public capability-URL
- * digital receipt. All three endpoints funnel through the private
- * {@code load} (key match + CLOSED-only gate) and {@code render} (VAT
- * ventilation) helpers. Collaborators are mocked; the {@code Ticket.findById}
+ * digital receipt. The page and the email action funnel through the private
+ * {@code load} (key match + CLOSED-only gate); the QR stops at
+ * {@code loadByKey} (key match only, cancelled drafts excluded) because it is
+ * shown while the ticket is still open. {@code render} carries the VAT
+ * ventilation. Collaborators are mocked; the {@code Ticket.findById}
  * static finder resolves to {@link PanacheEntityBase} under plain
  * {@code mvn test} and is intercepted with {@link org.mockito.Mockito#mockStatic}.
  * Tests cover the four {@code load} guards (each arm), the three-part email
@@ -79,7 +78,7 @@ class DigitalTicketResourceTest {
         });
         DigitalTicketResource resource = new DigitalTicketResource();
         resource.digitalTicket = template;
-        resource.technicalEventService = mock(TechnicalEventService.class);
+        resource.ticketMailService = mock(TicketMailService.class);
         resource.qrCodeService = mock(QrCodeService.class);
         resource.baseUrl = baseUrl;
         return resource;
@@ -209,19 +208,55 @@ class DigitalTicketResourceTest {
     }
 
     /**
-     * {@code qr} returns 404 when the ticket exists with a matching key but is
-     * not closed (fourth load guard true).
+     * {@code qr} serves the SVG for a still-OPEN ticket: this is the only
+     * moment the customer display shows it, the payment being complete and the
+     * operator not having pressed TERMINER yet.
      */
     @Test
-    void qrNotFoundWhenNotClosed() {
+    void qrServesSvgForOpenTicket() {
         DigitalTicketResource resource = newResource(Optional.empty());
         Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.OPEN);
+        when(resource.qrCodeService.toSvg("/t/4/" + KEY)).thenReturn("<svg/>");
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(4L)).thenReturn(ticket);
             Response response = resource.qr(4L, KEY);
+            assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+            assertEquals("<svg/>", response.getEntity());
+        }
+        verify(resource.qrCodeService).toSvg("/t/4/" + KEY);
+    }
+
+    /**
+     * {@code qr} returns 404 for a cancelled draft: its link will never
+     * resolve, so its QR is pointless.
+     */
+    @Test
+    void qrNotFoundWhenTicketCancelled() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CANCELLED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(9L)).thenReturn(ticket);
+            Response response = resource.qr(9L, KEY);
             assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
         }
         verifyNoInteractions(resource.qrCodeService);
+    }
+
+    /**
+     * {@code view} renders the unavailable variant for a ticket that is not
+     * closed — the CLOSED gate of {@code load}, which the QR no longer
+     * exercises.
+     */
+    @Test
+    void viewRendersUnavailableWhenTicketNotClosed() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.OPEN);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(8L)).thenReturn(ticket);
+            assertSame(sentinel, resource.view(8L, KEY, false));
+        }
+        assertNull(captured.get("ticket"));
+        assertTrue(((List<?>) captured.get("buckets")).isEmpty());
     }
 
     // --- qr: OK arm, both base-url arms ---
@@ -265,7 +300,7 @@ class DigitalTicketResourceTest {
     // --- sendByEmail: the three-part condition ---
 
     /**
-     * {@code sendByEmail} stores the email, journals the send and redirects
+     * {@code sendByEmail} stores the email, hands it to the mail service and redirects
      * with the sent flag when the ticket is present and the email is
      * well-formed (all three condition arms true; PRG pattern, so a reload
      * never re-sends the email).
@@ -281,8 +316,7 @@ class DigitalTicketResourceTest {
         }
         assertEquals("a@b.co", ticket.customerEmail);
         verify(ticket).persist();
-        verify(resource.technicalEventService)
-                .log(eq(TechnicalEvent.EventType.DIGITAL_TICKET_SENT), eq("C04-1 -> a@b.co"));
+        verify(resource.ticketMailService).send(ticket, "a@b.co");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/t/8/" + KEY + "?sent=true", response.getLocation().toString());
     }
@@ -301,7 +335,7 @@ class DigitalTicketResourceTest {
         }
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/t/9/" + KEY, response.getLocation().toString());
-        verifyNoInteractions(resource.technicalEventService);
+        verifyNoInteractions(resource.ticketMailService);
     }
 
     /**
@@ -319,7 +353,7 @@ class DigitalTicketResourceTest {
         }
         assertNull(ticket.customerEmail);
         verify(ticket, never()).persist();
-        verifyNoInteractions(resource.technicalEventService);
+        verifyNoInteractions(resource.ticketMailService);
         assertEquals("/t/10/" + KEY, response.getLocation().toString());
     }
 
@@ -338,7 +372,7 @@ class DigitalTicketResourceTest {
         }
         assertNull(ticket.customerEmail);
         verify(ticket, never()).persist();
-        verifyNoInteractions(resource.technicalEventService);
+        verifyNoInteractions(resource.ticketMailService);
         assertEquals("/t/11/" + KEY, response.getLocation().toString());
     }
 }

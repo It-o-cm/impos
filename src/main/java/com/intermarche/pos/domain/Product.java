@@ -57,6 +57,17 @@ public class Product extends BaseEntity {
     @Column(name = "plu", unique = true, nullable = true, length = 4)
     public String plu;
 
+    /**
+     * True when the product is sold loose (bulk): its weight is only known at
+     * weighing time — the register scale (FRUITS &amp; LÉGUMES screen) or a 2x
+     * label printed by the aisle scale. False for pre-packed goods, including
+     * WEIGHT-typed ones sold at a fixed pack weight (500&nbsp;g pasta,
+     * 100&nbsp;g ham): those behave as units at the register and never appear
+     * on the weighing screen.
+     */
+    @Column(name = "variable_weight")
+    public boolean variableWeight;
+
     // --------------------------------------------------
     // Product Details
     // --------------------------------------------------
@@ -326,6 +337,6 @@ public class Product extends BaseEntity {
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(ean, plu==null? "":plu ,name, description, brand, referenceWeight, referenceVolume, productType, unitName, active, forbiddenToSale, checkoutLabel, internalCode);
+        return Objects.hash(ean, plu==null? "":plu ,name, description, brand, referenceWeight, referenceVolume, productType, unitName, active, forbiddenToSale, checkoutLabel, internalCode, variableWeight);
     }
 }

@@ -60,6 +60,7 @@ public class LockCheckFilter implements ContainerRequestFilter {
             "/prices/import",
             "/product-families/import",
             "/stores/import",
+            "/employees/import",
             "/feeds/import");
 
     @Inject

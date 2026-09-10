@@ -73,4 +73,63 @@ public interface HardwareClient {
     @POST
     @Path("/printer/cut")
     void cutPaper();
+
+    /**
+     * Starts a card payment on the terminal.
+     * <p>
+     * Returns as soon as the payment is under way, NOT when it ends: a card
+     * payment waits for the cardholder and can take minutes, which no HTTP
+     * request should be held open for. The outcome is read from
+     * {@link #getPaymentStatus()}.
+     *
+     * @param amountCents the amount to debit, in cents
+     */
+    @POST
+    @Path("/payment")
+    @Consumes(MediaType.TEXT_PLAIN)
+    void startPayment(String amountCents);
+
+    /**
+     * Reads where the card payment stands.
+     * <p>
+     * One {@code key=value} per line: {@code state} (IDLE, RUNNING or DONE),
+     * {@code line1} and {@code line2} — what the terminal shows the cardholder
+     * right now — then {@code result}, {@code approved}, {@code failure} and
+     * {@code answer} once the payment is over.
+     *
+     * @return the status block
+     */
+    @GET
+    @Path("/payment")
+    @Produces(MediaType.TEXT_PLAIN)
+    String getPaymentStatus();
+
+    /**
+     * Starts a cheque reading.
+     * <p>
+     * Returns as soon as the reader is waiting for the document, NOT when it has read
+     * it: the reading waits for a person to offer a cheque and take it back. The
+     * outcome is read from {@link #getChequeStatus()}.
+     *
+     * @param endorsement what the bridge prints on the cheque while the reader still
+     *                    holds it, one line per newline; empty prints nothing
+     */
+    @POST
+    @Path("/cheque")
+    @Consumes(MediaType.TEXT_PLAIN)
+    void startCheque(String endorsement);
+
+    /**
+     * Reads where the cheque reading stands.
+     * <p>
+     * One {@code key=value} per line: {@code state} (IDLE, RUNNING or DONE),
+     * {@code failure}, then the magnetic line and its French zones —
+     * {@code raw}, {@code bank}, {@code branch}, {@code account}, {@code serial}.
+     *
+     * @return the status block
+     */
+    @GET
+    @Path("/cheque")
+    @Produces(MediaType.TEXT_PLAIN)
+    String getChequeStatus();
 }

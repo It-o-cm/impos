@@ -63,6 +63,45 @@ public class PaymentState implements Serializable {
     public boolean pendingCardDegraded = false;
 
     /**
+     * True when a card payment of this transaction asked for the customer's
+     * handwritten signature (LC-08-03-11): the conditional-printing rule adds
+     * the card receipt back whatever the cashier chose. Held in memory for the
+     * transaction only — the decision is taken before the state is cleared, so
+     * no column carries it.
+     */
+    public boolean cardSignatureRequired = false;
+
+    /**
+     * The cashier's end-of-transaction printing choice (LC-08-03-01), or null
+     * while none has been made. Only meaningful when conditional printing is
+     * activated on the back office.
+     */
+    public com.intermarche.pos.ui.hardware.PrintChoice printChoice = null;
+
+    /**
+     * True once the printing choice has been applied and its documents sent to
+     * the printer: the finalization then adds nothing, so a cashier who picked
+     * "aucun ticket" is not handed a ticket by the closing step.
+     */
+    public boolean printApplied = false;
+
+    /**
+     * Amount awaiting the cheque reader, or null when no cheque is pending.
+     * <p>
+     * The cheque is read BEFORE the payment is registered: a cheque the reader
+     * refuses must not leave a settled line on the ticket.
+     */
+    public BigDecimal pendingChequeAmount = null;
+
+    /**
+     * The magnetic line of the cheque being registered, or null when none was read.
+     * <p>
+     * Kept in memory only for now: it is shown to the cashier and journalled, but
+     * the persisted {@code ChequePayment} carries no column for it yet.
+     */
+    public String pendingChequeLine = null;
+
+    /**
      * Outcome of the remote valuation at payment entry (phase 7): LOCAL
      * (engine not configured), ENGINE (valued), DEGRADED (engine failed,
      * catalog prices apply). Null before payment entry.
@@ -90,9 +129,12 @@ public class PaymentState implements Serializable {
     public BigDecimal valuationAdjustment = null;
 
     /**
-     * Remaining meal-voucher eligible base (tax included) from the engine's
-     * MEAL_VOUCHER advantage, decremented by each registered meal-ticket
-     * payment. Null when the engine emitted none (no cap applies).
+     * Meal-voucher eligible base of the BASKET (tax included) from the
+     * engine's MEAL_VOUCHER advantage, rewritten verbatim at each valuation.
+     * Never decremented here: the allowance left for a new meal ticket is
+     * derived at payment time as this base (capped by the threshold) minus
+     * the meal tickets already registered. Null when the engine emitted none
+     * (no cap applies).
      */
     public BigDecimal valuationMealEligible = null;
 
@@ -175,6 +217,22 @@ public class PaymentState implements Serializable {
     }
 
     /**
+     * Registers a cheque payment carrying the magnetic line the reader read, so it
+     * reaches the persisted {@code ChequePayment}.
+     *
+     * @param amount the paid amount
+     * @param magneticLine the CMC7 line as read, or null when the cheque was not read
+     */
+    public void addChequePayment(BigDecimal amount, String magneticLine) {
+        PaymentEntry entry = new PaymentEntry("CHEQUE", amount);
+        entry.magneticLine = magneticLine;
+        payments.add(entry);
+        paidAmount = paidAmount.add(amount);
+        goToLastPage();
+        clearTemporaryInputs();
+    }
+
+    /**
      * Registers a cash payment with the tendered amount.
      * <p>
      * Important: {@link #lastChangeAmount} is NOT cleared here, it is needed
@@ -185,6 +243,31 @@ public class PaymentState implements Serializable {
      */
     public void addCashPayment(BigDecimal amount, BigDecimal tenderedAmount) {
         payments.add(new PaymentEntry("CASH", amount, tenderedAmount));
+        paidAmount = paidAmount.add(amount);
+        goToLastPage();
+        clearTemporaryInputs();
+    }
+
+    /**
+     * Registers a customer-credit settlement, carrying the debtor.
+     *
+     * <p>The account rides ON THE ENTRY and not on the screen state: the entry is
+     * what the persistence turns into a payment row, and a debtor kept beside it
+     * would be lost the moment a second credit line is registered for another
+     * account on the same sale.
+     *
+     * @param amount the amount charged to the account
+     * @param accountNumber the account number the debt is charged to
+     * @param accountName the account name as it stands at sale time
+     * @param overLimit true when a supervisor authorized it over the ceiling
+     */
+    public void addCreditPayment(BigDecimal amount, String accountNumber, String accountName,
+            boolean overLimit) {
+        PaymentEntry entry = new PaymentEntry("CREDIT", amount);
+        entry.creditAccountNumber = accountNumber;
+        entry.creditAccountName = accountName;
+        entry.creditOverLimit = overLimit;
+        payments.add(entry);
         paidAmount = paidAmount.add(amount);
         goToLastPage();
         clearTemporaryInputs();
@@ -207,6 +290,184 @@ public class PaymentState implements Serializable {
     /**
      * Clears the registered payments and resets the history pagination.
      */
+    // --------------------------------------------------
+    // Backup monetics (LC-07-07-06/09)
+    // --------------------------------------------------
+
+    /** True while the backup-monetics panel is open over the payment screen. */
+    public boolean backupPanelOpen = false;
+
+    /**
+     * The request this till emitted, or null while none is pending. It is what an
+     * answer is matched against, so it must outlive the screen refresh — the payment
+     * page reloads itself on every version bump.
+     */
+    public transient BackupPaymentTicket.Request backupRequest = null;
+
+    /** The request rendered as an SVG QR code, or null while none is pending. */
+    public String backupRequestSvg = null;
+
+    /** The refusal shown inside the backup panel, or null. */
+    public String backupError = null;
+
+    /** True once the operator asked to key the outcome in instead of scanning it. */
+    public boolean backupManualEntry = false;
+
+    /**
+     * Closes the backup-monetics panel and forgets the pending request.
+     *
+     * <p>The request goes with it, deliberately: an answer arriving after the panel
+     * was closed answers a question this till is no longer asking.
+     */
+    public void clearBackupPanel() {
+        backupPanelOpen = false;
+        backupRequest = null;
+        backupRequestSvg = null;
+        backupError = null;
+        backupManualEntry = false;
+    }
+
+    // --------------------------------------------------
+    // Foreign currency (LC-07-14)
+    // --------------------------------------------------
+
+    /** True while the foreign-currency panel is open over the payment screen. */
+    public boolean currencyPanelOpen = false;
+
+    /** The currency the operator selected, or null while none is. */
+    public com.intermarche.pos.domain.Currency selectedCurrency = null;
+
+    /** The refusal shown inside the currency panel, or null. */
+    public String currencyError = null;
+
+    /**
+     * Registers a settlement taken on a backup-monetics terminal.
+     *
+     * @param amount the amount that terminal accepted
+     * @param methodLabel the scheme it reported
+     * @param transactionNumber the sale the two codes were matched on
+     * @param manual true when the outcome was keyed in rather than scanned
+     */
+    public void addBackupPayment(BigDecimal amount, String methodLabel, String transactionNumber,
+            boolean manual) {
+        PaymentEntry entry = new PaymentEntry("SECOURS", amount);
+        entry.backupMethodLabel = methodLabel;
+        entry.backupTransaction = transactionNumber;
+        entry.backupManual = manual;
+        payments.add(entry);
+        paidAmount = paidAmount.add(amount);
+        goToLastPage();
+        clearTemporaryInputs();
+    }
+
+    /**
+     * Registers a settlement handed over in a foreign currency, carrying what the
+     * euro figure does not say.
+     *
+     * @param euroAmount the euro value credited to the sale
+     * @param code the ISO code of the currency handed over
+     * @param foreignAmount the amount handed over, in that currency
+     * @param rate the euros-for-one-unit rate applied
+     */
+    public void addCurrencyPayment(BigDecimal euroAmount, String code, BigDecimal foreignAmount,
+            BigDecimal rate) {
+        PaymentEntry entry = new PaymentEntry("DEVISE", euroAmount);
+        entry.currencyCode = code;
+        entry.currencyAmount = foreignAmount;
+        entry.currencyRate = rate;
+        payments.add(entry);
+        paidAmount = paidAmount.add(euroAmount);
+        goToLastPage();
+        clearTemporaryInputs();
+    }
+
+    /**
+     * Closes the foreign-currency panel and forgets what it held.
+     */
+    public void clearCurrencyPanel() {
+        currencyPanelOpen = false;
+        selectedCurrency = null;
+        currencyError = null;
+    }
+
+    // --------------------------------------------------
+    // Customer credit (LC-07-09)
+    // --------------------------------------------------
+
+    /** How many matching accounts the credit panel shows at once. */
+    public static final int CREDIT_ROWS = 5;
+
+    /** True while the customer-credit panel is open over the payment screen. */
+    public boolean creditPanelOpen = false;
+
+    /** What the operator typed in the account search box. */
+    public String creditSearch = "";
+
+    /** The accounts matching the last search, empty before any. */
+    public List<com.intermarche.pos.domain.AccountCustomer> creditCustomers = new ArrayList<>();
+
+    /** True once a search ran, so an empty list can be told from "not searched yet". */
+    public boolean creditSearched = false;
+
+    /** The account the operator confirmed, or null while none is named. */
+    public com.intermarche.pos.domain.AccountCustomer creditCustomer = null;
+
+    /** The refusal or warning shown inside the credit panel, or null. */
+    public String creditError = null;
+
+    /**
+     * The amount held back because it takes the account over its ceiling, awaiting
+     * a supervisor ({@code LC-07-09-04}), or null when nothing is pending.
+     */
+    public BigDecimal creditPendingAmount = null;
+
+    /**
+     * Returns the accounts offered by the credit panel, capped to what it shows.
+     *
+     * @return at most {@link #CREDIT_ROWS} accounts
+     */
+    public List<com.intermarche.pos.domain.AccountCustomer> getVisibleCreditCustomers() {
+        return creditCustomers.size() <= CREDIT_ROWS
+                ? creditCustomers
+                : creditCustomers.subList(0, CREDIT_ROWS);
+    }
+
+    /**
+     * Tells whether the credit search ran and matched nothing.
+     *
+     * @return true when the operator searched and no account matched
+     */
+    public boolean isCreditSearchWithoutMatch() {
+        return creditSearched && creditCustomers.isEmpty();
+    }
+
+    /**
+     * Tells whether a settlement is waiting for a supervisor to allow the ceiling
+     * to be exceeded.
+     *
+     * @return true while an over-ceiling amount is held back
+     */
+    public boolean isCreditOverLimitPending() {
+        return creditPendingAmount != null;
+    }
+
+    /**
+     * Closes the customer-credit panel and forgets everything it held.
+     *
+     * <p>The pending over-ceiling amount is cleared with the rest, deliberately: an
+     * authorization that survived the panel being closed would apply to whatever
+     * the next operator typed.
+     */
+    public void clearCreditPanel() {
+        creditPanelOpen = false;
+        creditSearch = "";
+        creditCustomers = new ArrayList<>();
+        creditSearched = false;
+        creditCustomer = null;
+        creditError = null;
+        creditPendingAmount = null;
+    }
+
     /** The active fidelity lease id (imfid burn reservation), or null. */
     public Long fidReservationId = null;
 
@@ -235,8 +496,13 @@ public class PaymentState implements Serializable {
         ticketDbId = null;
         paymentInProgress = false;
         pendingCardAmount = null;
+        pendingChequeAmount = null;
+        pendingChequeLine = null;
         pendingCardAuthNumber = null;
         pendingCardDegraded = false;
+        cardSignatureRequired = false;
+        printChoice = null;
+        printApplied = false;
         valuationStatus = null;
         valuationJson = null;
         valuationEngineTotal = null;
@@ -406,6 +672,36 @@ public class PaymentState implements Serializable {
 
         /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
         public boolean degradedMode;
+
+        /** The CMC7 magnetic line read off the cheque, or null. */
+        public String magneticLine;
+
+        /** The scheme a backup-monetics settlement reported (LC-07-07-08), or null. */
+        public String backupMethodLabel;
+
+        /** The transaction number the two backup QR codes were matched on, or null. */
+        public String backupTransaction;
+
+        /** True when a backup-monetics outcome was keyed in rather than scanned. */
+        public boolean backupManual;
+
+        /** The ISO code of the currency handed over (LC-07-14), or null. */
+        public String currencyCode;
+
+        /** The amount handed over in that currency, or null. */
+        public BigDecimal currencyAmount;
+
+        /** The euros-for-one-unit rate applied, or null. */
+        public BigDecimal currencyRate;
+
+        /** The account number charged by a customer-credit settlement, or null. */
+        public String creditAccountNumber;
+
+        /** The account name as it stood at sale time, or null. */
+        public String creditAccountName;
+
+        /** True when a supervisor authorized this settlement over the ceiling. */
+        public boolean creditOverLimit;
 
         /**
          * Creates a plain payment entry.

@@ -23,7 +23,7 @@
 
     /* --- HEADER --- */
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; color: var(--text-muted); z-index: 2; }
-    .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+    .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
 
     /* --- MAIN LAYOUT --- */
     .main-area { display: grid; grid-template-columns: 1.4fr 1fr; overflow: hidden; min-height: 0; }
@@ -37,10 +37,10 @@
       padding: 10px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color);
       display: flex; gap: 10px; flex-shrink: 0; align-items: center; height: 50px;
     }
-    .search-info { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; }
+    .search-info { flex: 1; display: flex; align-items: center; justify-content: center; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
 
     .active-ticket-display { display: none; align-items: center; gap: 15px; flex: 1; padding-left: 10px; }
-    .ticket-name-label { color: var(--text-main); font-weight: bold; font-size: 1rem; }
+    .ticket-name-label { color: var(--text-main); font-weight: bold; font-size: var(--fs-label); }
 
     .content-area { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
 
@@ -54,8 +54,8 @@
       display: flex; justify-content: space-between; align-items: center;
     }
     .search-result-item:hover { background: #252525; border-color: #444; }
-    .ticket-id { font-weight: bold; font-size: 1.1rem; color: var(--text-main); }
-    .ticket-date { font-size: 0.85rem; color: var(--text-muted); }
+    .ticket-id { font-weight: bold; font-size: var(--fs-row); color: var(--text-main); }
+    .ticket-date { font-size: var(--fs-row-sub); color: var(--text-muted); }
 
     /* --- MODE TICKET (6 LIGNES) --- */
     #ticketMode { display: none; flex-direction: column; height: 100%; }
@@ -72,29 +72,29 @@
     .receipt-line.has-return { border-left: 4px solid var(--primary); background: rgba(0, 85, 255, 0.1); }
     .receipt-line.selected { background: #252525; border: 1px solid var(--primary); z-index: 2; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     .line-content { display: flex; justify-content: space-between; align-items: center; }
-    .item-qty-info { font-weight: bold; margin-right: 8px; font-size: 0.9rem; color: var(--warning); }
+    .item-qty-info { font-weight: bold; margin-right: 8px; font-size: var(--fs-row-sub); color: var(--warning); }
     .qty-r { color: var(--danger); }
     .qty-slash { color: var(--danger); }
-    .item-label { color: var(--text-main); flex: 1; font-size: 1rem; }
-    .item-price { color: var(--success); font-weight: bold; font-size: 1rem; min-width: 60px; text-align: right; }
+    .item-label { color: var(--text-main); flex: 1; font-size: var(--fs-row); }
+    .item-price { color: var(--success); font-weight: bold; font-size: var(--fs-amount); min-width: 60px; text-align: right; }
 
     /* Contrôles */
     .qty-controls { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-strong); align-items: center; justify-content: center; gap: 10px; }
     .receipt-line.selected .qty-controls { display: flex; }
 
-    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid var(--border-strong); color: white; font-size: 1.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .btn-qty { width: 50px; height: 40px; background: #333; border: 1px solid var(--border-strong); color: white; font-size: var(--fs-btn-lg); font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .btn-qty:active { background: #444; }
     .btn-qty.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
-    .qty-input-display { font-size: 1.2rem; font-weight: bold; color: var(--warning); background: var(--bg-page); border: 1px solid var(--border-strong); width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
+    .qty-input-display { font-size: var(--fs-field); font-weight: bold; color: var(--warning); background: var(--bg-page); border: 1px solid var(--border-strong); width: 50px; text-align: center; padding: 4px; border-radius: 4px; }
 
-    .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .btn-validate-line { background: var(--success); color: white; border: none; width: 50px; height: 40px; border-radius: 6px; font-size: var(--fs-btn); cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .receipt-line.refunded { opacity: 0.4; text-decoration: line-through; pointer-events: none; border: none; background: #111; }
 
     /* Pagination */
     .ticket-nav { display: none; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding: 0 20px; background: var(--bg-dark); flex-shrink: 0; height: 50px; z-index: 5; }
-    .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: 0.8rem; }
-    .nav-info { color: var(--text-muted); font-size: 0.85rem; }
+    .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-decoration: none; font-size: var(--fs-btn-sm); }
+    .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
 
     /* ==========================================
        COLONNE DROITE
@@ -103,20 +103,19 @@
 
     /* --- MODE RECHERCHE --- */
     #searchKeyboardZone { display: none; flex-direction: column; height: 100%; }
-    .search-display { font-size: 1.8rem; text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px; margin-bottom: 10px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
+    .search-display { font-size: var(--fs-field-num); text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 2px solid var(--text-muted); border-radius: 6px; padding: 8px; margin-bottom: 10px; min-height: 50px; display: flex; align-items: center; justify-content: center; }
 
     /* --- MODE TICKET --- */
     #ticketActionsZone { display: none; flex-direction: column; height: 100%; }
-    .overlay-title { font-size: 1.4rem; margin-bottom: 10px; text-align: center; }
+    .overlay-title { font-size: var(--fs-title); margin-bottom: 10px; text-align: center; }
     .total-zone { text-align: center; margin-bottom: 10px; }
-    .sub-display { font-size: 2rem; text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; }
+    .sub-display { font-size: var(--fs-field-num); text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; }
     .sub-display.manual { border-color: var(--warning); color: var(--warning); }
 
     #numpadContainer { width: 100%; margin-bottom: 10px; }
     .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
 
-    .btn { padding: 12px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; text-align: center; display: block; }
-    .btn:active { transform: translateY(4px); box-shadow: none; }
+    .btn { display: block; }
 
     /* FOOTER */
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 80px; }
@@ -140,7 +139,7 @@
       <div class="search-ticket-bar">
         <div class="search-info" id="searchInfo">Saisissez le N° de ticket</div>
         <div class="active-ticket-display" id="activeTicketDisplay">
-          <button class="btn btn-primary" style="padding:6px 12px; font-size:0.8rem; box-shadow:none;">CHERCHER</button>
+          <button class="btn btn-sm btn-primary">CHERCHER</button>
           <span class="ticket-name-label" id="currentTicketName"></span>
         </div>
       </div>
@@ -168,7 +167,7 @@
         <div class="overlay-title">Montant Retour</div>
         <div class="total-zone">
           <input type="text" id="globalAmountDisplay" class="sub-display" value="0,00 €" readonly onclick="switchToGlobalMode()">
-          <div style="color:var(--text-muted); font-size:0.8rem; height:1.2em;" id="helperText">Cliquez sur le montant pour saisie manuelle</div>
+          <div style="color:var(--text-muted); font-size:var(--fs-label); height:1.2em;" id="helperText">Cliquez sur le montant pour saisie manuelle</div>
         </div>
         <div id="numpadContainer"></div>
         <div class="payment-grid">

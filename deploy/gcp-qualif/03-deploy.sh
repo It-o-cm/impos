@@ -16,9 +16,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMPOS_DIR="${IMPOS_DIR:-$SCRIPT_DIR/../..}"
 IMVALUATION_DIR="${IMVALUATION_DIR:-$SCRIPT_DIR/../../../imvaluation}"
 IMFID_DIR="${IMFID_DIR:-$SCRIPT_DIR/../../../imfid}"
-# Hardware simulator static page: lives in a doc dir at the impos repo root
-# (NOT under src, on purpose). Adjust the default to the actual dir name.
-SIMULATOR_DIR="${SIMULATOR_DIR:-$IMPOS_DIR/doc/simulateur}"
+# Hardware simulator static page: ONE file under the impos repo's docs/ (NOT
+# under src, on purpose — a real till must never ship it). Only that file is
+# shipped: docs/ also holds internal documents that have no business on a
+# public host.
+SIMULATOR_PAGE="${SIMULATOR_PAGE:-$IMPOS_DIR/docs/simulateur.html}"
 
 APPS="${*:-impos imvaluation imfid}"
 
@@ -86,11 +88,21 @@ for app in $APPS; do
           && sudo chown -R apps:apps /opt/apps/${app} \
           && sudo systemctl restart ${app} \
           && rm -rf /tmp/${app}-qa /tmp/${app}-qa.tgz"
-  # Simulator page rides along with impos (static, no restart needed)
-  if [ "$app" = "impos" ] && [ -d "$SIMULATOR_DIR" ]; then
-    gcloud compute scp --recurse --zone="$ZONE" --compress "$SIMULATOR_DIR" "$VM_NAME:/tmp/simulator"
-    ssh_vm "sudo rsync -a --delete /tmp/simulator/ /opt/apps/impos/simulator/ \
-            && sudo chown -R apps:apps /opt/apps/impos/simulator && rm -rf /tmp/simulator"
+  # Simulator page rides along with impos (static, no restart needed). Caddy
+  # serves /opt/apps/impos/simulator as a file server under /simulateur, so the
+  # page is deployed as that directory's index.html. A missing source file is
+  # announced, never skipped in silence.
+  if [ "$app" = "impos" ]; then
+    if [ -f "$SIMULATOR_PAGE" ]; then
+      gcloud compute scp --zone="$ZONE" --compress "$SIMULATOR_PAGE" "$VM_NAME:/tmp/simulateur.html"
+      ssh_vm "sudo mkdir -p /opt/apps/impos/simulator \
+              && sudo cp /tmp/simulateur.html /opt/apps/impos/simulator/index.html \
+              && sudo chown -R apps:apps /opt/apps/impos/simulator \
+              && rm -f /tmp/simulateur.html"
+      echo "   · simulateur déployé (/simulateur)."
+    else
+      echo "   ! simulateur INTROUVABLE ($SIMULATOR_PAGE) — page NON déployée." >&2
+    fi
   fi
 done
 

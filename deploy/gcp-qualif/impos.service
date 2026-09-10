@@ -22,6 +22,8 @@ ExecStart=/usr/bin/java \
 Restart=on-failure
 RestartSec=5
 Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+# First-boot administrator, created only when the employee table is empty.
+Environment=POS_ADMIN_PASSWORD=__BOOTSTRAP_PASSWORD__
 # The "hardware-api" rest client MUST have a URL or CDI fails at first request
 # (dev mode inherits it from test classes; the prod jar has neither mock nor
 # property). Qualification doctrine = the e2e one: point it at the app itself,

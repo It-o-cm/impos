@@ -21,44 +21,49 @@
         .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark); border: 2px solid var(--border-strong); border-radius: 10px; display: grid; grid-template-rows: 60px 1fr 80px; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative; }
 
         /* Header & Footer */
-        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); z-index: 2; }
-        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
+        .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
 
         /* Main Layout */
         .main-area { display: grid; grid-template-columns: 1.5fr 1fr; background-color: var(--bg-dark); }
 
         /* Overlay Paiement */
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 20px; overflow-y: auto; }
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
+        /* The popup's opaque half: the glass shows the register behind, this
+           carries what is being asked. HEIGHT-NEUTRAL on purpose — glass ring
+           10 + border 2 + padding 8 restores exactly the 20 px the overlay used
+           to inset its content by: the lock and PIN screens filled their 556 px
+           to the pixel, and any wider frame would have pushed them out. It
+           inherits the column flow the overlay used to hold directly, so the
+           children below are unchanged. */
+        .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
         .overlay.active { display: flex; }
 
         /* Contenu Paiement */
         .pay-content { flex: 1; display: flex; flex-direction: column; width: 96%; margin: 0 auto; min-height: 0; }
         .pay-top-row { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .overlay-title { font-size: 1.5rem; }
+        .overlay-title { font-size: var(--fs-title); }
         .total-display { position: relative; text-align: right; }
-        .total-label { font-size: 0.85rem; color: var(--text-muted); }
-        .total-amount { font-size: 1.8rem; font-weight: bold; color: var(--text-main); }
+        .total-label { font-size: var(--fs-label); color: var(--text-muted); }
+        .total-amount { font-size: var(--fs-total); font-weight: bold; color: var(--text-main); }
 
-        .btn { padding: 15px; font-size: 1.2rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; text-decoration: none; text-align: center; }
-        .btn:active { transform: translateY(4px); box-shadow: none; }
-        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none; box-shadow: none; }
 
         /* Corps : zone principale (gauche) + colonne moyens de paiement (droite) */
         .pay-body { flex: 1; display: grid; grid-template-columns: 1fr 190px; gap: 14px; min-height: 0; }
 
         /* Colonne verticale des moyens de paiement */
         .pay-methods { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-        .pay-methods .btn { padding: 0 10px; height: 100%; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; line-height: 1.1; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+        .pay-methods .btn { padding: 0 10px; height: 100%; font-size: var(--fs-btn); display: flex; align-items: center; justify-content: center; line-height: 1.1; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
 
         /* Zone principale : historique agrandi + saisie/numpad */
         .pay-main { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; }
 
         /* Historique */
         .pay-history { display: flex; flex-direction: column; background: #0d0d0d; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; min-height: 0; }
-        .pay-history-title { padding: 10px 14px; font-weight: bold; font-size: 0.85rem; color: var(--text-muted); border-bottom: 1px solid var(--border-color); background: #161616; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+        .pay-history-title { padding: 10px 14px; font-weight: bold; font-size: var(--fs-label); color: var(--text-muted); border-bottom: 1px solid var(--border-color); background: #161616; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
         .pay-history-list { flex: 1; padding: 4px 0; min-height: 0; }
-        .pay-history-empty { color: #444; text-align: center; padding: 30px 10px; font-size: 1rem; }
+        .pay-history-empty { color: #444; text-align: center; padding: 30px 10px; font-size: var(--fs-body); }
         /* Mode liste pleine (clavier fermé) : on affiche la page courante. */
         .pay-history-entry { display: none; }
         .pay-history-entry.on-page { display: flex; }
@@ -67,24 +72,24 @@
         .pay-history.keypad-open .pay-history-entry.recent-two { display: flex; }
         .pay-history.keypad-open .pay-history-nav { display: none; }
         .pay-history-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border-color); background: #141414; }
-        .pay-history-nav .nav-btn { padding: 8px 14px; font-size: 0.85rem; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
-        .pay-history-nav .nav-info { color: var(--text-muted); font-size: 0.85rem; font-weight: bold; }
+        .pay-history-nav .nav-btn { padding: 8px 14px; font-size: var(--fs-btn-sm); box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+        .pay-history-nav .nav-info { color: var(--text-muted); font-size: var(--fs-label); font-weight: bold; }
 
-        .pay-history-entry { justify-content: space-between; padding: 12px 16px; font-size: 1.2rem; border-bottom: 1px solid #1a1a1a; }
+        .pay-history-entry { justify-content: space-between; padding: 12px 16px; font-size: var(--fs-row); border-bottom: 1px solid #1a1a1a; }
 
         .phe-method { color: var(--text-muted); }
-        .phe-sub { font-size: 0.8rem; color: #666; margin-left: 8px; }
+        .phe-sub { font-size: var(--fs-row-sub); color: #666; margin-left: 8px; }
         .phe-amount { color: var(--success); font-weight: bold; }
-        .pay-history-remaining { padding: 12px 16px; border-top: 1px solid var(--border-color); background: #161616; font-weight: bold; font-size: 1.1rem; flex-shrink: 0; text-align: center; }
+        .pay-history-remaining { padding: 12px 16px; border-top: 1px solid var(--border-color); background: #161616; font-weight: bold; font-size: var(--fs-row); flex-shrink: 0; text-align: center; }
 
         /* Bons d'achat */
         .btn-voucher { background-color: #7B1FA2; }
         .voucher-panel { display: flex; flex-direction: column; gap: 6px; width: 100%; }
         .voucher-types { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
         .voucher-types > form { display: contents; }
-        .voucher-type-btn { width: 100%; padding: 10px 14px; background-color: #7B1FA2; font-size: 0.95rem; text-align: left; line-height: 1.2; }
-        .voucher-type-btn .vt-sub { display: block; font-size: 0.75rem; font-weight: normal; text-transform: none; opacity: 0.8; margin-top: 2px; }
-        .voucher-error { color: var(--danger); font-size: 0.9rem; font-weight: bold; background: rgba(211,47,47,0.12); border-radius: 6px; padding: 6px 10px; text-align: center; }
+        .voucher-type-btn { width: 100%; padding: 10px 14px; background-color: #7B1FA2; font-size: var(--fs-btn); text-align: left; line-height: 1.2; }
+        .voucher-type-btn .vt-sub { display: block; font-size: var(--fs-row-sub); font-weight: normal; text-transform: none; opacity: 0.8; margin-top: 2px; }
+        .voucher-error { color: var(--danger); font-size: var(--fs-body); font-weight: bold; background: rgba(211,47,47,0.12); border-radius: 6px; padding: 6px 10px; text-align: center; }
         .sub-display.voucher { color: #CE93D8; border-color: #CE93D8; letter-spacing: 2px; }
 
         /* Ligne Saisie + Numpad */
@@ -95,7 +100,7 @@
 
         .pay-no-selection {
             color: var(--text-muted);
-            font-size: 1.1rem;
+            font-size: var(--fs-body);
             text-transform: uppercase;
             letter-spacing: 1px;
             text-align: center;
@@ -106,15 +111,15 @@
         /* Formulaires de saisie */
         .sub-input-area { display: none; flex-direction: column; gap: 6px; width: 100%; }
         .sub-input-area.active { display: flex; }
-        .pay-mode-label { font-size: 1.0rem; font-weight: bold; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
-        .sub-info { color: var(--text-muted); font-size: 0.95rem; }
-        .sub-display { font-size: 1.5rem; text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 8px; width: 100%; }
+        .pay-mode-label { font-size: var(--fs-label); font-weight: bold; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .sub-info { color: var(--text-muted); font-size: var(--fs-body); }
+        .sub-display { font-size: var(--fs-field); text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 8px; width: 100%; }
 
         /* Zone Numpad */
         .pay-numpad-zone { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
 
         /* --- MODALE DE VALIDATION --- */
-        .confirm-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 55; justify-content: center; align-items: center; }
+        .confirm-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 55; justify-content: center; align-items: center; }
         .confirm-modal.active { display: flex; }
 
         .confirm-panel {
@@ -129,7 +134,7 @@
             display: flex; align-items: center; justify-content: center; gap: 15px;
         }
         .confirm-header-icon { font-size: 2.5rem; }
-        .confirm-header-text { font-size: 1.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        .confirm-header-text { font-size: var(--fs-title); font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
 
         .confirm-body { padding: 25px; display: flex; flex-direction: column; gap: 20px; }
 
@@ -137,10 +142,19 @@
             background: var(--bg-page); border: 2px solid var(--warning); border-radius: 10px;
             padding: 15px; text-align: center;
         }
-        .change-label { color: var(--warning); font-size: 1.1rem; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; }
-        .change-amount { color: var(--warning); font-size: 3rem; font-weight: bold; }
+        .change-label { color: var(--warning); font-size: var(--fs-label); font-weight: bold; margin-bottom: 5px; text-transform: uppercase; }
+        .change-amount { color: var(--warning); font-size: var(--fs-total-xl); font-weight: bold; }
 
         .confirm-footer { padding: 0 25px 25px 25px; display: flex; flex-direction: column; gap: 10px; }
+
+        /* LC-08-03 : les cinq choix d'impression, en grille pour tenir dans la
+           modale sans defilement (le dernier occupe la ligne entiere). */
+        .print-choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+        .print-choice-grid .btn { padding: 9px 5px; font-size: var(--fs-btn-sm); box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
+        .print-choice-grid .btn:active { transform: translateY(3px); }
+        .print-choice-wide { grid-column: 1 / -1; }
+        .print-choice-title { color: var(--text-muted); font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; text-align: center; }
+        .print-choice-done { color: var(--success); font-size: var(--fs-body); font-weight: bold; text-align: center; }
     </style>
 </head>
 <body data-theme="{posTheme}">
@@ -161,6 +175,7 @@
 
     <!-- Overlay Principal Paiement -->
     <div class="overlay active" id="payScreen">
+        <div class="overlay-panel">
         <div class="pay-content">
 
             <div class="pay-top-row">
@@ -203,6 +218,13 @@
                             </div>
                         {/if}
                         <div class="pay-history-remaining">RESTE : {state.remainingFormatted} €</div>
+                        {#if state.cashRoundingVisible}
+                        {! LC-07-03-02: where the shop rounds, the cashier sees BOTH
+                         ! figures — the sale still owes the real amount, the customer
+                         ! hands over the rounded one, and confusing the two is how a
+                         ! drawer ends the day two cents short a hundred times. !}
+                        <div class="pay-history-remaining" style="color:var(--warning);">ESPÈCES ARRONDI : {state.cashRoundedRemainingFormatted} €</div>
+                        {/if}
                     </div>
 
                     <div class="pay-action-row">
@@ -266,6 +288,9 @@
                             <!-- Formulaire Espèces -->
                             <form action="/action/pay-cash" method="POST" class="sub-input-area" id="cashForm">
                                 <div class="pay-mode-label">ESPÈCES</div>
+                                {#if state.cashRoundingVisible}
+                                <div class="sub-info">Dû {state.remainingFormatted} € — arrondi à {state.cashRoundedRemainingFormatted} €</div>
+                                {/if}
                                 <div class="sub-info">Montant donné par le client :</div>
                                 <input type="text" id="cashDisplay" class="sub-display" value="0,00" readonly>
                                 <input type="hidden" name="given" id="cashValue" value="0">
@@ -312,12 +337,22 @@
                     <button class="btn btn-muted" onclick="openInput('tr')">TICKET RESTO</button>
                     <button class="btn btn-muted" onclick="openInput('cheque')">CHÈQUE</button>
                     <button class="btn btn-voucher" onclick="openVoucher()">BONS D'ACHAT</button>
+                    <form action="/action/credit-open" method="POST" style="display:contents;">
+                        <button type="submit" class="btn" style="background-color:#5C6BC0;">CRÉDIT CLIENT</button>
+                    </form>
+                    <form action="/action/currency-open" method="POST" style="display:contents;">
+                        <button type="submit" class="btn" style="background-color:#00695C;">DEVISES</button>
+                    </form>
+                    <form action="/action/backup-open" method="POST" style="display:contents;">
+                        <button type="submit" class="btn" style="background-color:#8D6E63;">SECOURS MONÉTIQUE</button>
+                    </form>
                     <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
                     <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
                     <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
                     <a href="/action/pay/abandon-ticket" class="btn btn-danger">ANNULER TICKET</a>
                 </div>
             </div>
+        </div>
         </div>
     </div>
 
@@ -337,29 +372,291 @@
                 {/if}
                 <!-- Section détail supprimée -->
                 {#if digitalPath??}
-                    <div style="text-align:center; color:var(--text-muted); font-size:0.95rem; margin-top:10px;">
+                    <div style="text-align:center; color:var(--text-muted); font-size:var(--fs-body); margin-top:10px;">
                         Ticket en ligne : <span style="color:var(--primary); font-weight:bold;">{digitalPath}</span>
                     </div>
                 {/if}
             </div>
             <div class="confirm-footer">
-                <a href="/action/finish" class="btn btn-primary" style="width:100%;font-size:1.2rem;">NOUVELLE VENTE</a>
-                <form action="/action/print" method="POST" style="width:100%;">
-                    <button type="submit" class="btn btn-muted" style="width:100%;">🖨️ IMPRIMER TICKET</button>
-                </form>
+                <a href="/action/finish" class="btn btn-lg btn-primary" style="width:100%;">NOUVELLE VENTE</a>
+                {#if printConditional}
+                    {#if state.payment.printApplied}
+                        <div class="print-choice-done">
+                            IMPRESSION EFFECTUÉE{#if state.payment.printChoice} — {state.payment.printChoice.label}{/if}
+                        </div>
+                    {#else}
+                        <div class="print-choice-title">Documents à imprimer</div>
+                        <form action="/action/print-choice" method="POST" class="print-choice-grid">
+                            {#for choice in printChoices}
+                                <button type="submit" name="choice" value="{choice}"
+                                        class="btn {choice.buttonClass}{#if !choice_hasNext} print-choice-wide{/if}">{choice.label}</button>
+                            {/for}
+                        </form>
+                    {/if}
+                {#else}
+                    <form action="/action/print" method="POST" style="width:100%;">
+                        <button type="submit" class="btn btn-muted" style="width:100%;">🖨️ IMPRIMER TICKET</button>
+                    </form>
+                {/if}
             </div>
         </div>
     </div>
 
 </div>
 
+    {#if state.ticket.transientError}
+    <!-- Message zone of the payment page: the terminal's refusals and failures
+         land here. Without it the callback's message is set and never shown --
+         the ticket fragment that renders it belongs to the sale screen. -->
+    <div style="position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:90; background:rgba(211,47,47,0.15); border:1px solid var(--danger); color:var(--danger); font-weight:bold; padding:10px 22px; border-radius:6px; text-align:center;">
+        &#9888; {state.ticket.transientError}
+    </div>
+    {/if}
+
+    {#if state.payment.pendingChequeAmount??}
+    <!-- CHEQUE READER: waiting overlay. Same shape as the card one: the page's
+         one-second version poll lifts it when the reading ends. -->
+    <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:80; display:flex; justify-content:center; align-items:center;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; align-items:center; gap:20px; padding:32px 44px;">
+        <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">LECTURE DU CHEQUE</div>
+        <div style="color:var(--text-main); font-size:var(--fs-total-xl); font-weight:bold;">{state.payment.pendingChequeAmount} €</div>
+        <div style="color:var(--text-muted); font-size:var(--fs-body);">Insérez le chèque dans l'imprimante</div>
+        <a href="/action/cheque-cancel" class="btn btn-danger" style="width:260px;">ANNULER</a>
+    </div>
+    </div>
+    {/if}
+
     {#if state.payment.pendingCardAmount??}
     <!-- VIRTUAL TPE: waiting overlay -->
-    <div style="position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.92); z-index:80; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:20px;">
-        <div style="color:var(--warning); font-size:1.6rem; font-weight:bold; letter-spacing:1px;">PAIEMENT CARTE EN COURS</div>
-        <div style="color:var(--text-main); font-size:2.6rem; font-weight:bold;">{state.payment.pendingCardAmount} €</div>
-        <div style="color:var(--text-muted); font-size:1rem;">Suivez les instructions du terminal de paiement</div>
+    <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:80; display:flex; justify-content:center; align-items:center;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; align-items:center; gap:20px; padding:32px 44px;">
+        <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">PAIEMENT CARTE EN COURS</div>
+        <div style="color:var(--text-main); font-size:var(--fs-total-xl); font-weight:bold;">{state.payment.pendingCardAmount} €</div>
+        <div style="color:var(--text-muted); font-size:var(--fs-body);">Suivez les instructions du terminal de paiement</div>
         <a href="/action/card-cancel" class="btn btn-danger" style="width:260px;">ANNULER</a>
+    </div>
+    </div>
+    {/if}
+
+    {#if state.payment.backupPanelOpen}
+    {!
+     ! BACKUP MONETICS (LC-07-07-06/09), as a POPUP. The square on the left is the
+     ! request the handheld reads; the field on the right takes the answer back.
+     ! Two machines that never talk, meeting on two printed codes.
+    !}
+    <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+        <div class="pos-title" style="text-align:center;">SECOURS MONÉTIQUE</div>
+
+        {#if state.payment.backupError??}
+        <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.backupError}</div>
+        {/if}
+
+        {#if state.payment.backupRequestSvg??}
+        <div style="display:flex; gap:16px; align-items:flex-start;">
+            <div style="width:230px; display:flex; flex-direction:column; gap:6px; align-items:center;">
+                <div style="width:210px; height:210px; background:#FFFFFF; padding:4px; border-radius:4px;">
+                    {state.payment.backupRequestSvg.raw}
+                </div>
+                <div class="pos-row-sub">Scannez ce code sur le terminal mobile</div>
+                <div class="pos-total">{state.remainingFormatted} €</div>
+            </div>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:8px;">
+                {#if state.payment.backupManualEntry}
+                {! LC-07-07-09: no 2D scanner, so the operator confirms the amount the
+                 ! handheld accepted — a partial authorization is exactly why it is
+                 ! typed rather than assumed. !}
+                <form action="/action/pay-backup" method="POST" id="backupAmountForm"
+                      style="display:flex; flex-direction:column; gap:6px;">
+                    <div class="pos-label">Montant accepté par le terminal</div>
+                    <input type="text" id="backupAmountDisplay" class="sub-display" value="0,00" readonly>
+                    <input type="hidden" name="amount" id="backupAmountValue" value="0">
+                    {#if backupEndorsement}
+                    <input type="text" name="login" class="sub-display" placeholder="Identifiant superviseur" autocomplete="off">
+                    <input type="password" name="password" class="sub-display" placeholder="Mot de passe" autocomplete="off">
+                    {/if}
+                    <div id="backupKeypad" class="pos-kb-compact"></div>
+                    <button type="submit" class="btn btn-success">VALIDER LE PAIEMENT</button>
+                </form>
+                {#else}
+                <form action="/action/backup-scan" method="POST" style="display:flex; flex-direction:column; gap:8px;">
+                    <div class="pos-label">Code de retour du terminal mobile</div>
+                    <input type="text" name="payload" class="sub-display" placeholder="Scannez le code de retour" autocomplete="off" autofocus>
+                    <button type="submit" class="btn btn-success">VALIDER LE RETOUR</button>
+                </form>
+                <form action="/action/backup-manual" method="POST">
+                    <button type="submit" class="btn btn-muted" style="width:100%;">SAISIE MANUELLE</button>
+                </form>
+                {/if}
+            </div>
+        </div>
+        {/if}
+
+        <form action="/action/backup-cancel" method="POST">
+            <button type="submit" class="btn btn-danger" style="width:100%;">ABANDONNER</button>
+        </form>
+      </div>
+    </div>
+    {/if}
+
+    {#if state.payment.currencyPanelOpen}
+    {!
+     ! FOREIGN CURRENCY (LC-07-14), as a POPUP over the payment screen. The rate
+     ! and the amount due in the chosen currency are shown BEFORE anything is
+     ! validated: a customer holding foreign notes is deciding how many to hand
+     ! over, and the register is the only thing in the shop that can tell them.
+    !}
+    <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+        <div class="pos-title" style="text-align:center;">PAIEMENT EN DEVISE</div>
+
+        {#if state.payment.currencyError??}
+        <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.currencyError}</div>
+        {/if}
+
+        {#if state.payment.selectedCurrency??}
+        <div style="display:flex; gap:16px; align-items:flex-start;">
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;">
+                <div class="pos-section">{state.payment.selectedCurrency.label}</div>
+                <div class="pos-row-sub">1 {state.payment.selectedCurrency.displayUnit} = {state.payment.selectedCurrency.euroPerUnit} €</div>
+                <div class="pos-row-sub" style="margin-top:8px;">Reste à payer {state.remainingFormatted} €</div>
+                <div class="pos-row-sub" style="color:var(--success); font-weight:bold;">
+                    soit {state.payment.selectedCurrency.fromEuro(state.remaining)} {state.payment.selectedCurrency.displayUnit}
+                </div>
+                <form action="/action/currency-open" method="POST" style="margin-top:8px;">
+                    <button type="submit" class="btn btn-sm btn-muted" style="width:100%;">CHANGER DE DEVISE</button>
+                </form>
+            </div>
+            <form action="/action/pay-currency" method="POST" id="currencyAmountForm"
+                  style="width:300px; display:flex; flex-direction:column; gap:6px;">
+                <div class="pos-label">Montant remis en {state.payment.selectedCurrency.displayUnit}</div>
+                <input type="text" id="currencyAmountDisplay" class="sub-display" value="0,00" readonly>
+                <input type="hidden" name="amount" id="currencyAmountValue" value="0">
+                <div id="currencyKeypad" class="pos-kb-compact"></div>
+                <button type="submit" class="btn btn-success">VALIDER</button>
+            </form>
+        </div>
+        {#else}
+        {! LC-07-14-04: the rate is readable BEFORE the currency is even chosen. !}
+        <div class="pos-list">
+            {#for cur in currencies}
+            <form action="/action/currency-select" method="POST">
+                <input type="hidden" name="code" value="{cur.code}">
+                <button type="submit" class="pos-row" style="width:100%; text-align:left;">
+                    <span>{cur.label} ({cur.code})</span>
+                    <span class="pos-row-sub">1 {cur.displayUnit} = {cur.euroPerUnit} € — reste {cur.fromEuro(state.remaining)} {cur.displayUnit}</span>
+                </button>
+            </form>
+            {/for}
+        </div>
+        {/if}
+
+        <form action="/action/currency-cancel" method="POST">
+            <button type="submit" class="btn btn-danger" style="width:100%;">FERMER</button>
+        </form>
+      </div>
+    </div>
+    {/if}
+
+    {#if state.payment.creditPanelOpen}
+    {!
+     ! CUSTOMER CREDIT (LC-07-09), as a POPUP over the payment screen: the sale
+     ! stays visible behind the glass because the amount still due is what the
+     ! operator is deciding against. Three states, never two at once — naming the
+     ! account, charging it, and asking a supervisor to pass the ceiling.
+    !}
+    <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+        <div class="pos-title" style="text-align:center;">CRÉDIT CLIENT</div>
+
+        {#if state.payment.creditError??}
+        <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.creditError}</div>
+        {/if}
+
+        {#if state.payment.creditOverLimitPending}
+        {! LC-07-09-04: the ceiling may be passed, by a supervisor, and what moves
+         ! is the balance — the ceiling itself is the back office's decision. !}
+        <div class="pos-section" style="text-align:center;">AUTORISATION SUPERVISEUR</div>
+        <div class="pos-row-sub" style="text-align:center;">
+            {state.payment.creditCustomer.companyName} — compte {state.payment.creditCustomer.accountNumber}
+        </div>
+        <div class="pos-total" style="text-align:center;">{state.payment.creditPendingAmount} €</div>
+        <form action="/action/credit-authorize" method="POST" id="creditAuthForm"
+              style="display:flex; flex-direction:column; gap:8px;">
+            <input type="text" name="login" id="creditLoginDisplay" class="sub-display" placeholder="Identifiant" autocomplete="off">
+            <input type="password" name="password" id="creditPasswordDisplay" class="sub-display" placeholder="Mot de passe" autocomplete="off">
+            <button type="submit" class="btn btn-success">AUTORISER LE DÉPASSEMENT</button>
+        </form>
+        <form action="/action/credit-authorize-cancel" method="POST">
+            <button type="submit" class="btn btn-muted" style="width:100%;">SAISIR UN AUTRE MONTANT</button>
+        </form>
+
+        {#else if state.payment.creditCustomer}
+        {! The account is named. Identity on the left, amount on the right: the
+         ! terminal is 600px tall and a stacked layout with a keypad under it does
+         ! not fit — the popup would run off the screen it is drawn over. !}
+        <div style="display:flex; gap:16px; align-items:flex-start;">
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;">
+                <div class="pos-section">{state.payment.creditCustomer.companyName}</div>
+                <div class="pos-row-sub">Compte {state.payment.creditCustomer.accountNumber}</div>
+                {#if state.payment.creditCustomer.address??}
+                <div class="pos-row-sub">{state.payment.creditCustomer.address.streetLine1 ?: ''}</div>
+                <div class="pos-row-sub">{state.payment.creditCustomer.address.postalCode ?: ''} {state.payment.creditCustomer.address.city ?: ''}</div>
+                {/if}
+                {#if state.payment.creditCustomer.creditAllowed}
+                <div class="pos-row-sub" style="margin-top:8px;">Encours {state.payment.creditCustomer.creditBalance} €</div>
+                <div class="pos-row-sub">Plafond {state.payment.creditCustomer.creditLimit} €</div>
+                <div class="pos-row-sub" style="color:var(--success); font-weight:bold;">Disponible {state.payment.creditCustomer.creditAvailable} €</div>
+                {/if}
+                <form action="/action/credit-open" method="POST" style="margin-top:8px;">
+                    <button type="submit" class="btn btn-sm btn-muted" style="width:100%;">CHANGER DE COMPTE</button>
+                </form>
+            </div>
+            {#if state.payment.creditCustomer.creditAllowed}
+            <form action="/action/pay-credit" method="POST" id="creditAmountForm"
+                  style="width:300px; display:flex; flex-direction:column; gap:6px;">
+                <div class="pos-label">Montant à porter au compte</div>
+                <input type="text" id="creditAmountDisplay" class="sub-display" value="0,00" readonly>
+                <input type="hidden" name="amount" id="creditAmountValue" value="0">
+                <div id="creditKeypad" class="pos-kb-compact"></div>
+                <button type="submit" class="btn btn-success">PORTER AU COMPTE</button>
+            </form>
+            {/if}
+        </div>
+
+        {#else}
+        {! LC-07-09-02 and -07: by number when it is known, by name when it is not. !}
+        <form action="/action/credit-number" method="POST" style="display:flex; gap:8px;">
+            <input type="text" name="number" class="sub-display" style="flex:1;" placeholder="N° de compte" autocomplete="off">
+            <button type="submit" class="btn btn-primary" style="width:150px;">VALIDER</button>
+        </form>
+        <form action="/action/credit-search" method="POST" style="display:flex; gap:8px;">
+            <input type="text" name="search" class="sub-display" style="flex:1;" placeholder="Nom du client" value="{state.payment.creditSearch}" autocomplete="off">
+            <button type="submit" class="btn btn-primary" style="width:150px;">RECHERCHER</button>
+        </form>
+        {#if state.payment.creditSearchWithoutMatch}
+        <div class="pos-list-empty">AUCUN COMPTE POUR CETTE RECHERCHE</div>
+        {#else}
+        <div class="pos-list">
+            {#for c in state.payment.visibleCreditCustomers}
+            <form action="/action/credit-select" method="POST">
+                <input type="hidden" name="customerId" value="{c.id}">
+                <button type="submit" class="pos-row" style="width:100%; text-align:left;">
+                    <span>{c.companyName} — {c.accountNumber}</span>
+                    {#if c.address??}
+                    <span class="pos-row-sub">{c.address.streetLine1 ?: ''} {c.address.postalCode ?: ''} {c.address.city ?: ''}</span>
+                    {/if}
+                </button>
+            </form>
+            {/for}
+        </div>
+        {/if}
+        {/if}
+
+        <form action="/action/credit-cancel" method="POST">
+            <button type="submit" class="btn btn-danger" style="width:100%;">FERMER</button>
+        </form>
+      </div>
     </div>
     {/if}
 
@@ -389,6 +686,9 @@
     setInterval(pollPaymentState, 1000);
 
     const remainingDefault = "{state.remainingNumpad}";
+    /* LC-07-03-01: the cash pad opens on what the customer actually hands over,
+       which is the rounded remainder where the shop rounds. */
+    const cashDefault = "{state.cashRoundedRemainingNumpad}";
 
     function openInput(mode) {
         const noSelectionDiv = document.getElementById('payNoSelection');
@@ -419,6 +719,11 @@
 
         if (mode === 'card' || mode === 'cheque' || mode === 'fid') {
             PosInput.buffer = remainingDefault;
+            PosInput.updateDisplay();
+        } else if (mode === 'cash') {
+            // LC-07-03-01: the cash pad opens on the ROUNDED remainder — the exact
+            // sum the customer can physically hand over.
+            PosInput.buffer = cashDefault;
             PosInput.updateDisplay();
         } else {
             PosInput.clear();
@@ -483,6 +788,75 @@
             });
             PosInput.clear();
         }
+    })();
+
+    /*
+     * Customer-credit popup (LC-07-09): the amount pad lives INSIDE the popup and
+     * not in the payment screen's numpad zone, which is behind the glass and out of
+     * reach. PosInput wires one input at a time, so this binding runs last and takes
+     * the buffer for as long as the popup is up — exactly what is wanted, since
+     * nothing else on the page is reachable while it is.
+     */
+    /*
+     * Backup-monetics popup (LC-07-07-09): the manual pad, when the till's scanner
+     * cannot read the handheld's answer. Nothing is prefilled — a partial
+     * authorization is precisely the case this exists for.
+     */
+    (function () {
+        const backupForm = document.getElementById('backupAmountForm');
+        if (!backupForm) return;
+        PosInput.setup({
+            displayId: 'backupAmountDisplay',
+            hiddenId: 'backupAmountValue',
+            containerId: 'backupKeypad',
+            keyboardType: 'payment',
+            mode: 'payment',
+            placeholder: "0,00",
+            maxLength: 10
+        });
+        PosInput.clear();
+    })();
+
+    /*
+     * Foreign-currency popup (LC-07-14): same reasoning as the credit pad — the
+     * payment screen's numpad zone is behind the glass and out of reach, so the pad
+     * lives inside the popup. Nothing is prefilled here: the customer decides how
+     * many notes to hand over, and the register has no business guessing.
+     */
+    (function () {
+        const currencyForm = document.getElementById('currencyAmountForm');
+        if (!currencyForm) return;
+        PosInput.setup({
+            displayId: 'currencyAmountDisplay',
+            hiddenId: 'currencyAmountValue',
+            containerId: 'currencyKeypad',
+            keyboardType: 'payment',
+            mode: 'payment',
+            placeholder: "0,00",
+            maxLength: 10,
+            onEnter: () => { currencyForm.submit(); }
+        });
+        PosInput.clear();
+    })();
+
+    (function () {
+        const amountForm = document.getElementById('creditAmountForm');
+        if (!amountForm) return;
+        PosInput.setup({
+            displayId: 'creditAmountDisplay',
+            hiddenId: 'creditAmountValue',
+            containerId: 'creditKeypad',
+            keyboardType: 'payment',
+            mode: 'payment',
+            placeholder: "0,00",
+            maxLength: 10,
+            onEnter: () => { amountForm.submit(); }
+        });
+        // Prefilled with what is still due: charging the whole remainder to the
+        // account is the ordinary case, and a partial credit settlement is the
+        // exception the operator types over it.
+        PosInput.buffer = remainingDefault;
+        PosInput.updateDisplay();
     })();
 </script>
 

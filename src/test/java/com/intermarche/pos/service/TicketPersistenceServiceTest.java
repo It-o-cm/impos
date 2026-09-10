@@ -337,6 +337,44 @@ class TicketPersistenceServiceTest {
     }
 
     /**
+     * The reduction ban (BO-02-03-09) is carried from each in-memory line onto
+     * its persisted line, both arms, so the ban survives a restart instead of
+     * being lost with the in-memory cart.
+     */
+    @Test
+    void syncDraftMapsTheReductionBanOntoEachLine() {
+        TicketPersistenceService service = newService();
+        PosState state = new PosState();
+        state.auth.operatorId = 99L;
+        state.fidelity.active = false;
+        TicketState.TicketItem banned = addItem(state, "B1", null, null, "3.00", "1", null);
+        banned.discountForbidden = true;
+        TicketState.TicketItem plain = addItem(state, "P1", null, null, "2.00", "1", null);
+        plain.discountForbidden = false;
+        Store store = mock(Store.class);
+        Employee cashier = mock(Employee.class);
+        CashSession session = mock(CashSession.class);
+        when(service.ticketNumberService.nextTicketNumber()).thenReturn("C04-00000001");
+        when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
+        when(service.cashSessionService.getOpenSession()).thenReturn(session);
+        PanacheQuery<Store> storeQuery = queryReturning(store);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Ticket> created = mockConstruction(Ticket.class, (mock, ctx) -> {
+                    mock.id = 100L;
+                    mock.lines = new ArrayList<>();
+                })) {
+            mocked.when(Store::findAll).thenReturn(storeQuery);
+            mocked.when(() -> Employee.findById(99L)).thenReturn(cashier);
+            service.syncDraft(state);
+            Ticket ticket = created.constructed().get(0);
+            ArgumentCaptor<TicketLine> lineCaptor = ArgumentCaptor.forClass(TicketLine.class);
+            verify(ticket, times(2)).addLine(lineCaptor.capture());
+            assertTrue(lineCaptor.getAllValues().get(0).discountForbidden);
+            assertFalse(lineCaptor.getAllValues().get(1).discountForbidden);
+        }
+    }
+
+    /**
      * The nomenclature snapshot (BO-04-01-11) is captured on each persisted
      * line at creation: a product with a direct family carries its code and
      * label, a product attached to no family (family query resolves null) and
