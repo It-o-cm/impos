@@ -257,6 +257,20 @@ class FidelityStateTest {
     }
 
     /**
+     * {@code getDisplaySummary} shows the upper-cased holder alone when the
+     * first name is null (first-name-null arm of the compound guard), the card
+     * following the middle-dot separator.
+     */
+    @Test
+    void displaySummaryShowsHolderWithoutFirstName() {
+        FidelityState fid = new FidelityState();
+        fid.assignCard("2990000000019");
+        fid.holderLastName = "Dupont";
+        fid.holderFirstName = null;
+        assertEquals("DUPONT · 2990000000019", fid.getDisplaySummary());
+    }
+
+    /**
      * {@code getDisplaySummary} appends the French-formatted available balance
      * when known (balance-non-null arm).
      */
@@ -266,5 +280,216 @@ class FidelityStateTest {
         fid.assignCard("2990000000019");
         fid.availableBalance = new BigDecimal("12.5");
         assertEquals("2990000000019 · 12,50 €", fid.getDisplaySummary());
+    }
+
+    /**
+     * Builds a lookup view carrying {@code count} matches, each tagged with a
+     * distinct card number so page slices can be identified by their first
+     * element — the fixture behind every pagination test.
+     *
+     * @param count the number of matches to seed
+     * @return a lookup view with a populated match list
+     */
+    private FidelityService.LookupView viewWithMatches(int count) {
+        FidelityService.LookupView view = new FidelityService.LookupView();
+        view.matches = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            ImfidClient.LookupMatch match = new ImfidClient.LookupMatch();
+            match.card = "CARD-" + i;
+            view.matches.add(match);
+        }
+        return view;
+    }
+
+    /**
+     * {@code getVisibleMatches} returns an empty list when no lookup ran
+     * (first leg of the null guard: {@code lastLookup == null}).
+     */
+    @Test
+    void visibleMatchesEmptyWhenNoLookup() {
+        FidelityState fid = new FidelityState();
+        assertTrue(fid.getVisibleMatches().isEmpty());
+    }
+
+    /**
+     * {@code getVisibleMatches} returns an empty list when a lookup exists but
+     * carries no match list (second leg: {@code lastLookup.matches == null}).
+     */
+    @Test
+    void visibleMatchesEmptyWhenMatchesNull() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = new FidelityService.LookupView();
+        fid.lastLookup.matches = null;
+        assertTrue(fid.getVisibleMatches().isEmpty());
+    }
+
+    /**
+     * {@code getVisibleMatches} returns the current page slice when the page
+     * index is in range (both guard legs false, both clamps not taken): four
+     * matches per page, first slice starts at the head of the list.
+     */
+    @Test
+    void visibleMatchesReturnsCurrentPage() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(5);
+        fid.lastLookupPage = 0;
+        java.util.List<ImfidClient.LookupMatch> page = fid.getVisibleMatches();
+        assertEquals(4, page.size());
+        assertEquals("CARD-0", page.get(0).card);
+        assertEquals(0, fid.lastLookupPage);
+    }
+
+    /**
+     * {@code getVisibleMatches} clamps a page index beyond the last page down
+     * to the maximum page ({@code lastLookupPage > maxPage} arm true): with
+     * five matches the max page is 1, showing the single trailing match.
+     */
+    @Test
+    void visibleMatchesClampsPageBeyondLast() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(5);
+        fid.lastLookupPage = 9;
+        java.util.List<ImfidClient.LookupMatch> page = fid.getVisibleMatches();
+        assertEquals(1, page.size());
+        assertEquals("CARD-4", page.get(0).card);
+        assertEquals(1, fid.lastLookupPage);
+    }
+
+    /**
+     * {@code getVisibleMatches} clamps a negative page index up to zero
+     * ({@code lastLookupPage < 0} arm true, the beyond-last arm false),
+     * returning the first slice.
+     */
+    @Test
+    void visibleMatchesClampsNegativePage() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(5);
+        fid.lastLookupPage = -3;
+        java.util.List<ImfidClient.LookupMatch> page = fid.getVisibleMatches();
+        assertEquals(4, page.size());
+        assertEquals("CARD-0", page.get(0).card);
+        assertEquals(0, fid.lastLookupPage);
+    }
+
+    /**
+     * {@code isHasLookupPrev} is true past the first page (guard arm true).
+     */
+    @Test
+    void hasLookupPrevTrueBeyondFirstPage() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookupPage = 1;
+        assertTrue(fid.isHasLookupPrev());
+    }
+
+    /**
+     * {@code isHasLookupPrev} is false on the first page (guard arm false).
+     */
+    @Test
+    void hasLookupPrevFalseOnFirstPage() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookupPage = 0;
+        assertFalse(fid.isHasLookupPrev());
+    }
+
+    /**
+     * {@code isHasLookupNext} is false when no lookup ran (first leg of the
+     * null guard: {@code lastLookup == null}).
+     */
+    @Test
+    void hasLookupNextFalseWhenNoLookup() {
+        FidelityState fid = new FidelityState();
+        assertFalse(fid.isHasLookupNext());
+    }
+
+    /**
+     * {@code isHasLookupNext} is false when the lookup carries no match list
+     * (second leg: {@code lastLookup.matches == null}).
+     */
+    @Test
+    void hasLookupNextFalseWhenMatchesNull() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = new FidelityService.LookupView();
+        fid.lastLookup.matches = null;
+        assertFalse(fid.isHasLookupNext());
+    }
+
+    /**
+     * {@code isHasLookupNext} is true when a further page follows (both guard
+     * legs false, the size comparison arm true): five matches, first page.
+     */
+    @Test
+    void hasLookupNextTrueWhenMorePages() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(5);
+        fid.lastLookupPage = 0;
+        assertTrue(fid.isHasLookupNext());
+    }
+
+    /**
+     * {@code isHasLookupNext} is false on the last page (size comparison arm
+     * false): five matches, second page.
+     */
+    @Test
+    void hasLookupNextFalseOnLastPage() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(5);
+        fid.lastLookupPage = 1;
+        assertFalse(fid.isHasLookupNext());
+    }
+
+    /**
+     * {@code getLookupPageDisplay} returns the 1-based page number for the
+     * pager label.
+     */
+    @Test
+    void lookupPageDisplayIsOneBased() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookupPage = 2;
+        assertEquals(3, fid.getLookupPageDisplay());
+    }
+
+    /**
+     * {@code getLookupPageCount} is one when no lookup ran (first leg of the
+     * guard: {@code lastLookup == null}).
+     */
+    @Test
+    void lookupPageCountIsOneWhenNoLookup() {
+        FidelityState fid = new FidelityState();
+        assertEquals(1, fid.getLookupPageCount());
+    }
+
+    /**
+     * {@code getLookupPageCount} is one when the lookup carries no match list
+     * (second leg: {@code lastLookup.matches == null}).
+     */
+    @Test
+    void lookupPageCountIsOneWhenMatchesNull() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = new FidelityService.LookupView();
+        fid.lastLookup.matches = null;
+        assertEquals(1, fid.getLookupPageCount());
+    }
+
+    /**
+     * {@code getLookupPageCount} is one when the match list is empty (third
+     * leg: {@code lastLookup.matches.isEmpty()}).
+     */
+    @Test
+    void lookupPageCountIsOneWhenMatchesEmpty() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(0);
+        assertEquals(1, fid.getLookupPageCount());
+    }
+
+    /**
+     * {@code getLookupPageCount} counts the pages when matches are present
+     * (all three guard legs false): five matches over a page size of four
+     * span two pages.
+     */
+    @Test
+    void lookupPageCountCountsPages() {
+        FidelityState fid = new FidelityState();
+        fid.lastLookup = viewWithMatches(5);
+        assertEquals(2, fid.getLookupPageCount());
     }
 }
