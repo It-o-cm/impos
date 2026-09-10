@@ -283,4 +283,81 @@ class SyncIngestResourceTest {
         assertEquals(200, response.getStatus());
         assertSame(served, response.getEntity());
     }
+
+    // --------------------------------------------------
+    // ticket duplicata (LC-08-05-05)
+    // --------------------------------------------------
+
+    /**
+     * {@code ticketDuplicate} repeats the role gate inline: a register does not
+     * serve the shop's duplicata (role-check true arm), answering 403 without
+     * touching the service.
+     */
+    @Test
+    void duplicateForbiddenOffRole() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        Response response = resource("register", Optional.empty(), service)
+                .ticketDuplicate("any", "T1");
+        assertEquals(403, response.getStatus());
+        assertEquals("Ce nœud n'a pas le rôle store", response.getEntity());
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * {@code ticketDuplicate} repeats the token gate inline: a configured token
+     * that does not match is a 401 (token non-blank arm, mismatch true arm), and
+     * nothing is rendered.
+     */
+    @Test
+    void duplicateUnauthorizedOnTokenMismatch() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        Response response = resource("store", Optional.of("jeton"), service)
+                .ticketDuplicate("mauvais", "T1");
+        assertEquals(401, response.getStatus());
+        assertEquals("Jeton de synchronisation invalide", response.getEntity());
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * With no token configured the presented one is ignored (token blank arm
+     * short-circuiting the mismatch) and a rendered duplicata is served with 200
+     * (rendered non-null arm).
+     */
+    @Test
+    void duplicateSkipsTheTokenGateWhenNoneIsConfigured() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        when(service.renderTicketDuplicate("T1")).thenReturn("DUPLICATA T1");
+        Response response = resource("store", Optional.empty(), service)
+                .ticketDuplicate("peu importe", "T1");
+        assertEquals(200, response.getStatus());
+        assertEquals("DUPLICATA T1", response.getEntity());
+    }
+
+    /**
+     * A matching token on a store node renders and serves the duplicata with 200
+     * (token non-blank arm, mismatch false arm, rendered non-null arm).
+     */
+    @Test
+    void duplicateServesTheRenderedTicketOnMatchingToken() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        when(service.renderTicketDuplicate("T2")).thenReturn("DUPLICATA T2");
+        Response response = resource("store", Optional.of("jeton"), service)
+                .ticketDuplicate("jeton", "T2");
+        assertEquals(200, response.getStatus());
+        assertEquals("DUPLICATA T2", response.getEntity());
+    }
+
+    /**
+     * A ticket number the shop does not hold renders null and is a 404 carrying
+     * the unknown-ticket message (rendered null arm).
+     */
+    @Test
+    void duplicateNotFoundWhenShopHoldsNoSuchTicket() {
+        SyncIngestService service = mock(SyncIngestService.class);
+        when(service.renderTicketDuplicate("T3")).thenReturn(null);
+        Response response = resource("store", Optional.of("jeton"), service)
+                .ticketDuplicate("jeton", "T3");
+        assertEquals(404, response.getStatus());
+        assertEquals("Ticket inconnu du magasin", response.getEntity());
+    }
 }
