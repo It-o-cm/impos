@@ -515,6 +515,70 @@ class PriceCsvResourceTest {
         }
     }
 
+    /**
+     * {@code processLineLogic} processes a row whose header DECLARES PRICE_USAGE
+     * but whose cell is absent (the {@code usage != null} false arm): a null
+     * usage short-circuits the discriminator so the row is a selling price.
+     */
+    @org.junit.jupiter.api.Test
+    void processLineLogicProcessesRowWhenDeclaredUsageCellIsNull() throws Exception {
+        PriceCsvResource resource = new PriceCsvResource();
+        String[] names = {"EAN", "PRICE_EXCL_TAX", "PRICE_INCL_TAX", "VAT_RATE",
+                "PRIORITY", "START_DATE", "END_DATE", "PRICE_USAGE"};
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) header.put(names[i], i);
+        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, header,
+                new String[]{"111", "1.00", "1.20", "0.2000", "0", "2020-12-31T00:00:00", ""},
+                "EAN");
+        Product product = new Product();
+        product.ean = "111";
+        Map<String, Object> productMap = new HashMap<>();
+        productMap.put("111", product);
+        Map<String, Object> context = new HashMap<>();
+        context.put(ctxProducts(), productMap);
+        context.put(ctxPrices(), new HashMap<String, Price>());
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            assertEquals(1, counters[0]);
+            assertEquals(0, counters[1]);
+        }
+    }
+
+    /**
+     * {@code processLineLogic} processes a row whose declared PRICE_USAGE cell is
+     * empty (the {@code !usage.isEmpty()} false arm): an empty usage short-circuits
+     * the discriminator so the row is treated as a selling price.
+     */
+    @org.junit.jupiter.api.Test
+    void processLineLogicProcessesRowWhenDeclaredUsageCellIsEmpty() throws Exception {
+        PriceCsvResource resource = new PriceCsvResource();
+        String[] names = {"EAN", "PRICE_EXCL_TAX", "PRICE_INCL_TAX", "VAT_RATE",
+                "PRIORITY", "START_DATE", "END_DATE", "PRICE_USAGE"};
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) header.put(names[i], i);
+        ImporterCsvResource.LineData data = new ImporterCsvResource.LineData(2, header,
+                new String[]{"111", "1.00", "1.20", "0.2000", "0", "2020-12-31T00:00:00", "", ""},
+                "EAN");
+        Product product = new Product();
+        product.ean = "111";
+        Map<String, Object> productMap = new HashMap<>();
+        productMap.put("111", product);
+        Map<String, Object> context = new HashMap<>();
+        context.put(ctxProducts(), productMap);
+        context.put(ctxPrices(), new HashMap<String, Price>());
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager em = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(em);
+            resource.processLineLogic(data, context, counters);
+            assertEquals(1, counters[0]);
+            assertEquals(0, counters[1]);
+        }
+    }
+
     /** Header names of the imported feed, in the cell order of the fixtures. */
     private static final String[] TEST_HEADER = {"EAN", "PRICE_EXCL_TAX", "PRICE_INCL_TAX", "VAT_RATE", "PRIORITY", "START_DATE", "END_DATE"};
 
