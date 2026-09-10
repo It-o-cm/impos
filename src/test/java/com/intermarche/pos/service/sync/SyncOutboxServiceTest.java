@@ -474,6 +474,89 @@ class SyncOutboxServiceTest {
     }
 
     /**
+     * Covers the four remaining payment-subtype {@code instanceof} true arms of
+     * the TICKET payment mapping in one graph: a cheque ({@code ChequePayment}
+     * true) carries its magnetic line, a backup ({@code BackupPayment} true)
+     * carries its method label, transaction number and manual flag, a foreign
+     * currency ({@code ForeignCurrencyPayment} true) carries its currency code,
+     * amount and rate, and a credit ({@code CreditPayment} true) carries its
+     * account number, account name and over-limit flag; the payload round-trips
+     * to the expected values.
+     */
+    @Test
+    void prepareTicketSerializesRemainingPaymentTraces() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.TICKET;
+        row.entityId = 100L;
+        Ticket ticket = new Ticket();
+        ticket.ticketNumber = "K4";
+        ticket.terminalId = "T4";
+        ticket.status = Ticket.TicketStatus.CLOSED;
+        ticket.valuationStatus = Ticket.ValuationStatus.VALUATED;
+        ticket.creationDate = LocalDateTime.of(2026, 4, 4, 10, 0, 0);
+        ticket.itemCount = 1;
+        ticket.totalExcludingTax = new BigDecimal("10.00");
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        com.intermarche.pos.domain.ticket.ChequePayment cheque =
+                mock(com.intermarche.pos.domain.ticket.ChequePayment.class);
+        when(cheque.getMethodKey()).thenReturn("CHEQUE");
+        cheque.paymentIndex = 1;
+        cheque.amount = new BigDecimal("3.00");
+        cheque.magneticLine = "CMC7-LINE";
+        com.intermarche.pos.domain.ticket.BackupPayment secours =
+                mock(com.intermarche.pos.domain.ticket.BackupPayment.class);
+        when(secours.getMethodKey()).thenReturn("BACKUP");
+        secours.paymentIndex = 2;
+        secours.amount = new BigDecimal("3.00");
+        secours.methodLabel = "Secours CB";
+        secours.transactionNumber = "TX42";
+        secours.manual = true;
+        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise =
+                mock(com.intermarche.pos.domain.ticket.ForeignCurrencyPayment.class);
+        when(devise.getMethodKey()).thenReturn("DEVISE");
+        devise.paymentIndex = 3;
+        devise.amount = new BigDecimal("3.00");
+        devise.currencyCode = "USD";
+        devise.foreignAmount = new BigDecimal("3.30");
+        devise.exchangeRate = new BigDecimal("1.10");
+        com.intermarche.pos.domain.ticket.CreditPayment credit =
+                mock(com.intermarche.pos.domain.ticket.CreditPayment.class);
+        when(credit.getMethodKey()).thenReturn("CREDIT");
+        credit.paymentIndex = 4;
+        credit.amount = new BigDecimal("3.00");
+        credit.accountNumber = "ACC-1";
+        credit.accountName = "ACME SARL";
+        credit.overLimit = true;
+        ticket.payments.add(cheque);
+        ticket.payments.add(secours);
+        ticket.payments.add(devise);
+        ticket.payments.add(credit);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> Ticket.findById(100L)).thenReturn(ticket);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            SyncPayloads.TicketDto out = new ObjectMapper().readValue(item.json, SyncPayloads.TicketDto.class);
+            assertEquals(4, out.payments.size());
+            assertEquals("CHEQUE", out.payments.get(0).methodKey);
+            assertEquals("CMC7-LINE", out.payments.get(0).magneticLine);
+            assertEquals("BACKUP", out.payments.get(1).methodKey);
+            assertEquals("Secours CB", out.payments.get(1).backupMethodLabel);
+            assertEquals("TX42", out.payments.get(1).backupTransaction);
+            assertTrue(out.payments.get(1).backupManual);
+            assertEquals("DEVISE", out.payments.get(2).methodKey);
+            assertEquals("USD", out.payments.get(2).currencyCode);
+            assertEquals(new BigDecimal("3.30"), out.payments.get(2).currencyAmount);
+            assertEquals(new BigDecimal("1.10"), out.payments.get(2).currencyRate);
+            assertEquals("CREDIT", out.payments.get(3).methodKey);
+            assertEquals("ACC-1", out.payments.get(3).creditAccountNumber);
+            assertEquals("ACME SARL", out.payments.get(3).creditAccountName);
+            assertTrue(out.payments.get(3).creditOverLimit);
+        }
+    }
+
+    /**
      * Covers the TICKET case of {@code prepare} with a lean graph: store,
      * cashier and session ternary false arms, empty line and payment loops, and
      * the {@code iso} null arm for the closing date.
@@ -688,6 +771,102 @@ class SyncOutboxServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
             mocked.when(() -> TechnicalEvent.findById(100L)).thenReturn(null);
+            assertNull(service.prepare(1L));
+        }
+    }
+
+    /**
+     * Covers the CUSTOMER case of {@code prepare} with a full graph
+     * (LC-08-04-09): the switch CUSTOMER arm, the customer-present ternary true
+     * arm and the address-present null-guard true arm; the payload is serialized
+     * to the {@code customer} path and round-trips to the expected values,
+     * including the address fields.
+     */
+    @Test
+    void prepareCustomerSerializesFullGraph() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.CUSTOMER;
+        row.entityId = 400L;
+        com.intermarche.pos.domain.AccountCustomer customer =
+                new com.intermarche.pos.domain.AccountCustomer();
+        customer.accountNumber = "AC1";
+        customer.companyName = "ACME SARL";
+        customer.lastName = "Doe";
+        customer.firstName = "John";
+        com.intermarche.pos.domain.Address address = new com.intermarche.pos.domain.Address();
+        address.streetLine1 = "1 rue de la Paix";
+        address.postalCode = "75002";
+        address.city = "Paris";
+        customer.address = address;
+        customer.siret = "12345678900011";
+        customer.vatNumber = "FR12345678900";
+        customer.phone = "0102030405";
+        customer.email = "contact@acme.example";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.findById(400L)).thenReturn(customer);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            assertEquals("customer", item.pathSuffix);
+            SyncPayloads.CustomerDto out =
+                    new ObjectMapper().readValue(item.json, SyncPayloads.CustomerDto.class);
+            assertEquals("AC1", out.accountNumber);
+            assertEquals("ACME SARL", out.companyName);
+            assertEquals("Doe", out.lastName);
+            assertEquals("John", out.firstName);
+            assertEquals("1 rue de la Paix", out.street);
+            assertEquals("75002", out.postalCode);
+            assertEquals("Paris", out.city);
+            assertEquals("12345678900011", out.siret);
+            assertEquals("FR12345678900", out.vatNumber);
+            assertEquals("0102030405", out.phone);
+            assertEquals("contact@acme.example", out.email);
+        }
+    }
+
+    /**
+     * Covers the CUSTOMER case of {@code prepare} with a null address: the
+     * address-present null-guard false arm leaves the street, postal code and
+     * city null in the payload.
+     */
+    @Test
+    void prepareCustomerSerializesWithoutAddress() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.CUSTOMER;
+        row.entityId = 400L;
+        com.intermarche.pos.domain.AccountCustomer customer =
+                new com.intermarche.pos.domain.AccountCustomer();
+        customer.accountNumber = "AC2";
+        customer.companyName = "SOLO SARL";
+        customer.address = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.findById(400L)).thenReturn(customer);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            SyncPayloads.CustomerDto out =
+                    new ObjectMapper().readValue(item.json, SyncPayloads.CustomerDto.class);
+            assertEquals("AC2", out.accountNumber);
+            assertEquals("SOLO SARL", out.companyName);
+            assertNull(out.street);
+            assertNull(out.postalCode);
+            assertNull(out.city);
+        }
+    }
+
+    /**
+     * Covers the entity-gone arm of the CUSTOMER case (the customer-present
+     * ternary false arm): a vanished customer yields null.
+     */
+    @Test
+    void prepareCustomerReturnsNullWhenCustomerGone() {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.CUSTOMER;
+        row.entityId = 400L;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.findById(400L)).thenReturn(null);
             assertNull(service.prepare(1L));
         }
     }
