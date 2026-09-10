@@ -282,4 +282,22 @@ class DegradedModePaymentTerminalClientTest {
         verify(autoAccept).requestCredit(eq(amount), any(TerminalTransactionCallback.class));
         verifyNoInteractions(configured);
     }
+
+    /**
+     * With no register state wired at all, the operator-forcing leg is guarded
+     * by the null check ({@code state != null} false arm): the shop-wide
+     * parameter alone decides, so with it off the request reaches the
+     * configured terminal and the forcing source is never consulted.
+     */
+    @Test
+    void requestDebitReachesConfiguredWhenStateIsNull() {
+        when(posSettingsService.paymentDegradedMode()).thenReturn(false);
+        DegradedModePaymentTerminalClient statelessGate =
+                new DegradedModePaymentTerminalClient(configured, autoAccept, posSettingsService, null);
+        BigDecimal amount = new BigDecimal("10.00");
+        TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
+        statelessGate.requestDebit(amount, callback);
+        verify(configured).requestDebit(amount, callback);
+        verifyNoInteractions(autoAccept);
+    }
 }
