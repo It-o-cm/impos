@@ -449,4 +449,62 @@ class CashSessionServiceTest {
                     org.mockito.ArgumentMatchers.anyString());
         }
     }
+
+    /**
+     * Covers the non-null arm of the {@code money} ternary through every
+     * amount formatter of {@link CashSessionService.SessionReport}: a present
+     * value is scaled to two decimals with HALF_UP rounding and rendered with a
+     * French decimal comma.
+     */
+    @Test
+    void sessionReportFormattersRenderPresentAmounts() {
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.totalIncludingTax = new BigDecimal("12.5");
+        report.theoreticalCash = new BigDecimal("100.005");
+        report.totalRefunds = new BigDecimal("7.899");
+        report.netCashMovements = new BigDecimal("-3.20");
+        assertEquals("12,50", report.getTotalIncludingTaxFormatted());
+        assertEquals("100,01", report.getTheoreticalCashFormatted());
+        assertEquals("7,90", report.getTotalRefundsFormatted());
+        assertEquals("-3,20", report.getNetCashMovementsFormatted());
+    }
+
+    /**
+     * Covers the null arm of the {@code money} ternary: a null amount is
+     * tolerated and rendered as the zero baseline instead of throwing.
+     */
+    @Test
+    void sessionReportFormatterToleratesNullAmount() {
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.totalIncludingTax = null;
+        assertEquals("0,00", report.getTotalIncludingTaxFormatted());
+    }
+
+    /**
+     * Covers the loop-not-entered arm of {@code getMethodRows}: an empty
+     * per-method map yields an empty, non-null settlement-row list.
+     */
+    @Test
+    void sessionReportMethodRowsEmptyWhenNoMethod() {
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        assertTrue(report.getMethodRows().isEmpty());
+    }
+
+    /**
+     * Covers the loop-entered arm of {@code getMethodRows}: the settlement rows
+     * are produced in first-seen (insertion) order, each carrying the method key
+     * and its French-formatted total.
+     */
+    @Test
+    void sessionReportMethodRowsPreserveOrderAndFormat() {
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.totalsByMethod.put("CASH", new BigDecimal("20.5"));
+        report.totalsByMethod.put("CARD", new BigDecimal("10"));
+        List<CashSessionService.SessionReport.MethodRow> rows = report.getMethodRows();
+        assertEquals(2, rows.size());
+        assertEquals("CASH", rows.get(0).method());
+        assertEquals("20,50", rows.get(0).amountFormatted());
+        assertEquals("CARD", rows.get(1).method());
+        assertEquals("10,00", rows.get(1).amountFormatted());
+    }
 }
