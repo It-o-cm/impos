@@ -1,7 +1,10 @@
 package com.intermarche.pos.service.sync;
 
+import com.intermarche.pos.domain.AccountCustomer;
+import com.intermarche.pos.domain.Address;
 import com.intermarche.pos.domain.CouponType;
 import com.intermarche.pos.domain.Country;
+import com.intermarche.pos.domain.Currency;
 import com.intermarche.pos.domain.EchelonLevel;
 import com.intermarche.pos.domain.EchelonSetting;
 import com.intermarche.pos.domain.Employee;
@@ -199,6 +202,31 @@ class RefApplyServiceTest {
             service.applyFamilies(List.of(child, parent));
             assertTrue(parentRow.productFamilies.contains(childRow));
             assertFalse(parentRow.productFamilies.contains(stale));
+        }
+    }
+
+    /**
+     * Covers the missed {@code parent == null} arm of {@code applyFamilies}
+     * (line 102): a child declares a parent code that is not part of the
+     * snapshot, so {@code byCode.get(parentCode)} resolves to null and the row
+     * is simply not wired into any parent — no NullPointerException, no edge.
+     */
+    @Test
+    void applyFamiliesSkipsWiringWhenParentIsUnknown() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.FamilyDto child = new RefPayloads.FamilyDto();
+        child.code = "CHILD";
+        child.parentCodes = List.of("GHOST");
+        ProductFamily childRow = mock(ProductFamily.class);
+        childRow.productFamilies = new java.util.HashSet<>();
+        childRow.products = new java.util.HashSet<>();
+        PanacheQuery<ProductFamily> childQuery = queryReturning(childRow);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.find("code", "CHILD")).thenReturn(childQuery);
+            service.applyFamilies(List.of(child));
+            assertTrue(childRow.productFamilies.isEmpty());
+            assertTrue(childRow.products.isEmpty());
+            verify(childRow, times(2)).persist();
         }
     }
 
@@ -831,6 +859,153 @@ class RefApplyServiceTest {
             assertNull(second.effectiveDate);
             verify(second, times(1)).persist();
             verify(service.posSettingsService, times(1)).invalidate();
+        }
+    }
+
+    // --------------------------------------------------
+    // applyCurrencies
+    // --------------------------------------------------
+
+    /**
+     * Covers every arm of {@code applyCurrencies} and, through it, every arm of
+     * the shared {@code amount} helper: an inserted currency with a readable
+     * rate (currency-null true arm, rate-non-null ternary arm, amount
+     * null-false + blank-false arms), an updated currency with a null rate
+     * (currency-null false arm, rate-null ternary arm defaulting to ONE, amount
+     * null-true arm), an inserted currency with a blank rate (amount blank-true
+     * arm) and one with an unparsable rate (amount catch), then the three
+     * deactivation arms — a seen currency untouched (seen-contains arm), an
+     * absent active currency deactivated (absent + active arms) and an absent
+     * inactive currency untouched (absent + inactive arm).
+     */
+    @Test
+    void applyCurrenciesInsertsUpdatesDefaultsRateAndDeactivates() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CurrencyDto insert = currencyDto("USD", "0.9");
+        RefPayloads.CurrencyDto update = currencyDto("GBP", null);
+        RefPayloads.CurrencyDto blank = currencyDto("CHF", "   ");
+        RefPayloads.CurrencyDto invalid = currencyDto("JPY", "abc");
+        Currency existing = mock(Currency.class);
+        Currency seen = mock(Currency.class);
+        seen.code = "USD";
+        seen.active = true;
+        Currency absentActive = mock(Currency.class);
+        absentActive.code = "OLD";
+        absentActive.active = true;
+        Currency absentInactive = mock(Currency.class);
+        absentInactive.code = "DEAD";
+        absentInactive.active = false;
+        PanacheQuery<Currency> absentQuery = queryReturning(null);
+        PanacheQuery<Currency> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<Currency> created = mockConstruction(Currency.class)) {
+            mocked.when(() -> Currency.find("code", "USD")).thenReturn(absentQuery);
+            mocked.when(() -> Currency.find("code", "GBP")).thenReturn(existingQuery);
+            mocked.when(() -> Currency.find("code", "CHF")).thenReturn(absentQuery);
+            mocked.when(() -> Currency.find("code", "JPY")).thenReturn(absentQuery);
+            mocked.when(Currency::listAll).thenReturn(List.of(seen, absentActive, absentInactive));
+            service.applyCurrencies(List.of(insert, update, blank, invalid));
+            assertEquals(3, created.constructed().size());
+            Currency usd = created.constructed().get(0);
+            assertEquals("USD", usd.code);
+            assertEquals(new BigDecimal("0.9"), usd.euroPerUnit);
+            verify(usd, times(1)).persist();
+            assertEquals(BigDecimal.ONE, existing.euroPerUnit);
+            verify(existing, times(1)).persist();
+            Currency chf = created.constructed().get(1);
+            assertEquals(BigDecimal.ONE, chf.euroPerUnit);
+            Currency jpy = created.constructed().get(2);
+            assertEquals(BigDecimal.ONE, jpy.euroPerUnit);
+            assertTrue(seen.active);
+            verify(seen, never()).persist();
+            assertFalse(absentActive.active);
+            verify(absentActive, times(1)).persist();
+            assertFalse(absentInactive.active);
+            verify(absentInactive, never()).persist();
+        }
+    }
+
+    /**
+     * Builds a currency payload.
+     *
+     * @param code the ISO code
+     * @param euroPerUnit the rate as text, possibly null or blank
+     * @return the payload
+     */
+    private RefPayloads.CurrencyDto currencyDto(String code, String euroPerUnit) {
+        RefPayloads.CurrencyDto dto = new RefPayloads.CurrencyDto();
+        dto.code = code;
+        dto.label = code + " label";
+        dto.symbol = code;
+        dto.euroPerUnit = euroPerUnit;
+        dto.active = true;
+        dto.displayOrder = 1;
+        return dto;
+    }
+
+    // --------------------------------------------------
+    // applyCustomers
+    // --------------------------------------------------
+
+    /**
+     * Covers every arm of {@code applyCustomers}: an inserted customer
+     * (customer-null true arm) whose constructed mock has a null address so a
+     * fresh one is created (address-null true arm) and whose balance is
+     * readable (balance-null false ternary arm), and an updated customer
+     * (customer-null false arm) that already carries an address (address-null
+     * false arm) and whose null balance defaults to zero (balance-null true
+     * ternary arm). Nothing is deactivated for absent customers — a customer
+     * opened at the till must survive the next pull.
+     */
+    @Test
+    void applyCustomersInsertsUpdatesCreatesAddressAndDefaultsBalance() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CustomerDto insert = new RefPayloads.CustomerDto();
+        insert.accountNumber = "ACC1";
+        insert.companyName = "Alpha SARL";
+        insert.lastName = "Martin";
+        insert.firstName = "Alice";
+        insert.street = "1 rue A";
+        insert.postalCode = "69001";
+        insert.city = "Lyon";
+        insert.siret = "SIRET1";
+        insert.vatNumber = "FR1";
+        insert.phone = "0400000000";
+        insert.email = "alpha@x.fr";
+        insert.creditLimit = "100.00";
+        insert.creditBalance = "10.50";
+        RefPayloads.CustomerDto update = new RefPayloads.CustomerDto();
+        update.accountNumber = "ACC2";
+        update.companyName = "Beta SA";
+        update.street = "2 rue B";
+        update.postalCode = "75002";
+        update.city = "Paris";
+        update.creditLimit = "   ";
+        update.creditBalance = null;
+        AccountCustomer existing = mock(AccountCustomer.class);
+        existing.address = new Address();
+        PanacheQuery<AccountCustomer> absentQuery = queryReturning(null);
+        PanacheQuery<AccountCustomer> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<AccountCustomer> created = mockConstruction(AccountCustomer.class)) {
+            mocked.when(() -> AccountCustomer.find("accountNumber", "ACC1")).thenReturn(absentQuery);
+            mocked.when(() -> AccountCustomer.find("accountNumber", "ACC2")).thenReturn(existingQuery);
+            service.applyCustomers(List.of(insert, update));
+            assertEquals(1, created.constructed().size());
+            AccountCustomer inserted = created.constructed().get(0);
+            assertEquals("ACC1", inserted.accountNumber);
+            assertEquals("Alpha SARL", inserted.companyName);
+            assertEquals("1 rue A", inserted.address.streetLine1);
+            assertEquals("69001", inserted.address.postalCode);
+            assertEquals("Lyon", inserted.address.city);
+            assertEquals(new BigDecimal("100.00"), inserted.creditLimit);
+            assertEquals(new BigDecimal("10.50"), inserted.creditBalance);
+            verify(inserted, times(1)).persist();
+            assertEquals("2 rue B", existing.address.streetLine1);
+            assertEquals("Paris", existing.address.city);
+            assertNull(existing.creditLimit);
+            assertEquals(BigDecimal.ZERO, existing.creditBalance);
+            verify(existing, times(1)).persist();
         }
     }
 
