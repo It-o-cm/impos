@@ -860,6 +860,70 @@ class TicketStateTest {
         assertEquals(0, new BigDecimal("27.00").compareTo(ts.totalAmount));
     }
 
+    // --------------------------------------------------
+    // getGlobalDiscountLabel / getGlobalDiscountAppliedFormatted
+    // --------------------------------------------------
+
+    /**
+     * getGlobalDiscountLabel returns null when nothing was applied
+     * (globalDiscountApplied == null, true arm of the L381 guard).
+     */
+    @Test
+    void getGlobalDiscountLabelNullWhenNoDiscountApplied() {
+        TicketState ts = new TicketState();
+        assertNull(ts.getGlobalDiscountLabel());
+    }
+
+    /**
+     * getGlobalDiscountLabel on an applied PERCENT request suffixes the rate,
+     * trailing zeros stripped (applied non-null false arm of L381, PERCENT true
+     * arm of L382).
+     */
+    @Test
+    void getGlobalDiscountLabelPercentSuffixesRate() {
+        TicketState ts = new TicketState();
+        addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
+        ts.recomputeTotal();
+        assertEquals("REMISE TICKET (10 %)", ts.getGlobalDiscountLabel());
+    }
+
+    /**
+     * getGlobalDiscountLabel on an applied non-PERCENT (euro) request returns
+     * the bare label with no suffix (PERCENT false arm of L382).
+     */
+    @Test
+    void getGlobalDiscountLabelAmountHasNoSuffix() {
+        TicketState ts = new TicketState();
+        addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("3.00"));
+        ts.recomputeTotal();
+        assertEquals("REMISE TICKET", ts.getGlobalDiscountLabel());
+    }
+
+    /**
+     * getGlobalDiscountAppliedFormatted returns null when nothing was applied
+     * (globalDiscountApplied == null, true arm of the L395 guard).
+     */
+    @Test
+    void getGlobalDiscountAppliedFormattedNullWhenNoDiscount() {
+        TicketState ts = new TicketState();
+        assertNull(ts.getGlobalDiscountAppliedFormatted());
+    }
+
+    /**
+     * getGlobalDiscountAppliedFormatted renders the applied amount signed and
+     * with a French comma (applied non-null, false arm of the L395 guard).
+     */
+    @Test
+    void getGlobalDiscountAppliedFormattedSignedFrenchComma() {
+        TicketState ts = new TicketState();
+        addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("3.00"));
+        ts.recomputeTotal();
+        assertEquals("-3,00", ts.getGlobalDiscountAppliedFormatted());
+    }
+
     /**
      * The no-arg item constructor yields a serialization-friendly blank line.
      */
