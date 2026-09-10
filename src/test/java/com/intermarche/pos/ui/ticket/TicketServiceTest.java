@@ -983,6 +983,67 @@ class TicketServiceTest {
         assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
     }
 
+    /**
+     * BO-02-03-11: {@code addItemByPlu} refuses a recalled article with the
+     * recall error (true arm of the PLU recall guard) and — the check sitting
+     * BEFORE the scale read — never weighs and adds no line.
+     */
+    @Test
+    void addItemByPluRefusesRecalledArticle() {
+        openSession();
+        Product p = product("APPLE", "111", "1234");
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
+            productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            service.addItemByPlu(state, "1234");
+        }
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("ARTICLE EN RETRAIT/RAPPEL", state.ticket.transientError);
+        verify(hardwareService, never()).requestWeighing();
+    }
+
+    /**
+     * BO-02-03-26/27: {@code addItemByPlu} on a VAT-exempt weighed article rings
+     * the line at VAT rate 0 (true arm of the PLU vat-exempt guard) while keeping
+     * the catalog price.
+     */
+    @Test
+    void addItemByPluVatExemptVentilatesAtZero() {
+        openSession();
+        Product p = product("APPLE", "111", "1234");
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        try (MockedStatic<Product> productStatic = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("3.00", "0.055"));
+            service.addItemByPlu(state, "1234");
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("3.00").compareTo(added.unitPrice));
+        assertEquals(0, BigDecimal.ZERO.compareTo(added.vatRate));
+    }
+
+    /**
+     * BO-02-03-09: {@code addItemByPlu} snapshots the discount ban onto the
+     * added weighed line (true arm of the PLU discount-forbidden guard) so later
+     * price gestures refuse it.
+     */
+    @Test
+    void addItemByPluSnapshotsDiscountForbidden() {
+        openSession();
+        Product p = product("APPLE", "111", "1234");
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        try (MockedStatic<Product> productStatic = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByPlu(state, "1234");
+        }
+        assertTrue(state.ticket.items.get(0).discountForbidden);
+    }
+
     // --- addUnknownItem ---
 
     /**
