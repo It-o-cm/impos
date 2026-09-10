@@ -1,8 +1,10 @@
 package com.intermarche.pos.service.sync;
 
 import com.sun.net.httpserver.HttpServer;
+import io.quarkus.runtime.StartupEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
@@ -13,6 +15,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
@@ -20,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -146,5 +151,174 @@ class EngineFeedDeliveryServiceTest {
         service.deliverSafely();
         verify(engineFeedService).markError(eq("PRODUCTS"), any());
         verify(engineFeedService, never()).markApplied(any(), any());
+    }
+
+    /**
+     * {@code onStart}: an absent URL disables delivery — the first arm of
+     * the guard {@code url.isEmpty() || url.get().isBlank()} short-circuits
+     * true, so no executor is scheduled and the keeper is never touched
+     * (covers {@code url.isEmpty()==true}).
+     */
+    @Test
+    void onStartWithEmptyUrlDisablesDelivery() {
+        service.url = Optional.empty();
+        service.onStart(mock(StartupEvent.class));
+        service.onStop();
+        verifyNoInteractions(engineFeedService);
+    }
+
+    /**
+     * {@code onStart}: a blank URL disables delivery — the first arm is
+     * false and the second arm {@code url.get().isBlank()} is true, so no
+     * executor is scheduled (covers {@code isEmpty()==false} and
+     * {@code isBlank()==true}).
+     */
+    @Test
+    void onStartWithBlankUrlDisablesDelivery() {
+        service.url = Optional.of("   ");
+        service.onStart(mock(StartupEvent.class));
+        service.onStop();
+        verifyNoInteractions(engineFeedService);
+    }
+
+    /**
+     * {@code onStart}: a present, non-blank URL schedules the delivery loop
+     * (both guard arms false) and {@code onStop} then shuts the created
+     * executor down (covers the non-null arm of {@code onStop}). The period
+     * is set to 3600s so the first cycle (min(20, period) = 20s away) never
+     * fires during the test, hence the keeper stays untouched.
+     */
+    @Test
+    void onStartEnabledSchedulesLoopThenOnStopShutsItDown() {
+        service.deliverySeconds = 3600;
+        service.onStart(mock(StartupEvent.class));
+        service.onStop();
+        verifyNoInteractions(engineFeedService);
+    }
+
+    /**
+     * {@code onStop}: when no loop was ever started the executor is null,
+     * so the guard's null arm is taken and the call is a harmless no-op
+     * (covers {@code executor==null}).
+     */
+    @Test
+    void onStopWithoutExecutorIsNoOp() {
+        service.onStop();
+        verifyNoInteractions(engineFeedService);
+    }
+
+    /**
+     * A fully successful walk returns true for every feed: {@code deliver}
+     * reaches its {@code return true} (2xx arm) so {@code deliverPending}'s
+     * {@code !deliver(feed)} guard is false and the loop runs to its normal
+     * exhaustion (covers the loop-exit arm and the continue arm). Versions
+     * are 12+ chars so the success log's {@code substring(0, 12)} is safe.
+     */
+    @Test
+    void deliverPendingCompletesWhenEveryFeedAcknowledged() {
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", "VERSIONPRODUCTS1", null),
+                        pending("OFFERS", "VERSIONOFFERS0001", null)));
+        service.deliverPending();
+        verify(engineFeedService).markApplied("PRODUCTS", "VERSIONPRODUCTS1");
+        verify(engineFeedService).markApplied("OFFERS", "VERSIONOFFERS0001");
+        verify(engineFeedService, never()).markError(any(), any());
+        assertEquals(2, bodyByPath.size());
+    }
+
+    /**
+     * An absent auth user omits the Authorization header: the compound
+     * guard {@code user.isPresent() && !user.get().isBlank()} short-circuits
+     * on its false first arm (covers {@code user.isPresent()==false}). The
+     * feed is still delivered and acknowledged.
+     */
+    @Test
+    void deliverWithoutUserOmitsAuthHeader() {
+        service.user = Optional.empty();
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", "VERSIONPRODUCTS1", null)));
+        service.deliverPending();
+        verify(engineFeedService).markApplied("PRODUCTS", "VERSIONPRODUCTS1");
+        assertEquals("CONTENT-PRODUCTS", bodyByPath.get("/products/import"));
+        assertNull(authByPath.get("/products/import"));
+    }
+
+    /**
+     * A blank auth user omits the Authorization header: the first arm is
+     * true but the second arm {@code !user.get().isBlank()} is false
+     * (covers {@code isPresent()==true} with {@code isBlank()==true}). The
+     * feed is still delivered and acknowledged.
+     */
+    @Test
+    void deliverWithBlankUserOmitsAuthHeader() {
+        service.user = Optional.of("");
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", "VERSIONPRODUCTS1", null)));
+        service.deliverPending();
+        verify(engineFeedService).markApplied("PRODUCTS", "VERSIONPRODUCTS1");
+        assertEquals("CONTENT-PRODUCTS", bodyByPath.get("/products/import"));
+        assertNull(authByPath.get("/products/import"));
+    }
+
+    /**
+     * A pre-set interrupt makes {@code httpClient.send} throw
+     * {@code InterruptedException}: the catch's {@code e instanceof
+     * InterruptedException} arm is true, so the thread's interrupt flag is
+     * re-raised and the failure is recorded (covers the true arm of the
+     * interrupt guard). The flag is consumed here so it never leaks to the
+     * next test.
+     */
+    @Test
+    void deliverReinterruptsOnInterruptedException() {
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", "VERSIONPRODUCTS1", null)));
+        Thread.currentThread().interrupt();
+        service.deliverPending();
+        assertTrue(Thread.interrupted());
+        verify(engineFeedService).markError(eq("PRODUCTS"), contains("InterruptedException"));
+        verify(engineFeedService, never()).markApplied(any(), any());
+    }
+
+    /**
+     * A repeated identical failure is recorded without re-logging: when the
+     * feed's {@code lastError} already equals the new error message,
+     * {@code Objects.equals} is true so the log guard {@code !equals} is
+     * false and only {@code markError} is called (covers the equal arm of
+     * {@code recordFailure}).
+     */
+    @Test
+    void recordFailureSkipsLogWhenErrorUnchanged() {
+        statusByPath.put("/products/import", 503);
+        String repeated = "HTTP 503 sur /products/import: ok";
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", "VERSIONPRODUCTS1", repeated)));
+        service.deliverPending();
+        verify(engineFeedService).markError("PRODUCTS", repeated);
+        verify(engineFeedService, never()).markApplied(any(), any());
+        assertFalse(bodyByPath.isEmpty());
+    }
+
+    /**
+     * PRODUCTION BUG (EngineFeedDeliveryService.java:165): on the 2xx success
+     * path {@code deliver} logs {@code feed.version().substring(0, 12)} with no
+     * length guard. A version shorter than 12 characters throws
+     * {@link StringIndexOutOfBoundsException} AFTER {@code markApplied} has
+     * already acknowledged the feed but BEFORE {@code return true}; the throw is
+     * swallowed by the method's own catch, which calls {@code recordFailure} and
+     * returns false. An acknowledged delivery is thus re-recorded as an error and
+     * the walk stops. This test pins the correct behaviour — a 2xx answer to a
+     * short-version feed acknowledges it and records NO error — and fails on the
+     * current code; disabled until src/main guards the substring (e.g.
+     * {@code version.substring(0, Math.min(12, version.length()))}).
+     */
+    @Test
+    @Disabled("BUG: EngineFeedDeliveryService.java:165 substring(0,12) throws on a version"
+            + " shorter than 12 chars, turning an acknowledged delivery into a recorded failure")
+    void deliverAcknowledgesFeedWithShortVersion() {
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", "v2", null)));
+        service.deliverPending();
+        verify(engineFeedService).markApplied("PRODUCTS", "v2");
+        verify(engineFeedService, never()).markError(eq("PRODUCTS"), any());
     }
 }
