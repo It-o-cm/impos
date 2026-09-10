@@ -174,6 +174,38 @@ class EngineFeedRelayResourceTest {
     }
 
     /**
+     * A feed never acknowledged by the engine reads appliedVersion=null
+     * (the null arm of the appliedVersion ternary) with applied=false, since
+     * a stored version can never equal a null acknowledgement.
+     */
+    @Test
+    void statusRendersNullAppliedVersionForNeverAcknowledgedFeed() {
+        com.intermarche.pos.domain.EngineFeed products =
+            org.mockito.Mockito.mock(com.intermarche.pos.domain.EngineFeed.class);
+        products.code = "PRODUCTS";
+        products.version = "v5";
+        products.appliedVersion = null;
+        products.lastError = null;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> mocked =
+                 org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            for (com.intermarche.pos.service.sync.EngineFeedService.FeedDef def :
+                     com.intermarche.pos.service.sync.EngineFeedService.CATALOG) {
+                com.intermarche.pos.domain.EngineFeed match =
+                        def.code().equals("PRODUCTS") ? products : null;
+                io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.EngineFeed>
+                        matchQuery = queryOf(match);
+                mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("code", def.code()))
+                        .thenReturn(matchQuery);
+            }
+            Response response = resource.status();
+            assertEquals(200, response.getStatus());
+            String body = String.valueOf(response.getEntity());
+            assertEquals("[{\"code\":\"PRODUCTS\",\"version\":\"v5\",\"appliedVersion\":null,"
+                    + "\"applied\":false,\"lastError\":null}]", body);
+        }
+    }
+
+    /**
      * Builds a mocked Panache query yielding one first result.
      *
      * @param result the entity the query returns, or null
