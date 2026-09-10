@@ -18,6 +18,7 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -403,6 +404,44 @@ class RefPullServiceTest {
     }
 
     /**
+     * Covers the two remaining register switch arms of {@code applyDomain}
+     * (CUSTOMERS and CURRENCIES) together with their anonymous
+     * {@link TypeReference} deserialization lines: both domains differ, are
+     * pulled page by page and applied, then their fingerprints are recorded.
+     */
+    @Test
+    void pullOnceAppliesCustomerAndCurrencyDomains() throws Exception {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        when(outbox.getStoreUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of("CUSTOMERS", "u1", "CURRENCIES", "u2");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        RefPullService service = service(outbox, apply, mapper, client);
+        service.pullOnce();
+        verify(apply).applyCustomers(any());
+        verify(apply).applyCurrencies(any());
+        verify(apply).recordApplied("CUSTOMERS", "u1");
+        verify(apply).recordApplied("CURRENCIES", "u2");
+    }
+
+    /**
      * Covers the two skip arms of {@code pullOnce}: an absent remote
      * fingerprint (null) and one equal to the last applied fingerprint both
      * leave the domain untouched.
@@ -439,6 +478,26 @@ class RefPullServiceTest {
                 () -> method.invoke(service, "UNKNOWN", "fp"));
         assertTrue(wrapper.getCause() instanceof IllegalArgumentException);
         assertEquals("Domaine inconnu: UNKNOWN", wrapper.getCause().getMessage());
+    }
+
+    /**
+     * Covers the {@code getLastSuccessfulPull} accessor across a pull: null
+     * before any cycle has completed, then the timestamp stamped by a clean
+     * {@code pullOnce} once one has.
+     */
+    @Test
+    void getLastSuccessfulPullReflectsCycleCompletion() throws Exception {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        when(outbox.getStoreUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(outbox, apply, mapper, client);
+        assertNull(service.getLastSuccessfulPull());
+        service.pullOnce();
+        assertNotNull(service.getLastSuccessfulPull());
     }
 
     // --------------------------------------------------
