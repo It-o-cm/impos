@@ -552,6 +552,64 @@ class CreditClientServiceTest {
     }
 
     /**
+     * A non-null but non-positive typed amount charges the whole remaining due: the
+     * "signum &lt;= 0" leg of the amount guard, distinct from the null-amount leg
+     * already covered.
+     */
+    @Test
+    void nonPositiveTypedAmountChargesTheWholeDue() {
+        CreditClientService service = newService();
+        PosState state = newState("57.30");
+        AccountCustomer customer = newCustomer("1000.00", "0.00");
+        state.payment.creditCustomer = customer;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> AccountCustomer.findById(7L)).thenReturn(customer);
+            assertTrue(service.processCredit(state, new BigDecimal("0.00")));
+        }
+        verify(service.paymentService).processCredit(any(), any(),
+                eq(new BigDecimal("57.30")), eq(false));
+    }
+
+    /**
+     * Charging an account whose stored balance is null starts it from zero rather
+     * than throwing — the null arm of the balance carried forward in
+     * {@code chargeAccount} and, in passing, of {@code exceedsCeiling}.
+     */
+    @Test
+    void chargingAnAccountWithNullBalanceStartsFromZero() {
+        CreditClientService service = newService();
+        PosState state = newState("30.00");
+        AccountCustomer customer = newCustomer("1000.00", "0.00");
+        customer.creditBalance = null;
+        state.payment.creditCustomer = customer;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> AccountCustomer.findById(7L)).thenReturn(customer);
+            assertTrue(service.processCredit(state, new BigDecimal("30.00")));
+        }
+        verify(service.paymentService).processCredit(any(), any(),
+                eq(new BigDecimal("30.00")), eq(false));
+        assertEquals(0, new BigDecimal("30.00").compareTo(customer.creditBalance));
+    }
+
+    /**
+     * An account whose balance is null is treated as owing nothing when the ceiling
+     * is tested, and the held-back message formats that null balance as zero — the
+     * null arm of {@code exceedsCeiling} and the null arm of the amount formatter.
+     */
+    @Test
+    void nullBalanceOverTheCeilingIsHeldBackAndFormattedAsZero() {
+        CreditClientService service = newService();
+        PosState state = newState("200.00");
+        AccountCustomer customer = newCustomer("100.00", "0.00");
+        customer.creditBalance = null;
+        state.payment.creditCustomer = customer;
+        assertFalse(service.processCredit(state, new BigDecimal("200.00")));
+        assertTrue(state.payment.creditError.contains("PLAFOND DEPASSE"));
+        assertTrue(state.payment.creditError.contains("ENCOURS 0.00"));
+        assertEquals(0, new BigDecimal("200.00").compareTo(state.payment.creditPendingAmount));
+    }
+
+    /**
      * A charge taking the account over its ceiling is HELD BACK, not lost: the
      * amount survives for the supervisor to allow ({@code LC-07-09-03/04}).
      */
