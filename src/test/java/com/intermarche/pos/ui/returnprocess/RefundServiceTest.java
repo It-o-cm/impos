@@ -1183,6 +1183,39 @@ class RefundServiceTest {
     }
 
     /**
+     * {@code performRefund} for a card refund whose back office FORCES the
+     * credit-card slip (LC-08-03-10) additionally prints the card credit
+     * receipt ({@code isCreditCardReceiptForced} true arm): no drawer, no
+     * voucher, but the forced slip is emitted.
+     */
+    @Test
+    void performRefundCardPrintsForcedCreditReceipt() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(s.printPolicy.isCreditCardReceiptForced()).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CARD);
+            Refund refund = mc.constructed().get(0);
+            verify(s.ticketPrinterService).printCardCreditReceipt(refund);
+        }
+        verify(s.hardwareService, never()).openDrawer();
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
+        verify(s.ticketPrinterService).printRefund(55L);
+    }
+
+    /**
      * {@code performRefund} skips a zero-quantity entry (positive-quantity guard
      * false arm) and, with no line kept, skips the VAT restitution (lines-empty
      * arm) while still persisting the empty refund.
