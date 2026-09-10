@@ -213,6 +213,136 @@ class PosStateTest {
     }
 
     /**
+     * {@code getCashRoundedRemaining()} rounds the remaining due to the
+     * administered step: with a five-cent step, 7,02 settles at 7,00.
+     */
+    @Test
+    void getCashRoundedRemainingRoundsToStep() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("7.02");
+        state.payment.paidAmount = BigDecimal.ZERO;
+        state.cashRoundingStepCents = 5;
+        assertEquals(new BigDecimal("7.00"), state.getCashRoundedRemaining());
+    }
+
+    /**
+     * {@code getCashRoundedRemainingFormatted()} renders the rounded remaining
+     * due with a French comma decimal separator.
+     */
+    @Test
+    void getCashRoundedRemainingFormattedUsesComma() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("7.02");
+        state.payment.paidAmount = BigDecimal.ZERO;
+        state.cashRoundingStepCents = 5;
+        assertEquals("7,00", state.getCashRoundedRemainingFormatted());
+    }
+
+    /**
+     * {@code getCashRoundedRemainingNumpad()} formats the rounded remaining due
+     * through {@code String.format("%.2f", ...)} with no explicit locale.
+     */
+    @Test
+    void getCashRoundedRemainingNumpadFormatsWithDefaultLocale() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("7.02");
+        state.payment.paidAmount = BigDecimal.ZERO;
+        state.cashRoundingStepCents = 5;
+        assertEquals(String.format("%.2f", new BigDecimal("7.00")), state.getCashRoundedRemainingNumpad());
+    }
+
+    /**
+     * {@code isCashRoundingVisible()} is false when the shop does not round
+     * (first condition {@code cashRoundingStepCents > 1} false), short-circuiting
+     * before the amount comparison — this is the France default.
+     */
+    @Test
+    void isCashRoundingVisibleFalseWhenStepNotRounding() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("7.02");
+        state.payment.paidAmount = BigDecimal.ZERO;
+        state.cashRoundingStepCents = 1;
+        assertFalse(state.isCashRoundingVisible());
+    }
+
+    /**
+     * {@code isCashRoundingVisible()} is false when the shop rounds (first
+     * condition true) but the rounded amount equals the real one (second
+     * condition {@code compareTo != 0} false), so no second figure is worth
+     * showing.
+     */
+    @Test
+    void isCashRoundingVisibleFalseWhenRoundedEqualsRemaining() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("7.00");
+        state.payment.paidAmount = BigDecimal.ZERO;
+        state.cashRoundingStepCents = 5;
+        assertFalse(state.isCashRoundingVisible());
+    }
+
+    /**
+     * {@code isCashRoundingVisible()} is true when the shop rounds (first
+     * condition true) and the rounded amount differs from the real one (second
+     * condition true): 7,02 rounds to 7,00 on a five-cent step.
+     */
+    @Test
+    void isCashRoundingVisibleTrueWhenRoundedDiffersFromRemaining() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("7.02");
+        state.payment.paidAmount = BigDecimal.ZERO;
+        state.cashRoundingStepCents = 5;
+        assertTrue(state.isCashRoundingVisible());
+    }
+
+    /**
+     * {@code isMoneticsDegradedForced()} is false when no forcing was ever set
+     * (null guard true arm), and leaves the timestamp null.
+     */
+    @Test
+    void isMoneticsDegradedForcedFalseWhenNeverSet() {
+        PosState state = newState();
+        state.moneticsDegradedUntil = null;
+        assertFalse(state.isMoneticsDegradedForced());
+        assertNull(state.moneticsDegradedUntil);
+    }
+
+    /**
+     * {@code isMoneticsDegradedForced()} EXPIRES a forcing whose end is in the
+     * past (null guard false, {@code isBefore(now)} true arm): it clears the
+     * timestamp and reports the mode off.
+     */
+    @Test
+    void isMoneticsDegradedForcedExpiresPastForcing() {
+        PosState state = newState();
+        state.moneticsDegradedUntil = java.time.LocalDateTime.now().minusHours(1);
+        assertFalse(state.isMoneticsDegradedForced());
+        assertNull(state.moneticsDegradedUntil);
+    }
+
+    /**
+     * {@code isMoneticsDegradedForced()} reports the mode on and keeps the
+     * timestamp while the forcing's end is still in the future (null guard
+     * false, {@code isBefore(now)} false arm).
+     */
+    @Test
+    void isMoneticsDegradedForcedTrueWhileStillActive() {
+        PosState state = newState();
+        java.time.LocalDateTime future = java.time.LocalDateTime.now().plusHours(1);
+        state.moneticsDegradedUntil = future;
+        assertTrue(state.isMoneticsDegradedForced());
+        assertSame(future, state.moneticsDegradedUntil);
+    }
+
+    /**
+     * {@code getMenus()} returns the five bottom-bar menus in tab order.
+     */
+    @Test
+    void getMenusReturnsAllMenus() {
+        PosState state = newState();
+        assertSame(PosMenu.ALL, state.getMenus());
+    }
+
+    /**
      * {@code isLocked()} reflects a locked authentication state.
      */
     @Test
