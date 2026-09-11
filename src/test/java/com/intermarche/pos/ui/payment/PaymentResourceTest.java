@@ -261,6 +261,17 @@ class PaymentResourceTest {
     }
 
     /**
+     * {@code cancelPendingCheque()} delegates to the service and redirects to
+     * the payment page.
+     */
+    @Test
+    void cancelPendingChequeDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.cancelPendingCheque());
+        verify(resource.paymentService).cancelPendingCheque(resource.state);
+    }
+
+    /**
      * {@code toggleDonation()} delegates to the service and redirects to the
      * payment page.
      */
@@ -269,6 +280,229 @@ class PaymentResourceTest {
         PaymentResource resource = newResource();
         assertRedirectPay(resource.toggleDonation());
         verify(resource.paymentService).toggleDonationRoundup(resource.state);
+    }
+
+    // --- backup monetics (LC-07-07-06/09) ---
+
+    /**
+     * {@code openBackupPanel()} opens the backup-monetics panel through the
+     * service and redirects to the payment page.
+     */
+    @Test
+    void openBackupPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.openBackupPanel());
+        verify(resource.backupPaymentService).openPanel(resource.state);
+    }
+
+    /**
+     * {@code closeBackupPanel()} closes the backup-monetics panel through the
+     * service and redirects to the payment page.
+     */
+    @Test
+    void closeBackupPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.closeBackupPanel());
+        verify(resource.backupPaymentService).closePanel(resource.state);
+    }
+
+    /**
+     * {@code validateBackupScan()} hands the scanned payload to the service and
+     * redirects to the payment page.
+     */
+    @Test
+    void validateBackupScanDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.validateBackupScan("SCANNED"));
+        verify(resource.backupPaymentService).validateScanned(resource.state, "SCANNED");
+    }
+
+    /**
+     * {@code openBackupManualEntry()} switches the panel to manual keying,
+     * clears any backup error, touches the state and redirects.
+     */
+    @Test
+    void openBackupManualEntrySwitchesToKeying() {
+        PaymentResource resource = newResource();
+        resource.state.payment.backupError = "old error";
+        assertRedirectPay(resource.openBackupManualEntry());
+        assertTrue(resource.state.payment.backupManualEntry);
+        assertNull(resource.state.payment.backupError);
+        verify(resource.state).touch();
+    }
+
+    /**
+     * {@code doBackupPayment()} parses the keyed amount and validates it
+     * manually with the supervisor credentials, then redirects.
+     */
+    @Test
+    void doBackupPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doBackupPayment("20,00", "mcurie", "1111"));
+        verify(resource.backupPaymentService).validateManually(resource.state,
+                new BigDecimal("20.00"), "mcurie", "1111");
+    }
+
+    // --- foreign currency (LC-07-14) ---
+
+    /**
+     * {@code openCurrencyPanel()} opens the foreign-currency panel through the
+     * service and redirects to the payment page.
+     */
+    @Test
+    void openCurrencyPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.openCurrencyPanel());
+        verify(resource.foreignCurrencyService).openPanel(resource.state);
+    }
+
+    /**
+     * {@code closeCurrencyPanel()} closes the foreign-currency panel through the
+     * service and redirects to the payment page.
+     */
+    @Test
+    void closeCurrencyPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.closeCurrencyPanel());
+        verify(resource.foreignCurrencyService).closePanel(resource.state);
+    }
+
+    /**
+     * {@code selectCurrency()} hands the selected ISO code to the service and
+     * redirects to the payment page.
+     */
+    @Test
+    void selectCurrencyDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCurrency("USD"));
+        verify(resource.foreignCurrencyService).selectCurrency(resource.state, "USD");
+    }
+
+    /**
+     * {@code doCurrencyPayment()} parses the amount handed over in the currency
+     * and processes it through the service, then redirects.
+     */
+    @Test
+    void doCurrencyPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doCurrencyPayment("30,00"));
+        verify(resource.foreignCurrencyService).processCurrency(resource.state,
+                new BigDecimal("30.00"));
+    }
+
+    // --- customer credit (LC-07-09) ---
+
+    /**
+     * {@code openCreditPanel()} opens the customer-credit panel through the
+     * service and redirects to the payment page.
+     */
+    @Test
+    void openCreditPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.openCreditPanel());
+        verify(resource.creditClientService).openPanel(resource.state);
+    }
+
+    /**
+     * {@code closeCreditPanel()} closes the customer-credit panel through the
+     * service and redirects to the payment page.
+     */
+    @Test
+    void closeCreditPanelDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.closeCreditPanel());
+        verify(resource.creditClientService).closePanel(resource.state);
+    }
+
+    /**
+     * {@code selectCreditAccountByNumber()} names the account by its number
+     * through the service and redirects to the payment page.
+     */
+    @Test
+    void selectCreditAccountByNumberDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccountByNumber("00123"));
+        verify(resource.creditClientService).selectByNumber(resource.state, "00123");
+    }
+
+    /**
+     * {@code searchCreditAccounts()} looks accounts up by name fragment through
+     * the service and redirects to the payment page.
+     */
+    @Test
+    void searchCreditAccountsDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.searchCreditAccounts("Dupont"));
+        verify(resource.creditClientService).searchByName(resource.state, "Dupont");
+    }
+
+    /**
+     * {@code doCreditPayment()} parses the amount and charges the named account
+     * through the service, then redirects.
+     */
+    @Test
+    void doCreditPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doCreditPayment("15,00"));
+        verify(resource.creditClientService).processCredit(resource.state,
+                new BigDecimal("15.00"));
+    }
+
+    /**
+     * {@code authorizeCreditOverLimit()} passes the supervisor credentials to
+     * the service to allow the ceiling to be passed, then redirects.
+     */
+    @Test
+    void authorizeCreditOverLimitDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.authorizeCreditOverLimit("mcurie", "1111"));
+        verify(resource.creditClientService).authorizeOverLimit(resource.state, "mcurie", "1111");
+    }
+
+    /**
+     * {@code cancelCreditOverLimit()} gives up on the held-back settlement
+     * through the service and redirects to the payment page.
+     */
+    @Test
+    void cancelCreditOverLimitDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.cancelCreditOverLimit());
+        verify(resource.creditClientService).cancelOverLimit(resource.state);
+    }
+
+    // --- selectCreditAccount (LC-07-09-08) ---
+
+    /**
+     * {@code selectCreditAccount()} passes a null id when no customer is posted
+     * and redirects (ternary {@code customerId == null} true arm).
+     */
+    @Test
+    void selectCreditAccountNullIdSelectsNull() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccount(null));
+        verify(resource.creditClientService).selectById(resource.state, null);
+    }
+
+    /**
+     * {@code selectCreditAccount()} parses a numeric id (trimmed) and names the
+     * account (ternary {@code customerId == null} false arm, valid number).
+     */
+    @Test
+    void selectCreditAccountValidIdSelectsById() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccount("  42 "));
+        verify(resource.creditClientService).selectById(resource.state, 42L);
+    }
+
+    /**
+     * {@code selectCreditAccount()} falls back to a null id on an unparsable
+     * value ({@code NumberFormatException} catch arm).
+     */
+    @Test
+    void selectCreditAccountInvalidIdSelectsNull() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.selectCreditAccount("abc"));
+        verify(resource.creditClientService).selectById(resource.state, null);
     }
 
     // --- payment methods / parseAmount ---
@@ -836,41 +1070,6 @@ class PaymentResourceTest {
         Response response = resource.reprintLastTicket();
         verify(resource.ticketPrinterService, never()).printTicket(any());
         assertEquals("/", response.getLocation().toString());
-    }
-
-    // --- selectCreditAccount ---
-
-    /**
-     * {@code selectCreditAccount()} passes a null id when no customer is posted
-     * and redirects (ternary {@code customerId == null} true arm).
-     */
-    @Test
-    void selectCreditAccountNullIdSelectsNull() {
-        PaymentResource resource = newResource();
-        assertRedirectPay(resource.selectCreditAccount(null));
-        verify(resource.creditClientService).selectById(resource.state, null);
-    }
-
-    /**
-     * {@code selectCreditAccount()} parses a numeric id (trimmed) and names the
-     * account (ternary {@code customerId == null} false arm, valid number).
-     */
-    @Test
-    void selectCreditAccountValidIdSelectsById() {
-        PaymentResource resource = newResource();
-        assertRedirectPay(resource.selectCreditAccount("  42 "));
-        verify(resource.creditClientService).selectById(resource.state, 42L);
-    }
-
-    /**
-     * {@code selectCreditAccount()} falls back to a null id on an unparsable
-     * value ({@code NumberFormatException} catch arm).
-     */
-    @Test
-    void selectCreditAccountInvalidIdSelectsNull() {
-        PaymentResource resource = newResource();
-        assertRedirectPay(resource.selectCreditAccount("abc"));
-        verify(resource.creditClientService).selectById(resource.state, null);
     }
 
     /**
