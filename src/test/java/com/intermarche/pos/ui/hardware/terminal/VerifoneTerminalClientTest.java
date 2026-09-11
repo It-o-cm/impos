@@ -1,6 +1,8 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -64,60 +66,6 @@ class VerifoneTerminalClientTest {
     }
 
     /**
-     * A transport that parks the exchange thread inside {@code isReachable()}
-     * until released, so the client stays in flight ({@code busy == true})
-     * long enough for the calling thread to exercise the second-exchange
-     * rejection and the abort-while-busy legs.
-     */
-    private static class BlockingTransport extends VerifoneTransport {
-
-        /** Counts down once the exchange thread has entered the probe. */
-        private final CountDownLatch entered = new CountDownLatch(1);
-
-        /** Releases the parked exchange thread when counted down. */
-        private final CountDownLatch release;
-
-        /**
-         * Creates the blocking stub over the given release latch.
-         *
-         * @param release the latch whose count-down unblocks the probe
-         */
-        BlockingTransport(CountDownLatch release) {
-            super("127.0.0.1", 1, 10);
-            this.release = release;
-        }
-
-        /**
-         * Signals entry then parks until released, holding the client busy;
-         * returns unreachable so the parked exchange ends deterministically.
-         *
-         * @return {@code false} once released or interrupted
-         */
-        @Override
-        public boolean isReachable() {
-            entered.countDown();
-            try {
-                release.await(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return false;
-        }
-
-        /**
-         * Never reached: the parked probe returns unreachable first.
-         *
-         * @param requestFrame the encoded request
-         * @return never returns
-         * @throws IOException never
-         */
-        @Override
-        public String exchange(String requestFrame) throws IOException {
-            throw new UnsupportedOperationException("spec required");
-        }
-    }
-
-    /**
      * A callback that latches on any terminal leg and captures the error
      * message, used when a test only needs the exchange to terminate.
      */
@@ -159,6 +107,28 @@ class VerifoneTerminalClientTest {
             error.set(message);
             latch.countDown();
         }
+    }
+
+    /**
+     * Builds a Mockito transport whose {@code isReachable()} parks the
+     * exchange thread — signalling entry, then awaiting the release latch —
+     * so the client stays in flight ({@code busy == true}) long enough for
+     * the calling thread to exercise the busy-rejection and abort-while-busy
+     * legs. It returns unreachable once released so the parked exchange ends
+     * deterministically on the unreachable leg; no real socket is opened.
+     *
+     * @param entered counted down once the probe is entered
+     * @param release awaited inside the probe until counted down
+     * @return the blocking Mockito transport
+     */
+    private VerifoneTransport blockingTransport(CountDownLatch entered, CountDownLatch release) {
+        VerifoneTransport transport = Mockito.mock(VerifoneTransport.class);
+        Mockito.when(transport.isReachable()).thenAnswer(invocation -> {
+            entered.countDown();
+            release.await(5, TimeUnit.SECONDS);
+            return false;
+        });
+        return transport;
     }
 
     /**
@@ -296,21 +266,62 @@ class VerifoneTerminalClientTest {
     }
 
     /**
+     * A reachable client whose transport returns a normal response frame runs
+     * the response-mapping leg ({@code handleResponse}, L161-162, L205-211):
+     * the frame is decoded and the outcome built, yet the exchange still ends
+     * on the not-implemented error leg because the decision tags are not yet
+     * specified. A Mockito mock returns the frame so no real socket is opened.
+     *
+     * @throws InterruptedException never under the test timeout
+     * @throws IOException never — the mock returns a frame instead of failing
+     */
+    @Test
+    void reachableClientMappingResponseReportsNotImplemented()
+            throws InterruptedException, IOException {
+        VerifoneTransport transport = Mockito.mock(VerifoneTransport.class);
+        Mockito.when(transport.isReachable()).thenReturn(true);
+        Mockito.when(transport.exchange(ArgumentMatchers.anyString())).thenReturn("{D16}72");
+        VerifoneTerminalClient client = new VerifoneTerminalClient(transport);
+        assertEquals(VerifoneTerminalClient.MSG_NOT_IMPLEMENTED, awaitError(client, "12.00"));
+    }
+
+    /**
+     * A reachable client whose transport fails with a non-Unsupported
+     * exception takes the generic catch leg (L166-168) and reports the
+     * unreachable message rather than the not-implemented one. A Mockito mock
+     * throws a runtime exception from {@code exchange} so no real socket is
+     * opened.
+     *
+     * @throws InterruptedException never under the test timeout
+     * @throws IOException never — the mock throws a runtime exception instead
+     */
+    @Test
+    void genericExchangeFailureReportsUnreachable()
+            throws InterruptedException, IOException {
+        VerifoneTransport transport = Mockito.mock(VerifoneTransport.class);
+        Mockito.when(transport.isReachable()).thenReturn(true);
+        Mockito.when(transport.exchange(ArgumentMatchers.anyString()))
+                .thenThrow(new IllegalStateException("boom"));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(transport);
+        assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, awaitError(client, "8.00"));
+    }
+
+    /**
      * A second exchange requested while one is in flight is rejected
-     * synchronously with the already-in-course message (the {@code !CAS}
-     * true arm on L150): the first debit parks the exchange thread with
+     * synchronously with the already-in-course message (the busy-CAS true arm
+     * on L150-152): the first debit parks the exchange thread with
      * {@code busy == true}, so the second CAS from the calling thread fails.
      *
      * @throws InterruptedException never under the test timeout
      */
     @Test
     void secondExchangeWhileBusyIsRejected() throws InterruptedException {
+        CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        BlockingTransport transport = new BlockingTransport(release);
-        VerifoneTerminalClient client = new VerifoneTerminalClient(transport);
+        VerifoneTerminalClient client = new VerifoneTerminalClient(blockingTransport(entered, release));
         LatchingCallback first = new LatchingCallback();
         client.requestDebit(new BigDecimal("5.00"), first);
-        assertTrue(transport.entered.await(5, TimeUnit.SECONDS), "exchange never started");
+        assertTrue(entered.await(5, TimeUnit.SECONDS), "exchange never started");
         LatchingCallback second = new LatchingCallback();
         client.requestDebit(new BigDecimal("7.00"), second);
         assertTrue(second.latch.await(5, TimeUnit.SECONDS), "rejection never fired");
@@ -321,21 +332,21 @@ class VerifoneTerminalClientTest {
     }
 
     /**
-     * An abort issued while a transaction is in flight takes the busy true
-     * arm on L103 and only flags the exchange (a no-op observable outcome):
-     * the parked first debit keeps {@code busy == true}, so {@code abort()}
-     * enters the guard, and the exchange still ends on the unreachable leg.
+     * An abort issued while a transaction is in flight takes the busy true arm
+     * on L103 and only flags the exchange (a no-op observable outcome): the
+     * parked first debit keeps {@code busy == true}, so {@code abort()} enters
+     * the guard, and the exchange still ends on the unreachable leg.
      *
      * @throws InterruptedException never under the test timeout
      */
     @Test
     void abortWhileBusyFlagsInFlightExchange() throws InterruptedException {
+        CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        BlockingTransport transport = new BlockingTransport(release);
-        VerifoneTerminalClient client = new VerifoneTerminalClient(transport);
+        VerifoneTerminalClient client = new VerifoneTerminalClient(blockingTransport(entered, release));
         LatchingCallback callback = new LatchingCallback();
         client.requestDebit(new BigDecimal("9.00"), callback);
-        assertTrue(transport.entered.await(5, TimeUnit.SECONDS), "exchange never started");
+        assertTrue(entered.await(5, TimeUnit.SECONDS), "exchange never started");
         client.abort();
         release.countDown();
         assertTrue(callback.latch.await(5, TimeUnit.SECONDS), "exchange never ended");
