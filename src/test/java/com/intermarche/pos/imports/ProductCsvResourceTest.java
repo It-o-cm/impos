@@ -336,6 +336,116 @@ class ProductCsvResourceTest {
     }
 
     /**
+     * {@code feedProduct} merges the generic ATTRIBUTES column (BO-02-03-18)
+     * into the open attribute map: it poses each {@code code=value} pair — the
+     * well-known behavioural codes (BO-02-03-06/09/11/21/22/25) and an
+     * unknown Gestion-Commerciale code alike — and skips a pair with an empty
+     * code ({@code =orphan}) and a token with no {@code =} ({@code NOEQ}).
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void feedProductMergesGenericAttributesColumn() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product product = new Product();
+        String[] cells = {"111", "Milk", "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true",
+                "MEAL_VOUCHER_ELIGIBLE=true;DISCOUNT_FORBIDDEN=true;RECALL=true;PRICE_TO_ENTER=true;"
+                        + "QUANTITY_TO_ENTER=true;BULKY=true;FOO=bar;=orphan;NOEQ"};
+        feedProduct(resource, attrLine(1, cells), product);
+        assertEquals("true", product.attributes.get("MEAL_VOUCHER_ELIGIBLE"));
+        assertEquals("true", product.attributes.get("DISCOUNT_FORBIDDEN"));
+        assertEquals("true", product.attributes.get("RECALL"));
+        assertEquals("true", product.attributes.get("PRICE_TO_ENTER"));
+        assertEquals("true", product.attributes.get("QUANTITY_TO_ENTER"));
+        assertEquals("true", product.attributes.get("BULKY"));
+        assertEquals("bar", product.attributes.get("FOO"));
+        assertFalse(product.attributes.containsKey(""));
+        assertFalse(product.attributes.containsKey("NOEQ"));
+        assertEquals(7, product.attributes.size());
+    }
+
+    /**
+     * {@code feedProduct} on a DECLARED but EMPTY ATTRIBUTES cell poses nothing
+     * and clears nothing (the {@code isEmpty} true leg): a fiche-set attribute
+     * survives an import that carries an empty attributes cell.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void feedProductBlankAttributesCellChangesNothing() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product product = new Product();
+        product.attributes.put("MEAL_VOUCHER_ELIGIBLE", "true");
+        String[] cells = {"111", "Milk", "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true", ""};
+        feedProduct(resource, attrLine(1, cells), product);
+        assertEquals(1, product.attributes.size());
+        assertEquals("true", product.attributes.get("MEAL_VOUCHER_ELIGIBLE"));
+    }
+
+    /**
+     * {@code feedProduct} on a header that DECLARES ATTRIBUTES but a row that
+     * carries no such cell (a short row) reads the value as null and poses
+     * nothing (the {@code raw == null} leg of the guard): the map is left alone.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void feedProductNullAttributesCellChangesNothing() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product product = new Product();
+        product.attributes.put("BULKY", "true");
+        String[] cells = {"111", "Milk", "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true"};
+        feedProduct(resource, attrLine(1, cells), product);
+        assertEquals(1, product.attributes.size());
+        assertEquals("true", product.attributes.get("BULKY"));
+    }
+
+    /**
+     * {@code computeIncomingChecksum} folds the incoming attributes
+     * (BO-02-03-18): an absent ATTRIBUTES column reads the existing map (so the
+     * checksum is unchanged), a declared column that changes an attribute flips
+     * it — the two arms of the touch rule mirrored for the map.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void computeIncomingChecksumFoldsAttributesColumn() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product existing = new Product();
+        existing.ean = "111";
+        existing.attributes.put("MEAL_VOUCHER_ELIGIBLE", "true");
+        int absent = incomingChecksum(resource, line(1, fullParts()), existing);
+        int declaredSame = incomingChecksum(resource, attrLine(1, new String[]{"111", "Milk",
+                "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true",
+                "MEAL_VOUCHER_ELIGIBLE=true"}), existing);
+        int declaredChanged = incomingChecksum(resource, attrLine(1, new String[]{"111", "Milk",
+                "Fresh milk", "BrandX", "1.500", "2.000", "unit", "kg", "true",
+                "DISCOUNT_FORBIDDEN=true"}), existing);
+        assertEquals(absent, declaredSame);
+        assertNotEquals(absent, declaredChanged);
+    }
+
+    /**
+     * {@code incomingAttributes} tolerates a null attribute map (the defensive
+     * {@code existing.attributes == null} true arm): it substitutes an empty
+     * map, so the incoming checksum equals that of a product carrying an empty
+     * map.
+     *
+     * @throws Exception on reflection failure
+     */
+    @Test
+    void computeIncomingChecksumToleratesNullAttributeMap() throws Exception {
+        ProductCsvResource resource = new ProductCsvResource();
+        Product nullMap = new Product();
+        nullMap.ean = "111";
+        nullMap.attributes = null;
+        Product emptyMap = new Product();
+        emptyMap.ean = "111";
+        assertEquals(incomingChecksum(resource, line(1, fullParts()), emptyMap),
+                incomingChecksum(resource, line(1, fullParts()), nullMap));
+    }
+
+    /**
      * {@code findEntityForLine} performs the EAN lookup used by the 1-by-1
      * fallback and returns the first matching product.
      */
@@ -439,6 +549,41 @@ class ProductCsvResourceTest {
         java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
         for (int i = 0; i < TEST_HEADER.length; i++) header.put(TEST_HEADER[i], i);
         return new ImporterCsvResource.LineData(lineNumber, header, cells, TEST_HEADER[0]);
+    }
+
+    /** The 9 required columns plus the OPTIONAL generic ATTRIBUTES column at index 9. */
+    private static final String[] ATTR_HEADER = {"EAN", "NAME", "DESCRIPTION", "BRAND",
+            "REFERENCE_WEIGHT", "REFERENCE_VOLUME", "PRODUCT_TYPE", "UNIT_NAME", "ACTIVE", "ATTRIBUTES"};
+
+    /**
+     * Builds a line under the ATTRIBUTES-bearing header. A 9-cell row still
+     * DECLARES the column (so {@code has} is true) but carries no cell for it
+     * ({@code get} returns null), which is exactly the short-row case.
+     *
+     * @param lineNumber the 1-based line number
+     * @param cells the raw cells
+     * @return the parsed line bound to the ATTRIBUTES header
+     */
+    private static ImporterCsvResource.LineData attrLine(int lineNumber, String[] cells) {
+        java.util.Map<String, Integer> header = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < ATTR_HEADER.length; i++) header.put(ATTR_HEADER[i], i);
+        return new ImporterCsvResource.LineData(lineNumber, header, cells, ATTR_HEADER[0]);
+    }
+
+    /**
+     * Invokes the private {@code feedProduct} helper by reflection.
+     *
+     * @param resource the resource under test
+     * @param data the parsed line
+     * @param product the product to populate
+     * @throws Exception on reflection failure
+     */
+    private static void feedProduct(ProductCsvResource resource, ImporterCsvResource.LineData data,
+                                    Product product) throws Exception {
+        Method method = ProductCsvResource.class.getDeclaredMethod("feedProduct",
+                ImporterCsvResource.LineData.class, Product.class);
+        method.setAccessible(true);
+        method.invoke(resource, data, product);
     }
 
     /**

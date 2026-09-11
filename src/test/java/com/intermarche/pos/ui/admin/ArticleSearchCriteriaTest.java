@@ -432,4 +432,63 @@ class ArticleSearchCriteriaTest {
         Assertions.assertEquals(Boolean.FALSE, restored.forbidden);
         Assertions.assertEquals(java.util.Set.of(ProductAttributeCatalog.VAT_EXEMPT), restored.attributes);
     }
+
+    /**
+     * The EAN lower bound rejects an article below it (BO-02-03-30): the
+     * {@code eanFrom != null} arm and the {@code compareTo < 0} true arm.
+     */
+    @Test
+    void eanRangeRejectsBelowLowerBound() {
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria();
+        criteria.eanFrom = "3000000000200";
+        Assertions.assertFalse(criteria.matches(product("3000000000100", "Lait", null)));
+    }
+
+    /**
+     * The EAN lower bound is inclusive (BO-02-03-30): an article exactly at the
+     * bound passes ({@code compareTo < 0} false arm on equality).
+     */
+    @Test
+    void eanRangeAcceptsAtLowerBound() {
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria();
+        criteria.eanFrom = "3000000000100";
+        Assertions.assertTrue(criteria.matches(product("3000000000100", "Lait", null)));
+    }
+
+    /**
+     * The EAN upper bound rejects an article above it (BO-02-03-30): the
+     * {@code eanTo != null} arm and the {@code compareTo > 0} true arm.
+     */
+    @Test
+    void eanRangeRejectsAboveUpperBound() {
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria();
+        criteria.eanTo = "3000000000200";
+        Assertions.assertFalse(criteria.matches(product("3000000000300", "Lait", null)));
+    }
+
+    /**
+     * The EAN upper bound is inclusive (BO-02-03-30): an article exactly at the
+     * bound passes ({@code compareTo > 0} false arm on equality).
+     */
+    @Test
+    void eanRangeAcceptsAtUpperBound() {
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria();
+        criteria.eanTo = "3000000000300";
+        Assertions.assertTrue(criteria.matches(product("3000000000300", "Lait", null)));
+    }
+
+    /**
+     * The EAN range survives the query-string round trip (BO-02-03-30):
+     * {@code fromParams} parses both bounds and {@code toQueryString} carries
+     * them (both present arms).
+     */
+    @Test
+    void eanRangeQueryStringRoundTrip() {
+        ArticleSearchCriteria original = new ArticleSearchCriteria();
+        original.eanFrom = "3000000000100";
+        original.eanTo = "3000000000300";
+        ArticleSearchCriteria restored = ArticleSearchCriteria.fromQueryString(original.toQueryString());
+        Assertions.assertEquals("3000000000100", restored.eanFrom);
+        Assertions.assertEquals("3000000000300", restored.eanTo);
+    }
 }

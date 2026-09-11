@@ -445,13 +445,16 @@ class AdminEchelonResourceTest {
             assertTrue(response.getLocation().toString().contains("noticeOk=true"));
             assertEquals("54321", source.pdvNumber);
             assertEquals("Renumérotée", source.name);
+            // BO-02-05-01: the rename carries the echelon settings to the new number.
+            verify(resource.echelonSettings).migratePdv("12345", "54321");
         }
     }
 
     /**
      * {@code savePdv} treats an original number equal to the new number as a
      * plain update, not a rename (the {@code !original.equals(number)} false
-     * arm): the row is looked up once by its number and updated in place.
+     * arm): the row is looked up once by its number and updated in place, and no
+     * echelon-settings migration is triggered.
      */
     @Test
     void savePdvTreatsEqualOriginalAsUpdate() {
@@ -469,6 +472,7 @@ class AdminEchelonResourceTest {
             assertTrue(response.getLocation().toString().contains("noticeOk=true"));
             assertTrue(construction.constructed().isEmpty());
             assertEquals("Sans renommage", existing.name);
+            verify(resource.echelonSettings, never()).migratePdv(anyString(), anyString());
         }
     }
 

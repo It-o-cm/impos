@@ -176,6 +176,29 @@ public class EchelonSettingService {
     }
 
     /**
+     * Migrates every PDV-level echelon setting from an old point-de-vente number
+     * to a new one (BO-02-05-01): renaming a PDV changes its five-digit number,
+     * and the rows posed at the PDV echelon are keyed by that number — without
+     * this migration they would be orphaned, silently reverting the PDV to its
+     * enseigne defaults. The new number is guaranteed free of PDV rows by the
+     * caller (the rename is refused when the target number already exists), so
+     * no unique-key collision can occur.
+     *
+     * @param oldNumber the PDV's former number
+     * @param newNumber the PDV's new number
+     * @return the number of echelon settings re-keyed
+     */
+    @Transactional
+    public int migratePdv(String oldNumber, String newNumber) {
+        int migrated = 0;
+        for (EchelonSetting row : EchelonSetting.listForEchelon(EchelonLevel.PDV, oldNumber)) {
+            row.echelonCode = newNumber;
+            migrated++;
+        }
+        return migrated;
+    }
+
+    /**
      * Lists the PDVs of an enseigne that carry their OWN value for a key — the
      * central view of which points de vente personalised a parameter away from
      * the enseigne default (BO-03-12-07).

@@ -84,6 +84,17 @@ public class ProductCsvResource extends ImporterCsvResource {
     static final String COL_CHECKOUT_LABEL = "CHECKOUT_LABEL";
     /** Header name of the OPTIONAL internal code (code interne, BO-02-03-04). */
     static final String COL_INTERNAL_CODE = "INTERNAL_CODE";
+    /**
+     * Header name of the OPTIONAL generic attributes column (BO-02-03-18): a
+     * single cell of {@code code=value} pairs separated by semicolons, e.g.
+     * {@code MEAL_VOUCHER_ELIGIBLE=true;DISCOUNT_FORBIDDEN=true}. It exposes the
+     * whole open {@link Product#attributes} map to the shared feed — the
+     * well-known behavioural attributes (BO-02-03-06/09/11/21/22/25) and any
+     * Gestion-Commerciale code alike — through ONE column rather than one per
+     * attribute, mirroring the open-map design. The pipe field delimiter means
+     * {@code ;} and {@code =} are safe inside the cell.
+     */
+    static final String COL_ATTRIBUTES = "ATTRIBUTES";
 
     /** The columns this importer cannot work without. */
     private static final List<String> REQUIRED_COLUMNS = List.of(
@@ -235,6 +246,59 @@ public class ProductCsvResource extends ImporterCsvResource {
         if (data.has(COL_VARIABLE_WEIGHT)) {
             product.variableWeight = safeParseBoolean(data, COL_VARIABLE_WEIGHT);
         }
+        if (data.has(COL_ATTRIBUTES)) {
+            mergeAttributes(product.attributes, safeGet(data, COL_ATTRIBUTES));
+        }
+    }
+
+    /**
+     * Merges the {@code code=value} pairs of the generic ATTRIBUTES cell into a
+     * product's attribute map (BO-02-03-18). Pairs are separated by semicolons
+     * and each pair by the first {@code =}; a blank cell (declared but empty)
+     * merges nothing, so it never wipes attributes set through the fiche — a map
+     * column clears no key, it only poses the ones it names. A token without an
+     * {@code =} or with a blank code is skipped. Any code is accepted: the map
+     * is open by design, only the subset the register acts upon is declared in
+     * the catalog.
+     *
+     * @param target the product's attribute map (mutated in place)
+     * @param raw the raw ATTRIBUTES cell value, or null
+     */
+    private void mergeAttributes(Map<String, String> target, String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return;
+        }
+        for (String pair : raw.split(";")) {
+            int eq = pair.indexOf('=');
+            if (eq < 0) {
+                continue;
+            }
+            String code = pair.substring(0, eq).trim();
+            if (code.isEmpty()) {
+                continue;
+            }
+            target.put(code, pair.substring(eq + 1).trim());
+        }
+    }
+
+    /**
+     * Computes the attribute map a product WOULD carry after {@code feedProduct}
+     * for the change-detection checksum: a copy of its current attributes with
+     * the ATTRIBUTES cell merged in when the feed declares the column, the
+     * current attributes untouched when it does not (mirroring the touch rule of
+     * every other optional column).
+     *
+     * @param data the parsed CSV line
+     * @param existing the product the row would update
+     * @return the incoming attribute map (a fresh copy, never the live map)
+     */
+    private Map<String, String> incomingAttributes(LineData data, Product existing) {
+        Map<String, String> attributes = new HashMap<>(
+                existing.attributes == null ? Map.of() : existing.attributes);
+        if (data.has(COL_ATTRIBUTES)) {
+            mergeAttributes(attributes, safeGet(data, COL_ATTRIBUTES));
+        }
+        return attributes;
     }
 
     /**
@@ -274,7 +338,8 @@ public class ProductCsvResource extends ImporterCsvResource {
                 forbidden,                                      // forbiddenToSale
                 checkoutLabel,                                  // checkoutLabel
                 internalCode,                                   // internalCode
-                variableWeight                                  // variableWeight
+                variableWeight,                                 // variableWeight
+                incomingAttributes(data, existing)              // attributes (BO-02-03-18)
         );
     }
 

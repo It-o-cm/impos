@@ -406,6 +406,12 @@ class AdminArticleResourceTest {
         form.putSingle(ProductAttributeCatalog.VAT_EXEMPT, "on");
         form.putSingle("ORIGIN", "  France  ");
         form.putSingle("codeOnScreen", "on");
+        // BO-02-03-17/24/28/33: the newly-editable fiche fields.
+        form.putSingle("unitName", "  L  ");
+        form.putSingle("referenceWeight", "1,5");
+        form.putSingle("referenceVolume", "2.0");
+        form.putSingle("giftCardAmount", "10");
+        form.putSingle("variableWeight", "on");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             panache.when(() -> Product.findById(1L)).thenReturn(product);
             panache.when(() -> ArticleAttributeDefinition.list("order by code")).thenReturn(List.of(custom));
@@ -421,6 +427,45 @@ class AdminArticleResourceTest {
         assertEquals("true", product.attributes.get(ProductAttributeCatalog.VAT_EXEMPT));
         assertEquals("France", product.attributes.get("ORIGIN"));
         assertEquals("true", product.attributes.get(AdminArticleResource.CODE_ON_SCREEN));
+        assertEquals("L", product.unitName);
+        assertEquals(new java.math.BigDecimal("1.500"), product.referenceWeight);
+        assertEquals(new java.math.BigDecimal("2.000"), product.referenceVolume);
+        assertEquals(new java.math.BigDecimal("10.00"), product.giftCardAmount);
+        assertTrue(product.variableWeight);
+    }
+
+    /**
+     * {@code save} clears the newly-editable fiche fields on a blank or invalid
+     * value (BO-02-03-17/24/33): the {@code parseDecimal} blank arm (empty
+     * referenceWeight), its parse-error arm (a non-numeric referenceVolume), the
+     * {@code blankToNull} arm (empty unitName) and the checkbox-absent arm
+     * (variableWeight not posted) all land as the cleared/false state.
+     */
+    @Test
+    void saveClearsBlankOrInvalidFicheFields() {
+        AdminArticleResource resource = newResource();
+        Product product = product("3000000000001", ProductType.UNIT);
+        product.unitName = "kg";
+        product.referenceWeight = new java.math.BigDecimal("9.000");
+        product.referenceVolume = new java.math.BigDecimal("9.000");
+        product.giftCardAmount = new java.math.BigDecimal("5.00");
+        product.variableWeight = true;
+        MultivaluedMap<String, String> form = new MultivaluedHashMap<>();
+        form.putSingle("id", "1");
+        form.putSingle("unitName", "   ");
+        form.putSingle("referenceWeight", "");
+        form.putSingle("referenceVolume", "abc");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Product.findById(1L)).thenReturn(product);
+            panache.when(() -> ArticleAttributeDefinition.list("order by code")).thenReturn(List.of());
+            Response response = resource.save(form);
+            assertTrue(response.getLocation().toString().contains("noticeOk=true"));
+        }
+        assertNull(product.unitName);
+        assertNull(product.referenceWeight);
+        assertNull(product.referenceVolume);
+        assertNull(product.giftCardAmount);
+        assertFalse(product.variableWeight);
     }
 
     /**

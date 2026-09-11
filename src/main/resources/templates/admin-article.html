@@ -64,19 +64,22 @@
             </div>
             <div class="field">
                 <label class="field-label" for="f-unit">Unité de mesure</label>
-                <input class="input-control" id="f-unit" type="text" value="{product.unitName ?: '—'}" disabled>
+                <input class="input-control" id="f-unit" type="text" name="unitName" value="{product.unitName ?: ''}" maxlength="20">
             </div>
             <div class="field">
                 <label class="field-label" for="f-weight">Poids de référence (kg)</label>
-                <input class="input-control" id="f-weight" type="text" value="{product.referenceWeight ?: '—'}" disabled>
+                <input class="input-control" id="f-weight" type="text" name="referenceWeight" value="{product.referenceWeight ?: ''}">
+                <span class="field-hint">Décimal en kilogrammes. Vide : aucun poids de référence.</span>
             </div>
             <div class="field">
                 <label class="field-label" for="f-volume">Volume de référence (L)</label>
-                <input class="input-control" id="f-volume" type="text" value="{product.referenceVolume ?: '—'}" disabled>
+                <input class="input-control" id="f-volume" type="text" name="referenceVolume" value="{product.referenceVolume ?: ''}">
+                <span class="field-hint">Décimal en litres. Vide : aucun volume de référence.</span>
             </div>
             <div class="field">
                 <label class="field-label" for="f-gift">Carte cadeau (€)</label>
-                <input class="input-control" id="f-gift" type="text" value="{product.giftCardAmount ?: '—'}" disabled>
+                <input class="input-control" id="f-gift" type="text" name="giftCardAmount" value="{product.giftCardAmount ?: ''}">
+                <span class="field-hint">Renseigné : l'article EST une carte cadeau de ce montant. Vide : article normal.</span>
             </div>
             <div class="field">
                 <label class="field-label" for="f-brand">Marque</label>
@@ -89,6 +92,10 @@
             <div class="field field-check">
                 <label class="field-label"><input type="checkbox" name="active" {#if product.active}checked{/if}> Article actif</label>
                 <span class="field-hint">Décoché : l'article est désactivé (retiré du référentiel), jamais supprimé.</span>
+            </div>
+            <div class="field field-check">
+                <label class="field-label"><input type="checkbox" name="variableWeight" {#if product.variableWeight}checked{/if}> Vendu au poids (vrac)</label>
+                <span class="field-hint">Coché : le poids est connu à la pesée (écran FRUITS &amp; LÉGUMES ou étiquette 2x). Décoché : article préemballé.</span>
             </div>
         </div>
     </div>

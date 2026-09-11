@@ -327,16 +327,21 @@ public class Product extends BaseEntity {
     /**
      * Calculates a checksum based on the product's key attributes.
      * <p>
-     * The declared {@link #attributes} map is deliberately excluded (like
-     * {@code icon}): attribute changes are administered directly (admin screen,
-     * GraphQL) and distributed by the draw, not gated by the CSV change
-     * detection. {@code checkoutLabel} and {@code internalCode} ARE included and
-     * mirrored by the CSV importer.
+     * The declared {@link #attributes} map IS included since BO-02-03-18: the
+     * shared referential feed now carries attributes through the generic
+     * {@code ATTRIBUTES} column, so an attribute change must be a detectable
+     * change like any other field — otherwise a re-import that only edits an
+     * attribute would be skipped by the checksum short-circuit and the column
+     * would be a dead button on update. The map is hashed order-independently
+     * (its {@link Map#hashCode()} sums entry hashes), and the CSV importer
+     * mirrors this in its incoming-checksum computation. The presentation
+     * {@code icon}/{@code imageData} stay excluded, as before. {@code
+     * checkoutLabel} and {@code internalCode} remain included and mirrored.
      *
      * @return Checksum integer value
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(ean, plu==null? "":plu ,name, description, brand, referenceWeight, referenceVolume, productType, unitName, active, forbiddenToSale, checkoutLabel, internalCode, variableWeight);
+        return Objects.hash(ean, plu==null? "":plu ,name, description, brand, referenceWeight, referenceVolume, productType, unitName, active, forbiddenToSale, checkoutLabel, internalCode, variableWeight, attributes);
     }
 }

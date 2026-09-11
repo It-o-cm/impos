@@ -59,6 +59,19 @@ public class ArticleSearchCriteria {
     public Boolean forbidden;
 
     /**
+     * The inclusive lower bound of the EAN range (BO-02-03-30), or null for no
+     * lower bound. EANs are compared as strings — the natural order of a
+     * fixed-alphabet numeric code.
+     */
+    public String eanFrom;
+
+    /**
+     * The inclusive upper bound of the EAN range (BO-02-03-30), or null for no
+     * upper bound.
+     */
+    public String eanTo;
+
+    /**
      * The well-known attribute codes an article must carry as true, never null.
      * Only codes the register acts upon (declared in
      * {@link ProductAttributeCatalog}) are retained.
@@ -95,6 +108,12 @@ public class ArticleSearchCriteria {
             return false;
         }
         if (forbidden != null && product.forbiddenToSale != forbidden) {
+            return false;
+        }
+        if (eanFrom != null && product.ean.compareTo(eanFrom) < 0) {
+            return false;
+        }
+        if (eanTo != null && product.ean.compareTo(eanTo) > 0) {
             return false;
         }
         for (String code : attributes) {
@@ -148,6 +167,8 @@ public class ArticleSearchCriteria {
         criteria.type = parseType(params.getFirst("type"));
         criteria.status = parseStatus(params.getFirst("status"));
         criteria.forbidden = parseForbidden(params.getFirst("forbidden"));
+        criteria.eanFrom = blankToNull(params.getFirst("eanFrom"));
+        criteria.eanTo = blankToNull(params.getFirst("eanTo"));
         addKnownAttributes(criteria.attributes, params.get("attr"));
         return criteria;
     }
@@ -195,6 +216,12 @@ public class ArticleSearchCriteria {
         }
         if (forbidden != null) {
             append(sb, "forbidden", forbidden ? "yes" : "no");
+        }
+        if (eanFrom != null) {
+            append(sb, "eanFrom", eanFrom);
+        }
+        if (eanTo != null) {
+            append(sb, "eanTo", eanTo);
         }
         for (String code : attributes) {
             append(sb, "attr", code);

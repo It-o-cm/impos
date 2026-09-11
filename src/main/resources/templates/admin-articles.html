@@ -59,6 +59,14 @@
                     <option value="no" {#if criteria.forbidden == false}selected{/if}>Autorisées</option>
                 </select>
             </div>
+            <div class="field">
+                <label class="field-label" for="s-ean-from">EAN de</label>
+                <input class="input-control" id="s-ean-from" type="text" name="eanFrom" value="{criteria.eanFrom ?: ''}">
+            </div>
+            <div class="field">
+                <label class="field-label" for="s-ean-to">EAN à</label>
+                <input class="input-control" id="s-ean-to" type="text" name="eanTo" value="{criteria.eanTo ?: ''}">
+            </div>
         </div>
         <div class="field-grid">
             {#for def in attributeDefs}
@@ -102,6 +110,8 @@
         {#if criteria.status.name != 'ALL'}<input type="hidden" name="status" value="{criteria.status.name}">{/if}
         {#if criteria.forbidden == true}<input type="hidden" name="forbidden" value="yes">{/if}
         {#if criteria.forbidden == false}<input type="hidden" name="forbidden" value="no">{/if}
+        {#if criteria.eanFrom}<input type="hidden" name="eanFrom" value="{criteria.eanFrom}">{/if}
+        {#if criteria.eanTo}<input type="hidden" name="eanTo" value="{criteria.eanTo}">{/if}
         {#for code in criteria.attributes}<input type="hidden" name="attr" value="{code}">{/for}
         <span class="bulk-code-label">Code article à l'écran sur les {products.size()} article(s) filtré(s) :</span>
         <label class="bulk-code-toggle"><input type="checkbox" name="value"> Activer</label>

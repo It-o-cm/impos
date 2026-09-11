@@ -26,6 +26,8 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -214,6 +216,15 @@ public class AdminArticleResource {
         product.active = form.getFirst("active") != null;
         product.forbiddenToSale = form.getFirst("forbiddenToSale") != null;
         product.ageRestriction = parseAge(form.getFirst("ageRestriction"));
+        // BO-02-03-17/33: the unit label and the three decimals were rendered
+        // read-only although the data exists — now editable from the fiche.
+        product.unitName = blankToNull(form.getFirst("unitName"));
+        product.referenceWeight = parseDecimal(form.getFirst("referenceWeight"), 3);
+        product.referenceVolume = parseDecimal(form.getFirst("referenceVolume"), 3);
+        product.giftCardAmount = parseDecimal(form.getFirst("giftCardAmount"), 2);
+        // BO-02-03-24/28: the variable-weight (bulk) marker was fed by the CSV
+        // but absent from the fiche — now a checkbox, present = true.
+        product.variableWeight = form.getFirst("variableWeight") != null;
         for (ProductAttributeDef def : ProductAttributeCatalog.CATALOG) {
             product.attributes.put(def.code(),
                     form.getFirst(def.code()) != null ? "true" : "false");
@@ -354,6 +365,27 @@ public class AdminArticleResource {
         try {
             int age = Integer.parseInt(raw.trim());
             return age > 0 ? age : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses a posted decimal field (BO-02-03-33), tolerating a French comma,
+     * and normalises it to the given scale. A blank or unparseable value clears
+     * the field (null), following the read-screen doctrine that a bad value
+     * narrows nothing rather than faulting the save.
+     *
+     * @param raw the raw value, or null
+     * @param scale the decimal scale to enforce (2 for money, 3 for weight/volume)
+     * @return the parsed amount at the given scale, or null when blank or invalid
+     */
+    private BigDecimal parseDecimal(String raw, int scale) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(raw.trim().replace(",", ".")).setScale(scale, RoundingMode.HALF_UP);
         } catch (NumberFormatException e) {
             return null;
         }

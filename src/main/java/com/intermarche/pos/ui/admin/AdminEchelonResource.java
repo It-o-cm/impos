@@ -174,6 +174,9 @@ public class AdminEchelonResource {
                 return redirect("Ce numéro de PDV est déjà utilisé.", false);
             }
             pdv.pdvNumber = number;
+            // BO-02-05-01: carry the echelon settings posed at this PDV over to
+            // its new number, or the rename would orphan them.
+            echelonSettings.migratePdv(original, number);
         } else {
             pdv = Pdv.findByNumber(number);
             if (pdv == null) {

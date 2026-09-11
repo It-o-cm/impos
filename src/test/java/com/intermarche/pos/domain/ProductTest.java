@@ -251,7 +251,7 @@ class ProductTest {
         product.name = "Melon";
         product.productType = ProductType.WEIGHT;
         int expected = Objects.hash("3760001", "", "Melon", null, null, null, null,
-                ProductType.WEIGHT, null, true, false, null, null, false);
+                ProductType.WEIGHT, null, true, false, null, null, false, product.attributes);
         Assertions.assertEquals(expected, product.getChecksum());
     }
 
@@ -277,7 +277,27 @@ class ProductTest {
         product.internalCode = "INT-42";
         int expected = Objects.hash("3760001", "1234", "Melon", "Sweet", "Farm",
                 new BigDecimal("1.500"), new BigDecimal("0.750"), ProductType.UNIT,
-                "pcs", false, true, "MELON JAUNE", "INT-42", false);
+                "pcs", false, true, "MELON JAUNE", "INT-42", false, product.attributes);
         Assertions.assertEquals(expected, product.getChecksum());
+    }
+
+    /**
+     * getChecksum now folds the declared attributes map (BO-02-03-18): two
+     * products differing only by one attribute have different checksums, so a
+     * CSV re-import that only edits an attribute is detected as a change rather
+     * than skipped by the checksum short-circuit.
+     */
+    @Test
+    void getChecksumFoldsTheAttributesMap() {
+        Product without = new Product();
+        without.ean = "3760001";
+        without.name = "Melon";
+        without.productType = ProductType.UNIT;
+        Product with = new Product();
+        with.ean = "3760001";
+        with.name = "Melon";
+        with.productType = ProductType.UNIT;
+        with.attributes.put("MEAL_VOUCHER_ELIGIBLE", "true");
+        Assertions.assertNotEquals(without.getChecksum(), with.getChecksum());
     }
 }

@@ -432,4 +432,63 @@ class EchelonSettingServiceTest {
             assertSame(overridden, result.get(0));
         }
     }
+
+    /**
+     * {@code migratePdv} re-keys every PDV-level setting from the old number to
+     * the new one (BO-02-05-01) and returns the count — the loop-entered arm.
+     */
+    @Test
+    void migratePdvRekeysPdvSettings() {
+        EchelonSettingService service = new EchelonSettingService();
+        EchelonSetting first = row("discount.enabled", "false");
+        first.level = EchelonLevel.PDV;
+        first.echelonCode = "07039";
+        EchelonSetting second = row("display.show-ean", "true");
+        second.level = EchelonLevel.PDV;
+        second.echelonCode = "07039";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> EchelonSetting.list(SETTING_FOR_ECHELON, EchelonLevel.PDV, "07039"))
+                    .thenReturn(List.of(first, second));
+            int migrated = service.migratePdv("07039", "07040");
+            assertEquals(2, migrated);
+            assertEquals("07040", first.echelonCode);
+            assertEquals("07040", second.echelonCode);
+        }
+    }
+
+    /**
+     * {@code migratePdv} on a PDV that posed no echelon setting re-keys nothing
+     * and returns zero — the loop-not-entered arm.
+     */
+    @Test
+    void migratePdvOnNoSettingsMigratesNothing() {
+        EchelonSettingService service = new EchelonSettingService();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> EchelonSetting.list(SETTING_FOR_ECHELON, EchelonLevel.PDV, "07039"))
+                    .thenReturn(List.of());
+            assertEquals(0, service.migratePdv("07039", "07040"));
+        }
+    }
+
+    /**
+     * Any PosSettingsService catalog key posed at an echelon is inherited by a
+     * PDV automatically (BO-02-05-04): the resolution engine is generic, so a
+     * key taken straight from {@link PosSettingsService#CATALOG} — the very list
+     * the echelon admin screen offers — resolves through the enseigne level
+     * without the engine naming it.
+     */
+    @Test
+    void resolveInheritsAnyPosSettingsCatalogKey() {
+        EchelonSettingService service = new EchelonSettingService();
+        String catalogKey = PosSettingsService.CATALOG.get(0).key();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubPdv(panache, "12345", pdv("12345", "IF"));
+            stubEnseigne(panache, "IF", null);
+            panache.when(() -> EchelonSetting.list(SETTING_FOR_ECHELON, EchelonLevel.ENSEIGNE, "IF"))
+                    .thenReturn(List.of(row(catalogKey, "inherited")));
+            panache.when(() -> EchelonSetting.list(SETTING_FOR_ECHELON, EchelonLevel.PDV, "12345"))
+                    .thenReturn(List.of());
+            assertEquals("inherited", service.resolve("12345", catalogKey).orElse(null));
+        }
+    }
 }
