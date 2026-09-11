@@ -310,7 +310,31 @@ public class PosSettingsService {
         new Def("touch.display-order", Type.TEXT, "TOUCHES CAISSE",
                 "Ordre des touches groupe",
                 "Ordre d'affichage des touches groupe sur l'ecran de saisie directe : ALPHA (alphabetique, defaut), CUSTOM (ordre personnalise de la fiche groupe) ou VOLUME (volume de vente decroissant). Une valeur inconnue retombe sur ALPHA (BO-03-01-10/11/13).",
-                "ALPHA", null));
+                "ALPHA", null),
+        new Def("auth.badge-scan-enabled", Type.BOOL, "SESSION CAISSE",
+                "Prise de poste au scan du badge",
+                "Le scan d'un badge deverrouille la caisse ou vise un avenant manager. Desactive : le badge scanne est ignore et l'operateur saisit son identifiant a la main (BO-10-02-29/30).",
+                "true", null),
+        new Def("cash.default-opening-float", Type.TEXT, "SESSION CAISSE",
+                "Fond de caisse par defaut",
+                "Montant pre-rempli du fond de caisse a l'ouverture de session, que le caissier peut corriger. Administre par magasin et herite par echelon (BO-03-02-41).",
+                "150.00", null),
+        new Def("drawer.open-on-session-close", Type.BOOL, "TIROIR",
+                "Ouverture du tiroir a la cloture de session",
+                "Le tiroir s'ouvre au lancement de la cloture (comptage du Z). Desactive : le tiroir reste ferme, le comptage se fait tiroir clos (BO-10-02-26).",
+                "true", null),
+        new Def("ticket.vat-breakdown-enabled", Type.BOOL, "TICKETS",
+                "Ventilation TVA sur le ticket",
+                "Le detail de la TVA par taux (HT / TVA) est imprime sur le ticket de caisse et le ticket de retour. Desactive : aucune ventilation TVA n'est imprimee (BO-10-06-04).",
+                "true", null),
+        new Def("fidelity.external-enabled", Type.BOOL, "FIDÉLITÉ",
+                "Service fidelite externe actif",
+                "L'interrogation du service fidelite imfid (cagnotte, avantages, paiement fidelite) est active. Desactive : la caisse se comporte comme si aucun service fidelite n'etait configure, meme si son URL est renseignee (BO-10-03-07).",
+                "true", null),
+        new Def("cash.movement-tenders", Type.TEXT, "MOUVEMENTS DE CAISSE",
+                "Moyens de paiement d'un mouvement",
+                "Moyens de paiement proposes pour un mouvement de caisse (prelevement/apport d'un cheque, d'un titre-restaurant...), separes par des points-virgules. Vide : le mouvement porte toujours sur les especes (BO-03-02-20).",
+                "", null));
 
     /**
      * The echelon inheritance engine, or null on a node where none is wired
@@ -751,6 +775,73 @@ public class PosSettingsService {
      * @return true when the customer-display QR code is shown
      */
     public boolean customerQrEnabled() { return boolValue("customer.qr-enabled"); }
+
+    /**
+     * Whether a scanned employee badge is honoured at the lock and endorsement
+     * screens (BO-10-02-29/30): disabled, a scanned badge is ignored and the
+     * operator must key an identifier by hand.
+     *
+     * @return true when badge scanning takes the post or endorses
+     */
+    public boolean badgeScanEnabled() { return boolValue("auth.badge-scan-enabled"); }
+
+    /**
+     * The pre-filled opening float shown on the session-opening form
+     * (BO-03-02-41), administered by store and inherited by echelon like any
+     * catalog key. The cashier may still correct it before opening.
+     *
+     * @return the default opening float, as administered text
+     */
+    public String defaultOpeningFloat() { return value("cash.default-opening-float"); }
+
+    /**
+     * Whether launching the Z closing opens the cash drawer (BO-10-02-26):
+     * disabled, the drawer stays shut and the count is done drawer-closed.
+     *
+     * @return true when the close start opens the drawer
+     */
+    public boolean drawerOpenOnSessionClose() { return boolValue("drawer.open-on-session-close"); }
+
+    /**
+     * Whether the per-rate VAT ventilation is printed on the sale and refund
+     * tickets (BO-10-06-04): disabled, no VAT breakdown line is printed.
+     *
+     * @return true when the VAT breakdown is printed
+     */
+    public boolean vatBreakdownEnabled() { return boolValue("ticket.vat-breakdown-enabled"); }
+
+    /**
+     * Whether the external imfid loyalty service is queried at all
+     * (BO-10-03-07): disabled, the register behaves as if no loyalty service
+     * were configured even when its URL is set — the operational off switch a
+     * store keeps beside the credentials.
+     *
+     * @return true when the external loyalty service is active
+     */
+    public boolean fidelityExternalEnabled() { return boolValue("fidelity.external-enabled"); }
+
+    /**
+     * The tenders a cash movement may concern (BO-03-02-20), parsed from the
+     * semicolon-separated administered list; blank entries are dropped, and an
+     * empty setting yields an empty list — the movement then always concerns the
+     * cash, exactly as before the option existed. Never null.
+     *
+     * @return the administered movement tenders, in order
+     */
+    public List<String> cashMovementTenders() {
+        String raw = value("cash.movement-tenders");
+        if (raw.isBlank()) {
+            return List.of();
+        }
+        List<String> tenders = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                tenders.add(trimmed);
+            }
+        }
+        return tenders;
+    }
 
     /**
      * The amount above which a cash movement (withdrawal, deposit, expense,

@@ -67,6 +67,8 @@ class ImfidClientTest {
         client.url = Optional.of("http://127.0.0.1:" + server.getAddress().getPort());
         client.user = Optional.of("pos");
         client.password = Optional.of("pos-password");
+        client.posSettingsService = org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        org.mockito.Mockito.when(client.posSettingsService.fidelityExternalEnabled()).thenReturn(true);
     }
 
     /**
@@ -120,6 +122,11 @@ class ImfidClientTest {
     @Test
     void isConfiguredFollowsTheBaseUrl() {
         assertTrue(client.isConfigured());
+        // BO-10-03-07: a present URL is not enough — the back office must also
+        // leave the external loyalty switched on, else the service is treated
+        // as absent (the operational off switch beside the credentials).
+        org.mockito.Mockito.when(client.posSettingsService.fidelityExternalEnabled()).thenReturn(false);
+        assertFalse(client.isConfigured());
         ImfidClient bare = new ImfidClient();
         bare.url = Optional.empty();
         assertFalse(bare.isConfigured());

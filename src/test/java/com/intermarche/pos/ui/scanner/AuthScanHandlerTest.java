@@ -47,6 +47,8 @@ class AuthScanHandlerTest {
     private AuthScanHandler newHandler() {
         AuthScanHandler handler = new AuthScanHandler();
         handler.badgePattern = BADGE_PATTERN;
+        handler.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(handler.posSettingsService.badgeScanEnabled()).thenReturn(true);
         return handler;
     }
 
@@ -81,6 +83,26 @@ class AuthScanHandlerTest {
         verifyNoInteractions(state);
         verifyNoInteractions(endorsement);
         verifyNoInteractions(auth);
+    }
+
+    /**
+     * With badge scanning disabled (BO-10-02-29/30), a matching badge is NOT
+     * consumed even at an active endorsement or a locked register: the context
+     * stays unhandled and walks on, so the operator keys an identifier instead.
+     */
+    @Test
+    void disabledBadgeScanLeavesBadgeUnhandled() {
+        AuthScanHandler handler = newHandler();
+        when(handler.posSettingsService.badgeScanEnabled()).thenReturn(false);
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = true;
+        AuthState auth = mock(AuthState.class);
+        PosState state = newState(endorsement, auth);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        handler.handle(ctx);
+        assertFalse(ctx.handled);
+        verify(endorsement, never()).setScannedBadge(BADGE_CODE);
+        verify(auth, never()).setScannedBadge(BADGE_CODE);
     }
 
     /**

@@ -47,6 +47,10 @@ public class ImfidClient {
     @ConfigProperty(name = "pos.fid.password")
     Optional<String> password;
 
+    /** The back-office parameters (external loyalty activation — BO-10-03-07). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /** Shared HTTP client (connection reuse, connect timeout). */
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(1500))
@@ -57,12 +61,17 @@ public class ImfidClient {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /**
-     * Tells whether the loyalty service is configured at all.
+     * Tells whether the loyalty service is configured AND administratively
+     * active (BO-10-03-07): a base URL must be present and the back office must
+     * not have switched the external loyalty off. The single gate every caller
+     * already funnels through, so flipping the setting disables earn, burn,
+     * lookup and health in one place — the register then behaves as if no
+     * loyalty service existed, even with credentials still on file.
      *
-     * @return true when a base URL is present
+     * @return true when a base URL is present and the external loyalty is active
      */
     public boolean isConfigured() {
-        return url.isPresent();
+        return url.isPresent() && posSettingsService.fidelityExternalEnabled();
     }
 
     /**

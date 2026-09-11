@@ -151,6 +151,12 @@ class AdminSettingsResourceTest {
             {"gs1.gcn-coupon-type",                 "CODES GS1",                  "",  ""},
             {"touch.groups-per-page",               "TOUCHES CAISSE",             "",  "i"},
             {"touch.display-order",                 "TOUCHES CAISSE",             "",  ""},
+            {"auth.badge-scan-enabled",             "SESSION CAISSE",             "b", ""},
+            {"cash.default-opening-float",          "SESSION CAISSE",             "",  ""},
+            {"drawer.open-on-session-close",        "TIROIR",                     "b", ""},
+            {"ticket.vat-breakdown-enabled",        "TICKETS",                    "b", ""},
+            {"fidelity.external-enabled",           "FIDÉLITÉ",                   "b", ""},
+            {"cash.movement-tenders",               "MOUVEMENTS DE CAISSE",       "",  ""},
         };
         assertEquals(expected.length, entries.size());
         String previousSection = null;

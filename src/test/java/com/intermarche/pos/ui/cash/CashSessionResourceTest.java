@@ -66,6 +66,11 @@ class CashSessionResourceTest {
         resource.hardwareService = mock(HardwareService.class);
         resource.session = mock(Template.class);
         resource.sessionReportPage = mock(Template.class);
+        resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(resource.posSettingsService.defaultOpeningFloat()).thenReturn("150.00");
+        // The close-drawer gate defaults ON — the pre-existing behavior the
+        // start-closing case relies on (BO-10-02-26).
+        when(resource.posSettingsService.drawerOpenOnSessionClose()).thenReturn(true);
         return resource;
     }
 
@@ -82,10 +87,12 @@ class CashSessionResourceTest {
         TemplateInstance ti1 = mock(TemplateInstance.class);
         TemplateInstance ti2 = mock(TemplateInstance.class);
         TemplateInstance ti3 = mock(TemplateInstance.class);
+        TemplateInstance tiFloat = mock(TemplateInstance.class);
         when(resource.session.data("state", resource.state)).thenReturn(ti1);
         when(ti1.data(eq("current"), any())).thenReturn(ti2);
-        when(ti2.data(eq("error"), any())).thenReturn(ti3);
-        return new TemplateInstance[]{ti1, ti2, ti3};
+        when(ti2.data(eq("defaultFloat"), any())).thenReturn(tiFloat);
+        when(tiFloat.data(eq("error"), any())).thenReturn(ti3);
+        return new TemplateInstance[]{ti1, ti2, tiFloat, ti3};
     }
 
     /**
@@ -112,9 +119,9 @@ class CashSessionResourceTest {
         CashSession current = mock(CashSession.class);
         when(resource.cashSessionService.getOpenSession()).thenReturn(current);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[2], resource.sessionPage("open-failed"));
+        assertSame(chain[3], resource.sessionPage("open-failed"));
         verify(chain[0]).data("current", current);
-        verify(chain[1]).data("error", "OUVERTURE IMPOSSIBLE (SESSION DÉJÀ OUVERTE ?)");
+        verify(chain[2]).data("error", "OUVERTURE IMPOSSIBLE (SESSION DÉJÀ OUVERTE ?)");
     }
 
     /**
@@ -127,8 +134,8 @@ class CashSessionResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[2], resource.sessionPage("no-session"));
-        verify(chain[1]).data("error", "AUCUNE SESSION OUVERTE");
+        assertSame(chain[3], resource.sessionPage("no-session"));
+        verify(chain[2]).data("error", "AUCUNE SESSION OUVERTE");
     }
 
     /**
@@ -141,8 +148,8 @@ class CashSessionResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
         TemplateInstance[] chain = stubSessionChain(resource);
-        assertSame(chain[2], resource.sessionPage("bogus"));
-        verify(chain[1]).data("error", (String) null);
+        assertSame(chain[3], resource.sessionPage("bogus"));
+        verify(chain[2]).data("error", (String) null);
     }
 
     // --- openSession ---
@@ -283,6 +290,33 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         assertRedirect(resource.startClosing(), "/cash-count");
         verify(resource.hardwareService).openDrawer();
+    }
+
+    /**
+     * {@code startClosing()} routes to the counting page WITHOUT opening the
+     * drawer when the close-drawer setting is off (BO-10-02-26 false arm): the
+     * count is done drawer-closed.
+     */
+    @Test
+    void startClosingKeepsDrawerShutWhenDisabled() {
+        CashSessionResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.posSettingsService.drawerOpenOnSessionClose()).thenReturn(false);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.startClosing(), "/cash-count");
+        verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * {@code sessionPage()} pre-fills the opening form with the administered
+     * default float (BO-03-02-41).
+     */
+    @Test
+    void sessionPagePassesAdministeredDefaultFloat() {
+        CashSessionResource resource = newResource();
+        TemplateInstance[] chain = stubSessionChain(resource);
+        assertSame(chain[3], resource.sessionPage(null));
+        verify(chain[1]).data("defaultFloat", "150.00");
     }
 
     // --- closeSession ---

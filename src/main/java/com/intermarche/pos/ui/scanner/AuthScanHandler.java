@@ -1,8 +1,10 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 /**
@@ -24,6 +26,10 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
     @ConfigProperty(name = "scan.pattern.badge")
     String badgePattern;
 
+    /** The back-office parameters (badge-scan activation — BO-10-02-29/30). */
+    @Inject
+    PosSettingsService posSettingsService;
+
     /**
      * Deposits a recognized badge into the endorsement or lock mailbox.
      *
@@ -33,7 +39,10 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
     public void handle(ScanContext ctx) {
         if (ctx.handled) return;
 
-        if (ctx.code.matches(badgePattern)) {
+        // BO-10-02-29/30: when badge scanning is disabled, a badge is not
+        // consumed here — it walks on rather than taking the post or endorsing,
+        // so the operator keys an identifier by hand instead.
+        if (posSettingsService.badgeScanEnabled() && ctx.code.matches(badgePattern)) {
             PosState state = ctx.state;
 
             // 1. Priorité : Endossement (Manager)

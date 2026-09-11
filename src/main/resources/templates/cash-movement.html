@@ -81,6 +81,17 @@
               {/for}
             </select>
           </div>
+          {#if !tenders.isEmpty()}
+          <div class="form-row">
+            <label for="paymentMethod">Moyen de paiement</label>
+            <select id="paymentMethod" name="paymentMethod">
+              <option value="">Espèces</option>
+              {#for tender in tenders}
+                <option value="{tender}">{tender}</option>
+              {/for}
+            </select>
+          </div>
+          {/if}
 
           <div class="manager-block" id="managerBlock" style="display:none;">
             <div class="hint">Aval manager requis au-delà de {threshold} €.</div>

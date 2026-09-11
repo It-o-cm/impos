@@ -93,6 +93,9 @@ class TicketPrinterServiceTest {
         // loyalty-section cases rely on (BO-10-03-15).
         service.posSettingsService = mock(PosSettingsService.class);
         when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(true);
+        // VAT breakdown defaults to ON, the pre-existing behavior every ticket
+        // case relies on (BO-10-06-04).
+        when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(true);
         return service;
     }
 
@@ -312,6 +315,28 @@ class TicketPrinterServiceTest {
             assertFalse(out.contains("PRODUIT ANNULE"));
             assertTrue(out.contains("TVA 20"));
             assertFalse(out.contains("TVA 5,5"));
+        }
+    }
+
+    /**
+     * With the VAT breakdown disabled (BO-10-06-04), the sale ticket carries no
+     * per-rate ventilation line at all — the false arm of the new gate.
+     */
+    @Test
+    void printTicketOmitsVatBreakdownWhenDisabled() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(false);
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        ticket.payments.add(new CashPayment(new BigDecimal("2.00"), new BigDecimal("2.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("PAIN"));
+            assertFalse(out.contains("TVA 20"));
         }
     }
 
@@ -707,6 +732,25 @@ class TicketPrinterServiceTest {
             assertFalse(out.contains("INTERMARCHE"));
             assertFalse(out.contains("Ticket Original"));
             assertFalse(out.contains("Mode"));
+        }
+    }
+
+    /**
+     * With the VAT breakdown disabled (BO-10-06-04), the refund ticket carries
+     * no per-rate ventilation line — the false arm of the refund-side gate.
+     */
+    @Test
+    void printRefundOmitsVatBreakdownWhenDisabled() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(false);
+        Refund refund = refund(2L, null, refundLine("YAOURT", "1", "6.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("TOTAL REMBOURSE"));
+            assertFalse(out.contains("  TVA "));
         }
     }
 

@@ -254,9 +254,13 @@ public class TicketPrinterService {
             if (line.cancelled) continue;
             breakdown.add(line.vatRate, line.totalPrice);
         }
-        for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
-            sb.append(formatLine("  TVA " + bucket.getRateFormatted(),
-                    "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
+        // BO-10-06-04: the per-rate VAT ventilation is printed only when the
+        // back office asks for it; disabled, the ticket carries no breakdown.
+        if (posSettingsService.vatBreakdownEnabled()) {
+            for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
+                sb.append(formatLine("  TVA " + bucket.getRateFormatted(),
+                        "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
+            }
         }
         sb.append("\n");
         // Payments
@@ -457,9 +461,12 @@ public class TicketPrinterService {
             refundBreakdown.add(line.vatRate,
                     line.price.multiply(line.quantity).setScale(2, java.math.RoundingMode.HALF_UP));
         }
-        for (VatBreakdown.Bucket bucket : refundBreakdown.getBuckets()) {
-            sb.append(formatLine("  TVA " + bucket.getRateFormatted(),
-                    "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
+        // BO-10-06-04: same VAT-breakdown gate on the refund ticket.
+        if (posSettingsService.vatBreakdownEnabled()) {
+            for (VatBreakdown.Bucket bucket : refundBreakdown.getBuckets()) {
+                sb.append(formatLine("  TVA " + bucket.getRateFormatted(),
+                        "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
+            }
         }
         sb.append("\n");
         // Footer

@@ -50,6 +50,8 @@ public class CashSessionResource {
     @Inject TechnicalEventService technicalEventService;
     @Inject HardwareService hardwareService;
     @Inject PosState state;
+    /** The back-office parameters (opening-float default, close-drawer gate). */
+    @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
 
     /**
      * Shows the session page: current open session, or the opening form.
@@ -70,6 +72,7 @@ public class CashSessionResource {
         return session
                 .data("state", state)
                 .data("current", cashSessionService.getOpenSession())
+                .data("defaultFloat", posSettingsService.defaultOpeningFloat())
                 .data("error", message);
     }
 
@@ -157,7 +160,11 @@ public class CashSessionResource {
         if (cashSessionService.getOpenSession() == null) {
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
-        hardwareService.openDrawer();
+        // BO-10-02-26: the Z count opens the drawer only when the back office
+        // asks for it; disabled, the count is done drawer-closed.
+        if (posSettingsService.drawerOpenOnSessionClose()) {
+            hardwareService.openDrawer();
+        }
         return Response.seeOther(URI.create("/cash-count")).build();
     }
 

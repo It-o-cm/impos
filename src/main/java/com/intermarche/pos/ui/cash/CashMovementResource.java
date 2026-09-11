@@ -87,6 +87,7 @@ public class CashMovementResource {
         return cashMovement
                 .data("state", state)
                 .data("reasons", posSettingsService.cashMovementReasons())
+                .data("tenders", posSettingsService.cashMovementTenders())
                 .data("threshold", posSettingsService.cashMovementEndorsementThreshold().toPlainString())
                 .data("saved", ok != null)
                 .data("error", message);
@@ -110,6 +111,7 @@ public class CashMovementResource {
     public Response record(@FormParam("type") String typeStr,
                            @FormParam("amount") String amountStr,
                            @FormParam("reason") String reason,
+                           @FormParam("paymentMethod") String paymentMethod,
                            @FormParam("managerLogin") String managerLogin,
                            @FormParam("managerPin") String managerPin) {
         if (state.trainingMode) {
@@ -133,7 +135,11 @@ public class CashMovementResource {
         }
         Employee cashier = (state.auth.operatorId != null)
                 ? Employee.findById(state.auth.operatorId) : null;
-        CashMovement recorded = cashMovementService.record(session, cashier, type, amount, reason, endorsedBy);
+        // BO-03-02-20: the movement names the tender it concerns when the form
+        // carries one; a blank selection lands as null, i.e. a cash movement.
+        String tender = (paymentMethod == null || paymentMethod.isBlank()) ? null : paymentMethod.trim();
+        CashMovement recorded = cashMovementService.record(
+                session, cashier, type, amount, reason, endorsedBy, tender, null, null);
         state.touch();
         if (recorded == null) {
             return redirect("/cash-movement?error=endorsement");

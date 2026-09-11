@@ -638,4 +638,91 @@ class PosSettingsServiceTest {
             verify(engine, never()).resolveForPdv(org.mockito.ArgumentMatchers.anyString());
         }
     }
+
+    /**
+     * {@code badgeScanEnabled} reads its stored boolean value (BO-10-02-29/30).
+     */
+    @Test
+    void badgeScanEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("auth.badge-scan-enabled", "false")));
+            assertFalse(service.badgeScanEnabled());
+        }
+    }
+
+    /**
+     * {@code defaultOpeningFloat} reads its stored value (BO-03-02-41).
+     */
+    @Test
+    void defaultOpeningFloatReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("cash.default-opening-float", "200.00")));
+            assertEquals("200.00", service.defaultOpeningFloat());
+        }
+    }
+
+    /**
+     * {@code drawerOpenOnSessionClose} reads its stored boolean value (BO-10-02-26).
+     */
+    @Test
+    void drawerOpenOnSessionCloseReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("drawer.open-on-session-close", "false")));
+            assertFalse(service.drawerOpenOnSessionClose());
+        }
+    }
+
+    /**
+     * {@code vatBreakdownEnabled} reads its stored boolean value (BO-10-06-04).
+     */
+    @Test
+    void vatBreakdownEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("ticket.vat-breakdown-enabled", "false")));
+            assertFalse(service.vatBreakdownEnabled());
+        }
+    }
+
+    /**
+     * {@code fidelityExternalEnabled} reads its stored boolean value (BO-10-03-07).
+     */
+    @Test
+    void fidelityExternalEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fidelity.external-enabled", "false")));
+            assertFalse(service.fidelityExternalEnabled());
+        }
+    }
+
+    /**
+     * {@code cashMovementTenders} parses the semicolon list, trimming and
+     * dropping blank entries (BO-03-02-20, non-blank arm and the blank-part skip).
+     */
+    @Test
+    void cashMovementTendersParsesSemicolonList() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.movement-tenders", "ESPECES; CHEQUE ; ;TR")));
+            assertEquals(List.of("ESPECES", "CHEQUE", "TR"), service.cashMovementTenders());
+        }
+    }
+
+    /**
+     * {@code cashMovementTenders} yields an empty list on the blank default
+     * (BO-03-02-20, blank arm — a movement then always concerns the cash).
+     */
+    @Test
+    void cashMovementTendersEmptyWhenBlank() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(service.cashMovementTenders().isEmpty());
+        }
+    }
 }
