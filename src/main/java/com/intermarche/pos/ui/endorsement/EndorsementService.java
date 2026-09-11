@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.endorsement;
 
+import com.intermarche.pos.ui.PriceModType;
+
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
@@ -115,7 +117,7 @@ public class EndorsementService {
      * @param uid the uid of the targeted ticket line
      * @param value the modification value (euros or percent depending on the type)
      */
-    public void requestPriceModification(PosState state, String type, String uid, BigDecimal value) {
+    public void requestPriceModification(PosState state, PriceModType type, String uid, BigDecimal value) {
         state.endorsement.requestPriceModification(type, uid, value);
         state.touch();
     }

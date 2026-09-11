@@ -162,7 +162,10 @@ public class SyncIngestService {
             line.unitPrice = lineDto.unitPrice;
             line.vatRate = lineDto.vatRate;
             line.modifierLabel = lineDto.modifierLabel;
-            line.modifierType = lineDto.modifierType;
+            // A word this version does not know reads as no gesture rather than as a
+            // failed ingest: the ticket is still consolidated, minus a modifier nobody
+            // here can apply.
+            line.modifierType = com.intermarche.pos.ui.PriceModType.of(lineDto.modifierType);
             line.modifierValue = lineDto.modifierValue;
             line.originalUnitPrice = lineDto.originalUnitPrice;
             line.totalPrice = lineDto.totalPrice;

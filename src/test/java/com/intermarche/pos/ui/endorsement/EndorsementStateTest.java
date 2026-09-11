@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.endorsement;
 
+import com.intermarche.pos.ui.PriceModType;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -46,7 +47,7 @@ class EndorsementStateTest {
         EndorsementState state = new EndorsementState();
         state.error = "boom";
         state.scannedBadge = "B1";
-        state.pendingPriceType = "REMISE";
+        state.pendingPriceType = PriceModType.REMISE;
         state.pendingTargetUid = "L1";
         state.pendingValue = new BigDecimal("5.00");
         state.request("CANCEL_TICKET");
@@ -69,10 +70,10 @@ class EndorsementStateTest {
         state.error = "boom";
         state.scannedBadge = "B1";
         BigDecimal value = new BigDecimal("12.34");
-        state.requestPriceModification("DISCOUNT", "LINE-9", value);
+        state.requestPriceModification(PriceModType.DISCOUNT, "LINE-9", value);
         assertTrue(state.active);
         assertEquals("PRICE_MODIFICATION", state.requestedAction);
-        assertEquals("DISCOUNT", state.pendingPriceType);
+        assertEquals(PriceModType.DISCOUNT, state.pendingPriceType);
         assertEquals("LINE-9", state.pendingTargetUid);
         assertEquals(value, state.pendingValue);
         assertNull(state.error);
@@ -86,10 +87,10 @@ class EndorsementStateTest {
     @Test
     void requestPriceModificationDefaultsNullValueToZero() {
         EndorsementState state = new EndorsementState();
-        state.requestPriceModification("FORCE_PRICE", "LINE-1", null);
+        state.requestPriceModification(PriceModType.FORCE_PRICE, "LINE-1", null);
         assertTrue(state.active);
         assertEquals("PRICE_MODIFICATION", state.requestedAction);
-        assertEquals("FORCE_PRICE", state.pendingPriceType);
+        assertEquals(PriceModType.FORCE_PRICE, state.pendingPriceType);
         assertEquals("LINE-1", state.pendingTargetUid);
         assertEquals(BigDecimal.ZERO, state.pendingValue);
         assertNull(state.error);
@@ -103,7 +104,7 @@ class EndorsementStateTest {
     @Test
     void clearResetsEverything() {
         EndorsementState state = new EndorsementState();
-        state.requestPriceModification("REMISE", "LINE-2", new BigDecimal("7.50"));
+        state.requestPriceModification(PriceModType.REMISE, "LINE-2", new BigDecimal("7.50"));
         state.error = "denied";
         state.scannedBadge = "B2";
         state.clear();

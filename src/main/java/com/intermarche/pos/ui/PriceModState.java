@@ -13,8 +13,8 @@ public class PriceModState implements Serializable {
     /** True while the modal is shown. */
     public boolean active = false;
 
-    /** The modification type (REMISE, DISCOUNT, FORCE_PRICE, QUANTITY). */
-    public String type = null;
+    /** The modification mode the modal is open on, or null when it is closed. */
+    public PriceModType type = null;
 
     /** The uid of the targeted ticket line. */
     public String targetUid = null;
@@ -50,7 +50,7 @@ public class PriceModState implements Serializable {
      * @param uid the uid of the targeted line, null for a ticket-level gesture
      * @param label the label shown in place of the line recall
      */
-    public void set(String type, String uid, String label) {
+    public void set(PriceModType type, String uid, String label) {
         set(type, uid, label, null, null, null);
     }
 
@@ -64,7 +64,7 @@ public class PriceModState implements Serializable {
      * @param priceFormatted the current total of the line, formatted, or null
      * @param modifierLabel the modification already applied to the line, or null
      */
-    public void set(String type, String uid, String label, String html,
+    public void set(PriceModType type, String uid, String label, String html,
             String priceFormatted, String modifierLabel) {
         this.active = true;
         this.type = type;
@@ -113,7 +113,7 @@ public class PriceModState implements Serializable {
      * @return true for REMISE, DISCOUNT and FORCE_PRICE
      */
     public boolean isLineModes() {
-        return "REMISE".equals(type) || "DISCOUNT".equals(type) || "FORCE_PRICE".equals(type);
+        return type != null && type.isLineLevel();
     }
 
     /**
@@ -123,7 +123,7 @@ public class PriceModState implements Serializable {
      * @return true for GLOBAL_REMISE and GLOBAL_DISCOUNT
      */
     public boolean isTicketModes() {
-        return "GLOBAL_REMISE".equals(type) || "GLOBAL_DISCOUNT".equals(type);
+        return type != null && type.isTicketLevel();
     }
 
     /**
@@ -132,12 +132,16 @@ public class PriceModState implements Serializable {
      * @return the display title
      */
     public String getTypeLabel() {
-        if ("REMISE".equals(type)) return "SAISIE REMISE (€)";
-        if ("DISCOUNT".equals(type)) return "SAISIE DISCOUNT (%)";
-        if ("FORCE_PRICE".equals(type)) return "NOUVEAU PRIX (€)";
-        if ("QUANTITY".equals(type)) return "QUANTITÉ ARTICLE";
-        if ("GLOBAL_REMISE".equals(type)) return "REMISE TICKET (€)";
-        if ("GLOBAL_DISCOUNT".equals(type)) return "REMISE TICKET (%)";
-        return "MODIFICATION";
+        return type == null ? "MODIFICATION" : type.getLabel();
+    }
+
+    /**
+     * Returns the name of the current mode, for the templates, which compare it to a
+     * literal.
+     *
+     * @return the mode's name, or an empty string when the modal is closed
+     */
+    public String getTypeName() {
+        return type == null ? "" : type.name();
     }
 }

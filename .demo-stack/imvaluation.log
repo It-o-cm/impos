@@ -3662,3 +3662,4 @@ Caused by: java.lang.IllegalStateException: Configuration Error: Store not found
 09:46:56 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-5) Purged 4 valuation trace(s) older than 2026-09-10T09:46:56.534957
 10:46:56 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-5) Purged 1 valuation trace(s) older than 2026-09-10T10:46:56.680196
 11:46:56 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-5) Purged 9 valuation trace(s) older than 2026-09-10T11:46:56.648036
+12:55:05 INFO  [co.in.va.en.ValuationTraceService] (vert.x-worker-thread-5) Purged 4 valuation trace(s) older than 2026-09-10T12:55:05.126601

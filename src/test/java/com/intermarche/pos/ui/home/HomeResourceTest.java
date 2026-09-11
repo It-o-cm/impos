@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.home;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModState;
 import com.intermarche.pos.ui.fidelity.FidelityState;
@@ -493,7 +494,7 @@ class HomeResourceTest {
         Response response = resource.submitPriceMod("REMISE", "u1", "1,5");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
-        verify(resource.homeService).submitPriceMod("REMISE", "u1", new BigDecimal("1.5"));
+        verify(resource.homeService).submitPriceMod(PriceModType.REMISE, "u1", new BigDecimal("1.5"));
     }
 
     /**
@@ -507,7 +508,7 @@ class HomeResourceTest {
         Response response = resource.submitPriceMod("REMISE", "u1", null);
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
-        verify(resource.homeService).submitPriceMod("REMISE", "u1", new BigDecimal("0"));
+        verify(resource.homeService).submitPriceMod(PriceModType.REMISE, "u1", new BigDecimal("0"));
     }
 
     /**
@@ -521,7 +522,7 @@ class HomeResourceTest {
         Response response = resource.submitPriceMod("REMISE", "u1", "");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
-        verify(resource.homeService).submitPriceMod("REMISE", "u1", new BigDecimal("0"));
+        verify(resource.homeService).submitPriceMod(PriceModType.REMISE, "u1", new BigDecimal("0"));
     }
 
     /**
@@ -538,6 +539,52 @@ class HomeResourceTest {
         verify(resource.state.ticket).setError("VALEUR INVALIDE");
         verify(resource.state.priceModState).clear();
         verify(resource.state).touch();
+        verify(resource.homeService, never()).submitPriceMod(any(), any(), any());
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses a posted word that names no mode: the value
+     * parses, but nothing is applied and the modal closes on an error (unknown-mode
+     * arm). A forged post cannot reach the dispatch with a mode the register has no
+     * rule for.
+     */
+    @Test
+    void submitPriceModRejectsUnknownMode() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        Response response = resource.submitPriceMod("MYSTERY", "u1", "1,5");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.state.ticket).setError("MODIFICATION INCONNUE");
+        verify(resource.state.priceModState).clear();
+        verify(resource.state).touch();
+        verify(resource.homeService, never()).submitPriceMod(any(), any(), any());
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses a missing mode the same way — an absent form
+     * field is not a mode either (null arm of the parser).
+     */
+    @Test
+    void submitPriceModRejectsNullMode() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        Response response = resource.submitPriceMod(null, "u1", "1,5");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        verify(resource.state.ticket).setError("MODIFICATION INCONNUE");
+        verify(resource.homeService, never()).submitPriceMod(any(), any(), any());
+    }
+
+    /**
+     * {@code submitPriceMod()} refuses a blank mode too (blank arm of the parser).
+     */
+    @Test
+    void submitPriceModRejectsBlankMode() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        Response response = resource.submitPriceMod("  ", "u1", "1,5");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        verify(resource.state.ticket).setError("MODIFICATION INCONNUE");
         verify(resource.homeService, never()).submitPriceMod(any(), any(), any());
     }
 

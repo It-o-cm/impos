@@ -7,6 +7,7 @@ import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -356,16 +357,25 @@ public class HomeService {
     // --- Price modifications ---
 
     /**
-     * Opens the price-modification modal for the targeted line.
+     * Opens the price-modification modal on the named mode.
      *
-     * @param type the modification type (remise, discount, force_price)
+     * <p>A word that names no mode opens nothing: the key's URL is the only place
+     * where the mode is still a string, and a stale page or a hand-typed address must
+     * not open a modal whose title and buttons nobody can decide.
+     *
+     * @param type the mode's name, as the key's URL spells it
      */
     public void openPriceMod(String type) {
-        String upper = type.toUpperCase();
+        PriceModType mode = PriceModType.of(type == null ? null : type.toUpperCase());
+        if (mode == null) {
+            state.ticket.setError("MODIFICATION INCONNUE");
+            state.touch();
+            return;
+        }
         // Ticket-level gestures target the whole sale: no line selection
         // required (phase: global ticket discount).
-        if (upper.startsWith("GLOBAL_")) {
-            state.priceModState.set(upper, null, "TICKET COMPLET");
+        if (mode.isTicketLevel()) {
+            state.priceModState.set(mode, null, "TICKET COMPLET");
             state.touch();
             return;
         }
@@ -376,7 +386,7 @@ public class HomeService {
             // The line is captured HERE, at opening, and not read again while the
             // modal is up: what the operator is about to modify is the line as it
             // was when the gesture started.
-            state.priceModState.set(upper, target.uid, target.label, target.getHtml(),
+            state.priceModState.set(mode, target.uid, target.label, target.getHtml(),
                     target.getPriceFormatted(), target.getModifierLabel());
         }
         state.touch();
@@ -390,13 +400,6 @@ public class HomeService {
         state.touch();
     }
 
-    /**
-     * Submits a price modification, which is routed through a manager endorsement.
-     *
-     * @param type the modification type (REMISE, DISCOUNT, FORCE_PRICE)
-     * @param uid the uid of the targeted ticket line
-     * @param value the modification value (euros or percent depending on the type)
-     */
     /**
      * Calls a supervisor: pushes the register, operator and reason to the
      * store node in real time, and journals the call locally. The message
@@ -472,8 +475,15 @@ public class HomeService {
         state.touch();
     }
 
-    public void submitPriceMod(String type, String uid, BigDecimal value) {
-        if ("QUANTITY".equals(type)) {
+    /**
+     * Submits a price modification, which is routed through a manager endorsement.
+     *
+     * @param type the modification mode, or null when the submitted word named none
+     * @param uid the uid of the targeted ticket line
+     * @param value the modification value (euros or percent depending on the type)
+     */
+    public void submitPriceMod(PriceModType type, String uid, BigDecimal value) {
+        if (type == PriceModType.QUANTITY) {
             // Multiplying a scanned line is a normal sale action: no endorsement
             applyLineQuantity(uid, value);
         } else if (isDiscountGesture(type) && !posSettingsService.discountEnabled()) {
@@ -500,9 +510,9 @@ public class HomeService {
      * @param type the gesture type
      * @return true for a line or global remise/discount
      */
-    private boolean isDiscountGesture(String type) {
-        return "REMISE".equals(type) || "DISCOUNT".equals(type)
-                || "GLOBAL_REMISE".equals(type) || "GLOBAL_DISCOUNT".equals(type);
+    private boolean isDiscountGesture(PriceModType type) {
+        return type == PriceModType.REMISE || type == PriceModType.DISCOUNT
+                || type == PriceModType.GLOBAL_REMISE || type == PriceModType.GLOBAL_DISCOUNT;
     }
 
     /**
@@ -510,12 +520,12 @@ public class HomeService {
      * mirror of the approved-endorsement dispatch, used when the back office
      * administered the gestures as free (LC-03-02-08).
      *
-     * @param type the gesture type (REMISE, DISCOUNT, FORCE_PRICE, GLOBAL_*)
+     * @param type the gesture mode
      * @param uid the targeted line uid, or null for a global gesture
      * @param value the typed value
      */
-    private void applyGestureDirectly(String type, String uid, BigDecimal value) {
-        if (type != null && type.startsWith("GLOBAL_")) {
+    private void applyGestureDirectly(PriceModType type, String uid, BigDecimal value) {
+        if (type != null && type.isTicketLevel()) {
             ticketService.applyGlobalDiscount(state, type, value);
             return;
         }
@@ -527,9 +537,9 @@ public class HomeService {
             state.ticket.setError("LIGNE INTROUVABLE");
             return;
         }
-        if ("REMISE".equals(type)) ticketService.applyRemise(item, value);
-        else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, value);
-        else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, value);
+        if (type == PriceModType.REMISE) ticketService.applyRemise(item, value);
+        else if (type == PriceModType.DISCOUNT) ticketService.applyDiscount(item, value);
+        else if (type == PriceModType.FORCE_PRICE) ticketService.forcePrice(item, value);
         ticketService.recalculateTotal(state);
     }
 

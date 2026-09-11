@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -476,7 +477,7 @@ public class TicketState implements Serializable {
          * (manualDiscountAmount / manualDiscountPercent / manualForcedPrice)
          * instead of a pre-baked price — phase 7.
          */
-        public String modifierType = null;
+        public PriceModType modifierType = null;
 
         /**
          * Structured value of the applied manual gesture, as typed by the

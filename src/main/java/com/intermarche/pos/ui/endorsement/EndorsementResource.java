@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.endorsement;
 
+import com.intermarche.pos.ui.PriceModType;
+
 import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.returnprocess.RefundService;
@@ -119,11 +121,11 @@ public class EndorsementResource {
                 ticketService.cancelItemById(state, uid);
             }
             else if (actionToExecute.equals("PRICE_MODIFICATION")) {
-                String type = state.endorsement.pendingPriceType;
+                PriceModType type = state.endorsement.pendingPriceType;
                 String uid = state.endorsement.pendingTargetUid;
                 BigDecimal val = state.endorsement.pendingValue;
 
-                if (type != null && type.startsWith("GLOBAL_")) {
+                if (type != null && type.isTicketLevel()) {
                     // Ticket-level gesture: no target line — the global
                     // discount applies to the whole sale (phase: global
                     // ticket discount) and recomputes internally; the flow
@@ -137,9 +139,9 @@ public class EndorsementResource {
 
                     if (item != null) {
                         // Type dispatch
-                        if ("REMISE".equals(type)) ticketService.applyRemise(item, val);
-                        else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, val);
-                        else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, val);
+                        if (type == PriceModType.REMISE) ticketService.applyRemise(item, val);
+                        else if (type == PriceModType.DISCOUNT) ticketService.applyDiscount(item, val);
+                        else if (type == PriceModType.FORCE_PRICE) ticketService.forcePrice(item, val);
 
                         ticketService.recalculateTotal(state);
                     }

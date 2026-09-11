@@ -1,5 +1,6 @@
 package com.intermarche.e2e;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.ui.PosState;
@@ -612,7 +613,7 @@ public class GroupOIT {
 
         // --- Manager badge prefill → execution of the still-parked gesture ---
         approveEndorsementWithManager(page);
-        Assertions.assertEquals("REMISE", unitLine().modifierType,
+        Assertions.assertEquals(PriceModType.REMISE, unitLine().modifierType,
                 "the endorsed gesture must execute once the manager PIN validates");
 
         // --- ANNULER abandons a freshly-parked gesture (no execution) ---
@@ -622,7 +623,7 @@ public class GroupOIT {
         Assertions.assertTrue(posState.endorsement.active, "the DISCOUNT gesture must be parked pending endorsement");
         get("action/endorse-cancel");
         Assertions.assertFalse(posState.endorsement.active, "ANNULER must clear the pending endorsement");
-        Assertions.assertEquals("REMISE", unitLine().modifierType,
+        Assertions.assertEquals(PriceModType.REMISE, unitLine().modifierType,
                 "the abandoned DISCOUNT must not overwrite the earlier REMISE");
 
         clearCartWithManager(page);

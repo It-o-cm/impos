@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.home;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
@@ -518,7 +519,7 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         when(service.state.getTargetItem()).thenReturn(it);
         service.openPriceMod("remise");
-        verify(service.state.priceModState).set("REMISE", "A", "L", it.getHtml(),
+        verify(service.state.priceModState).set(PriceModType.REMISE, "A", "L", it.getHtml(),
                 it.getPriceFormatted(), it.getModifierLabel());
         verify(service.state).touch();
     }
@@ -533,7 +534,7 @@ class HomeServiceTest {
     @Test
     void openPriceModGlobalTargetsTheWholeTicket() {
         service.openPriceMod("global_remise");
-        verify(service.state.priceModState).set("GLOBAL_REMISE", null, "TICKET COMPLET");
+        verify(service.state.priceModState).set(PriceModType.GLOBAL_REMISE, null, "TICKET COMPLET");
         verify(service.state).touch();
         verify(service.state, never()).getTargetItem();
         verifyNoInteractions(service.state.ticket);
@@ -546,7 +547,7 @@ class HomeServiceTest {
     @Test
     void openPriceModGlobalDiscountTargetsTheWholeTicketToo() {
         service.openPriceMod("global_discount");
-        verify(service.state.priceModState).set("GLOBAL_DISCOUNT", null, "TICKET COMPLET");
+        verify(service.state.priceModState).set(PriceModType.GLOBAL_DISCOUNT, null, "TICKET COMPLET");
         verify(service.state).touch();
     }
 
@@ -560,8 +561,8 @@ class HomeServiceTest {
         TicketState.TicketItem selected = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         when(service.state.getTargetItem()).thenReturn(selected);
         service.openPriceMod("GLOBAL_REMISE");
-        verify(service.state.priceModState).set("GLOBAL_REMISE", null, "TICKET COMPLET");
-        verify(service.state.priceModState, never()).set("GLOBAL_REMISE", "A", "L");
+        verify(service.state.priceModState).set(PriceModType.GLOBAL_REMISE, null, "TICKET COMPLET");
+        verify(service.state.priceModState, never()).set(PriceModType.GLOBAL_REMISE, "A", "L");
     }
 
     /**
@@ -582,22 +583,45 @@ class HomeServiceTest {
     @Test
     void openPriceModGlobalPrefixMatchesOnTheUpperCasedType() {
         service.openPriceMod("Global_Remise");
-        verify(service.state.priceModState).set("GLOBAL_REMISE", null, "TICKET COMPLET");
+        verify(service.state.priceModState).set(PriceModType.GLOBAL_REMISE, null, "TICKET COMPLET");
     }
 
     /**
-     * A per-line type that merely CONTAINS "GLOBAL" without starting with the
-     * prefix keeps the line path: the router is a prefix test, and a future
-     * gesture named e.g. "REMISE_GLOBALE" must not silently become a
-     * whole-ticket one.
+     * A word that names no mode opens NOTHING: a stale page or a hand-typed
+     * address must not raise a modal whose title and buttons nobody can decide,
+     * even when a line is selected and would otherwise be a valid target
+     * (unknown-mode arm).
      */
     @Test
-    void openPriceModOnlyThePrefixRoutesToTheWholeTicket() {
+    void openPriceModUnknownModeOpensNothing() {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         when(service.state.getTargetItem()).thenReturn(it);
         service.openPriceMod("remise_global");
-        verify(service.state.priceModState).set("REMISE_GLOBAL", "A", "L", it.getHtml(),
-                it.getPriceFormatted(), it.getModifierLabel());
+        verify(service.state.ticket).setError("MODIFICATION INCONNUE");
+        verify(service.state.priceModState, never()).set(any(), any(), any());
+        verify(service.state.priceModState, never()).set(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A null mode name is refused exactly like an unrecognized one: the guard
+     * folds the two into the same answer (null arm of the upper-casing).
+     */
+    @Test
+    void openPriceModNullModeOpensNothing() {
+        service.openPriceMod(null);
+        verify(service.state.ticket).setError("MODIFICATION INCONNUE");
+        verify(service.state.priceModState, never()).set(any(), any(), any());
+    }
+
+    /**
+     * A blank mode name is refused too — an empty path segment is not a mode
+     * (blank arm of the parser).
+     */
+    @Test
+    void openPriceModBlankModeOpensNothing() {
+        service.openPriceMod("   ");
+        verify(service.state.ticket).setError("MODIFICATION INCONNUE");
+        verify(service.state.priceModState, never()).set(any(), any(), any());
     }
 
     /**
@@ -833,8 +857,8 @@ class HomeServiceTest {
     @Test
     void submitPriceModRoutesNonQuantityToEndorsement() {
         BigDecimal value = new BigDecimal("1.5");
-        service.submitPriceMod("REMISE", "A", value);
-        verify(service.endorsementService).requestPriceModification(service.state, "REMISE", "A", value);
+        service.submitPriceMod(PriceModType.REMISE, "A", value);
+        verify(service.endorsementService).requestPriceModification(service.state, PriceModType.REMISE, "A", value);
         verify(service.state.priceModState).clear();
         verify(service.state).touch();
     }
@@ -850,10 +874,10 @@ class HomeServiceTest {
     void submitPriceModRefusesDiscountGesturesWhenDeactivated() {
         when(service.posSettingsService.discountEnabled()).thenReturn(false);
         BigDecimal value = new BigDecimal("5");
-        service.submitPriceMod("REMISE", "A", value);
-        service.submitPriceMod("DISCOUNT", "A", value);
-        service.submitPriceMod("GLOBAL_REMISE", null, value);
-        service.submitPriceMod("GLOBAL_DISCOUNT", null, value);
+        service.submitPriceMod(PriceModType.REMISE, "A", value);
+        service.submitPriceMod(PriceModType.DISCOUNT, "A", value);
+        service.submitPriceMod(PriceModType.GLOBAL_REMISE, null, value);
+        service.submitPriceMod(PriceModType.GLOBAL_DISCOUNT, null, value);
         verify(service.state.ticket, times(4)).setError("REMISES DÉSACTIVÉES");
         verifyNoInteractions(service.endorsementService);
         verifyNoInteractions(service.ticketService);
@@ -870,8 +894,8 @@ class HomeServiceTest {
     void submitPriceModAllowsForcePriceWhenDiscountsDeactivated() {
         when(service.posSettingsService.discountEnabled()).thenReturn(false);
         BigDecimal value = new BigDecimal("9");
-        service.submitPriceMod("FORCE_PRICE", "A", value);
-        verify(service.endorsementService).requestPriceModification(service.state, "FORCE_PRICE", "A", value);
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
+        verify(service.endorsementService).requestPriceModification(service.state, PriceModType.FORCE_PRICE, "A", value);
         verify(service.state.ticket, never()).setError("REMISES DÉSACTIVÉES");
     }
 
@@ -883,7 +907,7 @@ class HomeServiceTest {
     void submitPriceModAppliesValidQuantity() {
         TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE);
         service.state.ticket.items.add(it);
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         assertEquals(0, BigDecimal.valueOf(3).compareTo(it.quantity));
         verify(service.ticketService).recalculateTotal(service.state);
         verify(service.state.priceModState).clear();
@@ -896,7 +920,7 @@ class HomeServiceTest {
      */
     @Test
     void submitPriceModQuantityReportsLineNotFound() {
-        service.submitPriceMod("QUANTITY", "MISSING", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "MISSING", new BigDecimal("3"));
         verify(service.state.ticket).setError("LIGNE INTROUVABLE");
         verify(service.ticketService, never()).recalculateTotal(any());
         verify(service.state.priceModState).clear();
@@ -911,7 +935,7 @@ class HomeServiceTest {
     void submitPriceModQuantityAppliesDecimalWeightOnWeighedLine() {
         TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
         service.state.ticket.items.add(it);
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("0.85"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.85"));
         assertEquals(0, new BigDecimal("0.850").compareTo(it.quantity));
         assertEquals(3, it.quantity.scale());
         verify(service.ticketService).recalculateTotal(service.state);
@@ -925,11 +949,11 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRefusesInvalidWeightLegs() {
         service.state.ticket.items.add(item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", BigDecimal.ZERO);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", BigDecimal.ZERO);
         verify(service.state.ticket).setError("POIDS INVALIDE (0,001-99,999 KG)");
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("100.000"));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("0.0005"));
-        service.submitPriceMod("QUANTITY", "A", null);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("100.000"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.0005"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", null);
         verify(service.state.ticket, times(4)).setError("POIDS INVALIDE (0,001-99,999 KG)");
         verify(service.ticketService, never()).recalculateTotal(any());
     }
@@ -944,7 +968,7 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
         it.priceEmbedded = true;
         service.state.ticket.items.add(it);
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
         verify(service.ticketService, never()).recalculateTotal(any());
     }
@@ -958,7 +982,7 @@ class HomeServiceTest {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         it.moneyProduct = true;
         service.state.ticket.items.add(it);
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
         verify(service.ticketService, never()).recalculateTotal(any());
     }
@@ -970,7 +994,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRefusedWhenEanNull() {
         service.state.ticket.items.add(item("A", null, "", BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
     }
 
@@ -981,7 +1005,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRefusedWhenEanEmpty() {
         service.state.ticket.items.add(item("A", "", "", BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
     }
 
@@ -994,7 +1018,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRefusedWhenPluPresentButEanNull() {
         service.state.ticket.items.add(item("A", null, "1000", BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
         verify(service.ticketService, never()).recalculateTotal(any());
     }
@@ -1006,7 +1030,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRefusedWhenNegativeTotal() {
         service.state.ticket.items.add(item("A", "123", null, new BigDecimal("-1.00"), BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("3"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
         verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
     }
 
@@ -1017,7 +1041,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRejectsNullValue() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", null);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", null);
         verify(service.state.ticket).setError("QUANTITÉ INVALIDE (1-999)");
         verify(service.ticketService, never()).recalculateTotal(any());
     }
@@ -1029,7 +1053,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRejectsFractionalValue() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("1.5"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("1.5"));
         verify(service.state.ticket).setError("QUANTITÉ INVALIDE (1-999)");
     }
 
@@ -1040,7 +1064,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRejectsBelowOne() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("0"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0"));
         verify(service.state.ticket).setError("QUANTITÉ INVALIDE (1-999)");
     }
 
@@ -1051,7 +1075,7 @@ class HomeServiceTest {
     @Test
     void submitPriceModQuantityRejectsAboveMax() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod("QUANTITY", "A", new BigDecimal("1000"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("1000"));
         verify(service.state.ticket).setError("QUANTITÉ INVALIDE (1-999)");
     }
 
@@ -1079,8 +1103,8 @@ class HomeServiceTest {
     void submitPriceModDisabledAppliesGlobalDirectly() {
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
         BigDecimal value = new BigDecimal("10");
-        service.submitPriceMod("GLOBAL_PERCENT", "A", value);
-        verify(service.ticketService).applyGlobalDiscount(service.state, "GLOBAL_PERCENT", value);
+        service.submitPriceMod(PriceModType.GLOBAL_DISCOUNT, "A", value);
+        verify(service.ticketService).applyGlobalDiscount(service.state, PriceModType.GLOBAL_DISCOUNT, value);
         verify(service.endorsementService, never()).requestPriceModification(any(), any(), any(), any());
         verify(service.state.priceModState).clear();
         verify(service.state).touch();
@@ -1107,7 +1131,7 @@ class HomeServiceTest {
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
         TicketState.TicketItem item = addLine("A");
         BigDecimal value = new BigDecimal("2");
-        service.submitPriceMod("REMISE", "A", value);
+        service.submitPriceMod(PriceModType.REMISE, "A", value);
         verify(service.ticketService).applyRemise(item, value);
         verify(service.ticketService).recalculateTotal(service.state);
     }
@@ -1120,7 +1144,7 @@ class HomeServiceTest {
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
         TicketState.TicketItem item = addLine("A");
         BigDecimal value = new BigDecimal("15");
-        service.submitPriceMod("DISCOUNT", "A", value);
+        service.submitPriceMod(PriceModType.DISCOUNT, "A", value);
         verify(service.ticketService).applyDiscount(item, value);
         verify(service.ticketService).recalculateTotal(service.state);
     }
@@ -1133,20 +1157,20 @@ class HomeServiceTest {
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
         TicketState.TicketItem item = addLine("A");
         BigDecimal value = new BigDecimal("5");
-        service.submitPriceMod("FORCE_PRICE", "A", value);
+        service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
         verify(service.ticketService).forcePrice(item, value);
         verify(service.ticketService).recalculateTotal(service.state);
     }
 
     /**
-     * The direct gesture on an unrecognized type applies nothing yet still
-     * recomputes (none-of-the-three arm).
+     * The direct gesture on a mode the line dispatch has no arm for applies
+     * nothing yet still recomputes (none-of-the-three arm, null type).
      */
     @Test
     void gestureDirectlyUnknownTypeStillRecalculates() {
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
         TicketState.TicketItem item = addLine("A");
-        service.submitPriceMod("MYSTERY", "A", new BigDecimal("1"));
+        service.submitPriceMod(null, "A", new BigDecimal("1"));
         verify(service.ticketService, never()).applyRemise(any(), any());
         verify(service.ticketService, never()).applyDiscount(any(), any());
         verify(service.ticketService, never()).forcePrice(any(), any());

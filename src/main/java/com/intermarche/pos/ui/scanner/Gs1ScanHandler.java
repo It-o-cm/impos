@@ -309,7 +309,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         // so and registers nothing.
         BigDecimal count = countOf(message);
         if (count != null && state.priceModState.active
-                && "QUANTITY".equals(state.priceModState.type)) {
+                && state.priceModState.type == com.intermarche.pos.ui.PriceModType.QUANTITY) {
             state.ticket.setError("QUANTITÉ DÉJÀ PORTÉE PAR LE CODE GS1");
             return true;
         }

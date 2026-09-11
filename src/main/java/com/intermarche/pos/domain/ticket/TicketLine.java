@@ -86,7 +86,8 @@ public class TicketLine extends BaseEntity {
 
     /** Structured type of the applied manual gesture (REMISE, DISCOUNT, FORCE_PRICE), or null. */
     @Column(name = "modifier_type", length = 20)
-    public String modifierType;
+    @Enumerated(EnumType.STRING)
+    public com.intermarche.pos.ui.PriceModType modifierType;
 
     /** Structured value of the gesture as typed (line euros, percent, or new line total), or null. */
     @Column(name = "modifier_value", precision = 19, scale = 4)

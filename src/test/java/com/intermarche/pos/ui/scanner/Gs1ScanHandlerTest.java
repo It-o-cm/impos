@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.CouponType;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
@@ -370,7 +371,7 @@ class Gs1ScanHandlerTest {
     void aCountConflictingWithTheQuantityKeyIsRefused() {
         Gs1ScanHandler handler = newHandler();
         PosState state = newStateWithMockedTicket();
-        state.priceModState.set("QUANTITY", "uid", "ARTICLE");
+        state.priceModState.set(PriceModType.QUANTITY, "uid", "ARTICLE");
         ScanContext ctx = scan(handler, state, ARTICLE + "(30)12", newProduct(), newPrice());
         assertTrue(ctx.handled);
         verify(state.ticket).setError("QUANTITÉ DÉJÀ PORTÉE PAR LE CODE GS1");
@@ -385,7 +386,7 @@ class Gs1ScanHandlerTest {
     void anotherArmedGestureIsNotAConflict() {
         Gs1ScanHandler handler = newHandler();
         PosState state = newState();
-        state.priceModState.set("REMISE", "uid", "ARTICLE");
+        state.priceModState.set(PriceModType.REMISE, "uid", "ARTICLE");
         scan(handler, state, ARTICLE + "(30)12", newProduct(), newPrice());
         assertEquals(new BigDecimal("12"), onlyLine(state).quantity);
     }
@@ -398,7 +399,7 @@ class Gs1ScanHandlerTest {
     void theQuantityKeyWithoutACountIsNotAConflict() {
         Gs1ScanHandler handler = newHandler();
         PosState state = newState();
-        state.priceModState.set("QUANTITY", "uid", "ARTICLE");
+        state.priceModState.set(PriceModType.QUANTITY, "uid", "ARTICLE");
         scan(handler, state, ARTICLE, newProduct(), newPrice());
         assertEquals(BigDecimal.ONE, onlyLine(state).quantity);
     }

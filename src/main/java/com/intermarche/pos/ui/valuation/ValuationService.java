@@ -406,9 +406,9 @@ public class ValuationService {
     private void applyGesture(ValuationPayloads.ItemDto dto, TicketState.TicketItem item) {
         if (item.modifierType == null || item.modifierValue == null) return;
         switch (item.modifierType) {
-            case "REMISE" -> dto.manualDiscountAmount = item.modifierValue;
-            case "DISCOUNT" -> dto.manualDiscountPercent = item.modifierValue;
-            case "FORCE_PRICE" -> dto.manualForcedPrice =
+            case REMISE -> dto.manualDiscountAmount = item.modifierValue;
+            case DISCOUNT -> dto.manualDiscountPercent = item.modifierValue;
+            case FORCE_PRICE -> dto.manualForcedPrice =
                     item.quantity.signum() != 0
                             ? item.modifierValue.divide(item.quantity, 2, RoundingMode.HALF_UP)
                             : item.modifierValue;
