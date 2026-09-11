@@ -151,6 +151,12 @@ public class CustomerDisplayResource {
         if (item.plu != null && !item.plu.isEmpty()) {
             return String.format("%.3f kg", item.quantity).replace(".", ",");
         }
+        // LC-02-03-02: an article sold by a unit of measure states it here too — the
+        // customer reads "2,36 m", not "x2,36".
+        if (item.unitName != null && !item.unitName.isBlank()) {
+            return String.format("%.2f", item.quantity).replace(".", ",")
+                    + " " + item.unitName.trim();
+        }
         if (item.quantity.stripTrailingZeros().scale() <= 0) {
             return "x" + item.quantity.stripTrailingZeros().toPlainString();
         }

@@ -159,6 +159,14 @@ public class TicketRecoveryService {
             // re-derived. Without this the ban vanished at the first restart
             // and the article became discountable again.
             item.discountForbidden = line.discountForbidden;
+            // LC-02-08: read back too. A restart between the marking and the
+            // payment must not send to the customer's arms an article the desk
+            // was going to hand over.
+            item.toCollect = line.toCollect;
+            // LC-09-01-11 to -18: read back too, so the eligible bases shown during
+            // the sale survive a restart instead of falling back to zero.
+            item.restrictedTenders = line.restrictedTenders;
+            item.unitName = line.unitName;
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();

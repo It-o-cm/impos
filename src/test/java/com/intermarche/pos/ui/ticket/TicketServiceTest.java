@@ -111,6 +111,10 @@ class TicketServiceTest {
         service.valuationService = valuationService;
         service.cashSessionService = cashSessionService;
         service.ticketPrinterService = ticketPrinterService;
+        // LC-04-04-12: cancelling a draft asks the abandon rules whether a ticket is
+        // printed. The stand-in answers no, which is the shop that prints none — the
+        // default of every case below.
+        service.ticketAbandonService = mock(TicketAbandonService.class);
         service.state = state;
         technicalEventService = mock(com.intermarche.pos.service.TechnicalEventService.class);
         service.technicalEventService = technicalEventService;
@@ -1842,5 +1846,223 @@ class TicketServiceTest {
         @Override
         public void handle(ScanContext context) {
         }
+    }
+
+    // ------------------------------------------------- Entry prompt (LC-02-03)
+
+    /**
+     * An article the referential prices and measures needs no prompt: the add goes
+     * straight through — the arm where both attributes are absent.
+     */
+    @Test
+    void suspendForEntryLetsAnOrdinaryArticleThrough() {
+        Product p = product("MILK", "123", null);
+        assertFalse(service.suspendForEntry(state, p, null));
+        assertFalse(state.entryPrompt.active);
+    }
+
+    /**
+     * An article whose quantity must be keyed parks the add on the QUANTITY prompt,
+     * carrying its unit of measure and its price per unit ({@code LC-02-03-01/02}).
+     */
+    @Test
+    void suspendForEntryAsksForADecimalQuantity() {
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .QUANTITY_TO_ENTER, "true");
+        p.unitName = "m";
+        try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.20"));
+            assertTrue(service.suspendForEntry(state, p, null));
+        }
+        assertTrue(state.entryPrompt.active);
+        assertEquals(PosState.EntryPromptState.QUANTITY, state.entryPrompt.kind);
+        assertEquals("123", state.entryPrompt.ean);
+        assertEquals("CABLE", state.entryPrompt.label);
+        assertEquals("m", state.entryPrompt.unitName);
+        assertEquals("4,99", state.entryPrompt.unitPriceFormatted);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.entryPrompt.quantity));
+    }
+
+    /**
+     * An article whose PRICE must be keyed parks on the PRICE prompt straight away —
+     * the arm where the quantity is known and only the price is not
+     * ({@code LC-02-03-03}).
+     */
+    @Test
+    void suspendForEntryAsksForAPriceWhenOnlyThePriceIsMissing() {
+        Product p = product("FLEURS", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .PRICE_TO_ENTER, "true");
+        try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            assertTrue(service.suspendForEntry(state, p, null));
+        }
+        assertEquals(PosState.EntryPromptState.PRICE, state.entryPrompt.kind);
+        assertEquals("", state.entryPrompt.unitPriceFormatted);
+        assertEquals("", state.entryPrompt.unitName);
+    }
+
+    /**
+     * A quantity already keyed or armed is carried INTO the prompt, so an article that
+     * also wants its price is rung at the quantity the operator gave and not at one
+     * ({@code LC-02-13-08}).
+     */
+    @Test
+    void suspendForEntryCarriesTheQuantityTheOperatorAlreadyGave() {
+        Product p = product("FLEURS", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .PRICE_TO_ENTER, "true");
+        try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            assertTrue(service.suspendForEntry(state, p, new BigDecimal("3")));
+        }
+        assertEquals(0, new BigDecimal("3").compareTo(state.entryPrompt.quantity));
+    }
+
+    /**
+     * {@code confirmEntry} on a closed prompt does nothing: a stale page posting a
+     * figure must not ring a line nobody asked for.
+     */
+    @Test
+    void confirmEntryDoesNothingWhenNoPromptIsOpen() {
+        service.confirmEntry(state, new BigDecimal("2"));
+        assertTrue(state.ticket.items.isEmpty());
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A figure that is not a figure is refused and the prompt stays open, on both arms
+     * that can produce one: nothing keyed, and zero or less.
+     */
+    @Test
+    void confirmEntryRefusesAFigureThatIsNotOne() {
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        service.confirmEntry(state, null);
+        assertEquals("VALEUR INVALIDE", state.ticket.transientError);
+        assertTrue(state.entryPrompt.active);
+        service.confirmEntry(state, BigDecimal.ZERO);
+        assertTrue(state.entryPrompt.active);
+        service.confirmEntry(state, new BigDecimal("-1"));
+        assertTrue(state.entryPrompt.active);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * An article that vanished between the prompt and the answer closes the prompt and
+     * says so, rather than ringing a line for nothing.
+     */
+    @Test
+    void confirmEntryClosesThePromptWhenTheArticleIsGone() {
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(null);
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        assertFalse(state.entryPrompt.active);
+        assertEquals("PRODUIT INTROUVABLE", state.ticket.transientError);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * A keyed decimal quantity rings the line at the catalog price, carrying the unit
+     * of measure onto it ({@code LC-02-03-01/02}).
+     */
+    @Test
+    void confirmEntryRingsTheLineAtTheKeyedQuantity() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        p.unitName = "m";
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.20"));
+            service.confirmEntry(state, new BigDecimal("2.36"));
+        }
+        assertFalse(state.entryPrompt.active);
+        assertEquals(1, state.ticket.items.size());
+        TicketState.TicketItem line = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("2.36").compareTo(line.quantity));
+        assertEquals(0, new BigDecimal("4.99").compareTo(line.unitPrice));
+        assertEquals("m", line.unitName);
+        verify(ticketPersistenceService).syncDraft(state);
+        verify(valuationService).revalue(state);
+    }
+
+    /**
+     * An article that wants BOTH figures asks the second one after the first, and rings
+     * nothing until it has them ({@code LC-02-13-08}).
+     */
+    @Test
+    void confirmEntryChainsTheQuantityIntoThePrice() {
+        openSession();
+        Product p = product("FLEURS", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .PRICE_TO_ENTER, "true");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            service.confirmEntry(state, new BigDecimal("3"));
+            assertTrue(state.entryPrompt.active);
+            assertEquals(PosState.EntryPromptState.PRICE, state.entryPrompt.kind);
+            assertTrue(state.ticket.items.isEmpty());
+            try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+                priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+                service.confirmEntry(state, new BigDecimal("12.50"));
+            }
+        }
+        assertFalse(state.entryPrompt.active);
+        TicketState.TicketItem line = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("3").compareTo(line.quantity));
+        assertEquals(0, new BigDecimal("12.50").compareTo(line.unitPrice));
+    }
+
+    /**
+     * A keyed price wins over the catalog's, which is the whole point of asking for it
+     * ({@code LC-02-03-03}).
+     */
+    @Test
+    void confirmEntryPrefersTheKeyedPriceToTheCatalogOne() {
+        openSession();
+        Product p = product("FLEURS", "123", null);
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.PRICE;
+        state.entryPrompt.ean = "123";
+        state.entryPrompt.quantity = new BigDecimal("2");
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.055"));
+            service.confirmEntry(state, new BigDecimal("12.50"));
+        }
+        TicketState.TicketItem line = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("12.50").compareTo(line.unitPrice));
+        assertEquals(0, new BigDecimal("0.055").compareTo(line.vatRate));
+    }
+
+    /**
+     * {@code cancelEntry} closes the prompt, registers nothing and says the add was
+     * given up.
+     */
+    @Test
+    void cancelEntryRegistersNothing() {
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        long version = state.version;
+        service.cancelEntry(state);
+        assertFalse(state.entryPrompt.active);
+        assertNull(state.entryPrompt.ean);
+        assertEquals("SAISIE ABANDONNÉE", state.ticket.transientError);
+        assertTrue(state.ticket.items.isEmpty());
+        assertTrue(state.version > version);
     }
 }

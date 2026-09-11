@@ -75,6 +75,35 @@ public class CashMovementService {
     @Transactional
     public CashMovement record(CashSession session, Employee cashier, CashMovement.MovementType type,
                                BigDecimal amount, String reason, String endorsedBy) {
+        return record(session, cashier, type, amount, reason, endorsedBy, null, null, null);
+    }
+
+    /**
+     * Records a drawer movement that names the tender it concerns, joining the
+     * caller's transaction.
+     *
+     * <p>A MOVEMENT WITHOUT ITS TENDER IS A CASH MOVEMENT. The drawer holds cheques
+     * and meal vouchers too ({@code LC-12-03-02}), and a withdrawal of those must not
+     * move the cash theoretical; naming the tender on the movement is what keeps the
+     * two apart. A transfer ({@code LC-12-10-01}) names both ends, and the amount
+     * leaves {@code paymentMethod} to land on {@code transferTo}.
+     *
+     * @param session the cash session the movement belongs to
+     * @param cashier the cashier who performed the movement
+     * @param type the kind of movement
+     * @param amount the movement amount
+     * @param reason the free-text reason, or null
+     * @param endorsedBy the badge of the endorsing manager, or null when none
+     * @param paymentMethod the tender the movement takes out, or null for cash
+     * @param transferTo the tender a transfer lands on, or null when not a transfer
+     * @param denominationDetail the per-denomination detail of a cash withdrawal, or null
+     * @return the recorded movement, or null when an endorsement was required
+     *         but not supplied
+     */
+    @Transactional
+    public CashMovement record(CashSession session, Employee cashier, CashMovement.MovementType type,
+                               BigDecimal amount, String reason, String endorsedBy,
+                               String paymentMethod, String transferTo, String denominationDetail) {
         if (requiresEndorsement(amount) && endorsedBy == null) {
             LOG.warnf("Mouvement refuse : aval manager requis au-dela de %s",
                     posSettingsService.cashMovementEndorsementThreshold().toPlainString());
@@ -90,6 +119,9 @@ public class CashMovementService {
         movement.reason = reason;
         movement.movementDate = LocalDateTime.now();
         movement.endorsedBy = endorsedBy;
+        movement.paymentMethod = paymentMethod;
+        movement.transferTo = transferTo;
+        movement.denominationDetail = denominationDetail;
         movement.persist();
         syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
         return movement;

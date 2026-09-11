@@ -93,7 +93,8 @@ public class InvoiceResource {
         return requestPage
                 .data("state", state)
                 .data("fields", currentFields())
-                .data("formAction", currentAction());
+                .data("formAction", currentAction())
+                .data("hasDocumentStep", invoiceService.eligibleDocumentTypes().size() > 1);
     }
 
     /**
@@ -159,6 +160,20 @@ public class InvoiceResource {
         // Picked from the list, the ticket is named by its number alone: the row the
         // operator touched IS the ticket, so narrowing it further could only miss it.
         invoiceService.chooseTicket(ticketNumber, "", "");
+        return request();
+    }
+
+    /**
+     * Names the kind of document to draw ({@code LC-08-04-04}).
+     *
+     * @param type the enum name of the kind the operator touched
+     * @return the request page, on the customer or the review step
+     */
+    @GET
+    @jakarta.ws.rs.Path("/type/{type}")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance chooseDocumentType(@PathParam("type") String type) {
+        invoiceService.chooseDocumentType(type);
         return request();
     }
 
@@ -277,6 +292,47 @@ public class InvoiceResource {
         if (issued == null) {
             return Response.seeOther(URI.create("/invoice/preview")).build();
         }
+        // LC-08-04-12: a document that comes out of the slip station is not printed
+        // yet. The operator is sent to the sheet-by-sheet screen, which tells them how
+        // many sheets to have ready BEFORE the first one goes in.
+        if (state.invoice.isOnInsertStep()) {
+            return Response.seeOther(URI.create("/invoice/slip")).build();
+        }
+        return Response.seeOther(URI.create("/invoice/document/" + issued)).build();
+    }
+
+    /**
+     * Shows the sheet the slip station is waiting for ({@code LC-08-04-12/13}).
+     *
+     * <p>A plain render, and NOT the screen's entry point: {@code /invoice} opens the
+     * flow from nothing, which on an issued document would throw away the sheets still
+     * to be printed.
+     *
+     * @return the request page, on its insertion step
+     */
+    @GET
+    @jakarta.ws.rs.Path("/slip")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance showSlip() {
+        return request();
+    }
+
+    /**
+     * Prints the sheet the operator has just fed the station, and asks for the next.
+     *
+     * @return the insertion screen while sheets remain, the issued document once the
+     *         last has come out
+     */
+    @POST
+    @jakarta.ws.rs.Path("/slip")
+    public Response printSlip() {
+        if (invoiceService.printNextSlip()) {
+            return Response.seeOther(URI.create("/invoice/slip")).build();
+        }
+        Long issued = state.invoice.issuedInvoiceId;
+        if (issued == null) {
+            return Response.seeOther(URI.create("/invoice")).build();
+        }
         return Response.seeOther(URI.create("/invoice/document/" + issued)).build();
     }
 
@@ -341,6 +397,18 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/back/ticket")
     public Response backToTicket() {
         invoiceService.backToTicketStep();
+        return Response.seeOther(URI.create("/invoice")).build();
+    }
+
+    /**
+     * Goes back to the document-kind step, keeping the ticket and the customer.
+     *
+     * @return a redirect to the request screen
+     */
+    @GET
+    @jakarta.ws.rs.Path("/back/type")
+    public Response backToDocumentType() {
+        invoiceService.backToDocumentStep();
         return Response.seeOther(URI.create("/invoice")).build();
     }
 

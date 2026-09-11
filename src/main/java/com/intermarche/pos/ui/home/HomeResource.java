@@ -113,7 +113,8 @@ public class HomeResource {
     @GET
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance home() {
-        return main.data("state", state);
+        return main.data("state", state)
+                .data("restrictedTenders", homeService.restrictedTenderRows());
     }
 
     /**
@@ -144,7 +145,12 @@ public class HomeResource {
         }
         result.put("changed", true);
         result.put("version", state.version);
-        result.put("html", ticket.data("state", state).render());
+        // The eligible bases ride the FRAGMENT and not a field of this answer: they are
+        // shown "en permanence jusqu'au paiement" inside the ticket zone, which the
+        // poll replaces wholesale (LC-09-01-12/14/16/18).
+        result.put("html", ticket.data("state", state)
+                .data("restrictedTenders", homeService.restrictedTenderRows())
+                .render());
         result.put("total", state.ticket.getTotalFormatted());
         result.put("amount", state.ticket.getTotalAmount());
         // The age-check prompt is rendered SERVER-SIDE in main.html, so a scan
@@ -152,6 +158,9 @@ public class HomeResource {
         // the page: the poll must know, or the cashier faces a screen that
         // simply stops responding to scans.
         result.put("ageCheckActive", state.ageCheck.active);
+        // LC-02-03-01/03: same reason — the entry prompt is server-rendered and a
+        // scan over the bus is what raises it.
+        result.put("entryPromptActive", state.entryPrompt.active);
         result.put("fidelityActive", state.fidelity.active);
         // Attached-card summary (holder from the lookup, card, balance) —
         // shown permanently next to the fidelity icon, cleared with the card.
@@ -282,6 +291,91 @@ public class HomeResource {
     @Path("/action/select/{index}")
     public TemplateInstance selectLine(@PathParam("index") int index) {
         homeService.selectLine(index);
+        return home();
+    }
+
+    /**
+     * Arms a quantity for the next article named ({@code LC-02-13-04/05/06}).
+     *
+     * @param rawValue the quantity typed on the modal's keypad
+     * @return a redirect to the sale screen
+     */
+    @POST
+    @Path("/action/price-mod/arm")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response armQuantity(@FormParam("rawValue") String rawValue) {
+        homeService.armQuantity(parseAmount(rawValue));
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Repeats the registration of the last article ({@code LC-02-13-12}).
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/repeat")
+    public TemplateInstance repeatLastItem() {
+        homeService.repeatLastItem();
+        return home();
+    }
+
+    /**
+     * Takes the price or the decimal quantity the operator keyed on the entry prompt
+     * ({@code LC-02-03-01/03}).
+     *
+     * @param rawValue the figure typed on the prompt's keypad
+     * @return a redirect to the sale screen
+     */
+    @POST
+    @Path("/action/entry/confirm")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response confirmEntry(@FormParam("rawValue") String rawValue) {
+        ticketService.confirmEntry(state, parseAmount(rawValue));
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Gives up the suspended add: nothing is registered.
+     *
+     * @return a redirect to the sale screen
+     */
+    @GET
+    @Path("/action/entry/cancel")
+    public Response cancelEntry() {
+        ticketService.cancelEntry(state);
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Reads a figure typed on an on-screen keypad, which sends it as plain digits.
+     *
+     * @param rawValue the typed value, possibly null or unreadable
+     * @return the figure, or null when nothing readable was typed
+     */
+    private java.math.BigDecimal parseAmount(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(rawValue.trim().replace(',', '.'));
+        } catch (NumberFormatException e) {
+            // A keypad cannot produce this; a hand-made request can. It is a refusal,
+            // not an incident.
+            return null;
+        }
+    }
+
+    /**
+     * Marks the selected line "à enlever", or arms the next article for it
+     * ({@code LC-02-08-01/02/03}).
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/collect")
+    public TemplateInstance toggleCollect() {
+        homeService.toggleCollect();
         return home();
     }
 
@@ -445,15 +539,19 @@ public class HomeResource {
     }
 
     /**
-     * Requests a manager endorsement to cancel the whole ticket.
+     * Sends the operator to the abandon screen, where the shop's rules are applied
+     * before the ticket is given up ({@code LC-04-04-06} to {@code -12}).
      *
-     * @return a redirect to the home page
+     * <p>It no longer requests the endorsement itself: the reason, the fate of a
+     * settlement already taken and the printing are decided there, and a second road
+     * to the same gesture would be a road around them.
+     *
+     * @return a redirect to the abandon screen
      */
     @GET
     @Path("/action/cancelTicket")
     public Response cancelTicket() {
-        homeService.cancelTicket();
-        return Response.seeOther(URI.create("/")).build();
+        return Response.seeOther(URI.create("/abandon")).build();
     }
 
     /**

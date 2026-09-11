@@ -98,6 +98,79 @@ public final class ProductAttributes {
     }
 
     /**
+     * The lot numbers of the article that are under recall ({@code LC-02-03-12/13}).
+     *
+     * <p>A RECALL IS RARELY THE WHOLE ARTICLE. A batch of yoghurts is withdrawn, not
+     * the reference; refusing the reference would stop the sale of the pots that are
+     * fine, and refusing nothing would sell the pots that are not. The referential
+     * therefore carries the recalled LOTS beside the blanket {@link #recall} flag, and
+     * what the register does depends on whether the barcode in the cashier's hand says
+     * which lot this item belongs to.
+     *
+     * @param product the product, or null
+     * @return the recalled lot numbers, in referential order, empty when the article
+     *         carries no lot recall
+     */
+    public static java.util.List<String> recalledLots(Product product) {
+        String value = raw(product, ProductAttributeCatalog.RECALL_LOTS);
+        java.util.List<String> lots = new java.util.ArrayList<>();
+        if (value == null) {
+            return lots;
+        }
+        for (String entry : value.split("[;,]")) {
+            String lot = entry.trim();
+            if (!lot.isEmpty() && !lots.contains(lot)) {
+                lots.add(lot);
+            }
+        }
+        return lots;
+    }
+
+    /**
+     * Whether one named lot of the article is under recall ({@code LC-02-03-12}).
+     *
+     * <p>The comparison ignores case and surrounding blanks, because a lot number read
+     * from a GS1 element string and one typed into the referential are the same lot
+     * written by two different hands.
+     *
+     * @param product the product, or null
+     * @param lot the lot number the barcode carried, or null when it carried none
+     * @return true when that exact lot is recalled
+     */
+    public static boolean lotRecalled(Product product, String lot) {
+        if (lot == null || lot.isBlank()) {
+            return false;
+        }
+        String wanted = lot.trim();
+        for (String recalled : recalledLots(product)) {
+            if (recalled.equalsIgnoreCase(wanted)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The message a register shows when an article carries a lot recall but the code
+     * that was scanned or keyed does not say which lot is in the customer's basket
+     * ({@code LC-02-03-13}).
+     *
+     * <p>It LISTS THE LOTS rather than refusing the sale: the register cannot know
+     * whether this particular item is one of them, and only the cashier, holding the
+     * pack, can read the lot printed on it.
+     *
+     * @param product the product, or null
+     * @return the message, or null when the article carries no lot recall
+     */
+    public static String recalledLotsMessage(Product product) {
+        java.util.List<String> lots = recalledLots(product);
+        if (lots.isEmpty()) {
+            return null;
+        }
+        return "PRODUIT EN RAPPEL - LOTS : " + String.join(", ", lots);
+    }
+
+    /**
      * Whether the article is eligible for meal-voucher tender (BO-02-03-06).
      *
      * @param product the product, or null
@@ -105,6 +178,27 @@ public final class ProductAttributes {
      */
     public static boolean mealVoucherEligible(Product product) {
         return flag(product, ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+    }
+
+    /**
+     * Whether the article is eligible for eco-voucher tender (LC-09-01-13/14).
+     *
+     * @param product the product, or null
+     * @return true when the article is eco-voucher eligible
+     */
+    public static boolean ecoVoucherEligible(Product product) {
+        return flag(product, ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
+    }
+
+    /**
+     * Whether the article is eligible for the social purchase card
+     * (LC-09-01-15/16).
+     *
+     * @param product the product, or null
+     * @return true when the article is social-card eligible
+     */
+    public static boolean socialCardEligible(Product product) {
+        return flag(product, ProductAttributeCatalog.SOCIAL_CARD_ELIGIBLE);
     }
 
     /**

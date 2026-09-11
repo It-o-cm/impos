@@ -149,6 +149,63 @@ class ProductAttributesTest {
     }
 
     /**
+     * The recalled lots are read in referential order, whichever separator the
+     * referential used, with the blanks trimmed and a lot named twice kept once.
+     */
+    @Test
+    void recalledLotsReadsTheReferentialList() {
+        Assertions.assertEquals(java.util.List.of("L123", "L456"), ProductAttributes.recalledLots(
+                productWith(ProductAttributeCatalog.RECALL_LOTS, "L123;L456")));
+        Assertions.assertEquals(java.util.List.of("L123", "L456"), ProductAttributes.recalledLots(
+                productWith(ProductAttributeCatalog.RECALL_LOTS, " L123 , L456 ")));
+        Assertions.assertEquals(java.util.List.of("L123"), ProductAttributes.recalledLots(
+                productWith(ProductAttributeCatalog.RECALL_LOTS, "L123;L123")));
+    }
+
+    /**
+     * An article with no lot recall lists nothing, on every arm that can produce it:
+     * no attribute at all, an empty value, and a value made only of separators.
+     */
+    @Test
+    void recalledLotsIsEmptyWhenTheArticleCarriesNone() {
+        Assertions.assertTrue(ProductAttributes.recalledLots(new Product()).isEmpty());
+        Assertions.assertTrue(ProductAttributes.recalledLots(null).isEmpty());
+        Assertions.assertTrue(ProductAttributes.recalledLots(
+                productWith(ProductAttributeCatalog.RECALL_LOTS, "")).isEmpty());
+        Assertions.assertTrue(ProductAttributes.recalledLots(
+                productWith(ProductAttributeCatalog.RECALL_LOTS, " ; , ")).isEmpty());
+    }
+
+    /**
+     * A lot is recalled when the referential names it, ignoring case and blanks; every
+     * way the question can answer no is covered: another lot, no lot at all, a blank
+     * one, and an article that recalls nothing.
+     */
+    @Test
+    void lotRecalledAnswersOnEveryArm() {
+        Product product = productWith(ProductAttributeCatalog.RECALL_LOTS, "L123;L456");
+        Assertions.assertTrue(ProductAttributes.lotRecalled(product, "L123"));
+        Assertions.assertTrue(ProductAttributes.lotRecalled(product, " l456 "));
+        Assertions.assertFalse(ProductAttributes.lotRecalled(product, "L999"));
+        Assertions.assertFalse(ProductAttributes.lotRecalled(product, null));
+        Assertions.assertFalse(ProductAttributes.lotRecalled(product, "  "));
+        Assertions.assertFalse(ProductAttributes.lotRecalled(new Product(), "L123"));
+    }
+
+    /**
+     * The message lists the recalled lots so a cashier can check the pack by hand, and
+     * an article that recalls nothing produces no message at all rather than an empty
+     * one the screen would still show.
+     */
+    @Test
+    void recalledLotsMessageListsTheLotsOrSaysNothing() {
+        Assertions.assertEquals("PRODUIT EN RAPPEL - LOTS : L123, L456",
+                ProductAttributes.recalledLotsMessage(
+                        productWith(ProductAttributeCatalog.RECALL_LOTS, "L123;L456")));
+        Assertions.assertNull(ProductAttributes.recalledLotsMessage(new Product()));
+    }
+
+    /**
      * mealVoucherEligible reflects the MEAL_VOUCHER_ELIGIBLE attribute, both arms.
      */
     @Test

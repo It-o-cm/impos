@@ -126,13 +126,22 @@ public class InvoiceRepository {
     }
 
     /**
-     * Finds the document already issued on a ticket, if there is one.
+     * Finds the document of that kind already issued on a ticket, if there is one
+     * ({@code LC-08-04-17}).
+     *
+     * <p>The kind is part of the lookup because a sale carries one document of EACH
+     * kind: a ticket that already has a delivery note has not been invoiced, and
+     * answering an invoice request with the delivery note would reprint the wrong
+     * paper under the wrong sequence.
      *
      * @param ticketNumber the ticket number
-     * @return the document, or null when the ticket has never been billed
+     * @param documentType the kind of document asked for
+     * @return the document, or null when the ticket carries none of that kind
      */
-    public Invoice findInvoiceOfTicket(String ticketNumber) {
-        return Invoice.find("ticketNumber", ticketNumber).firstResult();
+    public Invoice findInvoiceOfTicket(String ticketNumber,
+            com.intermarche.pos.domain.ticket.DocumentType documentType) {
+        return Invoice.find("ticketNumber = ?1 and documentType = ?2",
+                ticketNumber, documentType).firstResult();
     }
 
     /**

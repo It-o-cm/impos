@@ -745,4 +745,166 @@ class BalanceTicketServiceTest {
         }
         verify(client, times(2)).pickUp(eq("R0"), eq(TERMINAL));
     }
+
+    /**
+     * A counter line names no lot, so an article under lot recall has its lots
+     * APPENDED to the integration message rather than announced on its own
+     * ({@code LC-02-03-13}): the register has one message area, and a separate notice
+     * would erase the reference the operator checks the paper against
+     * ({@code LC-06-01-04}).
+     */
+    @Test
+    void aRecalledLotIsAppendedToTheIntegrationMessage() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.752", "13.54", "0.055")));
+        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "ROTI",
+                new BigDecimal("13.54"), BigDecimal.ONE, new BigDecimal("0.055")));
+        Product product = newProduct(false);
+        product.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L123;L456");
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(product);
+            prices.when(() -> Price.findCurrentPrice(any())).thenReturn(null);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE
+                + " INTÉGRÉ (1 LIGNE(S)) — RAPPEL : ROTI 0.752KG (L123, L456)");
+    }
+
+    /**
+     * A paper carrying SEVERAL articles under lot recall names them all: collecting
+     * them through the loop is what a line-by-line message could not do, since only
+     * the last of them would have survived.
+     */
+    @Test
+    void severalRecalledArticlesAreAllNamed() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        SyncPayloads.BalanceTicketDto dto = oneLine("ROTI", "0.5", "5.00", "0.055");
+        SyncPayloads.BalanceTicketLineDto second = new SyncPayloads.BalanceTicketLineDto();
+        second.ean = "3560070000001";
+        second.label = "JAMBON";
+        second.quantity = new BigDecimal("0.2");
+        second.totalIncludingTax = new BigDecimal("3.00");
+        second.vatRate = new BigDecimal("0.055");
+        dto.lines.add(second);
+        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "ROTI",
+                new BigDecimal("5.00"), BigDecimal.ONE, second.vatRate));
+        ticket.items.add(new TicketState.TicketItem(second.ean, null, "JAMBON",
+                new BigDecimal("3.00"), BigDecimal.ONE, second.vatRate));
+        Product first = newProduct(false);
+        first.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L123");
+        Product other = newProduct(false);
+        other.ean = second.ean;
+        other.plu = null;
+        other.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L789");
+        BalanceTicketService service = newService(serving(dto));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(first);
+            products.when(() -> Product.findActiveByEan(second.ean)).thenReturn(other);
+            prices.when(() -> Price.findCurrentPrice(any())).thenReturn(null);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE
+                + " INTÉGRÉ (2 LIGNE(S)) — RAPPEL : ROTI 0.500KG (L123), JAMBON 0.200KG (L789)");
+    }
+
+    /**
+     * The recall clause rides on the WITHDRAWAL message too when one article was
+     * refused and another is under lot recall: both facts reach the operator, and
+     * neither erases the other.
+     */
+    @Test
+    void theRecallClauseRidesOnTheWithdrawalMessageToo() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        SyncPayloads.BalanceTicketDto dto = oneLine("ROTI", "0.5", "5.00", "0.055");
+        SyncPayloads.BalanceTicketLineDto second = new SyncPayloads.BalanceTicketLineDto();
+        second.ean = "3560070000001";
+        second.label = "JAMBON";
+        second.quantity = new BigDecimal("0.2");
+        second.totalIncludingTax = new BigDecimal("3.00");
+        second.vatRate = new BigDecimal("0.055");
+        dto.lines.add(second);
+        ticket.items.add(new TicketState.TicketItem(second.ean, null, "JAMBON",
+                new BigDecimal("3.00"), BigDecimal.ONE, second.vatRate));
+        Product other = newProduct(false);
+        other.ean = second.ean;
+        other.plu = null;
+        other.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L789");
+        BalanceTicketService service = newService(serving(dto));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(true));
+            products.when(() -> Product.findActiveByEan(second.ean)).thenReturn(other);
+            prices.when(() -> Price.findCurrentPrice(any())).thenReturn(null);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setError("ARTICLE RETIRÉ DU COMPTOIR : ROTI 0.500KG"
+                + " — RAPPEL : JAMBON 0.200KG (L789)");
+    }
+
+    /**
+     * A paper whose every line is refused says only that: there is no integration to
+     * append a recall to, and the articles that were kept out are not sold at all.
+     */
+    @Test
+    void anEntirelyRefusedPaperCarriesNoRecallClause() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
+        Product product = newProduct(true);
+        product.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L123");
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(product);
+            assertFalse(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0.500KG");
+    }
+
+    /**
+     * A paper carrying no article under lot recall keeps the message it always had —
+     * the arm that keeps the clause off every ordinary pick-up, whether the article is
+     * known to the catalog or not.
+     */
+    @Test
+    void anOrdinaryPaperKeepsItsPlainMessage() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        BalanceTicketService service = newService(serving(oneLine("ROTI", "0.752", "13.54", "0.055")));
+        ticket.items.add(new TicketState.TicketItem(EAN, "1234", "ROTI",
+                new BigDecimal("13.54"), BigDecimal.ONE, new BigDecimal("0.055")));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
+             MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(any())).thenReturn(null);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE + " INTÉGRÉ (1 LIGNE(S))");
+    }
+
+    /**
+     * An article the catalog does not know carries no recall either: there is no
+     * referential entry to read lots from — the null-product arm of the collection.
+     */
+    @Test
+    void anUnknownArticleCarriesNoRecallClause() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items.add(new TicketState.TicketItem(EAN, null, "X",
+                BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
+        BalanceTicketService service = newService(serving(oneLine(null, null, "5.00", null)));
+        try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan(EAN)).thenReturn(null);
+            assertTrue(service.integrate(state, REFERENCE));
+        }
+        verify(ticket).setNotice("TICKET COMPTOIR " + REFERENCE + " INTÉGRÉ (1 LIGNE(S))");
+    }
 }

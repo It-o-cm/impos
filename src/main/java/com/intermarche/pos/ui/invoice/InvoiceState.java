@@ -40,11 +40,17 @@ public class InvoiceState implements Serializable {
         /** Naming the ticket the document states. */
         TICKET,
 
+        /** Naming the kind of document to draw ({@code LC-08-04-04}). */
+        DOCUMENT,
+
         /** Naming the customer the document is addressed to. */
         CUSTOMER,
 
         /** Looking at the document, before issuing or giving up. */
-        PREVIEW
+        PREVIEW,
+
+        /** Feeding the slip station one sheet at a time ({@code LC-08-04-12}). */
+        INSERT
     }
 
     /** Where the operator stands; TICKET when the screen opens. */
@@ -72,6 +78,25 @@ public class InvoiceState implements Serializable {
 
     /** The ticket the document will state, null until one is named. */
     public Ticket ticket;
+
+    /**
+     * The kind of document being drawn ({@code LC-08-04-04}), null until one is named.
+     *
+     * <p>It is resolved right after the ticket, because it decides everything that
+     * follows: the title on the paper, the sequence the number is drawn from, and — the
+     * day the slip path lands — the printer the document comes out of.
+     */
+    public com.intermarche.pos.domain.ticket.DocumentType documentType;
+
+    /**
+     * The kinds offered on the document step, empty until a ticket is named.
+     * <p>
+     * Held on the state rather than recomputed by the screen so that what the operator
+     * touches is exactly what the flow resolved: a list rebuilt at render time could
+     * drift from the one the eligibility ran on.
+     */
+    public List<com.intermarche.pos.domain.ticket.DocumentType> documentTypes =
+            Collections.emptyList();
 
     /** What the operator typed to look a customer up. */
     public String customerSearch = "";
@@ -104,6 +129,18 @@ public class InvoiceState implements Serializable {
     /** The database id of the issued document, null until it is issued. */
     public Long issuedInvoiceId;
 
+    /**
+     * The sheets left to feed the slip station ({@code LC-08-04-12}), empty whenever
+     * the document does not come out of one.
+     *
+     * <p>They are rendered ONCE, at the issue, and kept: re-rendering between two
+     * sheets would let a document change shape halfway through its own printing.
+     */
+    public List<List<String>> slipPages = Collections.emptyList();
+
+    /** How many sheets of {@link #slipPages} have already come out. */
+    public int slipPrinted = 0;
+
     /** The operator-facing error of the last action, empty when it worked. */
     public String error = "";
 
@@ -117,6 +154,8 @@ public class InvoiceState implements Serializable {
         ticketDate = "";
         ticketTerminal = "";
         ticket = null;
+        documentType = null;
+        documentTypes = Collections.emptyList();
         customerSearch = "";
         customerNumber = "";
         customers = new ArrayList<>();
@@ -124,6 +163,8 @@ public class InvoiceState implements Serializable {
         customer = null;
         creatingCustomer = false;
         issuedInvoiceId = null;
+        slipPages = Collections.emptyList();
+        slipPrinted = 0;
         error = "";
     }
 
@@ -165,9 +206,19 @@ public class InvoiceState implements Serializable {
     }
 
     /**
-     * Tells whether the operator is naming the customer.
+     * Tells whether the operator is naming the kind of document
+     * ({@code LC-08-04-04}).
      *
      * @return true on the second step
+     */
+    public boolean isOnDocumentStep() {
+        return step == Step.DOCUMENT;
+    }
+
+    /**
+     * Tells whether the operator is naming the customer.
+     *
+     * @return true on the third step
      */
     public boolean isOnCustomerStep() {
         return step == Step.CUSTOMER;
@@ -176,9 +227,47 @@ public class InvoiceState implements Serializable {
     /**
      * Tells whether the operator is looking at the document.
      *
-     * @return true on the third step
+     * @return true on the last step
      */
     public boolean isOnPreviewStep() {
         return step == Step.PREVIEW;
+    }
+
+    /**
+     * Tells whether the operator is feeding the slip station ({@code LC-08-04-12}).
+     *
+     * @return true while sheets are still to be inserted
+     */
+    public boolean isOnInsertStep() {
+        return step == Step.INSERT;
+    }
+
+    /**
+     * Returns the title of the kind of document being drawn, for a screen that names
+     * it back to the operator.
+     *
+     * @return the title, or an empty string while no kind is named
+     */
+    public String getDocumentTitle() {
+        return documentType == null ? "" : documentType.getTitle();
+    }
+
+    /**
+     * Returns how many sheets the document takes ({@code LC-08-04-13}), which is what
+     * the operator is told before the first one is printed.
+     *
+     * @return the sheet count, zero when the document does not use the slip station
+     */
+    public int getSlipPageCount() {
+        return slipPages.size();
+    }
+
+    /**
+     * Returns the number of the sheet being asked for, counting from one.
+     *
+     * @return the sheet number, capped at the last sheet
+     */
+    public int getSlipPageNumber() {
+        return Math.min(slipPrinted + 1, Math.max(slipPages.size(), 1));
     }
 }

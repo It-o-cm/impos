@@ -69,6 +69,37 @@ public final class InvoiceRenderer {
     }
 
     /**
+     * Cuts a rendered document into sheets ({@code LC-08-04-12/13}).
+     *
+     * <p>The receipt roll has no page: it is continuous paper and the document simply
+     * comes out. A SLIP STATION does — the operator feeds it one sheet, it prints what
+     * fits, and it stops. Knowing how many sheets a document takes is therefore not a
+     * layout detail here but the thing the operator has to be told before starting, and
+     * that count is what this returns the shape of.
+     *
+     * <p>At or below zero lines a sheet, the document is one sheet: a station whose
+     * capacity nobody administered still has to print, and printing everything on the
+     * first sheet is what an unconfigured slip station does anyway.
+     *
+     * @param lines        the rendered document, one entry per line
+     * @param linesPerPage how many lines one sheet takes, zero or less for one sheet
+     * @return the sheets, in printing order, ALWAYS at least one
+     */
+    public static List<List<String>> paginate(List<String> lines, int linesPerPage) {
+        List<String> all = lines == null ? List.of() : lines;
+        List<List<String>> pages = new ArrayList<>();
+        if (linesPerPage <= 0 || all.size() <= linesPerPage) {
+            pages.add(new ArrayList<>(all));
+            return pages;
+        }
+        for (int from = 0; from < all.size(); from += linesPerPage) {
+            int to = Math.min(from + linesPerPage, all.size());
+            pages.add(new ArrayList<>(all.subList(from, to)));
+        }
+        return pages;
+    }
+
+    /**
      * Writes the seller's block, centred as on the receipt.
      *
      * @param out    the lines being built

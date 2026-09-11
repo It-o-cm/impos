@@ -151,8 +151,24 @@ public class TicketState implements Serializable {
      * @param vatRate the VAT rate captured at sale time (e.g. 0.2000), or null for 0%
      */
     public void addItem(String ean, String plu, String label, BigDecimal unitPrice, BigDecimal qtyToAdd, BigDecimal vatRate) {
+        // LC-02-08-02: the "à enlever" key arms ONE article, and this is the funnel
+        // every way of entering one goes through — a scan, a keyed EAN, a group tile.
+        // Reading the flag here rather than at each entry point is what makes the
+        // three of them behave the same without any of them knowing about the desk.
+        boolean toCollect = parent != null && parent.collectArmed;
         // Only unit EAN sales are mergeable (weighed lines: one line per weighing)
         boolean mergeable = (plu == null || plu.isEmpty()) && ean != null && !ean.isEmpty();
+        // LC-02-13-04/05/06: an armed quantity replaces the one the caller passed —
+        // on a UNIT line only. A weighed line's quantity is a weight the scale
+        // measured, and no key may overwrite a measurement; the arming is consumed
+        // all the same, so it never leaks onto the article after it.
+        BigDecimal quantity = qtyToAdd;
+        if (parent != null && parent.armedQuantity != null) {
+            if (plu == null || plu.isEmpty()) {
+                quantity = parent.armedQuantity;
+            }
+            parent.armedQuantity = null;
+        }
 
         if (mergeable) {
             for (TicketItem item : items) {
@@ -164,11 +180,18 @@ public class TicketState implements Serializable {
                         && item.unitPrice.compareTo(item.originalUnitPrice) == 0;
                 boolean samePrice = item.unitPrice.compareTo(unitPrice) == 0;
                 boolean positive = item.getTotalPrice().signum() >= 0;
+                // Two articles that leave the shop by different doors are not the
+                // same line: merging a collected one into a carried one would put
+                // the whole quantity on the collection voucher, or none of it.
+                boolean sameDestination = item.toCollect == toCollect;
 
-                if (unmodified && samePrice && positive) {
-                    item.quantity = item.quantity.add(qtyToAdd);
+                if (unmodified && samePrice && positive && sameDestination) {
+                    item.quantity = item.quantity.add(quantity);
                     recomputeTotal();
-                    if (parent != null) parent.lastEnteredItemId = item.uid;
+                    if (parent != null) {
+                        parent.lastEnteredItemId = item.uid;
+                        parent.collectArmed = false;
+                    }
                     onChange();
                     return;
                 }
@@ -178,11 +201,15 @@ public class TicketState implements Serializable {
             }
         }
 
-        TicketItem newItem = new TicketItem(ean, plu, label, unitPrice, qtyToAdd, vatRate);
+        TicketItem newItem = new TicketItem(ean, plu, label, unitPrice, quantity, vatRate);
+        newItem.toCollect = toCollect;
         items.add(newItem);
         recomputeTotal();
 
-        if (parent != null) parent.lastEnteredItemId = newItem.uid;
+        if (parent != null) {
+            parent.lastEnteredItemId = newItem.uid;
+            parent.collectArmed = false;
+        }
 
         onChange();
     }
@@ -543,6 +570,64 @@ public class TicketState implements Serializable {
          */
         public boolean discountForbidden = false;
 
+        /**
+         * True when the article on this line is NOT carried out of the shop by the
+         * customer but collected afterwards at the goods desk
+         * ({@code LC-02-08}).
+         * <p>
+         * It changes nothing about the sale — the article is rung, paid and printed
+         * exactly like any other — and everything about what happens next: the line
+         * is marked on screen for the cashier, and it is the collection voucher
+         * printed after the receipt that lets the desk hand the goods over.
+         */
+        public boolean toCollect = false;
+
+        /**
+         * The restricted-tender eligibilities the article carried when it was rung
+         * ({@code LC-09-01-11} to {@code -18}), comma-joined, or null when it carried
+         * none.
+         * <p>
+         * Snapshotted like the price and the VAT rate, and read back at recovery for
+         * the same reason: what an article was payable with when it was sold is a fact
+         * of the sale, and neither a referential edited afterwards nor a restart may
+         * move it.
+         */
+        public String restrictedTenders = null;
+
+        /**
+         * The article's unit of measure ({@code LC-02-03-02}), or null for an article
+         * sold by the piece.
+         * <p>
+         * Carried by the line so the three surfaces that state the sale — the register
+         * display, the customer display and the receipt — say "2,36 x 4,99 €/m"
+         * without any of them reading the referential back.
+         */
+        public String unitName = null;
+
+        /**
+         * Every identifier the GS1 code that rang this line carried, as the
+         * technical journal writes them, or null on a line rung any other way
+         * ({@code LC-11-03-02}).
+         * <p>
+         * IT IS KEPT WHOLE AND UNINTERPRETED, including the identifiers this
+         * version has no rule for: the requirement is that a decoded identifier
+         * be recorded "même s'il n'y a pas d'usage ou règle de gestion
+         * défini(e)", and the batch number, the serial number or the country of
+         * origin of a line become answerable questions only if the line kept
+         * them. It carries no rule of its own and nothing computes from it.
+         */
+        public String gs1Data = null;
+
+        /**
+         * The expiry date the GS1 code carried ({@code LC-11-03-12}), or null.
+         * <p>
+         * Held as a field of its own beside {@link #gs1Data}, because it is the
+         * one identifier with a rule: the shop's alert level reads it, and the
+         * valuation engine receives it so a promotion can be triggered on a
+         * short-dated article ({@code LC-11-03-13}).
+         */
+        public java.time.LocalDate gs1ExpiryDate = null;
+
         public BigDecimal getTotalPrice() {
             BigDecimal __t = valuedTotal != null ? valuedTotal : unitPrice.multiply(quantity);
             if (globalDiscountShare != null) {
@@ -591,6 +676,14 @@ public class TicketState implements Serializable {
                 String qtyDisplay = isWhole
                         ? quantity.stripTrailingZeros().toPlainString()
                         : String.format("%.2f", quantity).replace(".", ",");
+                // LC-02-03-02: an article sold by a unit of measure states the unit
+                // and the price per unit beside its quantity — "2,36 m x 4,99 €" —
+                // because a bare "x2,36" beside a hose tells the customer nothing.
+                if (unitName != null && !unitName.isBlank()) {
+                    return String.format("<span class='%s'>%s %s x %s €</span> %s",
+                            qtyClass, qtyDisplay, unitName,
+                            String.format("%.2f", unitPrice).replace(".", ","), label);
+                }
                 return String.format("<span class='%s'>x%s</span> %s", qtyClass, qtyDisplay, label);
             }
         }

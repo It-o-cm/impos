@@ -132,9 +132,21 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             ctx.state.ticket.addItem(product.ean, articleCode, product.saleLabel().toUpperCase(),
                     unitPrice, quantityKg, vatRate);
         }
+        com.intermarche.pos.ui.ticket.TicketState.TicketItem added =
+                ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);
         // BO-02-03-09: snapshot the discount ban onto the freshly added line.
         if (com.intermarche.pos.domain.attribute.ProductAttributes.discountForbidden(product)) {
-            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).discountForbidden = true;
+            added.discountForbidden = true;
+        }
+        // LC-09-01-11 to -18: and what the article may be paid with.
+        added.restrictedTenders =
+                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
+        // LC-02-03-13: an in-store weighed label names no lot, so the recalled lots are
+        // listed and the cashier reads the one printed on the pack.
+        String recalledLots = com.intermarche.pos.domain.attribute.ProductAttributes
+                .recalledLotsMessage(product);
+        if (recalledLots != null) {
+            ctx.state.ticket.setNotice(recalledLots);
         }
         ctx.handled = true;
     }

@@ -73,6 +73,10 @@ public class PaymentService {
     @Inject
     com.intermarche.pos.ui.hardware.PrintPolicy printPolicy;
 
+    /** Emits the document the settlement calls for, at the closing (LC-08-04-16). */
+    @Inject
+    com.intermarche.pos.ui.invoice.InvoiceService invoiceService;
+
     /**
      * Technical EAN of the solidarity-rounding line (parameterized).
      * <p>
@@ -952,6 +956,16 @@ public class PaymentService {
                     }
                     state.payment.printApplied = true;
                 }
+                // LC-02-08-05: the articles the customer does not carry out get
+                // their handover slip, additional to the receipt. After the
+                // receipt, because it states a PAID sale — the desk hands goods
+                // over against a sale that is over.
+                ticketPrinterService.printCollectionVoucher(ticketId);
+                // LC-08-04-16: the settlement may call for a document of its own —
+                // typically an invoice on a sale paid by customer credit. It is
+                // emitted here, after the receipt, because it states a CLOSED sale
+                // and because it is printed "en plus du ticket de caisse".
+                invoiceService.autoPrint(ticketId);
                 // Gift cards issued by this sale get their printed voucher —
                 // the customer's proof, right after the fiscal moment (phase:
                 // credit notes & gift cards).

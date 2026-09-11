@@ -80,6 +80,12 @@
         .recap-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; background: var(--bg-row); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px; text-align: left; }
         .recap-row .recap-label { font-size: var(--fs-label); color: var(--text-muted); display: block; }
         .recap-row .recap-value { font-size: var(--fs-row); font-weight: bold; }
+        /* Le choix du type de document : des touches pleine largeur dans la même
+           colonne que le récapitulatif, pour que le geste soit celui d'une caisse
+           tactile et non celui d'une liste déroulante. */
+        .doc-types { overflow-y: auto; }
+        .slip-count { font-size: var(--fs-body); color: var(--text-muted); max-width: 620px; }
+        .doc-type { display: block; text-align: center; padding: 16px; font-size: var(--fs-row); }
 
         .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
         /* The application's button base, declared verbatim as every screen does; the
@@ -96,10 +102,19 @@
 
     <div class="main-area">
 
+        {!
+         ! The document step only exists where the back office activated more than one
+         ! kind (LC-08-04-05): a store that bills invoices alone must not read a step
+         ! it will never stand on. The numbering follows, which is why the last two
+         ! labels carry a conditional figure rather than a fixed one.
+        !}
         <div class="steps">
             <span class="s {#if state.invoice.onTicketStep}on{/if}">1. Ticket</span>
-            <span class="s {#if state.invoice.onCustomerStep}on{/if}">2. Client</span>
-            <span class="s {#if state.invoice.onPreviewStep}on{/if}">3. Document</span>
+            {#if hasDocumentStep}
+            <span class="s {#if state.invoice.onDocumentStep}on{/if}">2. Type</span>
+            {/if}
+            <span class="s {#if state.invoice.onCustomerStep}on{/if}">{#if hasDocumentStep}3{#else}2{/if}. Client</span>
+            <span class="s {#if state.invoice.onPreviewStep}on{/if}">{#if hasDocumentStep}4{#else}3{/if}. Document</span>
         </div>
 
         {#if state.invoice.error}
@@ -133,8 +148,20 @@
         </div>
         {/if}
 
-        {#if state.invoice.onCustomerStep}
+        {#if state.invoice.onDocumentStep}
         <div class="chosen">Ticket : <strong>{state.invoice.ticket.ticketNumber}</strong></div>
+        <div class="centered">
+            <h2>Quel document ?</h2>
+            <div class="recap doc-types">
+                {#for t in state.invoice.documentTypes}
+                <a class="btn btn-primary doc-type" href="/invoice/type/{t}">{t.title}</a>
+                {/for}
+            </div>
+        </div>
+        {/if}
+
+        {#if state.invoice.onCustomerStep}
+        <div class="chosen">Ticket : <strong>{state.invoice.ticket.ticketNumber}</strong>{#if hasDocumentStep} · <strong>{state.invoice.documentTitle}</strong>{/if}</div>
 
         {#if state.invoice.creatingCustomer}
         <form class="work" method="post" action="{formAction}" id="entryForm">
@@ -203,6 +230,15 @@
                     </span>
                     <a class="btn btn-sm btn-muted" href="/invoice/back/ticket">CHANGER</a>
                 </div>
+                {#if hasDocumentStep}
+                <div class="recap-row">
+                    <span>
+                        <span class="recap-label">Type de document</span>
+                        <span class="recap-value">{state.invoice.documentTitle}</span>
+                    </span>
+                    <a class="btn btn-sm btn-muted" href="/invoice/back/type">CHANGER</a>
+                </div>
+                {/if}
                 <div class="recap-row">
                     <span>
                         <span class="recap-label">Client facturé</span>
@@ -216,10 +252,34 @@
         </div>
         {/if}
 
+        {!
+         ! LC-08-04-12/13 : la station à insertion prend une feuille à la fois. Le
+         ! nombre de feuilles est annoncé AVANT que la première ne parte — c'est ce
+         ! qui permet à l'opérateur d'aller les chercher, ou de ne pas commencer.
+        !}
+        {#if state.invoice.onInsertStep}
+        <div class="centered">
+            <h2>Insérez la feuille {state.invoice.slipPageNumber} sur {state.invoice.slipPageCount}</h2>
+            <div class="slip-count">Ce document occupe {state.invoice.slipPageCount} feuille(s) à insérer une par une dans l'imprimante de caisse.</div>
+            <form method="post" action="/invoice/slip">
+                <button class="btn btn-success" type="submit">FEUILLE INSÉRÉE - IMPRIMER</button>
+            </form>
+        </div>
+        {/if}
+
     </div>
 
     <div class="bottom-nav">
+        {!
+         ! Sur l'étape d'insertion le document est déjà émis : « abandonner » y
+         ! promettrait d'annuler ce qui ne peut plus l'être. Ce qu'on abandonne à ce
+         ! stade, ce sont les feuilles restantes.
+        !}
+        {#if state.invoice.onInsertStep}
+        <a href="/invoice/abandon" class="btn btn-muted">INTERROMPRE L'IMPRESSION</a>
+        {#else}
         <a href="/invoice/abandon" class="btn btn-muted">ABANDONNER</a>
+        {/if}
         <a href="/" class="btn btn-muted">RETOUR</a>
     </div>
 </div>

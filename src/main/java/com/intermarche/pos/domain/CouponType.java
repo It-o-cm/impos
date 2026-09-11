@@ -171,6 +171,23 @@ public class CouponType extends PanacheEntity {
     }
 
     /**
+     * Returns the active voucher type carrying that code.
+     *
+     * <p>Used where the back office names a type by its code rather than by a scanned
+     * number — a GS1 gift document or coupon, whose identifier says what the paper is
+     * and leaves the store to say which of its own settlement types that is
+     * ({@code LC-11-03-05/06}).
+     *
+     * @param code the type's code, as administered
+     * @return the type, or null when no ACTIVE type carries that code
+     */
+    public static CouponType findActiveByCode(String code) {
+        return code == null || code.isBlank()
+                ? null
+                : find("code = ?1 and active = true", code.trim()).firstResult();
+    }
+
+    /**
      * Defines how the monetary value of a voucher is obtained.
      */
     public enum AmountSource {

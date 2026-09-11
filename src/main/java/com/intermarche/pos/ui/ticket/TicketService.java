@@ -107,6 +107,10 @@ public class TicketService {
     @Inject
     TicketPrinterService ticketPrinterService;
 
+    /** The abandon rules: printing, and the reason the operator gave (LC-04-04). */
+    @jakarta.inject.Inject
+    TicketAbandonService ticketAbandonService;
+
     @Inject
     com.intermarche.pos.service.TechnicalEventService technicalEventService;
 
@@ -172,6 +176,142 @@ public class TicketService {
         hardwareService.displayMessage("CONTROLE D'AGE EN COURS");
         state.touch();
         return true;
+    }
+
+    /**
+     * Suspends the add on an article whose price or whose quantity the referential
+     * does not carry ({@code LC-02-03-01} and {@code -03}).
+     *
+     * <p>THE PROMPT REPLACES NOTHING AND ADDS NOTHING: the article is the one that
+     * was named, the line is the one that would have been created, and the only
+     * difference is that a figure comes from the operator instead of the catalog. A
+     * "prix requis" article — a gift card, a generic "Divers" line — has no price to
+     * read; a decimal-quantity article has a price PER UNIT OF MEASURE and no
+     * quantity, so the prompt shows that price and its unit while the operator keys
+     * the metres or the litres.
+     *
+     * <p>The two CHAIN when an article carries both: the quantity is asked first,
+     * because it is what the price will multiply, and the operator sees the figure
+     * they already gave while giving the second.
+     *
+     * @param state    the current POS state
+     * @param product  the resolved product
+     * @param quantity the quantity already resolved, null treated as one
+     * @return true when the add was suspended behind the prompt
+     */
+    public boolean suspendForEntry(PosState state, Product product, BigDecimal quantity) {
+        boolean needsQuantity = ProductAttributes.quantityToEnter(product);
+        boolean needsPrice = ProductAttributes.priceToEnter(product);
+        if (!needsQuantity && !needsPrice) {
+            return false;
+        }
+        Price price = Price.findCurrentPrice(product.id);
+        state.entryPrompt.clear();
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = needsQuantity
+                ? PosState.EntryPromptState.QUANTITY
+                : PosState.EntryPromptState.PRICE;
+        state.entryPrompt.ean = product.ean;
+        state.entryPrompt.label = product.saleLabel().toUpperCase();
+        state.entryPrompt.unitName = product.unitName == null ? "" : product.unitName;
+        state.entryPrompt.unitPriceFormatted = price == null || price.priceIncludingTax == null
+                ? "" : String.format("%.2f", price.priceIncludingTax).replace('.', ',');
+        state.entryPrompt.quantity = quantity == null ? BigDecimal.ONE : quantity;
+        state.touch();
+        return true;
+    }
+
+    /**
+     * Takes the figure the operator keyed and either asks the second one or creates
+     * the line ({@code LC-02-03-01/02/03}).
+     *
+     * @param state the current POS state
+     * @param value the figure keyed: a decimal quantity or a price, depending on the
+     *              prompt
+     */
+    public void confirmEntry(PosState state, BigDecimal value) {
+        if (!state.entryPrompt.active) {
+            return;
+        }
+        if (value == null || value.signum() <= 0) {
+            state.ticket.setError("VALEUR INVALIDE");
+            state.touch();
+            return;
+        }
+        Product product = Product.findActiveByEan(state.entryPrompt.ean);
+        if (product == null) {
+            state.entryPrompt.clear();
+            state.ticket.setError("PRODUIT INTROUVABLE");
+            state.touch();
+            return;
+        }
+        if (state.entryPrompt.isPriceKind()) {
+            state.entryPrompt.price = value;
+        } else {
+            state.entryPrompt.quantity = value;
+            // The article may want its price too: ask it now rather than ringing a
+            // line at a price nobody gave.
+            if (ProductAttributes.priceToEnter(product)) {
+                state.entryPrompt.kind = PosState.EntryPromptState.PRICE;
+                state.touch();
+                return;
+            }
+        }
+        BigDecimal quantity = state.entryPrompt.quantity;
+        BigDecimal keyedPrice = state.entryPrompt.price;
+        state.entryPrompt.clear();
+        addEnteredLine(state, product, quantity, keyedPrice);
+    }
+
+    /**
+     * Gives up the suspended add: nothing is registered.
+     *
+     * @param state the current POS state
+     */
+    public void cancelEntry(PosState state) {
+        state.entryPrompt.clear();
+        state.ticket.setError("SAISIE ABANDONNÉE");
+        state.touch();
+    }
+
+    /**
+     * Creates the line an entry prompt resolved.
+     *
+     * @param state      the current POS state
+     * @param product    the article
+     * @param quantity   the quantity to register
+     * @param keyedPrice the price the operator gave, or null to use the catalog's
+     */
+    private void addEnteredLine(PosState state, Product product, BigDecimal quantity,
+            BigDecimal keyedPrice) {
+        Price price = Price.findCurrentPrice(product.id);
+        BigDecimal unitPrice = keyedPrice != null
+                ? keyedPrice
+                : (price != null ? price.priceIncludingTax : BigDecimal.ZERO);
+        BigDecimal vatRate = price != null ? price.vatRate : defaultVatRate;
+        if (ProductAttributes.vatExempt(product)) {
+            vatRate = BigDecimal.ZERO;
+        }
+        state.ticket.addItem(product.ean, null, product.saleLabel().toUpperCase(),
+                unitPrice, quantity, vatRate);
+        if (state.ticket.items.isEmpty()) {
+            return;
+        }
+        TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
+        // LC-02-03-02: the unit of measure travels WITH the line, so the register
+        // display, the customer display and the receipt all state "2,36 x 4,99 €/m"
+        // without any of them going back to the referential.
+        line.unitName = product.unitName;
+        if (product.giftCardAmount != null) {
+            line.moneyProduct = true;
+        }
+        if (ProductAttributes.discountForbidden(product)) {
+            line.discountForbidden = true;
+        }
+        line.restrictedTenders =
+                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
+        displayItem(line);
+        syncAndRevalue(state);
     }
 
     /**
@@ -450,6 +590,12 @@ public class TicketService {
             if (suspendForAgeCheck(state, p, "EAN_QTY", p.ean, quantity)) {
                 return;
             }
+            // LC-02-03-01/03 and LC-02-13-08: the quantity keyed or armed is carried
+            // into the prompt, so an article that also wants its price is rung at the
+            // quantity the operator gave and not at one.
+            if (suspendForEntry(state, p, quantity)) {
+                return;
+            }
             Price price = Price.findCurrentPrice(p.id);
             BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
             BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
@@ -467,10 +613,34 @@ public class TicketService {
             if (ProductAttributes.discountForbidden(p)) {
                 line.discountForbidden = true;
             }
+            // LC-09-01-11 to -18: what the article may be paid with.
+            line.restrictedTenders =
+                    com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(p);
             displayItem(line);
             syncAndRevalue(state);
+            // LC-02-03-13: a keyed EAN or internal code names no lot, so the recalled
+            // lots are listed and the cashier reads the one printed on the pack.
+            noticeRecalledLots(state, p);
         } else {
             state.ticket.setError("PRODUIT INTROUVABLE");
+        }
+    }
+
+    /**
+     * Lists the recalled lots of an article whose entry named none ({@code
+     * LC-02-03-13}).
+     *
+     * <p>It is raised AFTER the line is registered, because registering clears the
+     * message area — a notice set before would be wiped by the very gesture it is
+     * about.
+     *
+     * @param state   the register state
+     * @param product the article that was just registered
+     */
+    private void noticeRecalledLots(PosState state, Product product) {
+        String message = ProductAttributes.recalledLotsMessage(product);
+        if (message != null) {
+            state.ticket.setNotice(message);
         }
     }
 
@@ -520,9 +690,14 @@ public class TicketService {
             if (ProductAttributes.discountForbidden(p)) {
                 line.discountForbidden = true;
             }
+            // LC-09-01-11 to -18: what the article may be paid with.
+            line.restrictedTenders =
+                    com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(p);
 
             displayItem(line);
             syncAndRevalue(state);
+            // LC-02-03-13: a PLU names no lot either.
+            noticeRecalledLots(state, p);
         } else {
             state.ticket.setError("PLU INTROUVABLE");
         }
@@ -596,8 +771,23 @@ public class TicketService {
     public void cancelTicket(PosState state) {
         // Cancel the draft before clearTicket() nulls its id
         if (state.payment.ticketDbId != null) {
+            // LC-04-04-11/12: the abandon ticket states a sale that is about to stop
+            // existing, so it is printed BEFORE the draft is cancelled — after it,
+            // there would be nothing left to read.
+            if (ticketAbandonService.printsTicket()) {
+                ticketPrinterService.printAbandonTicket(state.payment.ticketDbId,
+                        state.abandonReason, posSettingsService.abandonPrintDetail(),
+                        state.auth.operatorName);
+            }
             ticketPersistenceService.cancelDraft(state.payment.ticketDbId);
         }
+        // LC-04-04-10: the reason is journalled whether or not it was printed — the
+        // back-office reports count abandons by reason, and a paper the shop chose
+        // not to print must not take the reason with it.
+        technicalEventService.log(
+                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.TICKET_CANCELLED,
+                state.abandonReason == null || state.abandonReason.isBlank()
+                        ? "Abandon ticket" : "Abandon ticket : " + state.abandonReason);
         state.clearTicket();
         hardwareService.displayMessage("INTERMARCHE");
     }

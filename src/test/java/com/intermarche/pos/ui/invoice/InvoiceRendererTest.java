@@ -252,4 +252,84 @@ class InvoiceRendererTest {
         assertTrue(carries(lines, document.vatRows.get(0).rate()));
         assertTrue(carries(lines, document.tenders.get(0).amount() + " E"));
     }
+
+    // --------------------------------------------------
+    // Cutting the document into sheets (LC-08-04-12/13)
+    // --------------------------------------------------
+
+    /**
+     * A document shorter than one sheet is one sheet, and its lines are untouched.
+     */
+    @Test
+    void aShortDocumentIsOneSheet() {
+        List<List<String>> pages = InvoiceRenderer.paginate(List.of("a", "b", "c"), 10);
+        assertEquals(1, pages.size());
+        assertEquals(List.of("a", "b", "c"), pages.get(0));
+    }
+
+    /**
+     * A document exactly as long as one sheet is still ONE sheet: the boundary belongs
+     * to the sheet before it, and an operator asked for a second, empty sheet would be
+     * right to think the register had lost count.
+     */
+    @Test
+    void aDocumentThatExactlyFillsASheetIsOneSheet() {
+        List<List<String>> pages = InvoiceRenderer.paginate(List.of("a", "b", "c"), 3);
+        assertEquals(1, pages.size());
+    }
+
+    /**
+     * A longer document is cut in order, the last sheet carrying the remainder.
+     */
+    @Test
+    void aLongDocumentIsCutInOrder() {
+        List<List<String>> pages =
+                InvoiceRenderer.paginate(List.of("a", "b", "c", "d", "e"), 2);
+        assertEquals(3, pages.size());
+        assertEquals(List.of("a", "b"), pages.get(0));
+        assertEquals(List.of("c", "d"), pages.get(1));
+        assertEquals(List.of("e"), pages.get(2));
+    }
+
+    /**
+     * A capacity nobody administered prints the document whole — the zero leg of the
+     * guard, and the shape an unconfigured slip station has anyway.
+     */
+    @Test
+    void anUnadministeredCapacityPrintsTheDocumentWhole() {
+        List<List<String>> pages = InvoiceRenderer.paginate(List.of("a", "b", "c"), 0);
+        assertEquals(1, pages.size());
+        assertEquals(3, pages.get(0).size());
+    }
+
+    /**
+     * A negative capacity does the same — the other side of that guard, which an
+     * integer parameter mistyped with a minus produces.
+     */
+    @Test
+    void aNegativeCapacityPrintsTheDocumentWhole() {
+        assertEquals(1, InvoiceRenderer.paginate(List.of("a", "b", "c"), -5).size());
+    }
+
+    /**
+     * Nothing at all is still ONE sheet: a caller telling the operator "0 feuille(s)"
+     * would be asking for a gesture that cannot be made.
+     */
+    @Test
+    void anEmptyDocumentIsStillOneSheet() {
+        assertEquals(1, InvoiceRenderer.paginate(List.of(), 10).size());
+        assertEquals(1, InvoiceRenderer.paginate(null, 10).size());
+    }
+
+    /**
+     * The sheets are copies: printing one must not be able to change the document it
+     * came from, nor the next sheet.
+     */
+    @Test
+    void theSheetsAreCopies() {
+        List<String> source = new java.util.ArrayList<>(List.of("a", "b", "c", "d"));
+        List<List<String>> pages = InvoiceRenderer.paginate(source, 2);
+        pages.get(0).set(0, "CHANGED");
+        assertEquals("a", source.get(0));
+    }
 }

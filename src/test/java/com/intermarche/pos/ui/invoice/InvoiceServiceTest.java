@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.invoice;
 import com.intermarche.pos.domain.AccountCustomer;
 import com.intermarche.pos.domain.Address;
 import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.ticket.DocumentOutput;
 import com.intermarche.pos.domain.ticket.DocumentType;
 import com.intermarche.pos.domain.ticket.Invoice;
 import com.intermarche.pos.domain.ticket.Ticket;
@@ -141,10 +142,14 @@ class InvoiceServiceTest {
                     .findFirst().orElse(null);
         }
 
+        /** The kind the last duplicate lookup was made on. */
+        private DocumentType lastLookupType;
+
         /** {@inheritDoc} */
         @Override
-        public Invoice findInvoiceOfTicket(String ticketNumber) {
-            return existing;
+        public Invoice findInvoiceOfTicket(String ticketNumber, DocumentType documentType) {
+            lastLookupType = documentType;
+            return existing != null && existing.documentType == documentType ? existing : null;
         }
 
         /** {@inheritDoc} */
@@ -202,6 +207,18 @@ class InvoiceServiceTest {
         /** The administered customer-creation mask; blank means the catalog default. */
         private String customerFields = "";
 
+        /** The administered document kinds; blank means the invoice alone. */
+        private String documentTypes = "";
+
+        /** The administered printer of each kind; blank means the roll for all. */
+        private String documentOutput = "";
+
+        /** The administered slip capacity; zero prints a slip whole. */
+        private int slipLines = 0;
+
+        /** The administered automatic emission; blank emits nothing. */
+        private String autoPrint = "";
+
         /** {@inheritDoc} */
         @Override
         public boolean showEan() {
@@ -212,6 +229,47 @@ class InvoiceServiceTest {
         @Override
         public String invoiceCustomerFields() {
             return customerFields;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String invoiceDocumentTypes() {
+            return documentTypes;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String invoiceDocumentOutput() {
+            return documentOutput;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public int invoiceSlipLines() {
+            return slipLines;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String invoiceAutoPrint() {
+            return autoPrint;
+        }
+    }
+
+    /** A network printer that records what it was given and answers as told. */
+    private static class FakeNetworkPrinter extends NetworkDocumentPrinter {
+
+        /** What it answers: true when the print service accepts the page. */
+        private boolean accepts = true;
+
+        /** The documents it was asked to print. */
+        private final List<InvoiceDocument> printed = new ArrayList<>();
+
+        /** {@inheritDoc} */
+        @Override
+        public boolean print(InvoiceDocument document, List<String> fallbackLines) {
+            printed.add(document);
+            return accepts;
         }
     }
 
@@ -276,6 +334,9 @@ class InvoiceServiceTest {
     /** The stand-in store-node outbox. */
     private FakeOutbox outbox;
 
+    /** The stand-in network printer. */
+    private FakeNetworkPrinter networkPrinter;
+
     /**
      * Wires a fresh service to fresh stand-ins before each test.
      */
@@ -294,6 +355,8 @@ class InvoiceServiceTest {
         service.posSettingsService = settings;
         service.hardwareService = printer;
         service.syncOutboxService = outbox;
+        networkPrinter = new FakeNetworkPrinter();
+        service.networkPrinter = networkPrinter;
     }
 
     /**
@@ -836,6 +899,538 @@ class InvoiceServiceTest {
         already.ticketNumber = "C04-00000417";
         repository.existing = already;
         assertNull(service.issued(7L));
+    }
+
+    // --- The kind of document (LC-08-04-04 / -05) ---
+
+    /**
+     * With one kind activated there is nothing to choose: the kind is taken and the
+     * step is SKIPPED, which is precisely what {@code LC-08-04-05} requires. This is
+     * also the shape every other test of this class runs in.
+     */
+    @Test
+    void oneActivatedKindSkipsTheDocumentStep() {
+        settings.documentTypes = "FACTURE";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        service.chooseTicket("C04-00000417", "", "");
+        assertSame(DocumentType.FACTURE, state.invoice.documentType);
+        assertTrue(state.invoice.isOnCustomerStep());
+    }
+
+    /**
+     * With several kinds activated and none chosen yet, the flow stops on the document
+     * step and offers them in administered order ({@code LC-08-04-04}).
+     */
+    @Test
+    void severalActivatedKindsStopOnTheDocumentStep() {
+        settings.documentTypes = "BON_LIVRAISON;FACTURE";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        service.chooseTicket("C04-00000417", "", "");
+        assertTrue(state.invoice.isOnDocumentStep());
+        assertNull(state.invoice.documentType);
+        assertEquals(List.of(DocumentType.BON_LIVRAISON, DocumentType.FACTURE),
+                state.invoice.documentTypes);
+    }
+
+    /**
+     * Coming back to the ticket step with a kind already chosen KEEPS it and does not
+     * ask again — the contains leg of the guard, and the reason correcting a ticket
+     * does not cost the two choices that follow it.
+     */
+    @Test
+    void aKindAlreadyChosenSurvivesANewTicket() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("BON_LIVRAISON");
+        service.chooseCustomer(2L);
+        service.backToTicketStep();
+        service.chooseTicket("C04-00000417", "", "");
+        assertSame(DocumentType.BON_LIVRAISON, state.invoice.documentType);
+        assertTrue(state.invoice.isOnPreviewStep());
+    }
+
+    /**
+     * A kind chosen before the back office deactivated it is DROPPED and asked again:
+     * the register may never draw a document on a kind the store has turned off.
+     */
+    @Test
+    void aKindNoLongerOfferedIsAskedAgain() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("BON_LIVRAISON");
+        settings.documentTypes = "FACTURE;AVOIR_MAGASIN";
+        service.backToTicketStep();
+        service.chooseTicket("C04-00000417", "", "");
+        // One kind survives the new parameter, so there is again nothing to ask.
+        assertSame(DocumentType.FACTURE, state.invoice.documentType);
+        assertTrue(state.invoice.isOnCustomerStep());
+    }
+
+    /**
+     * Choosing a kind with no customer yet moves to the customer step.
+     */
+    @Test
+    void choosingAKindWithoutACustomerMovesToTheCustomerStep() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("FACTURE");
+        assertSame(DocumentType.FACTURE, state.invoice.documentType);
+        assertTrue(state.invoice.isOnCustomerStep());
+        assertEquals("", state.invoice.error);
+    }
+
+    /**
+     * Choosing a kind with the customer already named goes straight to the review —
+     * the other arm of the same fork.
+     */
+    @Test
+    void choosingAKindWithACustomerGoesToTheReview() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("FACTURE");
+        service.chooseCustomer(2L);
+        service.backToDocumentStep();
+        service.chooseDocumentType("BON_LIVRAISON");
+        assertTrue(state.invoice.isOnPreviewStep());
+    }
+
+    /**
+     * A kind name no version knows is refused — the null leg of the guard.
+     */
+    @Test
+    void anUnknownKindNameIsRefused() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("FATURA");
+        assertNull(state.invoice.documentType);
+        assertTrue(state.invoice.isOnDocumentStep());
+        assertEquals("TYPE DE DOCUMENT INDISPONIBLE", state.invoice.error);
+    }
+
+    /**
+     * A kind the register knows but the store did not activate is refused too — the
+     * not-offered leg, which is what a page rendered before the parameter changed
+     * would post.
+     */
+    @Test
+    void aKindThatIsNotOfferedIsRefused() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        service.chooseTicket("C04-00000417", "", "");
+        state.invoice.documentTypes = List.of(DocumentType.FACTURE);
+        service.chooseDocumentType("BON_LIVRAISON");
+        assertNull(state.invoice.documentType);
+        assertEquals("TYPE DE DOCUMENT INDISPONIBLE", state.invoice.error);
+    }
+
+    /**
+     * Going back to the document step drops the kind and keeps the ticket and the
+     * customer.
+     */
+    @Test
+    void backToDocumentStepDropsTheKindAndKeepsTheRest() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("FACTURE");
+        service.chooseCustomer(2L);
+        long before = state.version;
+        service.backToDocumentStep();
+        assertTrue(state.invoice.isOnDocumentStep());
+        assertNull(state.invoice.documentType);
+        assertNotNull(state.invoice.ticket);
+        assertNotNull(state.invoice.customer);
+        assertEquals("", state.invoice.error);
+        assertEquals(before + 1, state.version);
+    }
+
+    /**
+     * The chosen kind is what the document is drawn as: its title, its sequence and
+     * the row written all carry it, and not the invoice by default.
+     */
+    @Test
+    void theChosenKindIsWhatIsDrawn() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("BON_LIVRAISON");
+        service.chooseCustomer(2L);
+        service.issue();
+        assertEquals(1, repository.savedInvoices.size());
+        Invoice written = repository.savedInvoices.get(0);
+        assertSame(DocumentType.BON_LIVRAISON, written.documentType);
+        assertEquals("C04-L000001", written.documentNumber);
+        assertSame(DocumentType.BON_LIVRAISON, repository.lastLookupType);
+    }
+
+    /**
+     * A ticket that already carries a document of ANOTHER kind gets a first original,
+     * not a duplicate ({@code LC-08-04-17} is per kind): one sale carries one document
+     * of each kind.
+     */
+    @Test
+    void aDocumentOfAnotherKindIsNotADuplicate() {
+        settings.documentTypes = "FACTURE;BON_LIVRAISON";
+        Invoice deliveryNote = new Invoice();
+        deliveryNote.documentType = DocumentType.BON_LIVRAISON;
+        deliveryNote.ticketNumber = "C04-00000417";
+        repository.existing = deliveryNote;
+        repository.tickets.add(ticket(1L, "C04-00000417"));
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseDocumentType("FACTURE");
+        service.chooseCustomer(2L);
+        service.issue();
+        assertEquals(1, numbers.documentDraws);
+        assertEquals("C04-F000001", repository.savedInvoices.get(0).documentNumber);
+    }
+
+    /**
+     * Without a kind named, nothing is laid out and nothing is issued: the third leg
+     * of both guards, which no screen can reach but a stale form post can.
+     */
+    @Test
+    void withoutAKindNothingIsPreviewedOrIssued() {
+        onPreviewStep();
+        state.invoice.documentType = null;
+        assertNull(service.preview());
+        assertNull(service.issue());
+        assertEquals("TICKET OU CLIENT MANQUANT", state.invoice.error);
+        assertEquals(0, numbers.documentDraws);
+    }
+
+    // --- Where the document comes out (LC-08-04-11 / -12 / -13) ---
+
+    /**
+     * A kind no parameter names comes out on the roll — the fallback that guarantees a
+     * document always comes out somewhere.
+     */
+    @Test
+    void anUnadministeredKindComesOutOnTheRoll() {
+        assertSame(DocumentOutput.TICKET, service.outputFor(DocumentType.FACTURE));
+    }
+
+    /**
+     * A kind the parameter names comes out where it says.
+     */
+    @Test
+    void anAdministeredKindComesOutWhereItSays() {
+        settings.documentOutput = "FACTURE:A4;BON_LIVRAISON:FACTURETTE";
+        assertSame(DocumentOutput.A4, service.outputFor(DocumentType.FACTURE));
+        assertSame(DocumentOutput.FACTURETTE, service.outputFor(DocumentType.BON_LIVRAISON));
+    }
+
+    /**
+     * Administered to the roll, the document is printed whole at the issue and the
+     * screen stays on the review — no sheet to feed, nothing to wait for.
+     */
+    @Test
+    void aRollDocumentIsPrintedWholeAtTheIssue() {
+        onPreviewStep();
+        service.issue();
+        assertEquals(1, printer.printed.size());
+        assertEquals(1, printer.cuts);
+        assertTrue(printer.printed.get(0).contains("FACTURE"));
+        assertTrue(state.invoice.isOnPreviewStep());
+        assertTrue(networkPrinter.printed.isEmpty());
+    }
+
+    /**
+     * Administered to the network printer, the page goes there and the till's own
+     * printer stays silent.
+     */
+    @Test
+    void anA4DocumentGoesToTheNetworkPrinter() {
+        settings.documentOutput = "FACTURE:A4";
+        onPreviewStep();
+        service.issue();
+        assertEquals(1, networkPrinter.printed.size());
+        assertTrue(printer.printed.isEmpty());
+        assertEquals("", state.invoice.error);
+    }
+
+    /**
+     * A network printer that refuses the page does NOT swallow the document: it comes
+     * out on the roll instead, and the operator is told where to look for it.
+     */
+    @Test
+    void aRefusedA4FallsBackToTheRollAndSaysSo() {
+        settings.documentOutput = "FACTURE:A4";
+        networkPrinter.accepts = false;
+        onPreviewStep();
+        service.issue();
+        assertEquals(1, networkPrinter.printed.size());
+        assertEquals(1, printer.printed.size());
+        assertEquals("IMPRIMANTE RESEAU INJOIGNABLE - DOCUMENT IMPRIME EN CAISSE",
+                state.invoice.error);
+    }
+
+    /**
+     * Administered to the slip station, NOTHING is printed at the issue: the document
+     * is cut into sheets and the operator is asked for the first
+     * ({@code LC-08-04-12/13}).
+     */
+    @Test
+    void aSlipDocumentPrintsNothingUntilTheSheetIsIn() {
+        settings.documentOutput = "FACTURE:FACTURETTE";
+        settings.slipLines = 10;
+        onPreviewStep();
+        service.issue();
+        assertEquals(1, repository.savedInvoices.size());
+        assertTrue(printer.printed.isEmpty());
+        assertTrue(state.invoice.isOnInsertStep());
+        assertTrue(state.invoice.getSlipPageCount() > 1);
+        assertEquals(1, state.invoice.getSlipPageNumber());
+    }
+
+    /**
+     * Each confirmed sheet prints exactly one sheet and asks for the next, until the
+     * last one closes the sequence and sends the screen back to the document.
+     */
+    @Test
+    void eachConfirmedSheetPrintsOneSheet() {
+        settings.documentOutput = "FACTURE:FACTURETTE";
+        settings.slipLines = 10;
+        onPreviewStep();
+        service.issue();
+        int sheets = state.invoice.getSlipPageCount();
+        for (int printedSoFar = 1; printedSoFar < sheets; printedSoFar++) {
+            assertTrue(service.printNextSlip(), "sheet#" + printedSoFar);
+            assertEquals(printedSoFar, printer.printed.size());
+            assertEquals(printedSoFar + 1, state.invoice.getSlipPageNumber());
+            assertTrue(state.invoice.isOnInsertStep());
+        }
+        assertFalse(service.printNextSlip());
+        assertEquals(sheets, printer.printed.size());
+        assertEquals(sheets, printer.cuts);
+        assertTrue(state.invoice.isOnPreviewStep());
+        assertEquals(0, state.invoice.getSlipPageCount());
+    }
+
+    /**
+     * A slip capacity nobody administered gives one sheet, so a single confirmation
+     * ends the sequence — the zero leg carried all the way through the flow.
+     */
+    @Test
+    void anUnadministeredSlipCapacityGivesOneSheet() {
+        settings.documentOutput = "FACTURE:FACTURETTE";
+        onPreviewStep();
+        service.issue();
+        assertEquals(1, state.invoice.getSlipPageCount());
+        assertFalse(service.printNextSlip());
+        assertEquals(1, printer.printed.size());
+        assertTrue(state.invoice.isOnPreviewStep());
+    }
+
+    /**
+     * Confirming a sheet when there is none left prints nothing and closes the
+     * sequence — the guard a double tap on the button reaches.
+     */
+    @Test
+    void confirmingASheetWithNoneLeftPrintsNothing() {
+        assertFalse(service.printNextSlip());
+        assertEquals(0, printer.printed.size());
+        assertTrue(state.invoice.isOnPreviewStep());
+    }
+
+    /**
+     * Giving up the whole screen forgets the sheets too: a document half fed to the
+     * station must not come back to life on the next customer.
+     */
+    @Test
+    void abandoningForgetsTheSheets() {
+        settings.documentOutput = "FACTURE:FACTURETTE";
+        settings.slipLines = 10;
+        onPreviewStep();
+        service.issue();
+        service.abandon();
+        assertEquals(0, state.invoice.getSlipPageCount());
+        assertEquals(0, state.invoice.slipPrinted);
+        assertTrue(state.invoice.isOnTicketStep());
+    }
+
+    // --- The document the settlement calls for (LC-08-04-16) ---
+
+    /**
+     * Builds a closed ticket settled by customer credit on a named account.
+     *
+     * @param accountNumber the account the credit payment names
+     * @return the ticket, already in the repository
+     */
+    private Ticket creditTicket(String accountNumber) {
+        Ticket ticket = ticket(1L, "C04-00000417");
+        com.intermarche.pos.domain.ticket.CreditPayment credit =
+                new com.intermarche.pos.domain.ticket.CreditPayment(new BigDecimal("12.00"));
+        credit.accountNumber = accountNumber;
+        ticket.payments.add(credit);
+        repository.tickets.add(ticket);
+        return ticket;
+    }
+
+    /**
+     * Without a parameter, a closing emits nothing — the empty-map leg, and the
+     * behaviour of every store that asked for no automatic document.
+     */
+    @Test
+    void withoutAParameterAClosingEmitsNothing() {
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        assertNull(service.autoPrint(1L));
+        assertTrue(repository.savedInvoices.isEmpty());
+        assertTrue(printer.printed.isEmpty());
+    }
+
+    /**
+     * A sale settled by the named method emits its document, addressed to the account
+     * the settlement names, printed after the receipt.
+     */
+    @Test
+    void aNamedSettlementEmitsItsDocument() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        assertSame(DocumentType.FACTURE, service.autoPrint(1L));
+        assertEquals(1, repository.savedInvoices.size());
+        Invoice written = repository.savedInvoices.get(0);
+        assertEquals("C04-F000001", written.documentNumber);
+        assertEquals("BOULANGERIE", written.customerName);
+        assertEquals(1, written.printCount);
+        assertEquals(1, printer.printed.size());
+    }
+
+    /**
+     * A sale settled by another method emits nothing — the no-match leg of the loop.
+     */
+    @Test
+    void anotherSettlementEmitsNothing() {
+        settings.autoPrint = "CHEQUE:FACTURE";
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        assertNull(service.autoPrint(1L));
+        assertTrue(repository.savedInvoices.isEmpty());
+    }
+
+    /**
+     * A settlement that names an account nobody knows emits nothing: a document is
+     * addressed to somebody, and there is nobody here.
+     */
+    @Test
+    void aSettlementNamingAnUnknownAccountEmitsNothing() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        creditTicket("C04-CLI999999");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        assertNull(service.autoPrint(1L));
+        assertTrue(repository.savedInvoices.isEmpty());
+    }
+
+    /**
+     * A settlement that names no account at all emits nothing either — a cash sale
+     * names nobody, however the parameter reads.
+     */
+    @Test
+    void aSettlementNamingNoAccountEmitsNothing() {
+        settings.autoPrint = "CASH:FACTURE";
+        Ticket ticket = ticket(1L, "C04-00000417");
+        ticket.payments.add(new com.intermarche.pos.domain.ticket.CashPayment(
+                new BigDecimal("12.00"), new BigDecimal("12.00")));
+        repository.tickets.add(ticket);
+        assertNull(service.autoPrint(1L));
+        assertTrue(repository.savedInvoices.isEmpty());
+    }
+
+    /**
+     * A ticket that already carries that kind is not doubled: the operator who issued
+     * it by hand a moment earlier gave the sale its one document.
+     */
+    @Test
+    void aDocumentAlreadyIssuedIsNotDoubled() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        Invoice already = new Invoice();
+        already.documentType = DocumentType.FACTURE;
+        already.ticketNumber = "C04-00000417";
+        repository.existing = already;
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        assertNull(service.autoPrint(1L));
+        assertTrue(repository.savedInvoices.isEmpty());
+        assertEquals(0, numbers.documentDraws);
+    }
+
+    /**
+     * A ticket that no longer exists emits nothing — the vanished-ticket leg.
+     */
+    @Test
+    void aVanishedTicketEmitsNothing() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        assertNull(service.autoPrint(7L));
+        assertTrue(repository.savedInvoices.isEmpty());
+    }
+
+    /**
+     * No ticket at all emits nothing — the null leg of the same guard, which a
+     * training sale reaches.
+     */
+    @Test
+    void noTicketAtAllEmitsNothing() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        assertNull(service.autoPrint(null));
+    }
+
+    /**
+     * Administered to the network printer, the automatic document goes there and the
+     * till's printer stays silent.
+     */
+    @Test
+    void anAutomaticA4GoesToTheNetworkPrinter() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        settings.documentOutput = "FACTURE:A4";
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.autoPrint(1L);
+        assertEquals(1, networkPrinter.printed.size());
+        assertTrue(printer.printed.isEmpty());
+    }
+
+    /**
+     * A network printer that refuses it falls back to the roll, so the document still
+     * comes out — the closing may not lose it.
+     */
+    @Test
+    void aRefusedAutomaticA4FallsBackToTheRoll() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        settings.documentOutput = "FACTURE:A4";
+        networkPrinter.accepts = false;
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.autoPrint(1L);
+        assertEquals(1, printer.printed.size());
+    }
+
+    /**
+     * Administered to the slip station, the automatic document is printed WHOLE and
+     * the closing is not held between two sheets: the sheet-by-sheet gesture belongs
+     * to the operator who asked for a document, not to a sale that produced one.
+     */
+    @Test
+    void anAutomaticSlipDocumentDoesNotHoldTheClosing() {
+        settings.autoPrint = "CREDIT:FACTURE";
+        settings.documentOutput = "FACTURE:FACTURETTE";
+        settings.slipLines = 5;
+        creditTicket("C04-CLI000042");
+        repository.customers.add(customer(2L, "BOULANGERIE"));
+        service.autoPrint(1L);
+        assertEquals(1, printer.printed.size());
+        assertEquals(0, state.invoice.getSlipPageCount());
+        assertFalse(state.invoice.isOnInsertStep());
     }
 
     // --- Going back: correcting one choice must not cost the other ---

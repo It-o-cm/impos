@@ -84,6 +84,17 @@ public final class ValuationPayloads {
         public BigDecimal manualForcedPrice;
         /** Price lookup date, ISO-8601 (the register sends the ticket creation date). */
         public String priceDate;
+        /**
+         * The expiry date a GS1 code carried on this line (AI 17), ISO-8601, or null
+         * (LC-11-03-13).
+         * <p>
+         * Sent so the engine can trigger a promotion on a short-dated article — that is
+         * the requirement in so many words: "le logiciel doit donc envoyer l'AI (17) au
+         * moteur de promotions". The register applies no rule of its own to it beyond
+         * the shop's alert level; deciding what a date is worth is the engine's job,
+         * exactly as deciding what a basket is worth is.
+         */
+        public String expiryDate;
     }
 
     // --------------------------------------------------

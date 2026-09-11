@@ -196,6 +196,115 @@ class HomeServiceTest {
         verify(service.state).touch();
     }
 
+    // --- Armed quantity and repetition ---
+
+    /**
+     * {@code armQuantity()} keeps the figure for the NEXT article and says so, then
+     * closes the quantity keypad ({@code LC-02-13-04/05/06/07}).
+     */
+    @Test
+    void armQuantityKeepsTheFigureForTheNextArticle() {
+        service.armQuantity(new BigDecimal("3"));
+        assertEquals(new BigDecimal("3"), service.state.armedQuantity);
+        verify(service.state.priceModState).clear();
+        verify(service.state.ticket).setNotice("QUANTITÉ 3 — SAISISSEZ L'ARTICLE");
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code armQuantity()} refuses a figure that is not a quantity and arms nothing,
+     * on both arms that can produce one: no figure at all, and zero or less.
+     */
+    @Test
+    void armQuantityRefusesWhatIsNotAQuantity() {
+        service.armQuantity(null);
+        assertNull(service.state.armedQuantity);
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        service.armQuantity(BigDecimal.ZERO);
+        assertNull(service.state.armedQuantity);
+        service.armQuantity(new BigDecimal("-2"));
+        assertNull(service.state.armedQuantity);
+        verify(service.state.ticket, times(3)).setError("QUANTITÉ INVALIDE");
+        verify(service.state.priceModState, times(3)).clear();
+    }
+
+    /**
+     * {@code repeatLastItem()} adds ONE to the last line rather than ringing a second
+     * one, and asks for the total to be recomputed ({@code LC-02-13-12/13}).
+     */
+    @Test
+    void repeatLastItemAddsOneToTheLastLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.state.lastEnteredItemId = "A";
+        service.repeatLastItem();
+        assertEquals(0, new BigDecimal("2").compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+        verify(service.state.ticket).setNotice("ARTICLE RÉPÉTÉ : L");
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code repeatLastItem()} refuses when there is nothing to repeat, on both arms:
+     * no registration at all, and a registration whose line has since been cancelled.
+     */
+    @Test
+    void repeatLastItemRefusesWhenThereIsNothingToRepeat() {
+        service.state.lastEnteredItemId = null;
+        service.repeatLastItem();
+        service.state.lastEnteredItemId = "GONE";
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.repeatLastItem();
+        verify(service.state.ticket, times(2)).setError("AUCUN ARTICLE À RÉPÉTER");
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /**
+     * A weighed line is a measurement and cannot be repeated ({@code LC-02-13-15}):
+     * the refusal is said out loud, and nothing is recomputed.
+     */
+    @Test
+    void repeatLastItemRefusesAWeighedLine() {
+        TicketState.TicketItem it = item("A", "123", "0042", new BigDecimal("2.00"),
+                new BigDecimal("0.500"));
+        service.state.ticket.items.add(it);
+        service.state.lastEnteredItemId = "A";
+        service.repeatLastItem();
+        assertEquals(0, new BigDecimal("0.500").compareTo(it.quantity));
+        verify(service.state.ticket).setError("RÉPÉTITION IMPOSSIBLE : ARTICLE EN PESÉE");
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /**
+     * A price-embedded label names ONE physical object and cannot be repeated
+     * ({@code LC-02-13-16}).
+     */
+    @Test
+    void repeatLastItemRefusesAPriceEmbeddedLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.20"), BigDecimal.ONE);
+        it.priceEmbedded = true;
+        service.state.ticket.items.add(it);
+        service.state.lastEnteredItemId = "A";
+        service.repeatLastItem();
+        assertEquals(0, BigDecimal.ONE.compareTo(it.quantity));
+        verify(service.state.ticket).setError("RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX EMBARQUÉ");
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /**
+     * An empty PLU is not a weighed line: the line was rung by its EAN, so the
+     * repetition goes through — the leg a null-only test would leave unproven.
+     */
+    @Test
+    void repeatLastItemAcceptsALineWhosePluIsEmpty() {
+        TicketState.TicketItem it = item("A", "123", "", new BigDecimal("2.00"), BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.state.lastEnteredItemId = "A";
+        service.repeatLastItem();
+        assertEquals(0, new BigDecimal("2").compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
     // --- Cancel line ---
 
     /**
@@ -1136,5 +1245,145 @@ class HomeServiceTest {
         }
         verify(service.state.ticket).setError("OPÉRATEUR INTROUVABLE (5)");
         verify(service.ticketPrinterService, never()).printOperatorBadge(any());
+    }
+
+    // --------------------------------------------------
+    // The "à enlever" key (LC-02-08-01/02/03)
+    // --------------------------------------------------
+
+    /**
+     * With a line EXPLICITLY selected, the key marks that line, clears the selection
+     * and says so ({@code LC-02-08-03}).
+     */
+    @Test
+    void collectKeyMarksTheSelectedLine() {
+        TicketState.TicketItem line = new TicketState.TicketItem(
+                "3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        when(service.state.getSelectedItem()).thenReturn(line);
+        service.toggleCollect();
+        assertTrue(line.toCollect);
+        assertEquals(-1, service.state.selectedTicketIndex);
+        assertFalse(service.state.collectArmed);
+        verify(service.state.ticket).setNotice("ARTICLE MARQUÉ À ENLEVER");
+    }
+
+    /**
+     * Pressed again on a line already marked, it unmarks it — the other arm of the
+     * toggle, and the way a cashier corrects themselves.
+     */
+    @Test
+    void collectKeyUnmarksAnAlreadyMarkedLine() {
+        TicketState.TicketItem line = new TicketState.TicketItem(
+                "3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        line.toCollect = true;
+        when(service.state.getSelectedItem()).thenReturn(line);
+        service.toggleCollect();
+        assertFalse(line.toCollect);
+        verify(service.state.ticket).setNotice("MARQUAGE À ENLEVER RETIRÉ");
+    }
+
+    /**
+     * With NOTHING selected, the key arms the next article instead
+     * ({@code LC-02-08-02}) — the implicit "last line" fallback the other line
+     * gestures use is deliberately not applied here.
+     */
+    @Test
+    void collectKeyArmsTheNextArticleWhenNothingIsSelected() {
+        when(service.state.getSelectedItem()).thenReturn(null);
+        service.toggleCollect();
+        assertTrue(service.state.collectArmed);
+        verify(service.state.ticket).setNotice("PROCHAIN ARTICLE À ENLEVER");
+    }
+
+    /**
+     * Pressed again while armed, it disarms — the other arm, and the way a cashier
+     * who armed it by mistake gets out.
+     */
+    @Test
+    void collectKeyDisarmsWhenPressedAgain() {
+        when(service.state.getSelectedItem()).thenReturn(null);
+        service.state.collectArmed = true;
+        service.toggleCollect();
+        assertFalse(service.state.collectArmed);
+        verify(service.state.ticket).setNotice("MARQUAGE À ENLEVER ANNULÉ");
+    }
+
+    // --------------------------------------------------
+    // The restricted-tender bases (LC-09-01-12/14/16/18)
+    // --------------------------------------------------
+
+    /**
+     * Adds a line carrying the given restricted-tender snapshot.
+     *
+     * @param total    the line total, tax included
+     * @param snapshot the eligibilities the article carried, or null
+     */
+    private void lineWithTenders(String total, String snapshot) {
+        TicketState.TicketItem line = new TicketState.TicketItem(
+                "3017620422003", null, "PATE", new BigDecimal(total),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        line.restrictedTenders = snapshot;
+        service.state.ticket.items.add(line);
+    }
+
+    /**
+     * Each tender totals only the lines it covers, and the amounts are formatted the
+     * French way.
+     */
+    @Test
+    void eachTenderTotalsOnlyItsOwnLines() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn("");
+        lineWithTenders("10.00",
+                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+        lineWithTenders("2.50",
+                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE
+                        + "," + com.intermarche.pos.domain.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
+        lineWithTenders("7.00", null);
+        java.util.List<HomeService.RestrictedTenderRow> rows = service.restrictedTenderRows();
+        assertEquals(2, rows.size());
+        assertEquals("Titre-restaurant", rows.get(0).label());
+        assertEquals("12,50", rows.get(0).amount());
+        assertEquals("Éco-chèque", rows.get(1).label());
+        assertEquals("2,50", rows.get(1).amount());
+    }
+
+    /**
+     * A tender no line is eligible for is DROPPED rather than shown at zero: three
+     * permanent zeroes beside the total teach a cashier to stop reading the zone.
+     */
+    @Test
+    void aTenderWithoutEligibleLinesIsDropped() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn("");
+        lineWithTenders("7.00", null);
+        assertTrue(service.restrictedTenderRows().isEmpty());
+    }
+
+    /**
+     * An empty basket shows nothing at all — the empty leg of the loop.
+     */
+    @Test
+    void anEmptyBasketShowsNoBase() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn("");
+        assertTrue(service.restrictedTenderRows().isEmpty());
+    }
+
+    /**
+     * The shop's own list is honoured, tenders it did not administer included nowhere
+     * ({@code LC-09-01-17/18}).
+     */
+    @Test
+    void theAdministeredListIsHonoured() {
+        when(service.posSettingsService.restrictedTenders()).thenReturn(
+                "ECO:" + com.intermarche.pos.domain.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE
+                        + ":Éco-chèque");
+        lineWithTenders("10.00",
+                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+        lineWithTenders("4.00",
+                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
+        java.util.List<HomeService.RestrictedTenderRow> rows = service.restrictedTenderRows();
+        assertEquals(1, rows.size());
+        assertEquals("4,00", rows.get(0).amount());
     }
 }

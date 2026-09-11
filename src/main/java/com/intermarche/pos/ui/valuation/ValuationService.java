@@ -374,6 +374,12 @@ public class ValuationService {
             dto.produceEan = item.ean;
             dto.quantity = item.quantity;
             dto.priceDate = isoDate;
+            // LC-11-03-13: a short-dated article may be worth less, and the engine is
+            // what decides that. The date travels with the line for the same reason
+            // every line travels: the engine is the authority on the basket's value.
+            if (item.gs1ExpiryDate != null) {
+                dto.expiryDate = item.gs1ExpiryDate.toString();
+            }
             if (item.priceEmbedded) {
                 // PRICE-EMBEDDED sticker (EAN 2x, prefixes 21-22): the price
                 // lives on the paper, not in any catalog. The contract's

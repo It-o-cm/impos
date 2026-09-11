@@ -44,3 +44,5 @@ Debugger failed to attach: handshake failed - connection prematurally closed
 04:01:29 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
 05:07:00 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided
 Debugger failed to attach: handshake failed - connection prematurally closed
+04:00:00 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
+05:00:00 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided

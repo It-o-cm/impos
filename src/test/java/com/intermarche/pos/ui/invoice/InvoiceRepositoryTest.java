@@ -246,16 +246,25 @@ class InvoiceRepositoryTest {
     }
 
     /**
-     * findInvoiceOfTicket(number): queries Invoice on the ticketNumber field and
-     * returns the first result (null when the ticket was never billed).
+     * findInvoiceOfTicket(number, kind): queries Invoice on BOTH the ticket number
+     * and the document kind, and returns the first result (null when the ticket
+     * carries no document of that kind).
+     *
+     * <p>The kind is part of the lookup because a sale carries one document of each
+     * kind ({@code LC-08-04-17}): answering an invoice request with the delivery note
+     * the same ticket already has would reprint the wrong paper.
      */
     @Test
     void findInvoiceOfTicketReturnsFirstResult() {
         PanacheQuery<Invoice> query = queryReturning(null);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            panache.when(() -> Invoice.find("ticketNumber", NUMBER)).thenReturn(query);
-            assertNull(repository.findInvoiceOfTicket(NUMBER));
-            panache.verify(() -> Invoice.find("ticketNumber", NUMBER));
+            panache.when(() -> Invoice.find("ticketNumber = ?1 and documentType = ?2",
+                    NUMBER, com.intermarche.pos.domain.ticket.DocumentType.FACTURE))
+                    .thenReturn(query);
+            assertNull(repository.findInvoiceOfTicket(NUMBER,
+                    com.intermarche.pos.domain.ticket.DocumentType.FACTURE));
+            panache.verify(() -> Invoice.find("ticketNumber = ?1 and documentType = ?2",
+                    NUMBER, com.intermarche.pos.domain.ticket.DocumentType.FACTURE));
         }
     }
 

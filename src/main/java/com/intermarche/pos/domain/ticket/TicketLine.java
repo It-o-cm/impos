@@ -161,6 +161,60 @@ public class TicketLine extends BaseEntity {
     public String familyLabel;
 
     /**
+     * True when the article on this line is collected at the goods desk after the
+     * sale rather than carried out by the customer ({@code LC-02-08}).
+     * <p>
+     * Persisted because the collection voucher is printed from the CLOSED ticket:
+     * the desk hands goods over against a paid sale, and a flag that lived only in
+     * the register's memory would leave a reprinted voucher unable to say which
+     * lines it covers.
+     */
+    @Column(name = "to_collect", nullable = false)
+    public boolean toCollect;
+
+    /**
+     * The restricted-tender eligibilities the article carried when it was rung
+     * ({@code LC-09-01-11} to {@code -18}), comma-joined, or null when it carried none.
+     * <p>
+     * Persisted so a draft recovered after a restart still knows what the basket may
+     * be paid with: the running totals are shown "en permanence jusqu'au paiement",
+     * and a recovery that lost them would show zero on a basket full of eligible
+     * articles.
+     */
+    @Column(name = "restricted_tenders", length = 200)
+    public String restrictedTenders;
+
+    /**
+     * The article's unit of measure ({@code LC-02-03-02}), or null for an article sold
+     * by the piece. Snapshotted like the label and the price: the receipt states the
+     * unit the article was sold in, whatever the referential says later.
+     */
+    @Column(name = "unit_name", length = 20)
+    public String unitName;
+
+    /**
+     * Every identifier the GS1 code that rang this line carried, as the technical
+     * journal writes them ({@code LC-11-03-02}), or null on a line rung any other way.
+     * <p>
+     * THIS IS THE TRANSACTIONAL HALF of that requirement, the technical journal being
+     * the other. Recording the identifiers only in the journal would make them
+     * searchable and not attributable: an investigation on a batch recall needs to know
+     * which LINE carried the lot number, and a journal entry beside a ticket number is
+     * not that. The identifiers this version has no rule for are kept exactly like the
+     * others, which is what the requirement asks in so many words.
+     */
+    @Column(name = "gs1_data", length = 500)
+    public String gs1Data;
+
+    /**
+     * The expiry date the GS1 code carried ({@code LC-11-03-12}), or null on a line
+     * that carried none. A column of its own because it is the one decoded identifier
+     * a rule reads.
+     */
+    @Column(name = "gs1_expiry_date")
+    public java.time.LocalDate gs1ExpiryDate;
+
+    /**
      * True when the line was cancelled by the cashier during the sale and KEPT
      * as a witness rather than dropped (campaign lot C4, BO-04-01-16). The
      * register historically modelled the cart as a state — a cancelled line

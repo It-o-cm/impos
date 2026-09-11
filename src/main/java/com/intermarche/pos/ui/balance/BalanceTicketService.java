@@ -147,6 +147,7 @@ public class BalanceTicketService {
     private boolean addLines(PosState state, String reference,
             SyncPayloads.BalanceTicketDto dto) {
         List<String> refused = new ArrayList<>();
+        List<String> recalled = new ArrayList<>();
         int added = 0;
         for (SyncPayloads.BalanceTicketLineDto line : dto.lines) {
             Product product = line.ean == null ? null : Product.findActiveByEan(line.ean);
@@ -158,6 +159,14 @@ public class BalanceTicketService {
                 continue;
             }
             addOneLine(state, line, product);
+            // LC-02-03-13: a counter line names no lot, so an article under lot recall
+            // has its lots COLLECTED here rather than announced line by line — the
+            // register has one message area, and a paper carrying several such articles
+            // would show only the last of them.
+            List<String> lots = ProductAttributes.recalledLots(product);
+            if (!lots.isEmpty()) {
+                recalled.add(labelOf(line, product) + " (" + String.join(", ", lots) + ")");
+            }
             added++;
         }
         if (added == 0) {
@@ -165,15 +174,37 @@ public class BalanceTicketService {
             return false;
         }
         if (!refused.isEmpty()) {
-            state.ticket.setError("ARTICLE RETIRÉ DU COMPTOIR : " + String.join(", ", refused));
+            state.ticket.setError("ARTICLE RETIRÉ DU COMPTOIR : " + String.join(", ", refused)
+                    + recallSuffix(recalled));
             return true;
         }
         // LC-06-01-04: the reference is named back. The operator scanned a paper and
         // must be able to check, without touching anything, that the lines that just
         // appeared came from THAT paper and not from the one still on the counter.
         state.ticket.setNotice("TICKET COMPTOIR " + reference
-                + " INTÉGRÉ (" + added + " LIGNE(S))");
+                + " INTÉGRÉ (" + added + " LIGNE(S))" + recallSuffix(recalled));
         return true;
+    }
+
+    /**
+     * The recall clause appended to the message a counter integration ends with
+     * ({@code LC-02-03-13}).
+     *
+     * <p>IT IS A SUFFIX AND NOT A MESSAGE OF ITS OWN. The register has a single
+     * message area: a second call would erase the reference the operator needs to
+     * check the paper against ({@code LC-06-01-04}), and the choice between naming the
+     * paper and naming the recall is one nobody should have to make. Appending keeps
+     * both, in the order the gesture reads: what was integrated, then what to look at.
+     *
+     * @param recalled the articles under lot recall, each with its lots, empty when
+     *                 the paper carried none
+     * @return the clause, empty when there is nothing to warn about
+     */
+    private String recallSuffix(List<String> recalled) {
+        if (recalled.isEmpty()) {
+            return "";
+        }
+        return " — RAPPEL : " + String.join(", ", recalled);
     }
 
     /**
@@ -214,6 +245,9 @@ public class BalanceTicketService {
         if (product != null && ProductAttributes.discountForbidden(product)) {
             added.discountForbidden = true;
         }
+        // LC-09-01-11 to -18: what the article may be paid with.
+        added.restrictedTenders =
+                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
     }
 
     /**

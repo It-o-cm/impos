@@ -933,4 +933,218 @@ class TicketStateTest {
         assertNull(item.ean);
         assertEquals(0, BigDecimal.ZERO.compareTo(item.vatRate));
     }
+
+    // --------------------------------------------------
+    // The "à enlever" arming (LC-02-08-02)
+    // --------------------------------------------------
+
+    /**
+     * Builds a ticket attached to a register state, which is what the arming needs.
+     *
+     * @return the state, its ticket wired to it
+     */
+    private com.intermarche.pos.ui.PosState statefulTicket() {
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        state.ticket.setParent(state);
+        return state;
+    }
+
+    /**
+     * An armed key marks the next article and disarms itself: it arms ONE article, so
+     * the rest of the basket is not quietly sent to the collection desk too.
+     */
+    @Test
+    void theArmedKeyMarksOneArticleAndDisarms() {
+        com.intermarche.pos.ui.PosState state = statefulTicket();
+        state.collectArmed = true;
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        assertTrue(state.ticket.items.get(0).toCollect);
+        assertFalse(state.collectArmed);
+    }
+
+    /**
+     * Nothing armed leaves an ordinary line — the false arm.
+     */
+    @Test
+    void withoutArmingTheLineIsOrdinary() {
+        com.intermarche.pos.ui.PosState state = statefulTicket();
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        assertFalse(state.ticket.items.get(0).toCollect);
+    }
+
+    /**
+     * A ticket with no register behind it is never armed — the null-parent leg, which
+     * every plain unit test of this class takes.
+     */
+    @Test
+    void aParentlessTicketIsNeverArmed() {
+        TicketState ts = new TicketState();
+        ts.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        assertFalse(ts.items.get(0).toCollect);
+    }
+
+    /**
+     * TWO ARTICLES THAT LEAVE BY DIFFERENT DOORS ARE NOT THE SAME LINE: an armed scan
+     * of an EAN already on the ticket makes a second line rather than merging, or the
+     * whole quantity would land on the collection voucher.
+     */
+    @Test
+    void aCollectedArticleDoesNotMergeIntoACarriedOne() {
+        com.intermarche.pos.ui.PosState state = statefulTicket();
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        state.collectArmed = true;
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        assertEquals(2, state.ticket.items.size());
+        assertFalse(state.ticket.items.get(0).toCollect);
+        assertTrue(state.ticket.items.get(1).toCollect);
+    }
+
+    /**
+     * Two collected articles of the same EAN DO merge, and the merge disarms the key
+     * exactly as a new line does — the same-destination arm of the guard.
+     */
+    @Test
+    void twoCollectedArticlesMerge() {
+        com.intermarche.pos.ui.PosState state = statefulTicket();
+        state.collectArmed = true;
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        state.collectArmed = true;
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        assertEquals(1, state.ticket.items.size());
+        assertEquals(0, new BigDecimal("2").compareTo(state.ticket.items.get(0).quantity));
+        assertTrue(state.ticket.items.get(0).toCollect);
+        assertFalse(state.collectArmed);
+    }
+
+    /**
+     * An unarmed scan of an EAN already marked does NOT merge into it either — the
+     * mirror of the first case, which a cashier scanning the same article for the
+     * customer's own bag takes.
+     */
+    @Test
+    void aCarriedArticleDoesNotMergeIntoACollectedOne() {
+        com.intermarche.pos.ui.PosState state = statefulTicket();
+        state.collectArmed = true;
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        state.ticket.addItem("3017620422003", null, "PATE", new BigDecimal("2.00"),
+                BigDecimal.ONE, new BigDecimal("0.20"));
+        assertEquals(2, state.ticket.items.size());
+        assertTrue(state.ticket.items.get(0).toCollect);
+        assertFalse(state.ticket.items.get(1).toCollect);
+    }
+
+    /**
+     * An armed quantity replaces the one the caller passed on a UNIT line, and is
+     * consumed by that one line: the article after it is rung at one
+     * ({@code LC-02-13-04/05/06/07}).
+     */
+    @Test
+    void addItemUsesTheArmedQuantityOnceOnAUnitLine() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        parent.armedQuantity = new BigDecimal("3");
+        ts.addItem("123", null, "Milk", new BigDecimal("1.00"), BigDecimal.ONE, null);
+        assertEquals(0, new BigDecimal("3").compareTo(ts.items.get(0).quantity));
+        assertNull(parent.armedQuantity);
+        ts.addItem("456", null, "Bread", new BigDecimal("1.00"), BigDecimal.ONE, null);
+        assertEquals(0, BigDecimal.ONE.compareTo(ts.items.get(1).quantity));
+    }
+
+    /**
+     * An armed quantity applies to a MERGE too: three more of an article already on
+     * the ticket raise its line by three, not by one.
+     */
+    @Test
+    void addItemUsesTheArmedQuantityOnAMerge() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        ts.addItem("123", null, "Milk", new BigDecimal("1.00"), BigDecimal.ONE, null);
+        parent.armedQuantity = new BigDecimal("3");
+        ts.addItem("123", null, "Milk", new BigDecimal("1.00"), BigDecimal.ONE, null);
+        assertEquals(1, ts.items.size());
+        assertEquals(0, new BigDecimal("4").compareTo(ts.items.get(0).quantity));
+        assertNull(parent.armedQuantity);
+    }
+
+    /**
+     * A WEIGHED line keeps the weight the scale measured: the arming is consumed all
+     * the same, so it never leaks onto the article that follows
+     * ({@code LC-02-13-09}).
+     */
+    @Test
+    void addItemNeverOverwritesAWeightWithAnArmedQuantity() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        parent.armedQuantity = new BigDecimal("3");
+        ts.addItem("123", "0042", "Tomates", new BigDecimal("2.00"), new BigDecimal("0.500"), null);
+        assertEquals(0, new BigDecimal("0.500").compareTo(ts.items.get(0).quantity));
+        assertNull(parent.armedQuantity);
+    }
+
+    /**
+     * An empty PLU is a unit line, so the arming applies to it — the leg a null-only
+     * test would leave unproven.
+     */
+    @Test
+    void addItemTreatsAnEmptyPluAsAUnitLineForTheArming() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        parent.armedQuantity = new BigDecimal("3");
+        ts.addItem("123", "", "Milk", new BigDecimal("1.00"), BigDecimal.ONE, null);
+        assertEquals(0, new BigDecimal("3").compareTo(ts.items.get(0).quantity));
+    }
+
+    /**
+     * With nothing armed, the caller's quantity stands — the arm where the register
+     * has no figure kept.
+     */
+    @Test
+    void addItemKeepsTheCallersQuantityWhenNothingIsArmed() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        ts.addItem("123", null, "Milk", new BigDecimal("1.00"), new BigDecimal("2"), null);
+        assertEquals(0, new BigDecimal("2").compareTo(ts.items.get(0).quantity));
+    }
+
+    /**
+     * A parentless ticket has nowhere to read an arming from and rings the caller's
+     * quantity — the null-parent arm of the arming guard.
+     */
+    @Test
+    void addItemWithoutParentIgnoresAnyArming() {
+        TicketState ts = new TicketState();
+        ts.addItem("123", null, "Milk", new BigDecimal("1.00"), new BigDecimal("2"), null);
+        assertEquals(0, new BigDecimal("2").compareTo(ts.items.get(0).quantity));
+    }
+
+    /**
+     * The unit of measure travels with the line and is shown beside the quantity
+     * ({@code LC-02-03-02}, {@code LC-02-13-18}); a line without one keeps the plain
+     * wording.
+     */
+    @Test
+    void theLineShowsItsUnitOfMeasureWhenItHasOne() {
+        TicketState ts = new TicketState();
+        ts.addItem("123", null, "CABLE", new BigDecimal("4.99"), new BigDecimal("2.36"), null);
+        TicketState.TicketItem line = ts.items.get(0);
+        line.unitName = "m";
+        assertTrue(line.getHtml().contains("m x 4,99"));
+        line.unitName = "";
+        assertFalse(line.getHtml().contains("m x 4,99"));
+        line.unitName = null;
+        assertFalse(line.getHtml().contains("m x 4,99"));
+    }
 }

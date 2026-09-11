@@ -240,6 +240,14 @@ public class CashSessionService {
         for (CashMovement movement : movements) {
             netMovements = netMovements.add(cashImpact(movement));
         }
+        // LC-12-03 and LC-12-10: the theoretical of EACH tender follows its movements
+        // too, not only the cash. A withdrawal of cheques lowers the cheques, and a
+        // transfer moves an amount from one tender to another — without this the
+        // per-method breakdown would keep stating what the tickets said and ignore
+        // everything the drawer did afterwards.
+        for (CashMovement movement : movements) {
+            applyMethodImpact(report.totalsByMethod, movement);
+        }
         report.netCashMovements = netMovements;
         report.theoreticalCash = session.openingFloat.add(cashTotal).subtract(cashRefunds)
                 .add(netMovements).setScale(2, RoundingMode.HALF_UP);
@@ -261,9 +269,70 @@ public class CashSessionService {
         }
         return switch (movement.type) {
             case DEPOSIT, CUSTOMER_DEPOSIT -> movement.amount;
-            case WITHDRAWAL, EXPENSE -> movement.amount.negate();
+            // LC-12-03-02: a withdrawal now names its tender. Only a withdrawal of
+            // CASH lowers the cash in the drawer — taking the cheques out leaves the
+            // notes where they are. A movement recorded before the tender existed
+            // carries none, and those were all cash.
+            case WITHDRAWAL -> isCash(movement.paymentMethod)
+                    ? movement.amount.negate() : BigDecimal.ZERO;
+            case EXPENSE -> movement.amount.negate();
+            // LC-12-10-04: a transfer moves an amount from one tender to another. It
+            // touches the cash only when cash is one of the two ends, and not at all
+            // when it is both.
+            case TRANSFER -> transferCashImpact(movement);
             case DECLARATION -> BigDecimal.ZERO;
         };
+    }
+
+    /**
+     * Applies a movement to the per-tender theoretical of the drawer
+     * ({@code LC-12-03-06}, {@code LC-12-10-04}).
+     *
+     * <p>Only the two movements that NAME a tender act here. A deposit, an expense or
+     * a customer down-payment are cash gestures already carried by the cash
+     * theoretical, and a declaration counts without moving anything.
+     *
+     * @param totals   the per-tender totals being built
+     * @param movement the movement to apply
+     */
+    private void applyMethodImpact(Map<String, BigDecimal> totals, CashMovement movement) {
+        if (movement.amount == null) {
+            return;
+        }
+        String from = isCash(movement.paymentMethod) ? CashMovement.CASH : movement.paymentMethod;
+        if (movement.type == CashMovement.MovementType.WITHDRAWAL) {
+            totals.merge(from, movement.amount.negate(), BigDecimal::add);
+            return;
+        }
+        if (movement.type == CashMovement.MovementType.TRANSFER && movement.transferTo != null) {
+            totals.merge(from, movement.amount.negate(), BigDecimal::add);
+            totals.merge(movement.transferTo, movement.amount, BigDecimal::add);
+        }
+    }
+
+    /**
+     * Returns the signed impact of a transfer on the CASH in the drawer.
+     *
+     * @param movement the transfer
+     * @return the signed amount added to the cash, zero when neither end is cash
+     */
+    private BigDecimal transferCashImpact(CashMovement movement) {
+        boolean fromCash = isCash(movement.paymentMethod);
+        boolean toCash = isCash(movement.transferTo);
+        if (fromCash == toCash) {
+            return BigDecimal.ZERO;
+        }
+        return fromCash ? movement.amount.negate() : movement.amount;
+    }
+
+    /**
+     * Tells whether a tender key names the cash, a missing key included.
+     *
+     * @param method the tender key, possibly null
+     * @return true when the tender is the drawer's cash
+     */
+    private boolean isCash(String method) {
+        return method == null || method.isBlank() || CashMovement.CASH.equals(method);
     }
 
     /**

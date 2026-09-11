@@ -351,6 +351,180 @@ class CashSessionServiceTest {
     }
 
     /**
+     * Creates a movement that names the tenders it concerns.
+     *
+     * @param type the kind of movement
+     * @param amount the amount, or null
+     * @param paymentMethod the tender the movement takes out, or null for cash
+     * @param transferTo the tender a transfer lands on, or null when not a transfer
+     * @return the movement fixture
+     */
+    private CashMovement tenderMovement(CashMovement.MovementType type, String amount,
+                                        String paymentMethod, String transferTo) {
+        CashMovement movement = movement(type, amount);
+        movement.paymentMethod = paymentMethod;
+        movement.transferTo = transferTo;
+        return movement;
+    }
+
+    /**
+     * A withdrawal of a NON-cash tender leaves the cash alone ({@code LC-12-03-02}):
+     * handing over the cheques takes nothing out of the till.
+     */
+    @Test
+    void buildReportWithdrawalOfANonCashTenderLeavesTheCashAlone() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.WITHDRAWAL, "40.00", "CHEQUE", null)));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, BigDecimal.ZERO.compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("50.00").compareTo(report.theoreticalCash));
+            assertEquals(0, new BigDecimal("-40.00").compareTo(report.totalsByMethod.get("CHEQUE")));
+        }
+    }
+
+    /**
+     * A withdrawal that names the cash explicitly removes it, exactly as one that names
+     * no tender at all does: the two spellings of the same gesture must not disagree.
+     */
+    @Test
+    void buildReportWithdrawalOfCashRemovesItWhicheverWayItIsNamed() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.WITHDRAWAL, "10.00", "CASH", null),
+                    tenderMovement(CashMovement.MovementType.WITHDRAWAL, "5.00", null, null),
+                    tenderMovement(CashMovement.MovementType.WITHDRAWAL, "1.00", "  ", null)));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, new BigDecimal("-16.00").compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("-16.00").compareTo(report.totalsByMethod.get("CASH")));
+        }
+    }
+
+    /**
+     * A transfer OUT of the cash removes it, and a transfer INTO the cash adds it: the
+     * two arms of the transfer's effect on the till ({@code LC-12-10-04}).
+     */
+    @Test
+    void buildReportTransferMovesTheCashInBothDirections() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.TRANSFER, "30.00", "CASH", "CHEQUE"),
+                    tenderMovement(CashMovement.MovementType.TRANSFER, "10.00", "TR", "CASH")));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, new BigDecimal("-20.00").compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("-20.00").compareTo(report.totalsByMethod.get("CASH")));
+            assertEquals(0, new BigDecimal("30.00").compareTo(report.totalsByMethod.get("CHEQUE")));
+            assertEquals(0, new BigDecimal("-10.00").compareTo(report.totalsByMethod.get("TR")));
+        }
+    }
+
+    /**
+     * A transfer between two NON-cash tenders leaves the cash untouched while moving
+     * both theoreticals — the arm where neither end is the till.
+     */
+    @Test
+    void buildReportTransferBetweenTwoNonCashTendersLeavesTheCashAlone() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.TRANSFER, "12.00", "TR", "CHEQUE")));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, BigDecimal.ZERO.compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("-12.00").compareTo(report.totalsByMethod.get("TR")));
+            assertEquals(0, new BigDecimal("12.00").compareTo(report.totalsByMethod.get("CHEQUE")));
+        }
+    }
+
+    /**
+     * A transfer whose two ends are both the cash moves nothing at all — the arm where
+     * the source and the destination agree.
+     */
+    @Test
+    void buildReportTransferFromCashToCashMovesNothing() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.TRANSFER, "12.00", "CASH", "CASH")));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, BigDecimal.ZERO.compareTo(report.netCashMovements));
+            assertEquals(0, new BigDecimal("50.00").compareTo(report.theoreticalCash));
+        }
+    }
+
+    /**
+     * A transfer that names no destination moves no theoretical: the movement is
+     * incomplete, and guessing where the amount landed would invent a tender total.
+     */
+    @Test
+    void buildReportTransferWithoutADestinationMovesNoTheoretical() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.TRANSFER, "12.00", "CHEQUE", null)));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertTrue(report.totalsByMethod.isEmpty());
+        }
+    }
+
+    /**
+     * A movement that moves no tender leaves the per-tender totals alone: a deposit, an
+     * expense, a customer down-payment and a declaration are cash gestures the cash
+     * theoretical already carries, and a null-amount movement states nothing.
+     */
+    @Test
+    void buildReportLeavesTheTenderTotalsAloneForTheOtherMovements() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of(
+                    tenderMovement(CashMovement.MovementType.DEPOSIT, "10.00", "CASH", null),
+                    tenderMovement(CashMovement.MovementType.EXPENSE, "3.00", "CASH", null),
+                    tenderMovement(CashMovement.MovementType.CUSTOMER_DEPOSIT, "5.00", "CASH", null),
+                    tenderMovement(CashMovement.MovementType.DECLARATION, "99.00", "CASH", null),
+                    tenderMovement(CashMovement.MovementType.WITHDRAWAL, null, "CASH", null)));
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertTrue(report.totalsByMethod.isEmpty());
+        }
+    }
+
+    /**
      * Covers the guard arm of {@code closeSession}: no session is open, so the
      * closing is refused and nothing is journaled or enqueued.
      */

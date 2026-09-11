@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,6 +57,10 @@ class HomeResourceTest {
         resource.state.fidelity = mock(FidelityState.class);
         resource.state.ageCheck = mock(PosState.AgeCheckState.class);
         resource.state.priceModState = mock(PriceModState.class);
+        // LC-02-03-01/03: the poll tells the screen whether a price or quantity prompt
+        // is open, so it reads the prompt on every answer. A pristine prompt is the
+        // ordinary case — nothing suspended — and keeps that read from hitting a null.
+        resource.state.entryPrompt = new PosState.EntryPromptState();
         resource.homeService = mock(HomeService.class);
         resource.ticketService = mock(TicketService.class);
         resource.hardwareService = mock(HardwareService.class);
@@ -75,8 +80,26 @@ class HomeResourceTest {
      * @return the view {@code main.data("state", state)} will return
      */
     private TemplateInstance stubMain(HomeResource resource) {
+        return stubChain(resource.main, resource.state);
+    }
+
+    /**
+     * Stubs a template so that {@code data("state", state)} yields a recognizable
+     * view AND every further {@code data(...)} of the chain yields that same view.
+     *
+     * <p>The home page and the ticket fragment both seed more than the state — the
+     * eligible restricted-tender bases ride along ({@code LC-09-01-12/14/16/18}) — so
+     * a stub that answered only the first link of the chain would hand the second one
+     * a null and the render would never happen.
+     *
+     * @param template the template to stub
+     * @param state    the state the first link is seeded with
+     * @return the view every link of the chain returns
+     */
+    private TemplateInstance stubChain(Template template, PosState state) {
         TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.main.data("state", resource.state)).thenReturn(view);
+        when(template.data("state", state)).thenReturn(view);
+        when(view.data(anyString(), any())).thenReturn(view);
         return view;
     }
 
@@ -240,8 +263,7 @@ class HomeResourceTest {
         when(resource.state.fidelity.getDisplaySummary()).thenReturn("DUPONT · 2990000000019");
         when(resource.state.ticket.getTotalFormatted()).thenReturn("12,00");
         when(resource.state.ticket.getTotalAmount()).thenReturn(new BigDecimal("12.00"));
-        TemplateInstance ticketView = mock(TemplateInstance.class);
-        when(resource.ticket.data("state", resource.state)).thenReturn(ticketView);
+        TemplateInstance ticketView = stubChain(resource.ticket, resource.state);
         when(ticketView.render()).thenReturn("<html>");
         Map<String, Object> result = resource.getTicketFragment(null);
         assertEquals(true, result.get("changed"));
@@ -267,8 +289,7 @@ class HomeResourceTest {
         resource.state.fidelity.active = false;
         when(resource.state.ticket.getTotalFormatted()).thenReturn("0,00");
         when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
-        TemplateInstance ticketView = mock(TemplateInstance.class);
-        when(resource.ticket.data("state", resource.state)).thenReturn(ticketView);
+        TemplateInstance ticketView = stubChain(resource.ticket, resource.state);
         when(ticketView.render()).thenReturn("<html>");
         Map<String, Object> result = resource.getTicketFragment(99L);
         assertEquals(true, result.get("changed"));
@@ -632,16 +653,22 @@ class HomeResourceTest {
     }
 
     /**
-     * {@code cancelTicket()} requests the whole-ticket cancellation and redirects
-     * to the sale screen.
+     * {@code cancelTicket()} sends the operator to the ABANDON SCREEN rather than
+     * cancelling on the spot ({@code LC-04-04-06} to {@code -12}).
+     *
+     * <p>The screen is where the shop's rules are applied: the reason is chosen from
+     * the administered list, a settlement already taken is named before it is undone,
+     * and the abandon ticket is printed or not according to the parameter. Cancelling
+     * from here would skip all three, so this key carries no cancellation of its own
+     * and touches no service.
      */
     @Test
-    void cancelTicketRequestsCancellationAndRedirectsHome() {
+    void cancelTicketSendsTheOperatorToTheAbandonScreen() {
         HomeResource resource = newResource();
         Response response = resource.cancelTicket();
         assertEquals(303, response.getStatus());
-        assertEquals("/", response.getLocation().toString());
-        verify(resource.homeService).cancelTicket();
+        assertEquals("/abandon", response.getLocation().toString());
+        verifyNoInteractions(resource.homeService);
     }
 
     /**
@@ -698,8 +725,7 @@ class HomeResourceTest {
         resource.state.fidelity.earnTotal = earnTotal;
         when(resource.state.ticket.getTotalFormatted()).thenReturn("12,00");
         when(resource.state.ticket.getTotalAmount()).thenReturn(new BigDecimal("12.00"));
-        TemplateInstance ticketView = mock(TemplateInstance.class);
-        when(resource.ticket.data("state", resource.state)).thenReturn(ticketView);
+        TemplateInstance ticketView = stubChain(resource.ticket, resource.state);
         when(ticketView.render()).thenReturn("<html>");
         return resource;
     }

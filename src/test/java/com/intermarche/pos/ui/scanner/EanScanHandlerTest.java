@@ -96,6 +96,15 @@ class EanScanHandlerTest {
     private PosState newState(TicketState ticket) {
         PosState state = mock(PosState.class);
         state.ticket = ticket;
+        // Registering an article ALWAYS reads the line back: the eligible tenders are
+        // snapshotted on it ({@code LC-09-01-11} to {@code -18}), so the list is no
+        // longer optional the way it was when only a gift card or a discount ban
+        // reached into it. A mocked ticket starts with a real, empty list, and a test
+        // that asserts on the line seeds it with one.
+        if (ticket.items == null) {
+            ticket.items = new java.util.ArrayList<>(
+                    java.util.List.of(new TicketState.TicketItem()));
+        }
         return state;
     }
 
@@ -500,5 +509,50 @@ class EanScanHandlerTest {
             newHandler().handle(ctx);
         }
         assertTrue(added.discountForbidden);
+    }
+
+    /**
+     * A plain EAN names no lot, so an article under lot recall has its recalled lots
+     * listed and the line is rung all the same: the cashier reads the lot printed on
+     * the pack ({@code LC-02-03-13}).
+     */
+    @Test
+    void aScannedEanListsTheRecalledLots() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L123;L456");
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setNotice("PRODUIT EN RAPPEL - LOTS : L123, L456");
+    }
+
+    /**
+     * An article under no lot recall says nothing — the arm that keeps the message off
+     * every ordinary sale.
+     */
+    @Test
+    void aScannedEanWithoutALotRecallSaysNothing() {
+        TicketState ticket = mock(TicketState.class);
+        TicketState.TicketItem added = new TicketState.TicketItem();
+        ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        verify(ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
     }
 }

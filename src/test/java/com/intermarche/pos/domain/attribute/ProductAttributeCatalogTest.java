@@ -13,21 +13,41 @@ import org.junit.jupiter.api.Test;
 class ProductAttributeCatalogTest {
 
     /**
-     * The catalog declares the seven well-known behavioural attributes, in order,
-     * every one a BOOL defaulting to false.
+     * The catalog declares the eleven well-known behavioural attributes, in order —
+     * every one a BOOL defaulting to false, except the recalled lots, which carry lot
+     * numbers and default to nothing.
      */
     @Test
-    void catalogDeclaresSevenWellKnownBooleanAttributes() {
-        Assertions.assertEquals(8, ProductAttributeCatalog.CATALOG.size());
+    void catalogDeclaresElevenWellKnownAttributes() {
+        Assertions.assertEquals(11, ProductAttributeCatalog.CATALOG.size());
         Assertions.assertEquals(ProductAttributeCatalog.DISCOUNT_FORBIDDEN,
                 ProductAttributeCatalog.CATALOG.get(0).code());
         Assertions.assertEquals(ProductAttributeCatalog.VAT_EXEMPT,
                 ProductAttributeCatalog.CATALOG.get(1).code());
         Assertions.assertEquals(ProductAttributeCatalog.RECALL,
                 ProductAttributeCatalog.CATALOG.get(2).code());
+        // The recalled lots sit right after the blanket recall they refine
+        // (LC-02-03-12/13).
+        Assertions.assertEquals(ProductAttributeCatalog.RECALL_LOTS,
+                ProductAttributeCatalog.CATALOG.get(3).code());
+        // The three restricted-tender eligibilities sit together, right after the
+        // meal voucher they generalize (LC-09-01-11 to -18).
+        Assertions.assertEquals(ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE,
+                ProductAttributeCatalog.CATALOG.get(4).code());
+        Assertions.assertEquals(ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE,
+                ProductAttributeCatalog.CATALOG.get(5).code());
+        Assertions.assertEquals(ProductAttributeCatalog.SOCIAL_CARD_ELIGIBLE,
+                ProductAttributeCatalog.CATALOG.get(6).code());
         for (ProductAttributeDef def : ProductAttributeCatalog.CATALOG) {
-            Assertions.assertEquals(ProductAttributeType.BOOL, def.type());
-            Assertions.assertEquals("false", def.defaultValue());
+            if (ProductAttributeCatalog.RECALL_LOTS.equals(def.code())) {
+                // The only non-boolean of the catalog: a recall names lot NUMBERS, and
+                // a flag could not carry them.
+                Assertions.assertEquals(ProductAttributeType.TEXT, def.type());
+                Assertions.assertEquals("", def.defaultValue());
+            } else {
+                Assertions.assertEquals(ProductAttributeType.BOOL, def.type());
+                Assertions.assertEquals("false", def.defaultValue());
+            }
         }
     }
 

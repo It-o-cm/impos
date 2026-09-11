@@ -32,6 +32,12 @@
             <div class="receipt-item {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
                 <div class="item-details">
                     {item.html.raw}
+                    {#if item.toCollect}
+                    <!-- LC-02-08-04 : l'indicateur. Sur la ligne elle-même et non dans
+                         une colonne à part : ce que l'opérateur cherche du regard,
+                         c'est « laquelle de ces lignes », pas « combien ». -->
+                    <span class="to-collect-badge">À ENLEVER</span>
+                    {/if}
                     {#if showEan && item.ean}
                     <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
                     {/if}
@@ -56,6 +62,24 @@
             </div>
             <span class="price">{state.ticket.globalDiscountAppliedFormatted} €</span>
         </div>
+    {/if}
+
+    {!
+     ! LC-09-01-12/14/16/18 : l'assiette éligible de chaque règlement restreint,
+     ! affichée en permanence jusqu'au paiement. Elle vit DANS le fragment polé,
+     ! donc elle est recalculée à chaque enregistrement d'article sans que la page
+     ! ait à être rechargée. Un règlement dont aucune ligne n'est éligible ne
+     ! s'affiche pas : un zéro permanent apprend à ne plus lire la zone.
+    !}
+    {#if restrictedTenders && !restrictedTenders.isEmpty()}
+    <div class="tender-bases">
+        {#for tender in restrictedTenders}
+        <div class="tender-base">
+            <span class="tender-label">{tender.label}</span>
+            <span class="tender-amount">{tender.amount} €</span>
+        </div>
+        {/for}
+    </div>
     {/if}
 
     <!-- Navigation -->

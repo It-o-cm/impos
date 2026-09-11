@@ -56,6 +56,14 @@ class EndorsementResourceTest {
         resource.state = mock(PosState.class);
         resource.state.endorsement = new EndorsementState();
         resource.state.ticket = new TicketState();
+        // LC-04-04-07/09: approving a ticket abandon undoes the settlements already
+        // taken, so the approval path reads them. An empty settlement state is the
+        // ordinary case — nothing was paid yet — and keeps that read from hitting a
+        // null.
+        resource.state.payment = new com.intermarche.pos.ui.payment.PaymentState();
+        // The same rule needs the settlement service itself: with entries present the
+        // approval undoes them before the ticket goes.
+        resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
         resource.endorsementService = mock(EndorsementService.class);
         resource.ticketService = mock(TicketService.class);
         resource.refundService = mock(RefundService.class);

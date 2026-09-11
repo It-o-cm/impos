@@ -12,12 +12,21 @@ import com.intermarche.pos.ui.PosState;
  * {@code handled} is already true, recognizes its own family of codes,
  * acts, and sets {@code handled} — first recognizer wins, the rest never
  * run. Current order: badge (0), then fidelity / deposit voucher / 2x
- * scale label (all at 1 — the tie is safe ONLY because their recognition
- * domains are disjoint: a regex, a 298 prefix, a 2x EAN-13; a new handler
- * at a shared priority must keep that disjointness), then payment voucher
- * and catalog EAN (2), and the unknown-code fallback (100) which is the
- * only handler allowed to answer "I don't know". Handlers missing a
- * {@code @Priority} default to 100 in the assembler.
+ * scale label / GS1 (all at 1 — the tie is safe ONLY because their
+ * recognition domains are disjoint: a regex, a 298 prefix, a 2x EAN-13,
+ * and a payload carrying a GS1 marker; a new handler at a shared priority
+ * must keep that disjointness), then payment voucher and catalog EAN (2),
+ * and the unknown-code fallback (100) which is the only handler allowed to
+ * answer "I don't know". Handlers missing a {@code @Priority} default to
+ * 100 in the assembler.
+ * <p>
+ * THE GS1 HANDLER IS THE ONE EXCEPTION to "first recognizer wins", and it
+ * is deliberate. A GS1 Element String has no syntax of its own: written
+ * bare it is a run of digits, indistinguishable from a long numeric card
+ * or badge. So it claims a MARKED payload (parentheses, symbology
+ * identifier, FNC1 separator, Digital Link address) outright, and an
+ * unmarked one only once it has found the article — otherwise it leaves
+ * {@code handled} false and the code goes on down the chain untouched.
  * <p>
  * NO PLU HANDLER, deliberately: a PLU is not a barcode. It is the four- or
  * five-digit number printed on a produce sticker or a shelf card, and the

@@ -55,6 +55,18 @@
         .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 80px; }
         .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: var(--fs-amount); display: flex; align-items: center; gap: 8px; }
         .receipt-item.negative .price { color: var(--danger); }
+        /* LC-02-08-04 : la pastille « à enlever ». Elle prend la couleur des
+           avertissements et non celle des erreurs — l'article n'a rien d'anormal,
+           il sort par une autre porte. */
+        .to-collect-badge { display: inline-block; margin-left: 8px; padding: 1px 6px; border-radius: 3px;
+                            background: var(--warning); color: #000; font-size: var(--fs-row-sub); font-weight: bold; }
+        /* LC-09-01-12/14/16/18 : les assiettes éligibles, au pied de la zone ticket
+           et au-dessus de la pagination — c'est une propriété du panier entier, pas
+           d'une page de lignes. */
+        .tender-bases { border-top: 1px solid var(--border-strong); padding: 6px 10px 2px; }
+        .tender-base { display: flex; justify-content: space-between; font-size: var(--fs-row-sub); }
+        .tender-base .tender-label { color: var(--text-muted); }
+        .tender-base .tender-amount { color: var(--accent); font-weight: bold; }
 
         /* Navigation Ticket */
         .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: auto; flex-shrink: 0; }
@@ -161,6 +173,14 @@
                     <!-- VENTE : les gestes d'une vente en cours, et l'encaissement. -->
                     <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
                     <a href="/action/price-mod/quantity" class="btn btn-muted">QUANTITÉ</a>
+                    <!-- LC-02-08-01 : une seule touche pour les deux gestes. Une ligne
+                         sélectionnée, elle marque cette ligne ; rien de sélectionné,
+                         elle arme l'article suivant — et elle le dit, sinon
+                         l'opérateur ne saurait pas dans quel état il vient de mettre
+                         la caisse. -->
+                    <a href="/action/collect"
+                       class="btn {#if state.collectArmed}btn-warning{#else}btn-muted{/if}"
+                       {#if state.collectArmed}style="color:black;"{/if}>{#if state.collectArmed}À ENLEVER : ARMÉ{#else}À ENLEVER{/if}</a>
                     <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS &amp; LÉGUMES</a>
                     <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
                     <a href="/search" class="btn btn-muted">RECHERCHE</a>
@@ -169,6 +189,10 @@
                          menu pour un seul geste. Elle ouvre la modale sur la remise,
                          et les trois modes s'y échangent. -->
                     <a href="/action/price-mod/remise" class="btn btn-muted">REMISE / PRIX</a>
+                    <!-- LC-02-13-12 : répéter le dernier article. Elle vit à côté de
+                         QUANTITÉ parce que c'est le même besoin — dire « encore un »
+                         sans rescanner. -->
+                    <a href="/action/repeat" class="btn btn-muted">RÉPÉTER ARTICLE</a>
                     <!-- Déconnexion en bas À GAUCHE : la colonne de droite de la
                          dernière rangée est celle d'ENCAISSER, et on ne met pas une
                          sortie de session sous le doigt qui vise le paiement. -->
@@ -190,7 +214,7 @@
                     {#else}
                         <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
                     {/if}
-                    <a href="/action/cancelTicket" class="btn btn-danger">ANNULER TICKET</a>
+                    <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
                     <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
                     <!-- Les quatre touches DERNIER agissent sur le meme objet — la
                          derniere vente cloturee — et obeissent donc a la meme regle
@@ -217,6 +241,8 @@
                 {#else if state.menu.key == 'caisse'}
                     <!-- CAISSE : l'argent du tiroir et la session. -->
                     <a href="/cash-movement" class="btn btn-success">MOUVEMENT</a>
+                    <a href="/withdrawal" class="btn btn-success">PRÉLÈVEMENT</a>
+                    <a href="/transfer" class="btn btn-success">TRANSFERT RÈGLEMENT</a>
                     <a href="/session" class="btn btn-success">SESSION CAISSE</a>
                     <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
                     <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
@@ -258,6 +284,35 @@
                 <a href="/action/age-check/refuse" class="btn btn-danger" style="min-width:150px; text-align:center;">REFUSER</a>
                 <a href="/action/age-check/confirm" class="btn btn-success" style="min-width:150px; text-align:center;">CLIENT MAJEUR</a>
             </div>
+        </div>
+    </div>
+    {/if}
+    {!
+     ! LC-02-03-01/03 : l'invite de saisie. Même forme que le contrôle d'âge — une
+     ! modale rendue par le serveur qui gèle la vente — parce que c'est la même
+     ! situation : l'ajout est en attente d'une décision que seul l'opérateur peut
+     ! prendre. Elle sert le prix requis ET la quantité décimale, en affichant dans
+     ! ce second cas le prix à l'unité de mesure du référentiel.
+    !}
+    {#if state.entryPrompt.active}
+    <div class="price-modal active" id="entryPromptModal">
+        <div class="price-panel">
+            <div class="price-title">{state.entryPrompt.title}</div>
+            <div style="text-align:center; font-weight:bold; margin:8px 0;">{state.entryPrompt.label}</div>
+            {#if !state.entryPrompt.priceKind && state.entryPrompt.unitPriceFormatted}
+            <div style="text-align:center; color: var(--text-muted); margin-bottom:10px;">
+                {state.entryPrompt.unitPriceFormatted} € / {state.entryPrompt.unitName}
+            </div>
+            {/if}
+            <form action="/action/entry/confirm" method="POST" id="entryForm">
+                <input type="hidden" name="rawValue" id="entryHidden" value="0">
+                <input type="text" id="entryDisplay" class="price-input-display" value="0" readonly>
+                <div class="price-kb-area pos-kb-compact" id="entryKbArea"></div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <a href="/action/entry/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
+                    <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
+                </div>
+            </form>
         </div>
     </div>
     {/if}
@@ -310,6 +365,15 @@
                         <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
                         <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
                     </div>
+                    {#if state.priceModState.type == 'QUANTITY'}
+                    <!-- LC-02-13-04/05/06 : la même valeur, l'autre destination. La
+                         touche QUANTITÉ appliquait la quantité à une ligne DÉJÀ
+                         enregistrée ; l'exigence demande aussi l'ordre inverse. Un
+                         second bouton plutôt qu'une seconde touche de menu : c'est la
+                         même saisie, seule change la ligne qu'elle vise. -->
+                    <button type="submit" formaction="/action/price-mod/arm"
+                            class="btn btn-warning" style="width:100%; margin-top:10px; color:#000;">POUR LE PROCHAIN ARTICLE</button>
+                    {/if}
                 </form>
             </div>
         </div>
@@ -347,6 +411,14 @@
                     window.location.reload();
                     return;
                 }
+                // Same rule for the entry prompt (LC-02-03-01/03): an article
+                // scanned over the bus parks the add on the SERVER, and the
+                // fragment carries no modal — without this reload the cashier
+                // faces a screen that has silently stopped taking scans.
+                if (data.entryPromptActive && !document.getElementById('entryPromptModal')) {
+                    window.location.reload();
+                    return;
+                }
                 // ENCAISSER is server-rendered outside the fragment: reload
                 // once when payability no longer matches the rendered control
                 // (first article scanned over the bus, cart emptied). Absent
@@ -377,8 +449,19 @@
     setInterval(pollServer, 1000);
     pollServer();
 
-    var priceModal = document.querySelector('.price-modal.active');
-    if(priceModal) {
+    /* PosInput wires ONE input at a time, so the two modals are wired by whichever
+       is on screen — they are mutually exclusive by construction: the entry prompt
+       suspends an add, and no price gesture can start while it is up. */
+    if (document.getElementById('entryPromptModal')) {
+        PosInput.setup({
+            displayId: 'entryDisplay',
+            hiddenId: 'entryHidden',
+            containerId: 'entryKbArea',
+            keyboardType: 'price',
+            mode: 'decimal',
+            placeholder: "0"
+        });
+    } else if (document.querySelector('.price-modal.active')) {
         PosInput.setup({
             displayId: 'priceDisplay',
             hiddenId: 'priceHidden',

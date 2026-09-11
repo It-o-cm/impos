@@ -38,6 +38,9 @@ public class EndorsementResource {
     @Inject RefundService refundService;
     @Inject com.intermarche.pos.ui.home.HomeService homeService;
 
+    /** Undoes the settlements an abandoned ticket had already taken (LC-04-04-07/09). */
+    @Inject com.intermarche.pos.ui.payment.PaymentService paymentService;
+
     @Inject PosState state;
 
     /**
@@ -102,6 +105,14 @@ public class EndorsementResource {
      */
     private void executeApprovedAction(String actionToExecute) {
             if (actionToExecute.equals("CANCEL_TICKET")) {
+                // LC-04-04-07/09: a settlement already taken is undone with the
+                // ticket — the lease released, the valuation reverted, the entries
+                // dropped. The abandon screen named them before the operator
+                // confirmed, which is what makes this an accepted proposal and not a
+                // silent loss. With nothing settled it is a no-op.
+                if (!state.payment.payments.isEmpty()) {
+                    paymentService.cancelPayments(state);
+                }
                 ticketService.cancelTicket(state);
             } else if (actionToExecute.startsWith("CANCEL_LINE_")) {
                 String uid = actionToExecute.substring("CANCEL_LINE_".length());

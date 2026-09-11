@@ -36,8 +36,17 @@ public final class ProductAttributeCatalog {
     /** Whether the article is under a product recall and must be refused at the register (BO-02-03-11). */
     public static final String RECALL = "RECALL";
 
+    /** The lot numbers of the article that are under recall (LC-02-03-12/13). */
+    public static final String RECALL_LOTS = "RECALL_LOTS";
+
     /** Whether the article is eligible for meal-voucher tender (BO-02-03-06). */
     public static final String MEAL_VOUCHER_ELIGIBLE = "MEAL_VOUCHER_ELIGIBLE";
+
+    /** Whether the article is eligible for eco-voucher tender (LC-09-01-13/14). */
+    public static final String ECO_VOUCHER_ELIGIBLE = "ECO_VOUCHER_ELIGIBLE";
+
+    /** Whether the article is eligible for the social purchase card (LC-09-01-15/16). */
+    public static final String SOCIAL_CARD_ELIGIBLE = "SOCIAL_CARD_ELIGIBLE";
 
     /** Whether the article is bulky (BO-02-03-25). */
     public static final String BULKY = "BULKY";
@@ -62,8 +71,14 @@ public final class ProductAttributeCatalog {
                     "TVA exonérée", "false"),
             new ProductAttributeDef(RECALL, ProductAttributeType.BOOL,
                     "Article en retrait / rappel", "false"),
+            new ProductAttributeDef(RECALL_LOTS, ProductAttributeType.TEXT,
+                    "Numéros de lot en rappel", ""),
             new ProductAttributeDef(MEAL_VOUCHER_ELIGIBLE, ProductAttributeType.BOOL,
                     "Éligible titre-restaurant", "false"),
+            new ProductAttributeDef(ECO_VOUCHER_ELIGIBLE, ProductAttributeType.BOOL,
+                    "Éligible éco-chèque", "false"),
+            new ProductAttributeDef(SOCIAL_CARD_ELIGIBLE, ProductAttributeType.BOOL,
+                    "Éligible carte achat sociale", "false"),
             new ProductAttributeDef(BULKY, ProductAttributeType.BOOL,
                     "Article encombrant", "false"),
             new ProductAttributeDef(PRICE_TO_ENTER, ProductAttributeType.BOOL,

@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.home;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intermarche.pos.domain.attribute.RestrictedTender;
 import com.intermarche.pos.domain.ticket.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
@@ -13,6 +14,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Home screen service: navigation, line selection, ticket-level actions and
@@ -94,6 +98,158 @@ public class HomeService {
         } else {
             state.selectedTicketIndex = index;
         }
+        state.touch();
+    }
+
+    /**
+     * One restricted tender and the part of the running basket it may pay
+     * ({@code LC-09-01-12}, {@code -14}, {@code -16}, {@code -18}).
+     *
+     * @param label  the tender's wording, as the cashier reads it
+     * @param amount the eligible total, formatted for display
+     */
+    public record RestrictedTenderRow(String label, String amount) {
+    }
+
+    /**
+     * Totals what the running basket may be paid with, tender by tender.
+     *
+     * <p>RECOMPUTED FROM THE LINES AT EVERY CALL, never kept as a field the sale
+     * updates. The screen asks for a total that is "réactualisé à chaque nouvel
+     * enregistrement d'article", and a cart also loses lines, changes quantities and
+     * takes discounts — a running field would have to be corrected in every one of
+     * those places, and the first one forgotten would be a wrong figure on screen with
+     * nothing to show it was wrong.
+     *
+     * <p>A tender no line is eligible for is DROPPED rather than shown at zero: the
+     * indicator exists to tell the cashier what the customer can use, and three
+     * permanent zeroes beside the total teach them to stop reading it.
+     *
+     * @return the tenders with an eligible amount, in administered order, possibly empty
+     */
+    public List<RestrictedTenderRow> restrictedTenderRows() {
+        List<RestrictedTenderRow> rows = new ArrayList<>();
+        for (RestrictedTender tender
+                : RestrictedTender.administered(posSettingsService.restrictedTenders())) {
+            BigDecimal eligible = BigDecimal.ZERO;
+            for (TicketState.TicketItem item : state.ticket.items) {
+                if (tender.covers(item.restrictedTenders)) {
+                    eligible = eligible.add(item.getTotalPrice());
+                }
+            }
+            if (eligible.signum() > 0) {
+                rows.add(new RestrictedTenderRow(tender.label(),
+                        String.format("%.2f", eligible.setScale(2, RoundingMode.HALF_UP))
+                                .replace('.', ',')));
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * Arms a quantity for the NEXT article named ({@code LC-02-13-04/05/06}).
+     *
+     * <p>The quantity key has always applied a quantity to a line already registered.
+     * This is the other order the questionnaire asks for — key the quantity, then
+     * scan, key the EAN or key the internal code — and the three are covered at once
+     * because the three end in the same {@code addItem}.
+     *
+     * @param quantity the quantity to arm
+     */
+    public void armQuantity(BigDecimal quantity) {
+        if (quantity == null || quantity.signum() <= 0) {
+            state.ticket.setError("QUANTITÉ INVALIDE");
+            state.priceModState.clear();
+            state.touch();
+            return;
+        }
+        state.armedQuantity = quantity;
+        state.priceModState.clear();
+        state.ticket.setNotice("QUANTITÉ " + quantity.stripTrailingZeros().toPlainString()
+                + " — SAISISSEZ L'ARTICLE");
+        state.touch();
+    }
+
+    /**
+     * Repeats the registration of the last article ({@code LC-02-13-12/13}).
+     *
+     * <p>IT ADDS ONE TO THE LINE, it does not ring a second one: the register groups
+     * identical articles, and {@code LC-02-13-17} says that where grouping is on the
+     * repetition raises the quantity of the existing line. Adding through the ordinary
+     * path would also re-ask a "prix requis" article for its price, which
+     * {@code LC-02-13-14} forbids — the line already knows what was paid.
+     *
+     * <p>TWO KINDS OF ARTICLE ARE REFUSED, and refused OUT LOUD. A weighed line is a
+     * measurement ({@code LC-02-13-15}) and a price-embedded label names one physical
+     * object ({@code LC-02-13-16}); repeating either would invent a weight nobody put
+     * on the scale.
+     */
+    public void repeatLastItem() {
+        TicketState.TicketItem last = lastEnteredItem();
+        if (last == null) {
+            state.ticket.setError("AUCUN ARTICLE À RÉPÉTER");
+            state.touch();
+            return;
+        }
+        if (last.plu != null && !last.plu.isEmpty()) {
+            state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE EN PESÉE");
+            state.touch();
+            return;
+        }
+        if (last.priceEmbedded) {
+            state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX EMBARQUÉ");
+            state.touch();
+            return;
+        }
+        last.quantity = last.quantity.add(BigDecimal.ONE);
+        ticketService.recalculateTotal(state);
+        state.ticket.setNotice("ARTICLE RÉPÉTÉ : " + last.label);
+        state.touch();
+    }
+
+    /**
+     * Returns the line the last registration created, when it is still on the ticket.
+     *
+     * @return the line, or null when nothing was registered or it has been cancelled
+     */
+    private TicketState.TicketItem lastEnteredItem() {
+        if (state.lastEnteredItemId == null) {
+            return null;
+        }
+        for (TicketState.TicketItem item : state.ticket.items) {
+            if (state.lastEnteredItemId.equals(item.uid)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The "à enlever" key ({@code LC-02-08-01}).
+     *
+     * <p>ONE KEY, TWO GESTURES, told apart by whether a line is EXPLICITLY selected.
+     * With a line selected, it marks or unmarks that line ({@code LC-02-08-03}) —
+     * the article was already rung and the cashier changes their mind about where it
+     * goes. With nothing selected, it arms the next article ({@code LC-02-08-02}) —
+     * the cashier knows before scanning that this one goes to the desk.
+     *
+     * <p>The implicit "last line" fallback the other line gestures use is
+     * deliberately NOT applied here: it would make the key unable to arm anything as
+     * soon as the ticket had a line, which is every moment but the first.
+     */
+    public void toggleCollect() {
+        TicketState.TicketItem selected = state.getSelectedItem();
+        if (selected != null) {
+            selected.toCollect = !selected.toCollect;
+            state.selectedTicketIndex = -1;
+            state.ticket.setNotice(selected.toCollect
+                    ? "ARTICLE MARQUÉ À ENLEVER" : "MARQUAGE À ENLEVER RETIRÉ");
+            state.touch();
+            return;
+        }
+        state.collectArmed = !state.collectArmed;
+        state.ticket.setNotice(state.collectArmed
+                ? "PROCHAIN ARTICLE À ENLEVER" : "MARQUAGE À ENLEVER ANNULÉ");
         state.touch();
     }
 

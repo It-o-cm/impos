@@ -82,6 +82,13 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                     return;
                 }
 
+                // LC-02-03-01/03: an article whose price or whose quantity the
+                // referential does not carry parks the add behind the entry prompt.
+                if (ticketService.suspendForEntry(ctx.state, p, null)) {
+                    ctx.handled = true;
+                    return;
+                }
+
                 Price price = Price.findCurrentPrice(p.id);
                 BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
                 BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
@@ -95,15 +102,24 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 ctx.state.ticket.addItem(ctx.code, null, p.saleLabel().toUpperCase(), finalPrice, BigDecimal.ONE, vatRate);
                 // Only reach into the line when there is a snapshot to carry —
                 // a plain product leaves the freshly added line untouched.
-                if (p.giftCardAmount != null || ProductAttributes.discountForbidden(p)) {
-                    com.intermarche.pos.ui.ticket.TicketState.TicketItem line =
-                            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);
-                    if (p.giftCardAmount != null) {
-                        line.moneyProduct = true;
-                    }
-                    if (ProductAttributes.discountForbidden(p)) {
-                        line.discountForbidden = true;
-                    }
+                com.intermarche.pos.ui.ticket.TicketState.TicketItem line =
+                        ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);
+                if (p.giftCardAmount != null) {
+                    line.moneyProduct = true;
+                }
+                if (ProductAttributes.discountForbidden(p)) {
+                    line.discountForbidden = true;
+                }
+                // LC-09-01-11 to -18: what this article may be paid with, snapshotted
+                // on the line so the eligible bases can be totalled without a lookup.
+                line.restrictedTenders = com.intermarche.pos.domain.attribute
+                        .RestrictedTender.snapshot(p);
+                // LC-02-03-13: a plain EAN names no lot, so the register cannot tell
+                // whether this pack is one of the recalled ones. It lists them and lets
+                // the sale go on — the cashier reads the lot printed on the pack.
+                String recalledLots = ProductAttributes.recalledLotsMessage(p);
+                if (recalledLots != null) {
+                    ctx.state.ticket.setNotice(recalledLots);
                 }
 
                 ctx.handled = true;

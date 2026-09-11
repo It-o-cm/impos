@@ -110,7 +110,14 @@ public class TechnicalEvent extends PanacheEntity {
          * from the sync supervision screen (BO-08-04-13), outside the scheduled
          * cadence. Like the pull, a machine action with no operator badge.
          */
-        ENGINE_FEED_DELIVERY_FORCED
+        ENGINE_FEED_DELIVERY_FORCED,
+        /**
+         * A GS1 code was decoded at the till, and every identifier it carried is
+         * written in {@link #detail} — those the register acted on and those it has
+         * no rule for alike (LC-11-03-02). It is the technical half of that
+         * requirement; the transactional half is carried by the ticket line.
+         */
+        GS1_DECODED
     }
 
     /** The type of the event. */

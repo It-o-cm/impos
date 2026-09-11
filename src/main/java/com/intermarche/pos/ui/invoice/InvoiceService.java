@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.invoice;
 
 import com.intermarche.pos.domain.AccountCustomer;
 import com.intermarche.pos.domain.Address;
+import com.intermarche.pos.domain.ticket.DocumentOutput;
 import com.intermarche.pos.domain.ticket.DocumentType;
 import com.intermarche.pos.domain.ticket.Invoice;
 import com.intermarche.pos.domain.ticket.Ticket;
@@ -66,6 +67,10 @@ public class InvoiceService {
     @Inject
     InvoiceRepository repository;
 
+    /** The A4 printer of the store network ({@code LC-08-04-11}). */
+    @Inject
+    NetworkDocumentPrinter networkPrinter;
+
     /**
      * The store-node outbox: a customer created at the register is declared to the
      * back office through it ({@code LC-08-04-09}), on the same road as tickets and
@@ -127,6 +132,22 @@ public class InvoiceService {
             return;
         }
         state.invoice.ticket = found;
+        // LC-08-04-04/05: the kind of document is resolved here, because the ticket is
+        // what it is drawn over. One eligible kind and there is nothing to ask — the
+        // step is skipped rather than shown with a single button, which is exactly what
+        // -05 requires.
+        state.invoice.documentTypes = eligibleDocumentTypes();
+        if (state.invoice.documentTypes.size() == 1) {
+            state.invoice.documentType = state.invoice.documentTypes.get(0);
+        } else if (!state.invoice.documentTypes.contains(state.invoice.documentType)) {
+            // Either nothing was chosen yet, or the kind chosen before is no longer
+            // offered. Both mean the operator must choose, and neither may leave a kind
+            // behind that the back office has since deactivated.
+            state.invoice.documentType = null;
+            state.invoice.step = InvoiceState.Step.DOCUMENT;
+            state.touch();
+            return;
+        }
         // WHERE THIS LEADS depends on what is already known. Going forward, the
         // customer is still missing and comes next. Coming BACK from the review
         // to correct the ticket, the customer is already named and kept — sending
@@ -136,6 +157,46 @@ public class InvoiceService {
                 ? InvoiceState.Step.CUSTOMER
                 : InvoiceState.Step.PREVIEW;
         state.touch();
+    }
+
+    /**
+     * Names the kind of document to draw and moves on ({@code LC-08-04-04}).
+     *
+     * <p>The kind is checked against the offered list rather than merely parsed: the
+     * page carrying the buttons may have been rendered before the back office changed
+     * the activated kinds, and a document must never be drawn on a kind the store has
+     * turned off.
+     *
+     * @param typeName the enum name of the kind the operator touched
+     */
+    public void chooseDocumentType(String typeName) {
+        state.invoice.error = "";
+        DocumentType chosen = DocumentType.byName(typeName);
+        if (chosen == null || !state.invoice.documentTypes.contains(chosen)) {
+            state.invoice.error = "TYPE DE DOCUMENT INDISPONIBLE";
+            state.touch();
+            return;
+        }
+        state.invoice.documentType = chosen;
+        state.invoice.step = state.invoice.customer == null
+                ? InvoiceState.Step.CUSTOMER
+                : InvoiceState.Step.PREVIEW;
+        state.touch();
+    }
+
+    /**
+     * Returns the kinds of document this ticket may be drawn as ({@code LC-08-04-04}).
+     *
+     * <p>Today the back-office list is the whole of the eligibility: every activated
+     * kind can be drawn over any closed ticket. The day a sale carries a nature of its
+     * own — a deposit, which only a deposit invoice may state — this is where that
+     * narrowing belongs, and {@code LC-08-04-05} already skips the step whenever the
+     * narrowing leaves one kind standing.
+     *
+     * @return the kinds to offer, in administered order, never empty
+     */
+    public List<DocumentType> eligibleDocumentTypes() {
+        return DocumentType.activated(posSettingsService.invoiceDocumentTypes());
     }
 
     /**
@@ -298,7 +359,8 @@ public class InvoiceService {
      *         the screen has no ticket or no customer yet
      */
     public InvoiceDocument preview() {
-        if (state.invoice.ticket == null || state.invoice.customer == null) {
+        if (state.invoice.ticket == null || state.invoice.customer == null
+                || state.invoice.documentType == null) {
             return null;
         }
         Ticket ticket = repository.findTicket(state.invoice.ticket.id);
@@ -322,7 +384,8 @@ public class InvoiceService {
     @Transactional
     public Long issue() {
         state.invoice.error = "";
-        if (state.invoice.ticket == null || state.invoice.customer == null) {
+        if (state.invoice.ticket == null || state.invoice.customer == null
+                || state.invoice.documentType == null) {
             state.invoice.error = "TICKET OU CLIENT MANQUANT";
             state.touch();
             return null;
@@ -332,12 +395,17 @@ public class InvoiceService {
             state.touch();
             return null;
         }
+        DocumentType type = state.invoice.documentType;
         Ticket ticket = repository.findTicket(state.invoice.ticket.id);
-        Invoice existing = repository.findInvoiceOfTicket(ticket.ticketNumber);
+        // The duplicate rule is PER KIND ({@code LC-08-04-17}). One sale carries one
+        // document of each kind: asking for the invoice of a ticket that already has a
+        // delivery note is a first original, not a duplicate, and a lookup blind to the
+        // kind would reprint the wrong paper.
+        Invoice existing = repository.findInvoiceOfTicket(ticket.ticketNumber, type);
         Invoice document = existing != null
                 ? existing
                 : build(ticket, repository.findCustomer(state.invoice.customer.id),
-                        ticketNumberService.nextDocumentNumber(DocumentType.FACTURE));
+                        ticketNumberService.nextDocumentNumber(type));
         print(document, ticket);
         document.printCount++;
         repository.save(document);
@@ -386,6 +454,21 @@ public class InvoiceService {
     }
 
     /**
+     * Goes back to naming the KIND OF DOCUMENT, keeping the ticket and the customer.
+     *
+     * <p>The kind being replaced is dropped, so the step the operator lands on shows a
+     * choice rather than an answer. The offered list is left as the ticket step
+     * resolved it: coming back to change one's mind is not a reason to re-run an
+     * eligibility the ticket has not moved.
+     */
+    public void backToDocumentStep() {
+        state.invoice.error = "";
+        state.invoice.documentType = null;
+        state.invoice.step = InvoiceState.Step.DOCUMENT;
+        state.touch();
+    }
+
+    /**
      * Goes back to naming the CUSTOMER, keeping the ticket already chosen.
      *
      * <p>The customer being replaced is dropped, and so is the half-finished
@@ -422,9 +505,29 @@ public class InvoiceService {
      * @return the document, transient
      */
     private Invoice build(Ticket ticket, AccountCustomer customer, String number) {
+        return build(ticket, customer, number, state.invoice.documentType);
+    }
+
+    /**
+     * Builds a document of a named kind over a ticket and a customer, without writing
+     * it.
+     *
+     * <p>The totals come from the per-rate ventilation and not from the ticket's own
+     * stored totals, so that what the document states and what its VAT table states
+     * cannot disagree — {@code BO-03-03-04} requires the second to match the receipt,
+     * and deriving both from the same ventilation is the only way to guarantee it.
+     *
+     * @param ticket   the closed ticket the document states
+     * @param customer the customer it is addressed to
+     * @param number   its number, empty on a document being previewed
+     * @param type     the kind of document to draw
+     * @return the document, transient
+     */
+    private Invoice build(Ticket ticket, AccountCustomer customer, String number,
+            DocumentType type) {
         Invoice document = new Invoice();
         document.documentNumber = number;
-        document.documentType = DocumentType.FACTURE;
+        document.documentType = type;
         document.terminalId = ticketNumberService.getTerminalId();
         document.issueDate = LocalDateTime.now();
         document.ticket = ticket;
@@ -444,19 +547,172 @@ public class InvoiceService {
     }
 
     /**
-     * Sends the document to the receipt roll.
+     * Emits, at the end of a sale, the document the settlement calls for
+     * ({@code LC-08-04-16}).
      *
-     * <p>The roll, and not the document station: the slip path is the next lot, and a
-     * document that comes out somewhere is worth more than one that waits for the
+     * <p>THE SETTLEMENT NAMES THE DOCUMENT, AND THE SETTLEMENT NAMES THE CUSTOMER. A
+     * document is addressed to somebody; a sale paid in cash names nobody, so there is
+     * nothing to emit however the parameter reads. Customer credit is the one method
+     * that carries an account, which is why the questionnaire's own example is exactly
+     * that one.
+     *
+     * <p>It NEVER stops the closing. The sale is over, the customer is leaving, and the
+     * screen has already gone back to the next one: a document that cannot be built is
+     * skipped rather than turned into a refusal, and one whose printer needs a hand is
+     * printed whole on the roll instead of holding the lane between two sheets — the
+     * sheet-by-sheet gesture of {@code LC-08-04-12} belongs to the operator who ASKED
+     * for a document, not to a closing that produced one on its own.
+     *
+     * @param ticketId the database id of the ticket just closed
+     * @return the kind emitted, or null when the settlement called for none
+     */
+    @Transactional
+    public DocumentType autoPrint(Long ticketId) {
+        java.util.Map<String, DocumentType> automatic =
+                DocumentType.automatic(posSettingsService.invoiceAutoPrint());
+        if (automatic.isEmpty() || ticketId == null) {
+            return null;
+        }
+        Ticket ticket = repository.findTicket(ticketId);
+        if (ticket == null) {
+            return null;
+        }
+        for (com.intermarche.pos.domain.ticket.TicketPayment payment : ticket.payments) {
+            DocumentType kind = automatic.get(payment.getMethodKey());
+            if (kind == null) {
+                continue;
+            }
+            AccountCustomer customer = customerOf(payment);
+            if (customer == null) {
+                continue;
+            }
+            // One sale, one document of each kind: a ticket that already carries this
+            // kind — reissued by hand a moment earlier — is not doubled.
+            if (repository.findInvoiceOfTicket(ticket.ticketNumber, kind) != null) {
+                return null;
+            }
+            Invoice document = build(ticket, customer,
+                    ticketNumberService.nextDocumentNumber(kind), kind);
+            InvoiceDocument laid =
+                    InvoiceDocument.of(document, ticket, posSettingsService.showEan());
+            List<String> lines = InvoiceRenderer.render(laid);
+            if (outputFor(kind) != DocumentOutput.A4 || !networkPrinter.print(laid, lines)) {
+                hardwareService.printReceipt(String.join("\n", lines) + "\n");
+                hardwareService.cutPaper();
+            }
+            document.printCount++;
+            repository.save(document);
+            LOG.infof("Document %s émis automatiquement sur le règlement %s du ticket %s",
+                    document.documentNumber, payment.getMethodKey(), ticket.ticketNumber);
+            return kind;
+        }
+        return null;
+    }
+
+    /**
+     * Names the account customer a settlement designates, when it designates one.
+     *
+     * @param payment the settlement of the closed sale
+     * @return the customer in account, or null when the method names none
+     */
+    private AccountCustomer customerOf(com.intermarche.pos.domain.ticket.TicketPayment payment) {
+        if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+            return repository.findCustomerByNumber(credit.accountNumber);
+        }
+        return null;
+    }
+
+    /**
+     * Returns the printer a kind of document comes out of ({@code LC-08-04-11}).
+     *
+     * <p>Unadministered, it is the roll: that is the one printer a register always has,
+     * and a document that comes out somewhere is worth more than one that waits for the
      * right paper path.
+     *
+     * @param type the kind of document
+     * @return its printer, never null
+     */
+    public DocumentOutput outputFor(DocumentType type) {
+        return DocumentOutput.administered(posSettingsService.invoiceDocumentOutput())
+                .getOrDefault(type, DocumentOutput.TICKET);
+    }
+
+    /**
+     * Sends the document to the printer its kind is administered to
+     * ({@code LC-08-04-11}).
+     *
+     * <p>The roll prints it whole and unattended. The SLIP STATION does not: it takes
+     * one sheet at a time from a hand, so nothing is printed here — the document is cut
+     * into sheets, the operator is told how many there are and asked for the first
+     * ({@code LC-08-04-12/13}). The network printer prints an A4 page somewhere else in
+     * the store, which is again nothing the operator has to do.
      *
      * @param document the document to print
      * @param ticket   the ticket it states
      */
     private void print(Invoice document, Ticket ticket) {
         InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan());
-        hardwareService.printReceipt(String.join("\n", InvoiceRenderer.render(laid)) + "\n");
+        List<String> lines = InvoiceRenderer.render(laid);
+        DocumentOutput target = outputFor(document.documentType);
+        if (target.needsInsertion()) {
+            state.invoice.slipPages =
+                    InvoiceRenderer.paginate(lines, posSettingsService.invoiceSlipLines());
+            state.invoice.slipPrinted = 0;
+            state.invoice.step = InvoiceState.Step.INSERT;
+            return;
+        }
+        // A network printer that is not configured, is down or refuses the page leaves
+        // the operator with nothing in their hand. The roll then prints the degraded
+        // rendering and the operator is told where the document actually came out —
+        // silently falling back would send them looking at an office printer for a page
+        // that is on the till beside them.
+        if (target == DocumentOutput.A4 && networkPrinter.print(laid, lines)) {
+            return;
+        }
+        if (target == DocumentOutput.A4) {
+            state.invoice.error = "IMPRIMANTE RESEAU INJOIGNABLE - DOCUMENT IMPRIME EN CAISSE";
+        }
+        hardwareService.printReceipt(String.join("\n", lines) + "\n");
         hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints the sheet the operator has just fed the slip station
+     * ({@code LC-08-04-12}).
+     *
+     * <p>Called once per sheet, it advances by exactly one and stops on its own when
+     * the last has come out — a station that is asked for a sheet it does not have
+     * would leave the screen waiting on a gesture that can no longer be made.
+     *
+     * @return true when sheets are still to be fed, false when the document is complete
+     */
+    public boolean printNextSlip() {
+        state.invoice.error = "";
+        if (state.invoice.slipPrinted >= state.invoice.slipPages.size()) {
+            finishSlips();
+            return false;
+        }
+        List<String> sheet = state.invoice.slipPages.get(state.invoice.slipPrinted);
+        hardwareService.printReceipt(String.join("\n", sheet) + "\n");
+        hardwareService.cutPaper();
+        state.invoice.slipPrinted++;
+        if (state.invoice.slipPrinted >= state.invoice.slipPages.size()) {
+            finishSlips();
+            return false;
+        }
+        state.touch();
+        return true;
+    }
+
+    /**
+     * Closes the slip sequence: the document is out, the screen goes back to looking
+     * at it.
+     */
+    private void finishSlips() {
+        state.invoice.slipPages = List.of();
+        state.invoice.slipPrinted = 0;
+        state.invoice.step = InvoiceState.Step.PREVIEW;
+        state.touch();
     }
 
     /**

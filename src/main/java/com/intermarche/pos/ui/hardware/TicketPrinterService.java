@@ -190,7 +190,15 @@ public class TicketPrinterService {
             // Quantity and unit price
             String qtyStr = DF.format(line.quantity);
             String unitPriceStr = DF.format(line.unitPrice);
-            sb.append(String.format("%-20s %5s x %6s%n", label, qtyStr, unitPriceStr));
+            // LC-02-03-02 and LC-02-13-18: quantity, unit price and line total on the
+            // receipt as on the two screens. An article sold by a unit of measure
+            // states that unit — "2,360 m x 4,99" — because the figure alone does not
+            // say what was bought.
+            String unit = line.unitName == null || line.unitName.isBlank()
+                    ? "" : line.unitName.trim();
+            sb.append(unit.isEmpty()
+                    ? String.format("%-20s %5s x %6s%n", label, qtyStr, unitPriceStr)
+                    : String.format("%-20s %5s %s x %6s%n", label, qtyStr, unit, unitPriceStr));
             if (posSettingsService.showEan() && line.ean != null && !line.ean.isEmpty()) {
                 // LC-02-04-04: the EAN printed under the label when configured.
                 sb.append("  ").append(line.ean).append("\n");
@@ -738,6 +746,240 @@ public class TicketPrinterService {
             printed++;
         }
         return printed;
+    }
+
+    /**
+     * Prints the withdrawal ticket of one tender taken out of the drawer
+     * (LC-12-03-07).
+     *
+     * <p>It states what left and in what shape. For CASH that means the denominations
+     * — how many of each, for how much — because what a manager checks against the
+     * bag is the count and not only the total; for any other tender it means the
+     * transactions that brought it in, each with its number and its amount, because
+     * that is what a bundle of cheques is checked against.
+     *
+     * @param methodLabel   the tender's wording, as administered
+     * @param amount        the amount withdrawn
+     * @param lines         the detail lines to print, already formatted as label and value
+     * @param operator      the operator's name, blank when unknown
+     * @param terminalId    the register the withdrawal was made on
+     */
+    public void printWithdrawalTicket(String methodLabel, BigDecimal amount,
+            java.util.List<String[]> lines, String operator, String terminalId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("PRELEVEMENT", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(String.format("Moyen  : %s%n", methodLabel));
+        if (terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", terminalId));
+        }
+        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        if (operator != null && !operator.isBlank()) {
+            sb.append(String.format("Operateur : %s%n", operator));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (lines != null) {
+            for (String[] line : lines) {
+                sb.append(formatLine(line[0], line[1]));
+            }
+            if (!lines.isEmpty()) {
+                sb.append("-".repeat(WIDTH)).append("\n");
+            }
+        }
+        sb.append(formatLine("TOTAL PRELEVE", DF.format(amount) + " E"));
+        sb.append("\n");
+        sb.append("Signature: ..............................\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints the settlement-transfer ticket (LC-12-10-05).
+     *
+     * <p>Three facts and nothing else: where the amount was taken from, where it was
+     * put, and how much. A transfer repairs a mis-keying and its paper exists so the
+     * repair can be checked — it is not a receipt and states no sale.
+     *
+     * @param fromLabel  the source tender's wording
+     * @param toLabel    the destination tender's wording
+     * @param amount     the amount transferred
+     * @param operator   the operator's name, blank when unknown
+     * @param terminalId the register the transfer was made on
+     */
+    public void printTransferTicket(String fromLabel, String toLabel, BigDecimal amount,
+            String operator, String terminalId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("TRANSFERT REGLEMENT", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", terminalId));
+        }
+        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        if (operator != null && !operator.isBlank()) {
+            sb.append(String.format("Operateur : %s%n", operator));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("DE", fromLabel));
+        sb.append(formatLine("VERS", toLabel));
+        sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
+        sb.append("\n");
+        sb.append("Signature: ..............................\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+    }
+
+    /**
+     * Prints the abandon ticket of a sale that was given up (LC-04-04-11/12).
+     *
+     * <p>IT IS PRINTED BEFORE THE DRAFT IS CANCELLED, and it has to be: what it states
+     * is a sale that is about to stop existing, and a paper produced after the
+     * cancellation would have nothing left to read. It is not a receipt — no total due,
+     * no VAT table, no barcode — and it counts as no print of the ticket.
+     *
+     * <p>Its purpose is the counter-signature of a gesture that destroys a sale: the
+     * reason the operator gave, the operator's own name, and — when the shop asks for
+     * it — the articles that were in the basket, so a manager reading the drawer at
+     * closing time can see what was given up and not merely how much.
+     *
+     * @param ticketId   the database id of the draft being abandoned
+     * @param reason     the reason the operator gave, blank when the shop asks for none
+     * @param withDetail whether the articles are listed
+     * @param operator   the operator's name, blank when unknown
+     * @return true when a ticket was printed
+     */
+    @Transactional
+    public boolean printAbandonTicket(Long ticketId, String reason, boolean withDetail,
+            String operator) {
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            return false;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        if (ticket.store != null) {
+            sb.append(center(ticket.store.name, WIDTH)).append("\n");
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("TICKET ABANDONNE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+        if (ticket.terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+        }
+        sb.append(String.format("Date   : %s%n",
+                java.time.LocalDateTime.now()
+                        .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        if (operator != null && !operator.isBlank()) {
+            sb.append(String.format("Operateur : %s%n", operator));
+        }
+        // LC-04-04-11: the reason, printed on the paper and not only journalled.
+        if (reason != null && !reason.isBlank()) {
+            sb.append(String.format("Motif  : %s%n", reason));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        BigDecimal abandoned = BigDecimal.ZERO;
+        for (TicketLine line : ticket.lines) {
+            if (line.cancelled) {
+                continue;
+            }
+            abandoned = abandoned.add(line.totalPrice == null ? BigDecimal.ZERO : line.totalPrice);
+            if (withDetail) {
+                String label = line.productLabel.length() > 24
+                        ? line.productLabel.substring(0, 24) : line.productLabel;
+                sb.append(formatLine(DF.format(line.quantity) + " " + label,
+                        DF.format(line.totalPrice) + " E"));
+            }
+        }
+        if (withDetail) {
+            sb.append("-".repeat(WIDTH)).append("\n");
+        }
+        sb.append(formatLine("MONTANT ABANDONNE", DF.format(abandoned) + " E"));
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("AUCUN ENCAISSEMENT", WIDTH)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        return true;
+    }
+
+    /**
+     * Prints the goods-collection voucher of a closed ticket (LC-02-08-05): the
+     * articles marked "à enlever", and the blanks the desk and the customer fill in
+     * by hand when the goods change hands.
+     *
+     * <p>IT IS A HANDOVER SLIP, NOT A RECEIPT. The sale is over and paid; what this
+     * paper carries is what has NOT yet been delivered. Hence the two columns nobody
+     * prints — quantity actually collected, quantity left to collect — and the date
+     * and the two signatures: a customer may come back twice for a garden shed, and
+     * the only trace of the first trip is on this sheet. It counts as no print of the
+     * ticket and bumps no duplicata counter, exactly like the exchange voucher.
+     *
+     * <p>Nothing is printed when the sale marked no article, which is the ordinary
+     * case: a lane must not spit out an empty slip after every customer.
+     *
+     * @param ticketId the database id of the closed ticket
+     * @return the number of articles the voucher names, zero when none was marked
+     */
+    @Transactional
+    public int printCollectionVoucher(Long ticketId) {
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            return 0;
+        }
+        java.util.List<TicketLine> marked = new java.util.ArrayList<>();
+        for (TicketLine line : ticket.lines) {
+            if (!line.cancelled && line.toCollect) {
+                marked.add(line);
+            }
+        }
+        if (marked.isEmpty()) {
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        if (ticket.store != null) {
+            sb.append(center(ticket.store.name, WIDTH)).append("\n");
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("ARTICLES A ENLEVER", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+        if (ticket.terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+        }
+        if (ticket.creationDate != null) {
+            sb.append(String.format("Date   : %s%n",
+                    ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("ARTICLE", "A RETIRER")).append("\n");
+        for (TicketLine line : marked) {
+            String label = line.productLabel.length() > 30
+                    ? line.productLabel.substring(0, 30) : line.productLabel;
+            sb.append(formatLine(label, DF.format(line.quantity)));
+            if (line.ean != null && !line.ean.isEmpty()) {
+                sb.append("  ").append(line.ean).append("\n");
+            }
+            // The two blanks the desk fills in. They are per ARTICLE and not per
+            // voucher: a customer who collects half a pallet leaves with the same
+            // sheet, and the next trip is written on the same line.
+            sb.append("  Retire : ............  Reste : ............\n");
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append("Date du retrait : ......../......../........\n\n");
+        sb.append("Vendeur  : ..............................\n");
+        sb.append("Signature: ..............................\n\n");
+        sb.append("Client   : ..............................\n");
+        sb.append("Signature: ..............................\n");
+        sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        return marked.size();
     }
 
     /**

@@ -93,6 +93,13 @@ class WeightedEanScanHandlerTest {
         ticket.scannedStickerCodes = new HashSet<>();
         PosState state = mock(PosState.class);
         state.ticket = ticket;
+        // Registering a weighed line ALWAYS reads it back now: the eligible tenders are
+        // snapshotted on it ({@code LC-09-01-11} to {@code -18}). A mocked ticket starts
+        // with a real, empty list; a test that asserts on the line seeds its own.
+        if (ticket.items == null) {
+            ticket.items = new java.util.ArrayList<>(
+                    java.util.List.of(new TicketState.TicketItem()));
+        }
         return state;
     }
 
@@ -445,5 +452,55 @@ class WeightedEanScanHandlerTest {
             newHandler().handle(ctx);
         }
         assertTrue(ticket.items.get(0).discountForbidden);
+    }
+
+    /**
+     * An in-store weighed label names no lot, so an article under lot recall has its
+     * recalled lots listed while the line is rung ({@code LC-02-03-13}); an article
+     * under no lot recall says nothing.
+     */
+    @Test
+    void aWeighedLabelListsTheRecalledLots() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
+        Product p = newProduct(false);
+        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L123");
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        verify(ticket).setNotice("PRODUIT EN RAPPEL - LOTS : L123");
+    }
+
+    /**
+     * A weighed label of an article under no lot recall says nothing — the arm that
+     * keeps the message off every ordinary weighing.
+     */
+    @Test
+    void aWeighedLabelWithoutALotRecallSaysNothing() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        verify(ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
     }
 }

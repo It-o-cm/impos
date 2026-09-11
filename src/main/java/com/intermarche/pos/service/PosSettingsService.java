@@ -231,6 +231,78 @@ public class PosSettingsService {
                 "Champs du client en compte",
                 "Champs demandés à la création d'un client en caisse, séparés par des points-virgules, une étoile marquant les obligatoires : companyName, contactName, street, postalCode, city, siret, vatNumber, phone, email. Vide : tous les champs, raison sociale obligatoire (LC-08-04-10).",
                 "", null),
+        new Def("invoice.document-types", Type.TEXT, "FACTURE",
+                "Types de document actifs",
+                "Types de document proposés en caisse après la saisie du ticket, séparés par des points-virgules : FACTURE, BON_LIVRAISON. Un seul type actif : l'étape de choix n'est pas affichée. Vide : facture seule (LC-08-04-04/05).",
+                "FACTURE", null),
+        new Def("invoice.document-output", Type.TEXT, "FACTURE",
+                "Imprimante par type de document",
+                "Imprimante de chaque type de document, séparés par des points-virgules, sous la forme TYPE:IMPRIMANTE — imprimantes : TICKET (rouleau de caisse), FACTURETTE (station à insertion), A4 (imprimante réseau). Exemple : FACTURE:A4;BON_LIVRAISON:TICKET. Un type non nommé sort sur le rouleau (LC-08-04-11).",
+                "", null),
+        new Def("invoice.slip-lines", Type.INT, "FACTURE",
+                "Lignes par facturette",
+                "Nombre de lignes imprimées sur une facturette avant de demander la feuille suivante. En dessous de 1, la facturette est imprimée d'un seul tenant (LC-08-04-12/13).",
+                "30", null),
+        new Def("invoice.auto-print", Type.TEXT, "FACTURE",
+                "Document imprimé automatiquement par moyen de règlement",
+                "Document émis automatiquement en fin de transaction selon le règlement, séparés par des points-virgules, sous la forme REGLEMENT:TYPE — exemple CREDIT:FACTURE. Le document n'est émis que si le règlement désigne un client en compte. Vide : aucune émission automatique (LC-08-04-16).",
+                "", null),
+        new Def("drawer.withdrawal-methods", Type.TEXT, "PRÉLÈVEMENT ET TRANSFERT",
+                "Moyens de règlement prélevables manuellement",
+                "Moyens de règlement proposés au prélèvement manuel, séparés par des points-virgules, sous la forme CLÉ:LIBELLÉ — exemple CASH:Espèces;CHEQUE:Chèques. Un moyen prélevé automatiquement n'y figure pas et n'est pas proposé en caisse (LC-12-03-02/03).",
+                "CASH:Espèces;CHEQUE:Chèques;TR:Titres-restaurant;VOUCHER:Bons", null),
+        new Def("drawer.withdrawal-print", Type.BOOL, "PRÉLÈVEMENT ET TRANSFERT",
+                "Impression du ticket de prélèvement",
+                "Un ticket de prélèvement est imprimé après validation, détaillant les dénominations pour les espèces et les transactions pour les autres moyens (LC-12-03-07).",
+                "true", null),
+        new Def("drawer.transfer-methods", Type.TEXT, "PRÉLÈVEMENT ET TRANSFERT",
+                "Moyens de règlement transférables",
+                "Moyens de règlement proposés en source et en destination d'un transfert de règlement, même syntaxe que le prélèvement. Vide : la liste du prélèvement s'applique (LC-12-10-02).",
+                "", null),
+        new Def("drawer.transfer-print", Type.BOOL, "PRÉLÈVEMENT ET TRANSFERT",
+                "Impression du ticket de transfert",
+                "Un ticket « Transfert règlement » est imprimé après validation, indiquant les moyens source et destination et le montant transféré (LC-12-10-05).",
+                "true", null),
+        new Def("abandon.reasons", Type.TEXT, "ABANDON DE TICKET",
+                "Motifs d'abandon",
+                "Motifs proposés au caissier pour abandonner un ticket, séparés par des points-virgules. Le motif choisi est journalisé et imprimé sur le ticket d'abandon. Vide : la saisie du motif n'est pas demandée (LC-04-04-10).",
+                "Erreur de saisie;Client parti sans payer;Article indisponible;Problème de règlement;Ticket de test", null),
+        new Def("abandon.partial-payment", Type.TEXT, "ABANDON DE TICKET",
+                "Abandon avec règlement partiel",
+                "Ce que fait la caisse quand un règlement partiel est déjà enregistré : CONFIRM (l'écran annonce les règlements qui seront annulés et l'opérateur valide) ou BLOCK (l'abandon est refusé, l'opérateur doit annuler le règlement d'abord). Vide ou inconnu : CONFIRM (LC-04-04-06/07/08/09).",
+                "CONFIRM", null),
+        new Def("abandon.print", Type.TEXT, "ABANDON DE TICKET",
+                "Impression du ticket d'abandon",
+                "Quand le ticket d'abandon est imprimé : NEVER (jamais), ALWAYS (systématiquement) ou ON_DEMAND (l'opérateur décide sur l'écran d'abandon). Vide ou inconnu : NEVER (LC-04-04-12).",
+                "NEVER", null),
+        new Def("abandon.print-detail", Type.BOOL, "ABANDON DE TICKET",
+                "Détail des articles sur le ticket d'abandon",
+                "Le ticket d'abandon liste les articles du ticket abandonné. Désactivé : seuls l'entête, le motif et le total abandonné sont imprimés (LC-04-04-12).",
+                "true", null),
+        new Def("tender.restricted", Type.TEXT, "RÈGLEMENTS RESTREINTS",
+                "Règlements restreints affichés en caisse",
+                "Moyens de paiement restreints dont l'assiette éligible est affichée pendant la vente, séparés par des points-virgules, sous la forme CODE:ATTRIBUT:LIBELLÉ — attributs disponibles : MEAL_VOUCHER_ELIGIBLE, ECO_VOUCHER_ELIGIBLE, SOCIAL_CARD_ELIGIBLE. Vide : titre-restaurant, éco-chèque et carte achat sociale (LC-09-01-11 à -18).",
+                "", null),
+        new Def("gs1.expiry-alert", Type.TEXT, "CODES GS1",
+                "Alerte date de péremption article",
+                "Ce que fait la caisse quand un code GS1 porte une date de péremption (AI 17) proche, atteinte ou dépassée : NONE (rien), INFO (message au caissier, l'article est enregistré) ou BLOCK (article refusé). Vide ou inconnu : NONE (LC-11-03-13).",
+                "NONE", null),
+        new Def("gs1.expiry-warn-days", Type.INT, "CODES GS1",
+                "Nombre de jours « date proche »",
+                "Nombre de jours avant la date de péremption à partir duquel elle est considérée comme proche. Zéro : seule une date atteinte ou dépassée déclenche l'alerte (LC-11-03-13).",
+                "0", null),
+        new Def("gs1.coupon-expiry-alert", Type.TEXT, "CODES GS1",
+                "Alerte date d'expiration coupon",
+                "Ce que fait la caisse quand un coupon GS1 porte une date d'expiration (AI 17) atteinte ou dépassée : NONE, INFO ou BLOCK. Vide ou inconnu : NONE (LC-11-03-13).",
+                "BLOCK", null),
+        new Def("gs1.gdti-coupon-types", Type.TEXT, "CODES GS1",
+                "Chèques cadeaux GS1 par émetteur",
+                "Type de règlement associé à un chèque cadeau GS1 (AI 253) selon son code émetteur, séparés par des points-virgules, sous la forme PREFIXE:CODE_TYPE — exemple 9526000:CADEAU. Le préfixe le plus long l'emporte. Vide : aucun chèque cadeau GS1 accepté (LC-11-03-05).",
+                "", null),
+        new Def("gs1.gcn-coupon-type", Type.TEXT, "CODES GS1",
+                "Type de règlement des coupons GS1",
+                "Code du type de règlement associé à un coupon GS1 (AI 255). Vide : aucun coupon GS1 accepté en règlement (LC-11-03-06).",
+                "", null),
         new Def("touch.groups-per-page", Type.INT, "TOUCHES CAISSE",
                 "Nombre de touches groupe par page",
                 "Nombre de touches de groupe d'articles affichees par page sur l'ecran de saisie directe. En dessous de 1 la valeur par defaut s'applique (BO-03-01-06).",
@@ -819,6 +891,150 @@ public class PosSettingsService {
      * @return the administered list, never null
      */
     public String invoiceCustomerFields() { return value("invoice.customer-fields"); }
+
+    /**
+     * The document kinds the back office activated for the registers
+     * (LC-08-04-04), as the raw semicolon list of enum names; the invoice screen
+     * turns it into the list of kinds it offers.
+     *
+     * @return the administered list, never null
+     */
+    public String invoiceDocumentTypes() { return value("invoice.document-types"); }
+
+    /**
+     * The printer each kind of document comes out of (LC-08-04-11), as the raw
+     * semicolon list of {@code TYPE:IMPRIMANTE} pairs; the invoice flow turns it
+     * into the target of the kind being issued.
+     *
+     * @return the administered list, never null
+     */
+    public String invoiceDocumentOutput() { return value("invoice.document-output"); }
+
+    /**
+     * How many lines are printed on one slip before the operator is asked for the
+     * next sheet (LC-08-04-12/13). At or below zero the slip is printed whole.
+     *
+     * @return the administered line count
+     */
+    public int invoiceSlipLines() { return intValue("invoice.slip-lines"); }
+
+    /**
+     * The document emitted automatically at the end of a sale, per payment method
+     * (LC-08-04-16), as the raw semicolon list of {@code REGLEMENT:TYPE} pairs.
+     *
+     * @return the administered list, never null
+     */
+    public String invoiceAutoPrint() { return value("invoice.auto-print"); }
+
+    /**
+     * What the register does with an expiry date carried by a GS1 code on an
+     * article (LC-11-03-13).
+     *
+     * @return the administered level, never null
+     */
+    public String gs1ExpiryAlert() { return value("gs1.expiry-alert"); }
+
+    /**
+     * The restricted tenders whose eligible base is shown during the sale
+     * (LC-09-01-11 to -18), as the raw semicolon list of
+     * {@code CODE:ATTRIBUT:LIBELLÉ} triples.
+     *
+     * @return the administered list, never null
+     */
+    public String restrictedTenders() { return value("tender.restricted"); }
+
+    /**
+     * The abandon reasons offered to the cashier (LC-04-04-10), as the raw
+     * semicolon list. Blank means the reason is not asked for.
+     *
+     * @return the administered list, never null
+     */
+    public String abandonReasons() { return value("abandon.reasons"); }
+
+    /**
+     * The tenders offered for a manual withdrawal (LC-12-03-02/03), as the raw
+     * semicolon list of {@code CLÉ:LIBELLÉ} pairs.
+     *
+     * @return the administered list, never null
+     */
+    public String drawerWithdrawalMethods() { return value("drawer.withdrawal-methods"); }
+
+    /**
+     * Whether a withdrawal ticket is printed (LC-12-03-07).
+     *
+     * @return true when the ticket comes out
+     */
+    public boolean drawerWithdrawalPrint() { return boolValue("drawer.withdrawal-print"); }
+
+    /**
+     * The tenders offered as the source and the destination of a settlement
+     * transfer (LC-12-10-02); blank means the withdrawal list applies.
+     *
+     * @return the administered list, never null
+     */
+    public String drawerTransferMethods() { return value("drawer.transfer-methods"); }
+
+    /**
+     * Whether a transfer ticket is printed (LC-12-10-05).
+     *
+     * @return true when the ticket comes out
+     */
+    public boolean drawerTransferPrint() { return boolValue("drawer.transfer-print"); }
+
+    /**
+     * What the register does when a partial settlement is already registered and
+     * the ticket is abandoned (LC-04-04-06 to -09): {@code CONFIRM} or
+     * {@code BLOCK}.
+     *
+     * @return the administered behaviour, never null
+     */
+    public String abandonPartialPayment() { return value("abandon.partial-payment"); }
+
+    /**
+     * When the abandon ticket is printed (LC-04-04-12): {@code NEVER},
+     * {@code ALWAYS} or {@code ON_DEMAND}.
+     *
+     * @return the administered rule, never null
+     */
+    public String abandonPrint() { return value("abandon.print"); }
+
+    /**
+     * Whether the abandon ticket lists the articles of the abandoned sale
+     * (LC-04-04-12).
+     *
+     * @return true when the article detail is printed
+     */
+    public boolean abandonPrintDetail() { return boolValue("abandon.print-detail"); }
+
+    /**
+     * How many days before an expiry date it counts as near (LC-11-03-13).
+     *
+     * @return the administered number of days
+     */
+    public int gs1ExpiryWarnDays() { return intValue("gs1.expiry-warn-days"); }
+
+    /**
+     * What the register does with an expiry date carried by a GS1 coupon
+     * (LC-11-03-13).
+     *
+     * @return the administered level, never null
+     */
+    public String gs1CouponExpiryAlert() { return value("gs1.coupon-expiry-alert"); }
+
+    /**
+     * The settlement type of a GS1 gift document, by issuer prefix (LC-11-03-05),
+     * as the raw semicolon list of {@code PREFIXE:CODE_TYPE} pairs.
+     *
+     * @return the administered list, never null
+     */
+    public String gs1GiftCouponTypes() { return value("gs1.gdti-coupon-types"); }
+
+    /**
+     * The settlement type of a GS1 coupon (LC-11-03-06).
+     *
+     * @return the administered coupon-type code, never null
+     */
+    public String gs1CouponType() { return value("gs1.gcn-coupon-type"); }
 
     /**
      * The order the articles are printed in on the sale ticket (LC-08-01-07), as

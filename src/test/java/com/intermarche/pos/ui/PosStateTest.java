@@ -164,6 +164,70 @@ class PosStateTest {
     }
 
     /**
+     * {@code clearTicket()} also disarms the quantity key and closes the entry
+     * prompt: a figure armed for an article that is never rung, or a prompt left
+     * open on a sale that has ended, would land on the NEXT customer's first
+     * article ({@code LC-02-13-04}, {@code LC-02-03-01/03}).
+     */
+    @Test
+    void clearTicketDisarmsTheQuantityAndClosesTheEntryPrompt() {
+        PosState state = newState();
+        state.armedQuantity = new java.math.BigDecimal("3");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.PRICE;
+        state.entryPrompt.ean = "123";
+        state.clearTicket();
+        assertNull(state.armedQuantity);
+        assertFalse(state.entryPrompt.active);
+        assertNull(state.entryPrompt.kind);
+        assertNull(state.entryPrompt.ean);
+    }
+
+    /**
+     * The entry prompt clears back to the state a fresh one starts in, so a second
+     * suspended add never inherits the first one's figures.
+     */
+    @Test
+    void theEntryPromptClearsBackToItsPristineState() {
+        PosState.EntryPromptState prompt = new PosState.EntryPromptState();
+        prompt.active = true;
+        prompt.kind = PosState.EntryPromptState.QUANTITY;
+        prompt.ean = "123";
+        prompt.label = "CABLE";
+        prompt.unitName = "m";
+        prompt.unitPriceFormatted = "4,99";
+        prompt.quantity = new java.math.BigDecimal("2.36");
+        prompt.price = new java.math.BigDecimal("11.78");
+        prompt.clear();
+        assertFalse(prompt.active);
+        assertNull(prompt.kind);
+        assertNull(prompt.ean);
+        assertNull(prompt.label);
+        assertEquals("", prompt.unitName);
+        assertEquals("", prompt.unitPriceFormatted);
+        assertEquals(0, java.math.BigDecimal.ONE.compareTo(prompt.quantity));
+        assertNull(prompt.price);
+    }
+
+    /**
+     * The prompt says which figure it is asking for, on both its kinds and on the
+     * kind it has before anything is asked.
+     */
+    @Test
+    void theEntryPromptNamesTheFigureItAsksFor() {
+        PosState.EntryPromptState prompt = new PosState.EntryPromptState();
+        prompt.kind = PosState.EntryPromptState.PRICE;
+        assertTrue(prompt.isPriceKind());
+        assertEquals("PRIX À SAISIR", prompt.getTitle());
+        prompt.kind = PosState.EntryPromptState.QUANTITY;
+        assertFalse(prompt.isPriceKind());
+        assertEquals("QUANTITÉ À SAISIR", prompt.getTitle());
+        prompt.kind = null;
+        assertFalse(prompt.isPriceKind());
+        assertEquals("QUANTITÉ À SAISIR", prompt.getTitle());
+    }
+
+    /**
      * {@code clearPayments()} clears only the payments and bumps the version.
      */
     @Test

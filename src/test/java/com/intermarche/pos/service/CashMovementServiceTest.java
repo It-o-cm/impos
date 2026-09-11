@@ -169,4 +169,83 @@ class CashMovementServiceTest {
         }
         verifyNoInteractions(outbox);
     }
+
+    /**
+     * The short call names no tender, and the movement it writes says so: a
+     * movement recorded by a caller that knows nothing of tenders must not claim
+     * one, since a null tender is what makes the historical rows read as cash.
+     */
+    @Test
+    void theShortCallNamesNoTender() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            service.record(mock(CashSession.class), mock(Employee.class),
+                    CashMovement.MovementType.WITHDRAWAL, new BigDecimal("30.00"), "coffre", null);
+            CashMovement movement = created.constructed().get(0);
+            assertNull(movement.paymentMethod);
+            assertNull(movement.transferTo);
+            assertNull(movement.denominationDetail);
+        }
+    }
+
+    /**
+     * A withdrawal of a named tender carries that tender and its denomination detail,
+     * and nothing to transfer to ({@code LC-12-03-02/04}).
+     */
+    @Test
+    void aWithdrawalCarriesItsTenderAndItsDetail() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            CashMovement result = service.record(mock(CashSession.class), mock(Employee.class),
+                    CashMovement.MovementType.WITHDRAWAL, new BigDecimal("30.00"),
+                    "Prélèvement Espèces", null, "CASH", null, "{\"b20\":1}");
+            CashMovement movement = created.constructed().get(0);
+            assertSame(movement, result);
+            assertEquals("CASH", movement.paymentMethod);
+            assertNull(movement.transferTo);
+            assertEquals("{\"b20\":1}", movement.denominationDetail);
+            verify(movement, times(1)).persist();
+            verify(outbox, times(1)).enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        }
+    }
+
+    /**
+     * A transfer carries both of its ends ({@code LC-12-10-01}): where the amount left
+     * and where it landed are what the two theoreticals are moved by.
+     */
+    @Test
+    void aTransferCarriesBothOfItsEnds() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            service.record(mock(CashSession.class), mock(Employee.class),
+                    CashMovement.MovementType.TRANSFER, new BigDecimal("20.00"),
+                    "Transfert Chèques vers Espèces", null, "CHEQUE", "CASH", null);
+            CashMovement movement = created.constructed().get(0);
+            assertEquals(CashMovement.MovementType.TRANSFER, movement.type);
+            assertEquals("CHEQUE", movement.paymentMethod);
+            assertEquals("CASH", movement.transferTo);
+            assertNull(movement.denominationDetail);
+        }
+    }
+
+    /**
+     * The endorsement guard rules the long call too: an above-threshold withdrawal of a
+     * named tender without a manager is refused, and nothing is written.
+     */
+    @Test
+    void aNamedTenderDoesNotEscapeTheEndorsementGuard() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            CashMovement result = service.record(mock(CashSession.class), mock(Employee.class),
+                    CashMovement.MovementType.WITHDRAWAL, new BigDecimal("150.00"),
+                    "Prélèvement Chèques", null, "CHEQUE", null, null);
+            assertNull(result);
+            assertTrue(created.constructed().isEmpty());
+        }
+        verifyNoInteractions(outbox);
+    }
 }

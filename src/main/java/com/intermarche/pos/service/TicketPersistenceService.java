@@ -577,6 +577,17 @@ public class TicketPersistenceService {
         line.moneyProduct = item.moneyProduct;
         line.priceEmbedded = item.priceEmbedded;
         line.discountForbidden = item.discountForbidden;
+        // LC-02-08: which door the article leaves by is transactional data — the
+        // collection voucher is printed from the closed ticket.
+        line.toCollect = item.toCollect;
+        // LC-09-01-11 to -18: what the article was payable with, snapshotted.
+        line.restrictedTenders = item.restrictedTenders;
+        // LC-02-03-02: the unit of measure the article was sold in.
+        line.unitName = item.unitName;
+        // LC-11-03-02: the identifiers a GS1 code carried are transactional data of the
+        // line, kept whether or not this version has a rule for any of them.
+        line.gs1Data = item.gs1Data;
+        line.gs1ExpiryDate = item.gs1ExpiryDate;
         return line;
     }
 

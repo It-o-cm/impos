@@ -1073,19 +1073,23 @@ class PaymentResourceTest {
     }
 
     /**
-     * {@code abandonTicketFromPayment} cancels the collected payments BEFORE
-     * cancelling the ticket (the mandatory order, so no orphaned payment
-     * survives a discarded ticket) and redirects home.
+     * {@code abandonTicketFromPayment} sends the operator to the ABANDON SCREEN and
+     * abandons nothing by itself ({@code LC-04-04-06} to {@code -12}).
+     *
+     * <p>The screen is where the shop's rules live: the reason chosen from the
+     * administered list, the settlements already taken named before they are undone,
+     * the abandon ticket printed or not. Undoing them here would apply none of the
+     * three, and would leave a second abandon path to keep in step with the first —
+     * so this key touches no service at all.
      */
     @Test
-    void abandonTicketFromPaymentCancelsPaymentsThenTicket() {
+    void abandonTicketFromPaymentSendsTheOperatorToTheAbandonScreen() {
         PaymentResource resource = newResource();
         resource.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
         Response response = resource.abandonTicketFromPayment();
-        org.mockito.InOrder order = org.mockito.Mockito.inOrder(resource.paymentService, resource.ticketService);
-        order.verify(resource.paymentService).cancelPayments(resource.state);
-        order.verify(resource.ticketService).cancelTicket(resource.state);
         assertEquals(303, response.getStatus());
-        assertEquals("/", response.getLocation().toString());
+        assertEquals("/abandon", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
+        verify(resource.paymentService, never()).cancelPayments(resource.state);
     }
 }

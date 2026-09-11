@@ -1,0 +1,156 @@
+{!
+ ! Abandon page (TicketAbandonResource) — LC-04-04-06 à -12. Le dernier écran
+ ! avant qu'une vente cesse d'exister : le motif administré, ce qu'il advient
+ ! d'un règlement déjà pris, et l'impression du ticket d'abandon.
+ !
+ ! CE QUI BLOQUE EST DIT AVANT CE QU'ON DEMANDE : quand un règlement partiel
+ ! interdit l'abandon, l'écran n'affiche ni motif ni bouton de confirmation —
+ ! poser une question dont la réponse ne servira à rien est ce qui fait croire
+ ! à un écran cassé.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abandon du ticket</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid var(--border-strong); border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
+
+    /* min-height:0 : sans lui la rangée 1fr refuse de descendre sous la hauteur de
+       son contenu, la grille dépasse les 600 px du terminal et c'est la barre du bas
+       — donc le RETOUR — qui est rognée par l'overflow:hidden. */
+    .main-area { display: flex; justify-content: center; align-items: center; padding: 12px; min-height: 0; }
+    /* LE BOUTON D'ABANDON NE DÉFILE JAMAIS. Le panneau est une colonne dont seule
+       la liste des motifs s'étire et défile : sur une caisse tactile, une touche de
+       validation qu'il faut aller chercher en faisant glisser la page est une touche
+       qu'on ne trouve pas. */
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 18px 30px; width: 720px; max-height: 100%;
+             display: flex; flex-direction: column; min-height: 0; }
+    .panel > * { flex-shrink: 0; }
+    .panel form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+    .panel form .print-row, .panel form button { flex-shrink: 0; }
+    .panel h2 { text-transform: uppercase; margin: 0 0 14px; text-align: center; letter-spacing: 1px; font-size: var(--fs-section); }
+    .summary { display: flex; justify-content: space-between; color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 12px; }
+    .summary strong { color: var(--text-main); }
+
+    /* Le motif : des touches pleine largeur, pas une liste déroulante — c'est
+       une caisse tactile, et le motif est la seule chose que l'opérateur a à
+       choisir ici. */
+    .reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;
+               flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: start; }
+    .reason-btn { display: flex; align-items: center; justify-content: center; text-align: center;
+                  min-height: 46px; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+                  border: 1px solid var(--border-color); background: var(--bg-page);
+                  color: var(--text-main); font-size: var(--fs-btn-sm); font-weight: bold; }
+    .reason-btn.on { border-color: var(--danger); background: rgba(211, 47, 47, 0.18); }
+    .reason-btn input { display: none; }
+
+    /* Le bloc des règlements est le seul dont la hauteur dépend du client : il
+       défile chez lui plutôt que de pousser le bouton d'abandon hors de l'écran. */
+    .payments { border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; max-height: 120px; overflow-y: auto; }
+    .payments .head { color: var(--text-muted); font-size: var(--fs-label); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .payments .row { display: flex; justify-content: space-between; font-size: var(--fs-row); }
+    .print-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: var(--fs-body); }
+    .print-row input { width: 22px; height: 22px; }
+
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 14px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .blocking-box { background: rgba(211, 47, 47, 0.22); border: 1px solid var(--danger); color: var(--danger); padding: 16px; font-weight: bold; text-align: center; border-radius: 6px; font-size: var(--fs-row); }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>ABANDON DU TICKET</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel">
+        <h2>Abandonner la vente en cours</h2>
+
+        <div class="summary">
+          <span>Articles : <strong>{state.ticket.items.size()}</strong></span>
+          <span>Total : <strong>{state.ticket.getTotalFormatted()} €</strong></span>
+        </div>
+
+        {#if error}
+        <div class="error-box">{error}</div>
+        {/if}
+
+        {#if blocking}
+        <!-- LC-04-04-06 / -08 : le magasin a choisi le refus. On dit lequel des deux
+             règlements est en cause, parce qu'annuler des espèces et annuler une
+             autorisation monétique ne sont pas le même geste. -->
+        <div class="blocking-box">{blocking}</div>
+        {#else}
+
+        {#if !payments.isEmpty()}
+        <!-- LC-04-04-07 / -09 : le magasin a choisi la proposition. Les règlements
+             qui vont être annulés sont nommés AVANT la validation — c'est ce qui
+             fait de cet écran une proposition et non une exécution. -->
+        <div class="payments">
+          <div class="head">Règlements qui seront annulés</div>
+          {#for entry in payments}
+          <div class="row"><span>{entry.method}</span><span>{entry.amount} €</span></div>
+          {/for}
+          <div class="row"><strong>TOTAL</strong><strong>{paymentTotal} €</strong></div>
+        </div>
+        {/if}
+
+        <form method="post" action="/abandon" id="abandonForm">
+          {#if !reasons.isEmpty()}
+          <div class="reasons">
+            {#for reason in reasons}
+            <label class="reason-btn">
+              <input type="radio" name="reason" value="{reason}">{reason}
+            </label>
+            {/for}
+          </div>
+          {/if}
+
+          {#if printOnDemand}
+          <!-- LC-04-04-12 : le magasin laisse la décision à l'opérateur. -->
+          <div class="print-row">
+            <input type="checkbox" name="print" id="printBox">
+            <label for="printBox">Imprimer le ticket d'abandon</label>
+          </div>
+          {/if}
+
+          <button type="submit" class="btn btn-danger" style="width:100%; height:56px;">ABANDONNER LE TICKET</button>
+        </form>
+        {/if}
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted">RETOUR À LA VENTE</a>
+    </div>
+  </div>
+
+<script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* Les motifs sont des radios déguisés en touches : la sélection doit se voir,
+       et un bouton radio de 13 pixels ne se voit pas au bout d'un doigt. */
+    document.querySelectorAll('.reason-btn input').forEach(input => {
+        input.addEventListener('change', () => {
+            document.querySelectorAll('.reason-btn').forEach(b => b.classList.remove('on'));
+            if (input.checked) input.parentElement.classList.add('on');
+        });
+    });
+</script>
+</body>
+</html>

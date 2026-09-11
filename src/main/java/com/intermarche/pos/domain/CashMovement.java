@@ -59,12 +59,46 @@ public class CashMovement extends BaseEntity {
         /** A customer down-payment cashed in (acompte). */
         CUSTOMER_DEPOSIT,
         /** A cashier cash-count declaration of the drawer (declaration/comptage). */
-        DECLARATION
+        DECLARATION,
+        /**
+         * A transfer of an amount from one tender to another inside the drawer
+         * ({@code LC-12-10}), used to repair a cashier's mis-keying: the money never
+         * left, it was recorded under the wrong tender.
+         */
+        TRANSFER
     }
+
+    /** The tender key of a payment method, as the register names it. */
+    public static final String CASH = "CASH";
 
     /** Stable identity of the movement across nodes (store-sync upsert key). */
     @Column(name = "movement_uid", unique = true, length = 36)
     public String movementUid;
+
+    /**
+     * The tender this movement concerns ({@code LC-12-03-02}), or null for the
+     * historical movements, which were all cash.
+     * <p>
+     * NULL READS AS CASH everywhere: a withdrawal recorded before this field existed
+     * took cash out of the drawer, and a migration that silently turned those rows
+     * into "no tender at all" would move the theoretical of every closed session.
+     */
+    @Column(name = "payment_method", length = 30)
+    public String paymentMethod;
+
+    /**
+     * The tender an amount is transferred TO ({@code LC-12-10-01}), null on every
+     * movement that is not a transfer. The source is {@link #paymentMethod}.
+     */
+    @Column(name = "transfer_to", length = 30)
+    public String transferTo;
+
+    /**
+     * The per-denomination detail of a cash withdrawal ({@code LC-12-03-04}), as the
+     * JSON the count screen produces, or null when the movement carries none.
+     */
+    @Column(name = "denomination_detail", length = 2000)
+    public String denominationDetail;
 
     /** The identifier of the register (TPV) this movement was recorded on. */
     @Column(name = "terminal_id", nullable = false, length = 20)
@@ -112,6 +146,7 @@ public class CashMovement extends BaseEntity {
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(movementUid, terminalId, type, amount, movementDate);
+        return Objects.hash(movementUid, terminalId, type, amount, movementDate,
+                paymentMethod, transferTo);
     }
 }

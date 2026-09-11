@@ -727,19 +727,19 @@ public class PaymentResource {
         return Response.seeOther(URI.create("/")).build();
     }
     /**
-     * Abandons the WHOLE ticket from the payment phase, without going back
-     * to the article-entry screen first (LC-04-04-05): the partial payments
-     * are cancelled the usual way (lease released, valuation reverted,
-     * payments removed from the draft — the automatic handling this register
-     * applies instead of blocking), then the ticket itself is cancelled.
+     * Abandons the WHOLE ticket from the payment phase, without going back to the
+     * article-entry screen first (LC-04-04-05).
      *
-     * @return a redirect to the sale screen (empty cart)
+     * <p>It no longer abandons anything by itself: the shop's abandon rules — what a
+     * settlement already taken forbids, which reason is given, what is printed
+     * ({@code LC-04-04-06} to {@code -12}) — live on the abandon screen, and a second
+     * road to the same gesture would be a road around those rules.
+     *
+     * @return a redirect to the abandon screen
      */
     @GET
     @Path("/action/pay/abandon-ticket")
     public Response abandonTicketFromPayment() {
-        paymentService.cancelPayments(state);
-        ticketService.cancelTicket(state);
-        return Response.seeOther(URI.create("/")).build();
+        return Response.seeOther(URI.create("/abandon")).build();
     }
 }

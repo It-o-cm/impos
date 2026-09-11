@@ -60,6 +60,137 @@ public class PosState implements Serializable {
     public AgeCheckState ageCheck = new AgeCheckState();
 
     /**
+     * True while the next article registered is to be marked "à enlever"
+     * ({@code LC-02-08-02}).
+     *
+     * <p>It ARMS one article and one only: the goods-collection desk takes the
+     * articles the customer will not carry out of the shop, and a mode that stayed
+     * on would quietly send the rest of the basket to the desk too. The consumption
+     * is in {@link com.intermarche.pos.ui.ticket.TicketState#addItem} — the single
+     * funnel every scan, every keyed code and every group tile goes through, which
+     * is what {@code LC-02-08-02} means by "saisie de l'article (scan, saisie EAN,
+     * groupe articles)".
+     */
+    public boolean collectArmed = false;
+
+    /**
+     * The quantity the operator armed before naming an article
+     * ({@code LC-02-13-04/05/06}), null when nothing is armed.
+     *
+     * <p>The quantity key has always applied a quantity to a line ALREADY registered.
+     * The questionnaire asks for the other order too — key the quantity, then scan,
+     * key the EAN, or key the internal code — and one armed value covers the three,
+     * because the three end in the same {@code addItem}.
+     *
+     * <p>Like the collection arming, it arms ONE article: a quantity that stayed on
+     * would multiply the rest of the basket.
+     */
+    public BigDecimal armedQuantity = null;
+
+    /**
+     * The add suspended while the operator types what the article does not carry
+     * ({@code LC-02-03-01/02/03}), never null.
+     */
+    public EntryPromptState entryPrompt = new EntryPromptState();
+
+    /**
+     * State of the entry prompt: an article whose price or whose quantity must be
+     * keyed at the till suspended the add, and the sale waits for the value.
+     *
+     * <p>THE SAME PROMPT SERVES BOTH, because both are the same situation — the
+     * referential does not carry the figure and the operator does. A "prix requis"
+     * article (a gift card, a generic "Divers" line) asks for its price; a
+     * decimal-quantity article (a hose sold by the metre, a liquid by the litre) asks
+     * for its quantity and shows the price per unit of measure so the operator can
+     * check what they are about to ring.
+     *
+     * <p>The two CHAIN: an article that requires both is asked its quantity, then its
+     * price, and the line is created once.
+     */
+    public static class EntryPromptState implements java.io.Serializable {
+
+        private static final long serialVersionUID = 1L;
+
+        /** Asked for a price the referential does not carry (LC-02-03-03). */
+        public static final String PRICE = "PRICE";
+
+        /** Asked for a decimal quantity in the article's unit (LC-02-03-01). */
+        public static final String QUANTITY = "QUANTITY";
+
+        /** Whether the prompt is currently shown. */
+        public boolean active = false;
+
+        /** What is being asked: {@link #PRICE} or {@link #QUANTITY}. */
+        public String kind;
+
+        /** The EAN of the article the add was suspended on. */
+        public String ean;
+
+        /** The article's display label. */
+        public String label;
+
+        /** The article's unit of measure, empty when it is sold by the piece. */
+        public String unitName = "";
+
+        /** The catalog price per unit of measure, formatted, empty when there is none. */
+        public String unitPriceFormatted = "";
+
+        /** The quantity already resolved, one until a decimal quantity is keyed. */
+        public BigDecimal quantity = BigDecimal.ONE;
+
+        /** The price already keyed, null until a required price is given. */
+        public BigDecimal price = null;
+
+        /**
+         * Clears the prompt, so the next add starts from nothing.
+         */
+        public void clear() {
+            active = false;
+            kind = null;
+            ean = null;
+            label = null;
+            unitName = "";
+            unitPriceFormatted = "";
+            quantity = BigDecimal.ONE;
+            price = null;
+        }
+
+        /**
+         * Tells whether the prompt is asking for a price.
+         *
+         * @return true when a price is expected
+         */
+        public boolean isPriceKind() {
+            return PRICE.equals(kind);
+        }
+
+        /**
+         * Returns the title the prompt shows.
+         *
+         * @return the operator-facing title
+         */
+        public String getTitle() {
+            return isPriceKind() ? "PRIX À SAISIR" : "QUANTITÉ À SAISIR";
+        }
+    }
+
+    /**
+     * The reason the operator gave for abandoning the ticket ({@code LC-04-04-10}),
+     * empty until the abandon screen collects one.
+     *
+     * <p>It rides on the state rather than on the endorsement request because the
+     * abandon may or may not go through a manager: the reason belongs to the gesture,
+     * not to the authorization.
+     */
+    public String abandonReason = "";
+
+    /**
+     * True when the operator asked for the abandon ticket to be printed on this
+     * abandon ({@code LC-04-04-12}, on-demand rule).
+     */
+    public boolean abandonPrintRequested = false;
+
+    /**
      * State of the age-control prompt: a restricted product suspended the
      * add, and the sale waits for the cashier's CONFIRM (ID checked — the
      * parked add replays) or REFUSE (journalized, nothing added). The parked
@@ -236,6 +367,11 @@ public class PosState implements Serializable {
         lastEnteredItemId = null;
         donationLineUid = null;
         priceModState.clear();
+        collectArmed = false;
+        armedQuantity = null;
+        entryPrompt.clear();
+        abandonReason = "";
+        abandonPrintRequested = false;
         ticketCurrentPage = 0;
         customerMessage = "";
         invoice.clear();

@@ -97,6 +97,9 @@ class PaymentServiceTest {
      * each test; the terminal port is a mock whose callback legs the tests
      * fire by hand.
      */
+    /** The invoice service asked for an automatic document at closing time. */
+    private com.intermarche.pos.ui.invoice.InvoiceService invoiceService;
+
     @BeforeEach
     void setUp() {
         service = new PaymentService();
@@ -116,6 +119,12 @@ class PaymentServiceTest {
         service.fidEventOutboxService = fidEventOutboxService;
         terminal = mock(PaymentTerminalClient.class);
         service.terminal = terminal;
+        // LC-08-04-16: closing a sale asks the invoice service whether the settlement
+        // calls for an automatic document. The stand-in answers nothing, which is the
+        // shop that administered no automatic emission — the default of every case
+        // below.
+        invoiceService = mock(com.intermarche.pos.ui.invoice.InvoiceService.class);
+        service.invoiceService = invoiceService;
         // The drawer-open-on-payment rule defaults to ON, the pre-existing
         // behavior every physical-tender case here relies on (BO-10-02-12).
         posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);

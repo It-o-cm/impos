@@ -1,0 +1,144 @@
+{!
+ ! Settlement transfer between two drawer tenders (DrawerOperationsResource,
+ ! LC-12-10). Source and destination are picked from the administered list,
+ ! the amount is keyed, and the server refuses anything above the source's
+ ! theoretical (LC-12-10-03) — the screen only states the theoreticals so the
+ ! cashier sees the ceiling before typing.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transfert de règlement</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal {
+      width: 1000px; height: 600px; background-color: var(--bg-dark);
+      border: 2px solid var(--border-strong); border-radius: 10px;
+      display: grid; grid-template-rows: 60px 1fr 80px;
+      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
+
+    .main-area { display: flex; justify-content: center; align-items: center; overflow: hidden; min-height: 0; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 25px 40px; width: 680px; max-height: 100%; overflow-y: auto; }
+    .panel h2 { text-transform: uppercase; margin-bottom: 18px; text-align: center; letter-spacing: 1px; }
+    .form-row { display: flex; align-items: center; gap: 15px; margin: 14px 0; justify-content: space-between; }
+    .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
+    .form-row select, .form-row input { width: 360px; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .ceiling { color: var(--text-muted); font-size: var(--fs-body); text-align: right; margin-top: -8px; }
+    .manager-block { border: 1px solid var(--border-strong); border-radius: 8px; padding: 12px 18px; margin-top: 15px; }
+    .manager-block .hint { color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 8px; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 12px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); margin-bottom: 12px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .empty { color: var(--text-muted); text-align: center; padding: 30px; font-weight: bold; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>TRANSFERT DE RÈGLEMENT</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel">
+        {#if error??}
+          <div class="error-box">{error}</div>
+        {/if}
+        {#if saved}
+          <div class="ok-box">TRANSFERT ENREGISTRÉ</div>
+        {/if}
+
+        <h2>Transfert de règlement</h2>
+
+        {#if methods.isEmpty}
+          <div class="empty">AUCUN MOYEN DE PAIEMENT PARAMÉTRÉ POUR LE TRANSFERT</div>
+        {#else}
+          <form id="transferForm" method="post" action="/action/transfer/record">
+            <div class="form-row">
+              <label for="from">Moyen source</label>
+              <select id="from" name="from">
+                {#for method in methods}
+                  <option value="{method.key}" data-theoretical="{method.amount}">{method.label}</option>
+                {/for}
+              </select>
+            </div>
+            <div class="ceiling" id="ceiling">—</div>
+            <div class="form-row">
+              <label for="to">Moyen destination</label>
+              <select id="to" name="to">
+                {#for method in methods}
+                  <option value="{method.key}">{method.label}</option>
+                {/for}
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="amount">Montant €</label>
+              <input type="text" id="amount" name="amount" value="0,00" inputmode="decimal" autocomplete="off">
+            </div>
+
+            <div class="manager-block" id="managerBlock" style="display:none;">
+              <div class="hint">Aval manager requis au-delà de {threshold} €.</div>
+              <div class="form-row">
+                <label for="managerLogin">Badge manager</label>
+                <input type="text" id="managerLogin" name="managerLogin" autocomplete="off">
+              </div>
+              <div class="form-row">
+                <label for="managerPin">Code PIN</label>
+                <input type="password" id="managerPin" name="managerPin" autocomplete="off">
+              </div>
+            </div>
+          </form>
+        {/if}
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+      {#if methods.isEmpty}
+        <span></span>
+      {#else}
+        <button type="submit" form="transferForm" class="btn btn-lg btn-success" style="width: 220px;">VALIDER LE TRANSFERT</button>
+      {/if}
+    </div>
+  </div>
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    const threshold = parseFloat("{threshold}");
+    const fromSelect = document.getElementById('from');
+    const amountInput = document.getElementById('amount');
+    const managerBlock = document.getElementById('managerBlock');
+    const ceiling = document.getElementById('ceiling');
+
+    /* States the source's theoretical, which is the ceiling the server enforces. */
+    function showCeiling() {
+      const option = fromSelect.options[fromSelect.selectedIndex];
+      const value = parseFloat(option.getAttribute('data-theoretical')) || 0;
+      ceiling.textContent = 'Théorique tiroir : ' +
+        value.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
+    }
+
+    /* Reveals the manager block as soon as the typed amount passes the threshold. */
+    function toggleManager() {
+      const value = parseFloat((amountInput.value || '').replace(',', '.'));
+      managerBlock.style.display = (!isNaN(value) && value > threshold) ? 'block' : 'none';
+    }
+
+    if (fromSelect) {
+      fromSelect.addEventListener('change', showCeiling);
+      amountInput.addEventListener('input', toggleManager);
+      showCeiling();
+      toggleManager();
+    }
+  </script>
+</body>
+</html>
