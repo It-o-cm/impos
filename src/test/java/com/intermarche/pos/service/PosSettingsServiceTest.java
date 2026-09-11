@@ -307,6 +307,84 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * The remaining public accessors each project their stored row: the integer
+     * accessors ({@code cashRoundingStepCents}, {@code moneticsDegradedForcedMinutes},
+     * {@code creditDegradedAfterMinutes}), the boolean accessors
+     * ({@code balanceCounterPrice}, {@code backupManualEndorsement},
+     * {@code moneticsDegradedForcedEndorsement}, {@code creditAllowedInDegraded},
+     * {@code printConditionalEnabled}, {@code printForceTicketGlc},
+     * {@code printForceCardCredit}, {@code printForceCardSignature},
+     * {@code printForceCardTna}, {@code ticketEmailEditable}) and the text
+     * accessors ({@code backupMethodLabels}, {@code invoiceCustomerFields},
+     * {@code ticketLineOrder}, {@code ticketEmailFormat}).
+     */
+    @Test
+    void remainingAccessorsProjectStoredValues() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("cash.rounding-step-cents", "5"),
+                    row("balance.counter-price", "false"),
+                    row("backup.manual-endorsement", "false"),
+                    row("payment.degraded-forced-endorsement", "false"),
+                    row("payment.degraded-forced-minutes", "90"),
+                    row("backup.method-labels", "20=CB"),
+                    row("credit.allowed-in-degraded", "true"),
+                    row("credit.degraded-after-minutes", "30"),
+                    row("print.conditional-enabled", "true"),
+                    row("print.force-ticket-glc", "false"),
+                    row("print.force-card-credit", "false"),
+                    row("print.force-card-signature", "false"),
+                    row("print.force-card-tna", "false"),
+                    row("invoice.customer-fields", "companyName*;email"),
+                    row("ticket.line-order", "LABEL"),
+                    row("ticket.email-format", "ATTACHMENT"),
+                    row("ticket.email-editable", "false")));
+            assertEquals(5, service.cashRoundingStepCents());
+            assertFalse(service.balanceCounterPrice());
+            assertFalse(service.backupManualEndorsement());
+            assertFalse(service.moneticsDegradedForcedEndorsement());
+            assertEquals(90, service.moneticsDegradedForcedMinutes());
+            assertEquals("20=CB", service.backupMethodLabels());
+            assertTrue(service.creditAllowedInDegraded());
+            assertEquals(30, service.creditDegradedAfterMinutes());
+            assertTrue(service.printConditionalEnabled());
+            assertFalse(service.printForceTicketGlc());
+            assertFalse(service.printForceCardCredit());
+            assertFalse(service.printForceCardSignature());
+            assertFalse(service.printForceCardTna());
+            assertEquals("companyName*;email", service.invoiceCustomerFields());
+            assertEquals("LABEL", service.ticketLineOrder());
+            assertEquals("ATTACHMENT", service.ticketEmailFormat());
+            assertFalse(service.ticketEmailEditable());
+        }
+    }
+
+    /**
+     * {@code printForcedDocuments} splits the administered list, uppercasing and
+     * trimming each entry and dropping blank ones (loop iterates then exits,
+     * {@code !isEmpty} both arms, {@code isBlank} false arm), and returns an empty
+     * list when the setting is blank ({@code isBlank} true arm, the {@code
+     * List.of()} early return). A held {@code service} reference is used for each
+     * call so both arms register their line and branch coverage.
+     */
+    @Test
+    void printForcedDocumentsCoversBothArms() {
+        PosSettingsService populated = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("print.forced-documents", " ticket ; ; carte ")));
+            assertEquals(List.of("TICKET", "CARTE"), populated.printForcedDocuments());
+        }
+        PosSettingsService blank = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("print.forced-documents", "   ")));
+            assertTrue(blank.printForcedDocuments().isEmpty());
+        }
+    }
+
+    /**
      * {@code cashMovementEndorsementThreshold} parses a well-formed stored
      * amount (parse-ok arm) and falls back to the catalog default on a corrupt
      * row (parse-fail arm).
@@ -386,26 +464,6 @@ class PosSettingsServiceTest {
             ms.when(PanacheEntityBase::listAll)
                     .thenReturn(List.of(row("touch.display-order", "weird")));
             assertEquals("ALPHA", new PosSettingsService().touchDisplayOrder());
-        }
-    }
-
-    /**
-     * {@code printForcedDocuments} splits the administered list, uppercasing and
-     * trimming each entry and dropping blank ones (the loop iterates then exits
-     * and {@code !isEmpty} takes both arms), and returns an empty list for a blank
-     * setting (isBlank true arm).
-     */
-    @Test
-    void printForcedDocumentsSplitsUppercasesAndDropsBlanks() {
-        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
-            ms.when(PanacheEntityBase::listAll)
-                    .thenReturn(List.of(row("print.forced-documents", " ticket ; ; carte ")));
-            assertEquals(List.of("TICKET", "CARTE"), new PosSettingsService().printForcedDocuments());
-        }
-        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
-            ms.when(PanacheEntityBase::listAll)
-                    .thenReturn(List.of(row("print.forced-documents", "   ")));
-            assertTrue(new PosSettingsService().printForcedDocuments().isEmpty());
         }
     }
 
