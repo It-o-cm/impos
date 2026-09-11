@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.home;
 
+import com.intermarche.pos.ui.PriceModType;
+
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
@@ -447,7 +449,7 @@ public class HomeResource {
     /**
      * Submits the price-modification value typed in the modal.
      *
-     * @param type the modification type (REMISE, DISCOUNT, FORCE_PRICE)
+     * @param type the name of the modification mode
      * @param uid the uid of the targeted ticket line
      * @param rawValue the raw typed value (French comma tolerated)
      * @return a 303 redirect to the home page (PRG pattern, so a browser
@@ -472,7 +474,17 @@ public class HomeResource {
             return Response.seeOther(URI.create("/")).build();
         }
 
-        homeService.submitPriceMod(type, uid, value);
+        // The posted word is the last place the mode is still a string. A stale page
+        // or a forged post naming no mode applies nothing and says so, rather than
+        // falling through the dispatch in silence.
+        PriceModType mode = PriceModType.of(type);
+        if (mode == null) {
+            state.ticket.setError("MODIFICATION INCONNUE");
+            state.priceModState.clear();
+            state.touch();
+            return Response.seeOther(URI.create("/")).build();
+        }
+        homeService.submitPriceMod(mode, uid, value);
         return Response.seeOther(URI.create("/")).build();
     }
 

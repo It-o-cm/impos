@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.endorsement;
 
+import com.intermarche.pos.ui.PriceModType;
+
 import java.io.Serializable;
 import java.math.BigDecimal;
 
@@ -33,7 +35,7 @@ public class EndorsementState implements Serializable {
     public String error = null;
 
     /** The pending price-modification type (REMISE, DISCOUNT, FORCE_PRICE), or null. */
-    public String pendingPriceType = null;
+    public PriceModType pendingPriceType = null;
 
     /** The uid of the targeted ticket line, or null. */
     public String pendingTargetUid = null;
@@ -61,7 +63,7 @@ public class EndorsementState implements Serializable {
      * @param uid the uid of the targeted ticket line
      * @param value the modification value (euros or percent depending on the type)
      */
-    public void requestPriceModification(String type, String uid, BigDecimal value) {
+    public void requestPriceModification(PriceModType type, String uid, BigDecimal value) {
         this.active = true;
         this.requestedAction = "PRICE_MODIFICATION";
         this.pendingPriceType = type;

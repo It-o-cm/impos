@@ -341,22 +341,22 @@
                 {#if state.priceModState.ticketModes}
                     <div class="price-modes">
                         <a href="/action/price-mod/global_remise"
-                           class="btn {state.priceModState.type == 'GLOBAL_REMISE' ? 'btn-primary' : 'btn-muted'}">MONTANT €</a>
+                           class="btn {state.priceModState.typeName == 'GLOBAL_REMISE' ? 'btn-primary' : 'btn-muted'}">MONTANT €</a>
                         <a href="/action/price-mod/global_discount"
-                           class="btn {state.priceModState.type == 'GLOBAL_DISCOUNT' ? 'btn-primary' : 'btn-muted'}">POURCENT %</a>
+                           class="btn {state.priceModState.typeName == 'GLOBAL_DISCOUNT' ? 'btn-primary' : 'btn-muted'}">POURCENT %</a>
                     </div>
                 {#else if state.priceModState.lineModes}
                     <div class="price-modes">
                         <a href="/action/price-mod/remise"
-                           class="btn {state.priceModState.type == 'REMISE' ? 'btn-primary' : 'btn-muted'}">REMISE €</a>
+                           class="btn {state.priceModState.typeName == 'REMISE' ? 'btn-primary' : 'btn-muted'}">REMISE €</a>
                         <a href="/action/price-mod/discount"
-                           class="btn {state.priceModState.type == 'DISCOUNT' ? 'btn-primary' : 'btn-muted'}">DISCOUNT %</a>
+                           class="btn {state.priceModState.typeName == 'DISCOUNT' ? 'btn-primary' : 'btn-muted'}">DISCOUNT %</a>
                         <a href="/action/price-mod/force_price"
-                           class="btn {state.priceModState.type == 'FORCE_PRICE' ? 'btn-primary' : 'btn-muted'}">PRIX FORCÉ</a>
+                           class="btn {state.priceModState.typeName == 'FORCE_PRICE' ? 'btn-primary' : 'btn-muted'}">PRIX FORCÉ</a>
                     </div>
                 {/if}
                 <form action="/action/price-mod/submit" method="POST" id="priceForm">
-                    <input type="hidden" name="type" value="{state.priceModState.type}">
+                    <input type="hidden" name="type" value="{state.priceModState.typeName}">
                     <input type="hidden" name="uid" value="{state.priceModState.targetUid}">
                     <input type="hidden" name="rawValue" id="priceHidden" value="0">
                     <input type="text" id="priceDisplay" class="price-input-display" value="0" readonly>
@@ -365,7 +365,7 @@
                         <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
                         <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
                     </div>
-                    {#if state.priceModState.type == 'QUANTITY'}
+                    {#if state.priceModState.typeName == 'QUANTITY'}
                     <!-- LC-02-13-04/05/06 : la même valeur, l'autre destination. La
                          touche QUANTITÉ appliquait la quantité à une ligne DÉJÀ
                          enregistrée ; l'exigence demande aussi l'ordre inverse. Un

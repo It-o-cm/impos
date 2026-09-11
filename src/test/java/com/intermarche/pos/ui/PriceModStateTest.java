@@ -27,9 +27,9 @@ class PriceModStateTest {
     @Test
     void setActivatesAndStoresTarget() {
         PriceModState state = new PriceModState();
-        state.set("REMISE", "uid-1", "Bananes");
+        state.set(PriceModType.REMISE, "uid-1", "Bananes");
         Assertions.assertTrue(state.active);
-        Assertions.assertEquals("REMISE", state.type);
+        Assertions.assertEquals(PriceModType.REMISE, state.type);
         Assertions.assertEquals("uid-1", state.targetUid);
         Assertions.assertEquals("Bananes", state.targetLabel);
     }
@@ -41,7 +41,7 @@ class PriceModStateTest {
     @Test
     void setWithoutRecallLeavesNoLineToShow() {
         PriceModState state = new PriceModState();
-        state.set("GLOBAL_REMISE", null, "TICKET COMPLET");
+        state.set(PriceModType.GLOBAL_REMISE, null, "TICKET COMPLET");
         Assertions.assertFalse(state.isTargetLine());
         Assertions.assertNull(state.targetHtml);
         Assertions.assertNull(state.targetPriceFormatted);
@@ -56,7 +56,7 @@ class PriceModStateTest {
     @Test
     void setWithRecallStoresTheLineAsTheTicketShowsIt() {
         PriceModState state = new PriceModState();
-        state.set("REMISE", "uid-1", "Bananes", "<span class='qty'>x2</span> Bananes",
+        state.set(PriceModType.REMISE, "uid-1", "Bananes", "<span class='qty'>x2</span> Bananes",
                 "4,60", "REMISE 1,00");
         Assertions.assertTrue(state.isTargetLine());
         Assertions.assertEquals("<span class='qty'>x2</span> Bananes", state.targetHtml);
@@ -71,7 +71,7 @@ class PriceModStateTest {
     @Test
     void setWithRecallAcceptsALineWithoutModification() {
         PriceModState state = new PriceModState();
-        state.set("FORCE_PRICE", "uid-3", "Pain", "<span class='qty'>x1</span> Pain",
+        state.set(PriceModType.FORCE_PRICE, "uid-3", "Pain", "<span class='qty'>x1</span> Pain",
                 "1,20", null);
         Assertions.assertTrue(state.isTargetLine());
         Assertions.assertNull(state.targetModifierLabel);
@@ -84,7 +84,7 @@ class PriceModStateTest {
     @Test
     void clearDeactivatesAndForgetsTarget() {
         PriceModState state = new PriceModState();
-        state.set("QUANTITY", "uid-2", "Pommes", "<span class='qty'>x3</span> Pommes",
+        state.set(PriceModType.QUANTITY, "uid-2", "Pommes", "<span class='qty'>x3</span> Pommes",
                 "6,00", "DISCOUNT 10%");
         state.clear();
         Assertions.assertFalse(state.active);
@@ -105,7 +105,7 @@ class PriceModStateTest {
     @Test
     void isLineModesTrueForRemise() {
         PriceModState state = new PriceModState();
-        state.type = "REMISE";
+        state.type = PriceModType.REMISE;
         Assertions.assertTrue(state.isLineModes());
     }
 
@@ -115,7 +115,7 @@ class PriceModStateTest {
     @Test
     void isLineModesTrueForDiscount() {
         PriceModState state = new PriceModState();
-        state.type = "DISCOUNT";
+        state.type = PriceModType.DISCOUNT;
         Assertions.assertTrue(state.isLineModes());
     }
 
@@ -125,7 +125,7 @@ class PriceModStateTest {
     @Test
     void isLineModesTrueForForcePrice() {
         PriceModState state = new PriceModState();
-        state.type = "FORCE_PRICE";
+        state.type = PriceModType.FORCE_PRICE;
         Assertions.assertTrue(state.isLineModes());
     }
 
@@ -136,7 +136,7 @@ class PriceModStateTest {
     @Test
     void isLineModesFalseForQuantity() {
         PriceModState state = new PriceModState();
-        state.type = "QUANTITY";
+        state.type = PriceModType.QUANTITY;
         Assertions.assertFalse(state.isLineModes());
     }
 
@@ -147,7 +147,7 @@ class PriceModStateTest {
     @Test
     void isLineModesFalseForTicketGesture() {
         PriceModState state = new PriceModState();
-        state.type = "GLOBAL_REMISE";
+        state.type = PriceModType.GLOBAL_REMISE;
         Assertions.assertFalse(state.isLineModes());
     }
 
@@ -169,7 +169,7 @@ class PriceModStateTest {
     @Test
     void isTicketModesTrueForGlobalRemise() {
         PriceModState state = new PriceModState();
-        state.type = "GLOBAL_REMISE";
+        state.type = PriceModType.GLOBAL_REMISE;
         Assertions.assertTrue(state.isTicketModes());
     }
 
@@ -179,7 +179,7 @@ class PriceModStateTest {
     @Test
     void isTicketModesTrueForGlobalDiscount() {
         PriceModState state = new PriceModState();
-        state.type = "GLOBAL_DISCOUNT";
+        state.type = PriceModType.GLOBAL_DISCOUNT;
         Assertions.assertTrue(state.isTicketModes());
     }
 
@@ -189,7 +189,7 @@ class PriceModStateTest {
     @Test
     void isTicketModesFalseForLineGesture() {
         PriceModState state = new PriceModState();
-        state.type = "REMISE";
+        state.type = PriceModType.REMISE;
         Assertions.assertFalse(state.isTicketModes());
     }
 
@@ -208,7 +208,7 @@ class PriceModStateTest {
     @Test
     void getTypeLabelRemise() {
         PriceModState state = new PriceModState();
-        state.type = "REMISE";
+        state.type = PriceModType.REMISE;
         Assertions.assertEquals("SAISIE REMISE (€)", state.getTypeLabel());
     }
 
@@ -218,7 +218,7 @@ class PriceModStateTest {
     @Test
     void getTypeLabelDiscount() {
         PriceModState state = new PriceModState();
-        state.type = "DISCOUNT";
+        state.type = PriceModType.DISCOUNT;
         Assertions.assertEquals("SAISIE DISCOUNT (%)", state.getTypeLabel());
     }
 
@@ -228,7 +228,7 @@ class PriceModStateTest {
     @Test
     void getTypeLabelForcePrice() {
         PriceModState state = new PriceModState();
-        state.type = "FORCE_PRICE";
+        state.type = PriceModType.FORCE_PRICE;
         Assertions.assertEquals("NOUVEAU PRIX (€)", state.getTypeLabel());
     }
 
@@ -238,7 +238,7 @@ class PriceModStateTest {
     @Test
     void getTypeLabelQuantity() {
         PriceModState state = new PriceModState();
-        state.type = "QUANTITY";
+        state.type = PriceModType.QUANTITY;
         Assertions.assertEquals("QUANTITÉ ARTICLE", state.getTypeLabel());
     }
 
@@ -250,7 +250,7 @@ class PriceModStateTest {
     @Test
     void getTypeLabelGlobalRemise() {
         PriceModState state = new PriceModState();
-        state.type = "GLOBAL_REMISE";
+        state.type = PriceModType.GLOBAL_REMISE;
         Assertions.assertEquals("REMISE TICKET (€)", state.getTypeLabel());
     }
 
@@ -261,7 +261,7 @@ class PriceModStateTest {
     @Test
     void getTypeLabelGlobalDiscount() {
         PriceModState state = new PriceModState();
-        state.type = "GLOBAL_DISCOUNT";
+        state.type = PriceModType.GLOBAL_DISCOUNT;
         Assertions.assertEquals("REMISE TICKET (%)", state.getTypeLabel());
     }
 
@@ -274,8 +274,7 @@ class PriceModStateTest {
     void getTypeLabelsAreAllDistinct() {
         PriceModState state = new PriceModState();
         java.util.Set<String> titles = new java.util.HashSet<>();
-        for (String type : new String[] {"REMISE", "DISCOUNT", "FORCE_PRICE",
-                "QUANTITY", "GLOBAL_REMISE", "GLOBAL_DISCOUNT"}) {
+        for (PriceModType type : PriceModType.values()) {
             state.type = type;
             Assertions.assertTrue(titles.add(state.getTypeLabel()),
                     "titre en doublon pour " + type + ": " + state.getTypeLabel());
@@ -283,13 +282,14 @@ class PriceModStateTest {
     }
 
     /**
-     * Verifies the fallback title when the type matches no known value
-     * (false arm of every branch, non-null type).
+     * A word that names no mode leaves the state carrying no mode, and the
+     * modal therefore falls back — the only way an unknown gesture can reach
+     * the state now that the type is an enum.
      */
     @Test
-    void getTypeLabelUnknownFallsBack() {
+    void getTypeLabelUnknownWordFallsBack() {
         PriceModState state = new PriceModState();
-        state.type = "SOMETHING_ELSE";
+        state.type = PriceModType.of("SOMETHING_ELSE");
         Assertions.assertEquals("MODIFICATION", state.getTypeLabel());
     }
 

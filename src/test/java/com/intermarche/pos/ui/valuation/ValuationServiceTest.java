@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.valuation;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.Product;
 import com.intermarche.pos.domain.Store;
@@ -641,8 +642,8 @@ class ValuationServiceTest {
      * folded to a null customer code (blank arm), and every gesture shape:
      * REMISE, DISCOUNT, FORCE_PRICE on a non-zero quantity (divide arm), a
      * plain line (gesture guard modifierType-null arm), a line with a type but
-     * a null value (guard modifierValue-null arm) and an unknown gesture
-     * (default arm).
+     * a null value (guard modifierValue-null arm) and a mode the switch has no
+     * arm for (default arm).
      *
      * @throws Exception on transport or serialization
      */
@@ -652,20 +653,20 @@ class ValuationServiceTest {
         when(valuationClient.isEnabled()).thenReturn(true);
         when(valuationClient.valuate(any())).thenReturn(response("42.00"));
         TicketState.TicketItem remise = item("R", "10", "10", "1");
-        remise.modifierType = "REMISE";
+        remise.modifierType = PriceModType.REMISE;
         remise.modifierValue = new BigDecimal("1.00");
         TicketState.TicketItem discount = item("D", "11", "10", "1");
-        discount.modifierType = "DISCOUNT";
+        discount.modifierType = PriceModType.DISCOUNT;
         discount.modifierValue = new BigDecimal("5");
         TicketState.TicketItem force = item("F", "12", "10", "2");
-        force.modifierType = "FORCE_PRICE";
+        force.modifierType = PriceModType.FORCE_PRICE;
         force.modifierValue = new BigDecimal("9.00");
         TicketState.TicketItem plain = item("P", "13", "10", "1");
         TicketState.TicketItem typeNoValue = item("N", "14", "10", "1");
-        typeNoValue.modifierType = "REMISE";
+        typeNoValue.modifierType = PriceModType.REMISE;
         typeNoValue.modifierValue = null;
         TicketState.TicketItem unknown = item("U", "15", "10", "1");
-        unknown.modifierType = "MYSTERY";
+        unknown.modifierType = PriceModType.QUANTITY;
         unknown.modifierValue = new BigDecimal("1");
         Store store = new Store();
         store.code = "0034";
@@ -758,7 +759,7 @@ class ValuationServiceTest {
         when(valuationClient.valuate(any())).thenReturn(response(null));
         TicketState.TicketItem forceZero = item("Z", "20", "10", "0");
         forceZero.valuedTotal = new BigDecimal("7.00");
-        forceZero.modifierType = "FORCE_PRICE";
+        forceZero.modifierType = PriceModType.FORCE_PRICE;
         forceZero.modifierValue = new BigDecimal("7.00");
         ArgumentCaptor<ValuationPayloads.BasketDto> captor =
                 ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);

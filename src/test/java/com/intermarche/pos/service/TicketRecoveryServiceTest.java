@@ -1,5 +1,6 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.ticket.BackupPayment;
 import com.intermarche.pos.domain.ticket.CardPayment;
 import com.intermarche.pos.domain.ticket.CashPayment;
@@ -143,7 +144,7 @@ class TicketRecoveryServiceTest {
         line.vatRate = new BigDecimal("0.2000");
         line.modifierLabel = modifierLabel;
         if (modifierLabel != null) {
-            line.modifierType = "REMISE";
+            line.modifierType = PriceModType.REMISE;
             line.modifierValue = new BigDecimal("5.00");
         }
         line.originalUnitPrice = originalUnitPrice != null ? new BigDecimal(originalUnitPrice) : null;
@@ -326,7 +327,7 @@ class TicketRecoveryServiceTest {
         TicketState.TicketItem second = items.get(1);
         assertEquals("L1", second.uid);
         assertEquals("REMISE -5", second.modifierLabel);
-        assertEquals("REMISE", second.modifierType);
+        assertEquals(PriceModType.REMISE, second.modifierType);
         assertEquals(0, new BigDecimal("5.00").compareTo(second.modifierValue));
         assertEquals(0, new BigDecimal("12.00").compareTo(second.originalUnitPrice));
         TicketState.TicketItem third = items.get(2);

@@ -9,6 +9,7 @@ import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.scanner.ScanContext;
 import jakarta.annotation.Priority;
@@ -126,10 +127,11 @@ public class TicketService {
      * TicketState.allocateGlobalDiscount). Refused during an active payment.
      *
      * @param state the current POS state
-     * @param type GLOBAL_REMISE (euros) or GLOBAL_DISCOUNT (percent)
+     * @param type {@link PriceModType#GLOBAL_REMISE} (euros) or
+     *             {@link PriceModType#GLOBAL_DISCOUNT} (percent)
      * @param value the endorsed value
      */
-    public void applyGlobalDiscount(PosState state, String type, BigDecimal value) {
+    public void applyGlobalDiscount(PosState state, PriceModType type, BigDecimal value) {
         if (state.payment.paymentInProgress) {
             state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
             return;
@@ -138,12 +140,13 @@ public class TicketService {
         // absolute ceiling whatever the back office says.
         int cap = Math.min(100, posSettingsService.globalMaxDiscountPercent());
         if (value == null || value.signum() < 0
-                || ("GLOBAL_DISCOUNT".equals(type) && value.compareTo(BigDecimal.valueOf(cap)) > 0)) {
+                || (type == PriceModType.GLOBAL_DISCOUNT
+                        && value.compareTo(BigDecimal.valueOf(cap)) > 0)) {
             state.ticket.setError("VALEUR INVALIDE");
             return;
         }
         state.ticket.setGlobalDiscount(
-                "GLOBAL_DISCOUNT".equals(type) ? "PERCENT" : "AMOUNT", value);
+                type == PriceModType.GLOBAL_DISCOUNT ? "PERCENT" : "AMOUNT", value);
         recalculateTotal(state);
     }
 
@@ -488,7 +491,7 @@ public class TicketService {
             item.unitPrice = newTotal;
         }
         item.modifierLabel = String.format("Remise -%.2f€", amount);
-        item.modifierType = "REMISE";
+        item.modifierType = PriceModType.REMISE;
         item.modifierValue = amount;
         displayItem(item);
     }
@@ -513,7 +516,7 @@ public class TicketService {
                 .divide(BigDecimal.valueOf(100), PRICE_SCALE, RoundingMode.HALF_UP);
         item.unitPrice = item.unitPrice.subtract(reduction);
         item.modifierLabel = String.format("Discount -%.2f%%", percent);
-        item.modifierType = "DISCOUNT";
+        item.modifierType = PriceModType.DISCOUNT;
         item.modifierValue = percent;
         displayItem(item);
     }
@@ -540,7 +543,7 @@ public class TicketService {
         // back office administers it; masked, the line carries no "Prix initial".
         item.modifierLabel = posSettingsService.priceShowOriginalOnForce()
                 ? String.format("Prix initial: %.2f€", oldTotalPrice) : null;
-        item.modifierType = "FORCE_PRICE";
+        item.modifierType = PriceModType.FORCE_PRICE;
         item.modifierValue = newTotalPrice;
         displayItem(item);
     }

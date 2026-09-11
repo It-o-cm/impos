@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.ticket;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.CashSession;
 import com.intermarche.pos.domain.Price;
 import com.intermarche.pos.domain.Product;
@@ -418,7 +419,7 @@ class TicketServiceTest {
         service.applyRemise(item, new BigDecimal("5"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
         assertEquals(0, new BigDecimal("7.5").compareTo(item.unitPrice));
-        assertEquals("REMISE", item.modifierType);
+        assertEquals(PriceModType.REMISE, item.modifierType);
         assertEquals(0, new BigDecimal("5").compareTo(item.modifierValue));
         assertEquals("Remise -5,00€", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
@@ -433,7 +434,7 @@ class TicketServiceTest {
         TicketState.TicketItem item = line("X", new BigDecimal("2"), BigDecimal.ONE);
         service.applyRemise(item, new BigDecimal("5"));
         assertEquals(0, BigDecimal.ZERO.compareTo(item.unitPrice));
-        assertEquals("REMISE", item.modifierType);
+        assertEquals(PriceModType.REMISE, item.modifierType);
     }
 
     /**
@@ -502,7 +503,7 @@ class TicketServiceTest {
         service.applyDiscount(item, new BigDecimal("10"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
         assertEquals(0, new BigDecimal("9").compareTo(item.unitPrice));
-        assertEquals("DISCOUNT", item.modifierType);
+        assertEquals(PriceModType.DISCOUNT, item.modifierType);
         assertEquals(0, new BigDecimal("10").compareTo(item.modifierValue));
         assertEquals("Discount -10,00%", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
@@ -575,7 +576,7 @@ class TicketServiceTest {
         service.forcePrice(item, new BigDecimal("30"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
         assertEquals(0, new BigDecimal("15").compareTo(item.unitPrice));
-        assertEquals("FORCE_PRICE", item.modifierType);
+        assertEquals(PriceModType.FORCE_PRICE, item.modifierType);
         assertEquals(0, new BigDecimal("30").compareTo(item.modifierValue));
         assertEquals("Prix initial: 20,00€", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
@@ -606,7 +607,7 @@ class TicketServiceTest {
         TicketState.TicketItem item = line("X", new BigDecimal("10"), new BigDecimal("2"));
         service.forcePrice(item, new BigDecimal("30"));
         assertNull(item.modifierLabel);
-        assertEquals("FORCE_PRICE", item.modifierType);
+        assertEquals(PriceModType.FORCE_PRICE, item.modifierType);
         assertEquals(0, new BigDecimal("15").compareTo(item.unitPrice));
     }
 
@@ -1136,7 +1137,7 @@ class TicketServiceTest {
     @Test
     void applyGlobalDiscountRefusedDuringPayment() {
         state.payment.paymentInProgress = true;
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("10"));
         assertEquals("TERMINEZ OU ANNULEZ LE TICKET D'ABORD", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1146,7 +1147,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountRejectsNullValue() {
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", null);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, null);
         assertEquals("VALEUR INVALIDE", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1157,7 +1158,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountRejectsNegativeValue() {
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("-1"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("-1"));
         assertEquals("VALEUR INVALIDE", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1169,7 +1170,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountRejectsPercentAbove100() {
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("101"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("101"));
         assertEquals("VALEUR INVALIDE", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1180,7 +1181,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountAcceptsExactly100Percent() {
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("100"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("100"));
         assertEquals("PERCENT", state.ticket.globalDiscountType);
         assertEquals(0, new BigDecimal("100").compareTo(state.ticket.globalDiscountValue));
     }
@@ -1191,7 +1192,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountAcceptsEurosAbove100() {
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("150"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("150"));
         assertEquals("AMOUNT", state.ticket.globalDiscountType);
         assertEquals(0, new BigDecimal("150").compareTo(state.ticket.globalDiscountValue));
     }
@@ -1203,8 +1204,8 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountZeroErasesRequest() {
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", BigDecimal.ZERO);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("10"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, BigDecimal.ZERO);
         assertNull(state.ticket.globalDiscountType);
         assertNull(state.ticket.globalDiscountValue);
     }
@@ -1217,7 +1218,7 @@ class TicketServiceTest {
     @Test
     void applyGlobalDiscountMapsTypeAndRecomputes() {
         state.ticket.items.add(line("MILK", new BigDecimal("10.00"), BigDecimal.ONE));
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("2.00"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("2.00"));
         assertEquals("AMOUNT", state.ticket.globalDiscountType);
         assertEquals(0, new BigDecimal("2.00").compareTo(state.ticket.globalDiscountApplied));
         assertEquals(0, new BigDecimal("8.00").compareTo(state.ticket.totalAmount));

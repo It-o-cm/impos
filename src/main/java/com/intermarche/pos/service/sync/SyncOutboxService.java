@@ -344,7 +344,9 @@ public class SyncOutboxService {
             lineDto.unitPrice = line.unitPrice;
             lineDto.vatRate = line.vatRate;
             lineDto.modifierLabel = line.modifierLabel;
-            lineDto.modifierType = line.modifierType;
+            // The wire keeps the WORD: a node of another version must be able to read
+            // a gesture it does not know without the payload failing to parse.
+            lineDto.modifierType = line.modifierType == null ? null : line.modifierType.name();
             lineDto.modifierValue = line.modifierValue;
             lineDto.originalUnitPrice = line.originalUnitPrice;
             lineDto.totalPrice = line.totalPrice;
