@@ -202,6 +202,35 @@ public class RefPullService {
     }
 
     /**
+     * Runs one pull cycle NOW, on the caller's thread, on demand from the sync
+     * supervision screen (BO-08-04-09/10). It is the manual counterpart of the
+     * scheduled {@link #pullSafely()}: same {@link #pullOnce()}, but the outcome
+     * is returned rather than swallowed so the screen can show it. A success
+     * refreshes {@link #getLastSuccessfulPull()} exactly like a scheduled cycle.
+     *
+     * @return null when the cycle completed, or the failure message otherwise
+     */
+    public String triggerPull() {
+        try {
+            pullOnce();
+            return null;
+        } catch (Exception e) {
+            LOG.errorf("Tirage manuel des référentiels en erreur: %s", e.getMessage());
+            return e.getMessage();
+        }
+    }
+
+    /**
+     * The configured cadence between two scheduled pull cycles, surfaced
+     * read-only on the supervision screen (BO-08-03-08).
+     *
+     * @return the pull period in seconds
+     */
+    public long getPullSeconds() {
+        return pullSeconds;
+    }
+
+    /**
      * Downloads and applies the full snapshot of one domain, then records
      * the applied fingerprint.
      *

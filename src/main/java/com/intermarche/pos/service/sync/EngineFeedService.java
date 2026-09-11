@@ -78,6 +78,51 @@ public class EngineFeedService {
     }
 
     /**
+     * The engine sync state of one feed, flattened for a supervision screen:
+     * the stored version, the version the engine last acknowledged, whether
+     * the two match, the last delivery error, and the two timestamps. This is
+     * the read-only projection the sync supervision page renders per catalog
+     * code (BO-08-01-07/08/16, BO-08-04-08); it carries no content.
+     *
+     * @param code the feed code
+     * @param version the stored version (SHA-256 hex)
+     * @param appliedVersion the last version the engine acknowledged, or null
+     * @param applied whether the stored version equals the acknowledged one
+     * @param lastError the last delivery error toward the engine, or null
+     * @param receivedAt when the stored version reached this node
+     * @param appliedAt when the engine acknowledged the applied version, or null
+     */
+    public record FeedState(String code, String version, String appliedVersion,
+                            boolean applied, String lastError,
+                            LocalDateTime receivedAt, LocalDateTime appliedAt) {
+    }
+
+    /**
+     * Returns the engine sync state of every stored feed, in CATALOG order:
+     * the read-only projection the supervision screen renders (BO-08-01-07/08/16,
+     * BO-08-04-08). A catalog code this node never received is skipped (null
+     * arm), exactly as the historical {@code /feeds/import/status} endpoint
+     * skips it. Transactional so the read has a valid persistence session on
+     * whatever thread calls it.
+     *
+     * @return the per-feed states, in catalog order, never null
+     */
+    @Transactional
+    public List<FeedState> feedStates() {
+        List<FeedState> states = new java.util.ArrayList<>();
+        for (FeedDef def : CATALOG) {
+            EngineFeed feed = EngineFeed.findByCode(def.code());
+            if (feed == null) {
+                continue;
+            }
+            states.add(new FeedState(feed.code, feed.version, feed.appliedVersion,
+                    feed.version.equals(feed.appliedVersion), feed.lastError,
+                    feed.receivedAt, feed.appliedAt));
+        }
+        return states;
+    }
+
+    /**
      * Returns the feeds whose stored version the engine has not
      * acknowledged yet, in CATALOG (delivery) order, as detached
      * snapshots. Transactional so the delivery thread — which has no

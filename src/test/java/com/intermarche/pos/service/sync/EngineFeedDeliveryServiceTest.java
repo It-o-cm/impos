@@ -4,7 +4,6 @@ import com.sun.net.httpserver.HttpServer;
 import io.quarkus.runtime.StartupEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
@@ -299,26 +298,67 @@ class EngineFeedDeliveryServiceTest {
     }
 
     /**
-     * PRODUCTION BUG (EngineFeedDeliveryService.java:165): on the 2xx success
-     * path {@code deliver} logs {@code feed.version().substring(0, 12)} with no
-     * length guard. A version shorter than 12 characters throws
-     * {@link StringIndexOutOfBoundsException} AFTER {@code markApplied} has
-     * already acknowledged the feed but BEFORE {@code return true}; the throw is
-     * swallowed by the method's own catch, which calls {@code recordFailure} and
-     * returns false. An acknowledged delivery is thus re-recorded as an error and
-     * the walk stops. This test pins the correct behaviour — a 2xx answer to a
-     * short-version feed acknowledges it and records NO error — and fails on the
-     * current code; disabled until src/main guards the substring (e.g.
-     * {@code version.substring(0, Math.min(12, version.length()))}).
+     * A 2xx answer to a feed whose version is shorter than twelve characters
+     * acknowledges it and records NO error.
+     *
+     * <p>This is the regression guard of a bug that cost a whole walk: the success log
+     * shortened the version with an unguarded {@code substring(0, 12)}, so a short
+     * version threw AFTER {@code markApplied} had acknowledged the feed and BEFORE
+     * {@code return true}. The method's own catch swallowed the throw, called
+     * {@code recordFailure} and returned false — a delivered feed re-recorded as an
+     * error, and the walk stopped there.
      */
     @Test
-    @Disabled("BUG: EngineFeedDeliveryService.java:165 substring(0,12) throws on a version"
-            + " shorter than 12 chars, turning an acknowledged delivery into a recorded failure")
     void deliverAcknowledgesFeedWithShortVersion() {
         when(engineFeedService.pendingFeeds())
                 .thenReturn(List.of(pending("PRODUCTS", "v2", null)));
         service.deliverPending();
         verify(engineFeedService).markApplied("PRODUCTS", "v2");
         verify(engineFeedService, never()).markError(eq("PRODUCTS"), any());
+    }
+
+    /**
+     * Covers the null arm of {@code shortVersion}: a 2xx answer to a feed whose
+     * version is null acknowledges it and logs an empty short version rather
+     * than throwing — the defensive null guard on the already-acknowledged
+     * success path.
+     */
+    @Test
+    void deliverAcknowledgesFeedWithNullVersion() {
+        when(engineFeedService.pendingFeeds())
+                .thenReturn(List.of(pending("PRODUCTS", null, null)));
+        service.deliverPending();
+        verify(engineFeedService).markApplied("PRODUCTS", null);
+        verify(engineFeedService, never()).markError(eq("PRODUCTS"), any());
+    }
+
+    /**
+     * Covers the success arm of {@code triggerDelivery}: a manual cycle with
+     * nothing pending runs to completion and returns null (no error surfaces).
+     */
+    @Test
+    void triggerDeliveryReturnsNullWhenNothingPending() {
+        when(engineFeedService.pendingFeeds()).thenReturn(List.of());
+        assertNull(service.triggerDelivery());
+    }
+
+    /**
+     * Covers the catch arm of {@code triggerDelivery}: an error reaching the
+     * pending-feed lookup is caught and its message returned to the screen.
+     */
+    @Test
+    void triggerDeliveryReturnsErrorMessageOnFailure() {
+        when(engineFeedService.pendingFeeds()).thenThrow(new RuntimeException("db down"));
+        assertEquals("db down", service.triggerDelivery());
+    }
+
+    /**
+     * {@code getDeliverySeconds} surfaces the configured delivery cadence
+     * read-only.
+     */
+    @Test
+    void getDeliverySecondsReturnsConfiguredCadence() {
+        service.deliverySeconds = 45;
+        assertEquals(45L, service.getDeliverySeconds());
     }
 }

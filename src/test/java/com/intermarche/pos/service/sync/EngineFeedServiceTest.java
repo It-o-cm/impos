@@ -9,6 +9,7 @@ import org.mockito.MockedStatic;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -253,6 +254,56 @@ class EngineFeedServiceTest {
             assertEquals("v2", pending.get(0).version());
             assertEquals("old error", pending.get(0).lastError());
             assertEquals("OFFERS", pending.get(1).code());
+        }
+    }
+
+    /**
+     * {@code feedStates} projects the stored feeds in catalog order, skipping
+     * absent codes (null arm) and flagging the applied state from the
+     * version/appliedVersion equality: an acknowledged feed (equal arm, no
+     * error, both timestamps) and a lagging feed (unequal arm, an error, no
+     * applied timestamp). Content is never carried.
+     */
+    @Test
+    void feedStatesProjectsStoredFeedsInCatalogOrder() {
+        EngineFeed products = mock(EngineFeed.class);
+        products.code = "PRODUCTS";
+        products.version = "v2v2v2v2v2v2v2";
+        products.appliedVersion = "v2v2v2v2v2v2v2";
+        products.lastError = null;
+        products.receivedAt = java.time.LocalDateTime.of(2026, 9, 11, 8, 0);
+        products.appliedAt = java.time.LocalDateTime.of(2026, 9, 11, 8, 1);
+        EngineFeed offers = mock(EngineFeed.class);
+        offers.code = "OFFERS";
+        offers.version = "vNEWvNEWvNEW";
+        offers.appliedVersion = "vOLD";
+        offers.lastError = "boom";
+        offers.receivedAt = java.time.LocalDateTime.of(2026, 9, 11, 9, 0);
+        offers.appliedAt = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            for (EngineFeedService.FeedDef def : EngineFeedService.CATALOG) {
+                io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> absentQuery = queryOf(null);
+                mocked.when(() -> EngineFeed.find("code", def.code())).thenReturn(absentQuery);
+            }
+            io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> productsQuery = queryOf(products);
+            io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> offersQuery = queryOf(offers);
+            mocked.when(() -> EngineFeed.find("code", "PRODUCTS")).thenReturn(productsQuery);
+            mocked.when(() -> EngineFeed.find("code", "OFFERS")).thenReturn(offersQuery);
+            List<EngineFeedService.FeedState> states = service.feedStates();
+            assertEquals(2, states.size());
+            EngineFeedService.FeedState first = states.get(0);
+            assertEquals("PRODUCTS", first.code());
+            assertEquals("v2v2v2v2v2v2v2", first.version());
+            assertEquals("v2v2v2v2v2v2v2", first.appliedVersion());
+            assertTrue(first.applied());
+            assertNull(first.lastError());
+            assertEquals(java.time.LocalDateTime.of(2026, 9, 11, 8, 0), first.receivedAt());
+            assertEquals(java.time.LocalDateTime.of(2026, 9, 11, 8, 1), first.appliedAt());
+            EngineFeedService.FeedState second = states.get(1);
+            assertEquals("OFFERS", second.code());
+            assertFalse(second.applied());
+            assertEquals("boom", second.lastError());
+            assertNull(second.appliedAt());
         }
     }
 

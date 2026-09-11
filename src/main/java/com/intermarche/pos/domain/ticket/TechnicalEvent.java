@@ -97,7 +97,20 @@ public class TechnicalEvent extends PanacheEntity {
          * PIN). The account is named by {@link #operatorBadgeId}, never by the
          * attempted secret, not even truncated.
          */
-        PASSWORD_FAILED
+        PASSWORD_FAILED,
+        /**
+         * A back-office administrator forced an immediate referential pull from
+         * the sync supervision screen (BO-08-04-09/10), outside the scheduled
+         * cadence. The event has no operator badge: it is a machine action
+         * triggered from an authenticated back-office session.
+         */
+        REFERENTIAL_PULL_FORCED,
+        /**
+         * A back-office administrator forced an immediate engine-feed delivery
+         * from the sync supervision screen (BO-08-04-13), outside the scheduled
+         * cadence. Like the pull, a machine action with no operator badge.
+         */
+        ENGINE_FEED_DELIVERY_FORCED
     }
 
     /** The type of the event. */

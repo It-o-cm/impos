@@ -141,6 +141,37 @@ public class EngineFeedDeliveryService {
     }
 
     /**
+     * Runs one delivery cycle NOW, on the caller's thread, on demand from the
+     * sync supervision screen (BO-08-04-13). It is the manual counterpart of
+     * the scheduled {@link #deliverSafely()}: same {@link #deliverPending()},
+     * but the outcome is returned rather than swallowed. A per-feed HTTP
+     * failure is recorded on the feed itself (visible in the feed table) and
+     * does NOT surface here — only an error reaching the pending-feed lookup
+     * does.
+     *
+     * @return null when the cycle ran, or the failure message otherwise
+     */
+    public String triggerDelivery() {
+        try {
+            deliverPending();
+            return null;
+        } catch (Exception e) {
+            LOG.warnf("Livraison manuelle des flux moteur en échec: %s", e.getMessage());
+            return e.getMessage();
+        }
+    }
+
+    /**
+     * The configured cadence between two scheduled delivery cycles, surfaced
+     * read-only on the supervision screen (BO-08-03-08).
+     *
+     * @return the delivery period in seconds
+     */
+    public long getDeliverySeconds() {
+        return deliverySeconds;
+    }
+
+    /**
      * Delivers one feed to the engine and records the outcome.
      *
      * @param feed the detached snapshot to deliver
@@ -162,7 +193,12 @@ public class EngineFeedDeliveryService {
                     httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 engineFeedService.markApplied(feed.code(), feed.version());
-                LOG.infof("Flux moteur %s livré (version %s)", feed.code(), feed.version().substring(0, 12));
+                // THE ACKNOWLEDGEMENT IS ALREADY DONE WHEN THIS LINE RUNS, so the log may
+                // not throw: an unguarded substring on a version shorter than twelve
+                // characters raised StringIndexOutOfBoundsException after markApplied and
+                // before the return, and the method's own catch turned a delivered feed
+                // into a recorded failure that stopped the walk.
+                LOG.infof("Flux moteur %s livré (version %s)", feed.code(), shortVersion(feed.version()));
                 return true;
             }
             recordFailure(feed, "HTTP " + response.statusCode() + " sur " + feed.enginePath()
@@ -173,6 +209,25 @@ public class EngineFeedDeliveryService {
             recordFailure(feed, e.getClass().getSimpleName() + ": " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Shortens a feed version to what a log line needs.
+     *
+     * <p>A VERSION IS NOT GUARANTEED TO BE TWELVE CHARACTERS LONG. Today's versions
+     * happen to be, which is a naming convention and not a contract; a shorter one —
+     * a hand-set version, a test fixture, a future format — must shorten to itself
+     * rather than throw, because the only caller runs after the feed has already been
+     * acknowledged and a throw there is read as a delivery failure.
+     *
+     * @param version the feed version, or null
+     * @return its first twelve characters at most, empty when there is no version
+     */
+    private String shortVersion(String version) {
+        if (version == null) {
+            return "";
+        }
+        return version.substring(0, Math.min(12, version.length()));
     }
 
     /**

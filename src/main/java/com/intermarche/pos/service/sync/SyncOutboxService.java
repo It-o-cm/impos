@@ -208,6 +208,54 @@ public class SyncOutboxService {
         SyncOutbox.deleteById(outboxId);
     }
 
+    /**
+     * The push backlog of one entity kind: how many rows still await
+     * acknowledgement, the worst {@code attempts} count among them (a poison
+     * item keeps climbing) and the most recent recorded error. This is the
+     * read-only projection the sync supervision screen renders per code
+     * (BO-08-04-03); an empty table means "fully synchronized".
+     *
+     * @param type the entity kind
+     * @param count the number of rows awaiting push
+     * @param maxAttempts the highest failed-attempt count among those rows
+     * @param lastError the last recorded push error, or null when none failed
+     */
+    public record BacklogRow(String type, long count, int maxAttempts, String lastError) {
+    }
+
+    /**
+     * Returns the push backlog grouped by entity kind, in drain order, keeping
+     * only the kinds that have at least one row awaiting push (empty kinds are
+     * skipped). For each kept kind it reports the row count, the worst attempt
+     * count and the latest non-null error — enough for a supervisor to see a
+     * stuck item without a query (BO-08-04-03). An empty list means the node is
+     * fully synchronized.
+     *
+     * @return the per-kind backlog rows, in drain order, never null
+     */
+    @Transactional
+    public List<BacklogRow> backlog() {
+        List<BacklogRow> rows = new java.util.ArrayList<>();
+        for (SyncOutbox.EntityType type : SyncOutbox.EntityType.values()) {
+            List<SyncOutbox> items = SyncOutbox.list("entityType", type);
+            if (items.isEmpty()) {
+                continue;
+            }
+            int maxAttempts = 0;
+            String lastError = null;
+            for (SyncOutbox item : items) {
+                if (item.attempts > maxAttempts) {
+                    maxAttempts = item.attempts;
+                }
+                if (item.lastError != null) {
+                    lastError = item.lastError;
+                }
+            }
+            rows.add(new BacklogRow(type.name(), items.size(), maxAttempts, lastError));
+        }
+        return rows;
+    }
+
     // --------------------------------------------------
     // Entity to DTO mapping (natural keys only)
     // --------------------------------------------------

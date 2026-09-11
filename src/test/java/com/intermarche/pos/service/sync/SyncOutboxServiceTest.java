@@ -1098,4 +1098,59 @@ class SyncOutboxServiceTest {
             verify(row, times(1)).persist();
         }
     }
+
+    /**
+     * Builds a real outbox POJO with the given attempt count and error, for the
+     * backlog aggregation (no persistence, only field reads).
+     *
+     * @param attempts the failed-attempt count
+     * @param lastError the last error, or null
+     * @return the populated row
+     */
+    private SyncOutbox row(int attempts, String lastError) {
+        SyncOutbox row = new SyncOutbox();
+        row.attempts = attempts;
+        row.lastError = lastError;
+        return row;
+    }
+
+    /**
+     * Covers {@code backlog}: an empty kind is skipped (isEmpty true arm); a
+     * populated kind is aggregated (isEmpty false arm) with the worst attempt
+     * count — the {@code attempts > maxAttempts} true arm (5 &gt; 0) and false
+     * arm (2 is not &gt; 5) — and the latest non-null error, the
+     * {@code lastError != null} true arm (an error present) and false arm (a
+     * clean row leaves the accumulator null). Rows come back in drain (enum)
+     * order.
+     */
+    @Test
+    void backlogAggregatesPerKindInDrainOrder() {
+        SyncOutboxService service = new SyncOutboxService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.list("entityType", SyncOutbox.EntityType.SESSION))
+                    .thenReturn(List.of());
+            mocked.when(() -> SyncOutbox.list("entityType", SyncOutbox.EntityType.MOVEMENT))
+                    .thenReturn(List.of(row(0, null)));
+            mocked.when(() -> SyncOutbox.list("entityType", SyncOutbox.EntityType.TICKET))
+                    .thenReturn(List.of(row(5, "e1"), row(2, "e2")));
+            mocked.when(() -> SyncOutbox.list("entityType", SyncOutbox.EntityType.REFUND))
+                    .thenReturn(List.of());
+            mocked.when(() -> SyncOutbox.list("entityType", SyncOutbox.EntityType.EVENT))
+                    .thenReturn(List.of());
+            mocked.when(() -> SyncOutbox.list("entityType", SyncOutbox.EntityType.CUSTOMER))
+                    .thenReturn(List.of());
+            List<SyncOutboxService.BacklogRow> backlog = service.backlog();
+            assertEquals(2, backlog.size());
+            SyncOutboxService.BacklogRow movement = backlog.get(0);
+            assertEquals("MOVEMENT", movement.type());
+            assertEquals(1L, movement.count());
+            assertEquals(0, movement.maxAttempts());
+            assertNull(movement.lastError());
+            SyncOutboxService.BacklogRow ticket = backlog.get(1);
+            assertEquals("TICKET", ticket.type());
+            assertEquals(2L, ticket.count());
+            assertEquals(5, ticket.maxAttempts());
+            assertEquals("e2", ticket.lastError());
+        }
+    }
 }

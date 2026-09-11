@@ -597,4 +597,50 @@ class RefPullServiceTest {
                 () -> callGet(service, "/path"));
         assertEquals("HTTP 500 sur /path", ex.getMessage());
     }
+
+    /**
+     * Covers the success arm of {@code triggerPull}: a manual cycle runs to
+     * completion (every fingerprint absent, nothing applied) and returns null,
+     * refreshing the last successful pull like a scheduled cycle.
+     */
+    @Test
+    void triggerPullReturnsNullOnCleanCycle() throws Exception {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        when(outbox.getStoreUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(outbox, apply, mapper, client);
+        assertNull(service.triggerPull());
+        assertNotNull(service.getLastSuccessfulPull());
+    }
+
+    /**
+     * Covers the catch arm of {@code triggerPull}: a failure inside the cycle is
+     * caught and its message returned to the screen rather than swallowed.
+     */
+    @Test
+    void triggerPullReturnsErrorMessageOnFailure() throws Exception {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        when(outbox.getStoreUrl()).thenReturn("http://store");
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
+        doThrow(new RuntimeException("boom")).when(mapper)
+                .readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(outbox, mock(RefApplyService.class), mapper, client);
+        assertEquals("boom", service.triggerPull());
+    }
+
+    /**
+     * {@code getPullSeconds} surfaces the configured pull cadence read-only.
+     */
+    @Test
+    void getPullSecondsReturnsConfiguredCadence() throws Exception {
+        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+                mock(ObjectMapper.class), mock(HttpClient.class));
+        assertEquals(300L, service.getPullSeconds());
+    }
 }
