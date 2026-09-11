@@ -95,6 +95,26 @@ public class JournalCriteria {
     /** Inclusive upper bound of the ticket amount range (BO-04-01-05/07), or null. */
     public BigDecimal amountMax;
 
+    /**
+     * Inclusive lower bound of the BEFORE-DISCOUNT ticket amount range
+     * (BO-04-01-05), or null. Bears on {@code totalIncludingTax +
+     * globalDiscountApplied} — the total the ticket would have reached without
+     * its manager rebate — so an auditor can search on the gross amount as well
+     * as on the net {@link #amountMin}/{@link #amountMax}.
+     */
+    public BigDecimal grossMin;
+    /** Inclusive upper bound of the before-discount ticket amount range (BO-04-01-05), or null. */
+    public BigDecimal grossMax;
+
+    /**
+     * Inclusive lower bound of the time-of-day range (BO-04-01-09), 0..23, or
+     * null. Bears on the HOUR of the transaction whatever its day, so a
+     * "toutes les ventes entre 12h et 14h" search spans every day at once.
+     */
+    public Integer hourFrom;
+    /** Inclusive upper bound of the time-of-day range (BO-04-01-09), 0..23, or null. */
+    public Integer hourTo;
+
     /** The selected payment method keys (BO-04-01-06/07), never null (possibly empty). */
     public Set<String> methods = new LinkedHashSet<>();
 
@@ -112,6 +132,15 @@ public class JournalCriteria {
     public String familyMin;
     /** Inclusive upper bound of the nomenclature (family) code range (BO-04-01-11), or null. */
     public String familyMax;
+
+    /**
+     * The explicitly selected nomenclature (family) codes (BO-04-01-11), never
+     * null (possibly empty). The multi-select complement of the
+     * {@link #familyMin}/{@link #familyMax} range: several non-contiguous
+     * families ORed together as a single {@code in} criterion, matched on the
+     * line's own snapshotted {@code familyCode}.
+     */
+    public Set<String> families = new LinkedHashSet<>();
 
     /**
      * Inclusive lower bound of the refunded-article PLU range (BO-04-01-23), or
@@ -165,6 +194,11 @@ public class JournalCriteria {
      */
     public Set<CashMovement.MovementType> movementTypes = new LinkedHashSet<>();
 
+    /** Inclusive lower bound of the cash-movement amount range (BO-04-01-33), or null. */
+    public BigDecimal movementAmountMin;
+    /** Inclusive upper bound of the cash-movement amount range (BO-04-01-33), or null. */
+    public BigDecimal movementAmountMax;
+
     /** The sort column key (one of {@link JournalSort}), or null for the default. */
     public String sort;
 
@@ -181,6 +215,17 @@ public class JournalCriteria {
      * Default constructor for an empty (match-everything) criteria.
      */
     public JournalCriteria() {
+    }
+
+    /**
+     * The selected family codes joined back into the comma-separated form the
+     * search field posts (BO-04-01-11), so the form re-fills after a search.
+     * Empty when no family was selected.
+     *
+     * @return the family codes joined by commas, never null
+     */
+    public String familiesAsText() {
+        return String.join(",", families);
     }
 
     /**
@@ -205,12 +250,17 @@ public class JournalCriteria {
         criteria.txMax = blankToNull(params.getFirst("txMax"));
         criteria.amountMin = parseAmount(params.getFirst("amountMin"));
         criteria.amountMax = parseAmount(params.getFirst("amountMax"));
+        criteria.grossMin = parseAmount(params.getFirst("grossMin"));
+        criteria.grossMax = parseAmount(params.getFirst("grossMax"));
+        criteria.hourFrom = parseHour(params.getFirst("hourFrom"));
+        criteria.hourTo = parseHour(params.getFirst("hourTo"));
         criteria.dateFrom = parseDateTime(params.getFirst("dateFrom"));
         criteria.dateTo = parseDateTime(params.getFirst("dateTo"));
         criteria.pluMin = blankToNull(params.getFirst("pluMin"));
         criteria.pluMax = blankToNull(params.getFirst("pluMax"));
         criteria.familyMin = blankToNull(params.getFirst("familyMin"));
         criteria.familyMax = blankToNull(params.getFirst("familyMax"));
+        addFamilyCodes(criteria.families, params.getFirst("familyCodes"));
         criteria.refundPluMin = blankToNull(params.getFirst("refundPluMin"));
         criteria.refundPluMax = blankToNull(params.getFirst("refundPluMax"));
         criteria.refundAmountMin = parseAmount(params.getFirst("refundAmountMin"));
@@ -224,6 +274,8 @@ public class JournalCriteria {
         criteria.cancelPluMax = blankToNull(params.getFirst("cancelPluMax"));
         criteria.cancelAmountMin = parseAmount(params.getFirst("cancelAmountMin"));
         criteria.cancelAmountMax = parseAmount(params.getFirst("cancelAmountMax"));
+        criteria.movementAmountMin = parseAmount(params.getFirst("movementAmountMin"));
+        criteria.movementAmountMax = parseAmount(params.getFirst("movementAmountMax"));
         addNonBlank(criteria.methods, params.get("method"));
         addNonBlank(criteria.eventTypes, params.get("eventType"));
         addFlags(criteria.flags, params.get("flag"));
@@ -252,6 +304,27 @@ public class JournalCriteria {
             return page < 1 ? 1 : page;
         } catch (NumberFormatException e) {
             return 1;
+        }
+    }
+
+    /**
+     * Parses an hour-of-day (BO-04-01-09), accepting 0..23 and returning null on
+     * a blank, malformed or out-of-range value: a bad hour narrows nothing
+     * rather than faulting the read screen.
+     *
+     * @param raw the raw value
+     * @return the hour in 0..23, or null
+     */
+    static Integer parseHour(String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return null;
+        }
+        try {
+            int hour = Integer.parseInt(value);
+            return (hour < 0 || hour > 23) ? null : hour;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -324,6 +397,28 @@ public class JournalCriteria {
         }
         for (String value : raw) {
             String trimmed = blankToNull(value);
+            if (trimmed != null) {
+                target.add(trimmed);
+            }
+        }
+    }
+
+    /**
+     * Adds the comma-separated family codes of a single field to a target set
+     * (BO-04-01-11), trimming each and dropping the blanks — the multi-select
+     * expressed as a codes list, so several non-contiguous families narrow the
+     * search without one input per family. A blank field adds nothing.
+     *
+     * @param target the set to fill
+     * @param raw the raw comma-separated value, or null
+     */
+    static void addFamilyCodes(Set<String> target, String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return;
+        }
+        for (String part : value.split(",")) {
+            String trimmed = blankToNull(part);
             if (trimmed != null) {
                 target.add(trimmed);
             }

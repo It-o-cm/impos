@@ -138,8 +138,10 @@ class EndorsementServiceTest {
         when(service.authService.checkCredentials("mgr", "1234"))
                 .thenReturn(status(employee(Employee.EmployeeRole.MANAGER)));
         assertTrue(service.authorize("mgr", "1234", "CANCEL_TICKET"));
+        // BO-04-01-39: the endorsing operator is named in the first-class badge
+        // column (3rd arg) so the journal's N° caissière filter can reach it.
         verify(service.technicalEventService).log(
-                TechnicalEvent.EventType.ENDORSEMENT_GRANTED, "CANCEL_TICKET par mgr");
+                TechnicalEvent.EventType.ENDORSEMENT_GRANTED, "CANCEL_TICKET par mgr", "mgr");
     }
 
     /**
@@ -152,8 +154,10 @@ class EndorsementServiceTest {
         EndorsementService service = newService();
         when(service.authService.checkCredentials(null, "0000")).thenReturn(status(null));
         assertFalse(service.authorize(null, "0000", "CANCEL_TICKET"));
+        // BO-04-01-39: a null login carries a null badge — the "?" placeholder
+        // stays in the detail, but the badge column is null (never matches a range).
         verify(service.technicalEventService).log(
-                TechnicalEvent.EventType.ENDORSEMENT_DENIED, "CANCEL_TICKET par ?");
+                TechnicalEvent.EventType.ENDORSEMENT_DENIED, "CANCEL_TICKET par ?", null);
     }
 
     // --- requestAuthorization / requestPriceModification / clearRequest ---

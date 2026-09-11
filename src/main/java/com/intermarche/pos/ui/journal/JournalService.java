@@ -111,6 +111,22 @@ public class JournalService {
             query.and("t.totalIncludingTax <= :amountMax");
             query.bind("amountMax", criteria.amountMax);
         }
+        if (criteria.grossMin != null) {
+            query.and("(t.totalIncludingTax + coalesce(t.globalDiscountApplied, 0)) >= :grossMin");
+            query.bind("grossMin", criteria.grossMin);
+        }
+        if (criteria.grossMax != null) {
+            query.and("(t.totalIncludingTax + coalesce(t.globalDiscountApplied, 0)) <= :grossMax");
+            query.bind("grossMax", criteria.grossMax);
+        }
+        if (criteria.hourFrom != null) {
+            query.and("extract(hour from t.creationDate) >= :hourFrom");
+            query.bind("hourFrom", criteria.hourFrom);
+        }
+        if (criteria.hourTo != null) {
+            query.and("extract(hour from t.creationDate) <= :hourTo");
+            query.bind("hourTo", criteria.hourTo);
+        }
         if (!criteria.methods.isEmpty()) {
             List<Class<?>> types = new ArrayList<>();
             for (String key : criteria.methods) {
@@ -160,13 +176,19 @@ public class JournalService {
         // The sold-article PLU search bears on sold lines only: a cancelled
         // article (lot C4) is a journal witness, not a sale, so it never
         // matches BO-04-01-10 — hence the leading {@code l.cancelled = false}.
-        StringBuilder inner = new StringBuilder("exists (select l from t.lines l where l.cancelled = false");
+        // BO-04-01-10: the EFFECTIVE PLU is the line's own weighing PLU when it
+        // has one, else the catalog PLU of the product it references — so an
+        // article carrying a catalog PLU but SOLD OUTSIDE weighing (l.plu null)
+        // is no longer invisible. A LEFT JOIN keeps unknown-product lines rather
+        // than dropping them, and coalesce picks the line PLU over the catalog.
+        StringBuilder inner = new StringBuilder(
+                "exists (select l from t.lines l left join l.product pr where l.cancelled = false");
         if (criteria.pluMin != null) {
-            inner.append(" and l.plu >= :pluMin");
+            inner.append(" and coalesce(l.plu, pr.plu) >= :pluMin");
             query.bind("pluMin", criteria.pluMin);
         }
         if (criteria.pluMax != null) {
-            inner.append(" and l.plu <= :pluMax");
+            inner.append(" and coalesce(l.plu, pr.plu) <= :pluMax");
             query.bind("pluMax", criteria.pluMax);
         }
         inner.append(")");
@@ -185,6 +207,15 @@ public class JournalService {
      * @param criteria the parsed criteria
      */
     private void appendFamilyRange(JournalQuery query, JournalCriteria criteria) {
+        // BO-04-01-11: the multi-select complement of the range — several
+        // explicitly picked families ORed as one line-scoped {@code in}, on the
+        // line's own snapshotted family code. Independent of the range: a search
+        // may pose either, both, or neither.
+        if (!criteria.families.isEmpty()) {
+            query.and("exists (select l from t.lines l where l.cancelled = false"
+                    + " and l.familyCode in :families)");
+            query.bind("families", new ArrayList<>(criteria.families));
+        }
         if (criteria.familyMin == null && criteria.familyMax == null) {
             return;
         }
@@ -223,16 +254,20 @@ public class JournalService {
                 && criteria.refundAmountMin == null && criteria.refundAmountMax == null) {
             return;
         }
+        // BO-04-01-23: same effective-PLU correction on the ORIGINAL line the
+        // refund gives back — its weighing PLU, else the catalog PLU of the
+        // product it referenced, via a LEFT JOIN so a null-product line stays.
         StringBuilder inner = new StringBuilder(
                 "exists (select rl from Refund r join r.lines rl, TicketLine ol"
+                        + " left join ol.product opr"
                         + " where r.originalTicketId = t.id and ol.id = rl.originalLineId"
                         + " and ol.cancelled = false");
         if (criteria.refundPluMin != null) {
-            inner.append(" and ol.plu >= :refundPluMin");
+            inner.append(" and coalesce(ol.plu, opr.plu) >= :refundPluMin");
             query.bind("refundPluMin", criteria.refundPluMin);
         }
         if (criteria.refundPluMax != null) {
-            inner.append(" and ol.plu <= :refundPluMax");
+            inner.append(" and coalesce(ol.plu, opr.plu) <= :refundPluMax");
             query.bind("refundPluMax", criteria.refundPluMax);
         }
         if (criteria.refundAmountMin != null) {
@@ -260,8 +295,13 @@ public class JournalService {
         }
         // Sold lines only: a discounted line later cancelled (lot C4) is not a
         // manual reduction that stood on the ticket, so it is excluded here.
+        // BO-04-01-26: the "réduction manuelle" search is REMISE and DISCOUNT
+        // only — a FORCE_PRICE is a price override, not a reduction, and must
+        // not be swept in by a bare "modifierType is not null".
         StringBuilder inner = new StringBuilder(
-                "exists (select l from t.lines l where l.cancelled = false and l.modifierType is not null");
+                "exists (select l from t.lines l where l.cancelled = false and l.modifierType in :reductionTypes");
+        query.bind("reductionTypes",
+                List.of(com.intermarche.pos.ui.PriceModType.REMISE, com.intermarche.pos.ui.PriceModType.DISCOUNT));
         if (criteria.reductionMin != null) {
             inner.append(" and l.modifierValue >= :reductionMin");
             query.bind("reductionMin", criteria.reductionMin);
@@ -294,14 +334,16 @@ public class JournalService {
                 && criteria.cancelAmountMin == null && criteria.cancelAmountMax == null) {
             return;
         }
+        // BO-04-01-16: same effective-PLU correction as the sold-article search
+        // — the cancelled article's own weighing PLU, else its catalog PLU.
         StringBuilder inner = new StringBuilder(
-                "exists (select l from t.lines l where l.cancelled = true");
+                "exists (select l from t.lines l left join l.product pr where l.cancelled = true");
         if (criteria.cancelPluMin != null) {
-            inner.append(" and l.plu >= :cancelPluMin");
+            inner.append(" and coalesce(l.plu, pr.plu) >= :cancelPluMin");
             query.bind("cancelPluMin", criteria.cancelPluMin);
         }
         if (criteria.cancelPluMax != null) {
-            inner.append(" and l.plu <= :cancelPluMax");
+            inner.append(" and coalesce(l.plu, pr.plu) <= :cancelPluMax");
             query.bind("cancelPluMax", criteria.cancelPluMax);
         }
         if (criteria.cancelAmountMin != null) {
@@ -381,8 +423,12 @@ public class JournalService {
             query.bind("voucherType", VoucherPayment.class);
         }
         if (criteria.flags.contains(JournalCriteria.Flag.CARD)) {
-            query.and("exists (select p from t.payments p where type(p) = :cardType)");
+            // BO-04-01-46: the "total monétique" counts a backup-monetics
+            // settlement as a card payment too — somebody else's monetics
+            // authorized it, but it is still a card acceptance, not cash.
+            query.and("exists (select p from t.payments p where type(p) = :cardType or type(p) = :backupType)");
             query.bind("cardType", CardPayment.class);
+            query.bind("backupType", com.intermarche.pos.domain.ticket.BackupPayment.class);
         }
         if (criteria.flags.contains(JournalCriteria.Flag.DEGRADED)) {
             query.and("exists (select p from t.payments p where treat(p as CardPayment).degradedMode = true)");
@@ -668,6 +714,14 @@ public class JournalService {
         if (!criteria.movementTypes.isEmpty()) {
             query.and("m.type in :movementTypes");
             query.bind("movementTypes", new ArrayList<>(criteria.movementTypes));
+        }
+        if (criteria.movementAmountMin != null) {
+            query.and("m.amount >= :movementAmountMin");
+            query.bind("movementAmountMin", criteria.movementAmountMin);
+        }
+        if (criteria.movementAmountMax != null) {
+            query.and("m.amount <= :movementAmountMax");
+            query.bind("movementAmountMax", criteria.movementAmountMax);
         }
         if (criteria.cashierMin != null) {
             query.and("m.cashier.badgeId >= :cashierMin");

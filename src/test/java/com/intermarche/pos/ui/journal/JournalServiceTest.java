@@ -167,22 +167,22 @@ class JournalServiceTest {
         assertEquals(List.of(CardPayment.class), params.get("methodTypes"));
         assertTrue(where.contains("t.creationDate >= :dateFrom"));
         assertTrue(where.contains("t.creationDate <= :dateTo"));
-        assertTrue(where.contains("l.plu >= :pluMin and l.plu <= :pluMax"));
+        assertTrue(where.contains("coalesce(l.plu, pr.plu) >= :pluMin and coalesce(l.plu, pr.plu) <= :pluMax"));
         assertTrue(where.contains("l.familyCode >= :familyMin and l.familyCode <= :familyMax"));
         // Sold-article searches now exclude the cancelled witnesses (lot C4):
         // every line-scoped sold criterion carries the l.cancelled = false guard.
-        assertTrue(where.contains("l.cancelled = false and l.plu >= :pluMin"));
+        assertTrue(where.contains("l.cancelled = false and coalesce(l.plu, pr.plu) >= :pluMin"));
         assertTrue(where.contains("l.cancelled = false and l.familyCode >= :familyMin"));
         assertTrue(where.contains("l.cancelled = false and l.vatRate = :vatRate"));
         assertTrue(where.contains("l.cancelled = false and lower(l.productLabel) like :text"));
-        assertTrue(where.contains("l.cancelled = false and l.modifierType is not null"));
+        assertTrue(where.contains("l.cancelled = false and l.modifierType in :reductionTypes"));
         assertTrue(where.contains("l.cancelled = false and l.totalPrice = 0"));
         assertTrue(where.contains("l.cancelled = false and l.product is null and l.deposit = false"));
         assertTrue(where.contains("ol.id = rl.originalLineId and ol.cancelled = false"));
         // The cancelled-article criterion (BO-04-01-16): one exists over the
         // cancelled witness, both ranges bearing on the same line.
-        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true"
-                + " and l.plu >= :cancelPluMin and l.plu <= :cancelPluMax"
+        assertTrue(where.contains("exists (select l from t.lines l left join l.product pr where l.cancelled = true"
+                + " and coalesce(l.plu, pr.plu) >= :cancelPluMin and coalesce(l.plu, pr.plu) <= :cancelPluMax"
                 + " and l.totalPrice >= :cancelAmountMin and l.totalPrice <= :cancelAmountMax)"));
         assertEquals("70", params.get("cancelPluMin"));
         assertEquals("80", params.get("cancelPluMax"));
@@ -209,9 +209,10 @@ class JournalServiceTest {
         assertEquals("999999", params.get("authMax"));
         assertTrue(where.contains("treat(p as CardPayment).degradedMode = true"));
         assertTrue(where.contains("exists (select rl from Refund r join r.lines rl, TicketLine ol"
+                + " left join ol.product opr"
                 + " where r.originalTicketId = t.id and ol.id = rl.originalLineId"));
-        assertTrue(where.contains("ol.plu >= :refundPluMin"));
-        assertTrue(where.contains("ol.plu <= :refundPluMax"));
+        assertTrue(where.contains("coalesce(ol.plu, opr.plu) >= :refundPluMin"));
+        assertTrue(where.contains("coalesce(ol.plu, opr.plu) <= :refundPluMax"));
         assertTrue(where.contains("rl.price * rl.quantity >= :refundAmountMin"));
         assertTrue(where.contains("rl.price * rl.quantity <= :refundAmountMax"));
         assertEquals("40", params.get("refundPluMin"));
@@ -314,7 +315,7 @@ class JournalServiceTest {
         JournalCriteria criteria = new JournalCriteria();
         criteria.pluMin = "40";
         String where = service.buildTicketQuery(criteria).whereClause();
-        assertTrue(where.contains("l.plu >= :pluMin)"));
+        assertTrue(where.contains("coalesce(l.plu, pr.plu) >= :pluMin)"));
         assertFalse(where.contains("pluMax"));
     }
 
@@ -328,7 +329,7 @@ class JournalServiceTest {
         JournalCriteria criteria = new JournalCriteria();
         criteria.pluMax = "50";
         String where = service.buildTicketQuery(criteria).whereClause();
-        assertTrue(where.contains("l.plu <= :pluMax)"));
+        assertTrue(where.contains("coalesce(l.plu, pr.plu) <= :pluMax)"));
         assertFalse(where.contains("pluMin"));
     }
 
@@ -384,8 +385,8 @@ class JournalServiceTest {
         criteria.cancelAmountMax = new BigDecimal("30.00");
         JournalQuery query = service.buildTicketQuery(criteria);
         String where = query.whereClause();
-        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true"
-                + " and l.plu >= :cancelPluMin and l.totalPrice <= :cancelAmountMax)"));
+        assertTrue(where.contains("exists (select l from t.lines l left join l.product pr where l.cancelled = true"
+                + " and coalesce(l.plu, pr.plu) >= :cancelPluMin and l.totalPrice <= :cancelAmountMax)"));
         assertFalse(where.contains("cancelPluMax"));
         assertFalse(where.contains("cancelAmountMin"));
         assertEquals("70", query.parameters().get("cancelPluMin"));
@@ -405,8 +406,8 @@ class JournalServiceTest {
         criteria.cancelAmountMin = new BigDecimal("3.00");
         JournalQuery query = service.buildTicketQuery(criteria);
         String where = query.whereClause();
-        assertTrue(where.contains("exists (select l from t.lines l where l.cancelled = true"
-                + " and l.plu <= :cancelPluMax and l.totalPrice >= :cancelAmountMin)"));
+        assertTrue(where.contains("exists (select l from t.lines l left join l.product pr where l.cancelled = true"
+                + " and coalesce(l.plu, pr.plu) <= :cancelPluMax and l.totalPrice >= :cancelAmountMin)"));
         assertFalse(where.contains("cancelPluMin"));
         assertFalse(where.contains("cancelAmountMax"));
         assertEquals("80", query.parameters().get("cancelPluMax"));
@@ -485,7 +486,7 @@ class JournalServiceTest {
         JournalQuery query = service.buildTicketQuery(criteria);
         String where = query.whereClause();
         assertTrue(where.contains("r.originalTicketId = t.id and ol.id = rl.originalLineId"));
-        assertTrue(where.contains("ol.plu >= :refundPluMin"));
+        assertTrue(where.contains("coalesce(ol.plu, opr.plu) >= :refundPluMin"));
         assertTrue(where.contains("rl.price * rl.quantity <= :refundAmountMax"));
         assertFalse(where.contains("refundPluMax"));
         assertFalse(where.contains("refundAmountMin"));
@@ -506,7 +507,7 @@ class JournalServiceTest {
         criteria.refundAmountMin = new BigDecimal("2.00");
         JournalQuery query = service.buildTicketQuery(criteria);
         String where = query.whereClause();
-        assertTrue(where.contains("ol.plu <= :refundPluMax"));
+        assertTrue(where.contains("coalesce(ol.plu, opr.plu) <= :refundPluMax"));
         assertTrue(where.contains("rl.price * rl.quantity >= :refundAmountMin"));
         assertFalse(where.contains("refundPluMin"));
         assertFalse(where.contains("refundAmountMax"));
@@ -566,7 +567,7 @@ class JournalServiceTest {
         JournalCriteria criteria = new JournalCriteria();
         criteria.reductionMin = new BigDecimal("1.00");
         String where = service.buildTicketQuery(criteria).whereClause();
-        assertTrue(where.contains("l.modifierType is not null and l.modifierValue >= :reductionMin)"));
+        assertTrue(where.contains("l.modifierType in :reductionTypes and l.modifierValue >= :reductionMin)"));
         assertFalse(where.contains("reductionMax"));
     }
 
@@ -579,7 +580,7 @@ class JournalServiceTest {
         JournalCriteria criteria = new JournalCriteria();
         criteria.reductionMax = new BigDecimal("5.00");
         String where = service.buildTicketQuery(criteria).whereClause();
-        assertTrue(where.contains("l.modifierType is not null and l.modifierValue <= :reductionMax)"));
+        assertTrue(where.contains("l.modifierType in :reductionTypes and l.modifierValue <= :reductionMax)"));
         assertFalse(where.contains("reductionMin"));
     }
 
@@ -1162,5 +1163,148 @@ class JournalServiceTest {
         assertEquals("", detail.lines.get(0).quantity);
         assertEquals("", detail.lines.get(0).ean);
         assertTrue(detail.payments.isEmpty());
+    }
+
+    /**
+     * The sold-article PLU search resolves the EFFECTIVE PLU (BO-04-01-10): a
+     * LEFT JOIN to the product and a {@code coalesce(l.plu, pr.plu)} so an
+     * article carrying a catalog PLU but sold outside weighing still matches.
+     */
+    @Test
+    void pluRangeCoalescesLineAndCatalogPlu() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.pluMin = "40";
+        criteria.pluMax = "50";
+        String where = service.buildTicketQuery(criteria).whereClause();
+        assertTrue(where.contains("select l from t.lines l left join l.product pr"));
+        assertTrue(where.contains("coalesce(l.plu, pr.plu) >= :pluMin"));
+        assertTrue(where.contains("coalesce(l.plu, pr.plu) <= :pluMax"));
+    }
+
+    /**
+     * The before-discount amount range (BO-04-01-05) bears on
+     * {@code totalIncludingTax + globalDiscountApplied}, both bounds present.
+     */
+    @Test
+    void grossAmountRangeBothBounds() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.grossMin = new BigDecimal("10.00");
+        criteria.grossMax = new BigDecimal("90.00");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("(t.totalIncludingTax + coalesce(t.globalDiscountApplied, 0)) >= :grossMin"));
+        assertTrue(where.contains("(t.totalIncludingTax + coalesce(t.globalDiscountApplied, 0)) <= :grossMax"));
+        assertEquals(new BigDecimal("10.00"), query.parameters().get("grossMin"));
+        assertEquals(new BigDecimal("90.00"), query.parameters().get("grossMax"));
+    }
+
+    /**
+     * The before-discount amount range is absent when neither bound is set
+     * (both absent arms).
+     */
+    @Test
+    void grossAmountRangeAbsent() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        String where = service.buildTicketQuery(new JournalCriteria()).whereClause();
+        assertFalse(where.contains("globalDiscountApplied, 0"));
+    }
+
+    /**
+     * The time-of-day range (BO-04-01-09) extracts the hour of the creation
+     * date, both bounds present, binding the integer hours.
+     */
+    @Test
+    void hourRangeBothBounds() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.hourFrom = 12;
+        criteria.hourTo = 14;
+        JournalQuery query = service.buildTicketQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("extract(hour from t.creationDate) >= :hourFrom"));
+        assertTrue(where.contains("extract(hour from t.creationDate) <= :hourTo"));
+        assertEquals(12, query.parameters().get("hourFrom"));
+        assertEquals(14, query.parameters().get("hourTo"));
+    }
+
+    /**
+     * The time-of-day range is absent when neither bound is set (both absent arms).
+     */
+    @Test
+    void hourRangeAbsent() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        String where = service.buildTicketQuery(new JournalCriteria()).whereClause();
+        assertFalse(where.contains("extract(hour from t.creationDate)"));
+    }
+
+    /**
+     * The family multi-select (BO-04-01-11) adds a line-scoped {@code in} on the
+     * snapshotted family code, binding the selected codes, when non-empty; and
+     * nothing when empty.
+     */
+    @Test
+    void familiesMultiSelectBothArms() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.families.add("FRUITS");
+        criteria.families.add("BOULANGERIE");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        assertTrue(query.whereClause().contains(
+                "l.cancelled = false and l.familyCode in :families"));
+        assertEquals(List.of("FRUITS", "BOULANGERIE"), query.parameters().get("families"));
+        assertFalse(service.buildTicketQuery(new JournalCriteria()).whereClause()
+                .contains("l.familyCode in :families"));
+    }
+
+    /**
+     * The manual-reduction search binds REMISE and DISCOUNT only (BO-04-01-26),
+     * so a FORCE_PRICE override is excluded.
+     */
+    @Test
+    void reductionRestrictedToRemiseAndDiscount() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.reductionMin = new BigDecimal("1.00");
+        JournalQuery query = service.buildTicketQuery(criteria);
+        assertEquals(List.of(com.intermarche.pos.ui.PriceModType.REMISE,
+                        com.intermarche.pos.ui.PriceModType.DISCOUNT),
+                query.parameters().get("reductionTypes"));
+    }
+
+    /**
+     * The CARD "total monétique" flag (BO-04-01-46) also matches a backup-monetics
+     * payment, binding the backup payment type alongside the card type.
+     */
+    @Test
+    void cardFlagIncludesBackupPayment() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.flags.add(JournalCriteria.Flag.CARD);
+        JournalQuery query = service.buildTicketQuery(criteria);
+        assertTrue(query.whereClause().contains(
+                "type(p) = :cardType or type(p) = :backupType"));
+        assertEquals(com.intermarche.pos.domain.ticket.BackupPayment.class,
+                query.parameters().get("backupType"));
+    }
+
+    /**
+     * The cash-movement amount range (BO-04-01-33) narrows on the movement
+     * amount, both bounds present; and nothing when neither is set.
+     */
+    @Test
+    void movementAmountRangeBothArms() {
+        JournalService service = serviceWith(mock(EntityManager.class));
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.movementAmountMin = new BigDecimal("50.00");
+        criteria.movementAmountMax = new BigDecimal("500.00");
+        JournalQuery query = service.buildMovementQuery(criteria);
+        String where = query.whereClause();
+        assertTrue(where.contains("m.amount >= :movementAmountMin"));
+        assertTrue(where.contains("m.amount <= :movementAmountMax"));
+        assertEquals(new BigDecimal("50.00"), query.parameters().get("movementAmountMin"));
+        assertFalse(service.buildMovementQuery(new JournalCriteria()).whereClause()
+                .contains("m.amount"));
     }
 }

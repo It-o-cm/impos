@@ -71,6 +71,13 @@ class JournalCriteriaTest {
         params.putSingle("txMax", "C04-00000999");
         params.putSingle("amountMin", "12,50");
         params.putSingle("amountMax", "99.00");
+        params.putSingle("grossMin", "10,00");
+        params.putSingle("grossMax", "90.00");
+        params.putSingle("hourFrom", "12");
+        params.putSingle("hourTo", "14");
+        params.putSingle("familyCodes", " FRUITS, BOULANGERIE , ");
+        params.putSingle("movementAmountMin", "50,00");
+        params.putSingle("movementAmountMax", "500.00");
         params.putSingle("dateFrom", "2026-08-31T14:30");
         params.putSingle("dateTo", "2026-08-31");
         params.putSingle("pluMin", "40");
@@ -106,6 +113,13 @@ class JournalCriteriaTest {
         assertEquals("C04-00000999", criteria.txMax);
         assertEquals(new BigDecimal("12.50"), criteria.amountMin);
         assertEquals(new BigDecimal("99.00"), criteria.amountMax);
+        assertEquals(new BigDecimal("10.00"), criteria.grossMin);
+        assertEquals(new BigDecimal("90.00"), criteria.grossMax);
+        assertEquals(Integer.valueOf(12), criteria.hourFrom);
+        assertEquals(Integer.valueOf(14), criteria.hourTo);
+        assertEquals(java.util.Set.of("FRUITS", "BOULANGERIE"), criteria.families);
+        assertEquals(new BigDecimal("50.00"), criteria.movementAmountMin);
+        assertEquals(new BigDecimal("500.00"), criteria.movementAmountMax);
         assertEquals(LocalDateTime.of(2026, 8, 31, 14, 30), criteria.dateFrom);
         assertEquals(LocalDateTime.of(2026, 8, 31, 0, 0), criteria.dateTo);
         assertEquals("40", criteria.pluMin);
@@ -185,5 +199,46 @@ class JournalCriteriaTest {
         assertEquals(1, JournalCriteria.parsePage("0"));
         assertEquals(1, JournalCriteria.parsePage("-3"));
         assertEquals(1, JournalCriteria.parsePage("abc"));
+    }
+
+    /**
+     * {@code parseHour} (BO-04-01-09) keeps an in-range hour and drops a blank,
+     * a below-zero, an above-23 and a malformed value: every arm of the guard.
+     */
+    @Test
+    void parseHourCoversEveryArm() {
+        assertEquals(Integer.valueOf(0), JournalCriteria.parseHour("0"));
+        assertEquals(Integer.valueOf(23), JournalCriteria.parseHour("23"));
+        assertNull(JournalCriteria.parseHour("   "));
+        assertNull(JournalCriteria.parseHour("-1"));
+        assertNull(JournalCriteria.parseHour("24"));
+        assertNull(JournalCriteria.parseHour("abc"));
+    }
+
+    /**
+     * {@code addFamilyCodes} (BO-04-01-11) splits the comma list, trims each and
+     * drops blanks; a blank field adds nothing (the blank arm).
+     */
+    @Test
+    void addFamilyCodesSplitsTrimsAndDropsBlanks() {
+        java.util.Set<String> target = new java.util.LinkedHashSet<>();
+        JournalCriteria.addFamilyCodes(target, " FRUITS ,, BOULANGERIE , ");
+        assertEquals(java.util.Set.of("FRUITS", "BOULANGERIE"), target);
+        java.util.Set<String> blankTarget = new java.util.LinkedHashSet<>();
+        JournalCriteria.addFamilyCodes(blankTarget, "   ");
+        assertTrue(blankTarget.isEmpty());
+    }
+
+    /**
+     * {@code familiesAsText} joins the selected codes back for the form, and
+     * yields an empty string when none is selected.
+     */
+    @Test
+    void familiesAsTextJoinsSelectedCodes() {
+        JournalCriteria criteria = new JournalCriteria();
+        criteria.families.add("FRUITS");
+        criteria.families.add("BOULANGERIE");
+        assertEquals("FRUITS,BOULANGERIE", criteria.familiesAsText());
+        assertEquals("", new JournalCriteria().familiesAsText());
     }
 }

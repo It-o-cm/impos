@@ -62,10 +62,16 @@ public class EndorsementService {
      */
     public boolean authorize(String login, String password, String actionCode) {
         boolean granted = isManager(login, password);
+        // BO-04-01-39: name the endorsing operator in the first-class badge
+        // column, not only inside the free-text detail — otherwise the journal's
+        // "N° caissière" range filter (matched on operatorBadgeId) never returns
+        // an endorsement event. A badge-based endorsement then filters exactly;
+        // one keyed by login name carries that login as its identifier.
         technicalEventService.log(
                 granted ? TechnicalEvent.EventType.ENDORSEMENT_GRANTED
                         : TechnicalEvent.EventType.ENDORSEMENT_DENIED,
-                actionCode + " par " + (login != null ? login : "?"));
+                actionCode + " par " + (login != null ? login : "?"),
+                login);
         return granted;
     }
 

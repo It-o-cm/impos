@@ -65,10 +65,24 @@
             </div>
         </div>
         <div class="field">
+            <label class="field-label" for="f-gross-min">Montant hors remise (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-gross-min" type="text" name="grossMin" value="{criteria.grossMin ?: ''}">
+                <input class="input-control" type="text" name="grossMax" value="{criteria.grossMax ?: ''}">
+            </div>
+        </div>
+        <div class="field">
             <label class="field-label" for="f-date-from">Période (du / au)</label>
             <div class="journal-range">
                 <input class="input-control" id="f-date-from" type="datetime-local" name="dateFrom" value="{criteria.dateFrom ?: ''}">
                 <input class="input-control" type="datetime-local" name="dateTo" value="{criteria.dateTo ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-hour-from">Plage horaire (de / à, 0-23)</label>
+            <div class="journal-range">
+                <input class="input-control" id="f-hour-from" type="number" min="0" max="23" name="hourFrom" value="{criteria.hourFrom ?: ''}">
+                <input class="input-control" type="number" min="0" max="23" name="hourTo" value="{criteria.hourTo ?: ''}">
             </div>
         </div>
         <div class="field">
@@ -84,6 +98,10 @@
                 <input class="input-control" id="f-family-min" type="text" name="familyMin" value="{criteria.familyMin ?: ''}">
                 <input class="input-control" type="text" name="familyMax" value="{criteria.familyMax ?: ''}">
             </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="f-family-codes">Familles précises (codes séparés par des virgules)</label>
+            <input class="input-control" id="f-family-codes" type="text" name="familyCodes" value="{criteria.familiesAsText}">
         </div>
         <div class="field">
             <label class="field-label" for="f-reduction-min">Réduction manuelle (de / à)</label>
@@ -353,6 +371,13 @@
             <div class="journal-range">
                 <input class="input-control" id="m-date-from" type="datetime-local" name="dateFrom" value="{criteria.dateFrom ?: ''}">
                 <input class="input-control" type="datetime-local" name="dateTo" value="{criteria.dateTo ?: ''}">
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="m-amount-min">Montant (de / à)</label>
+            <div class="journal-range">
+                <input class="input-control" id="m-amount-min" type="text" name="movementAmountMin" value="{criteria.movementAmountMin ?: ''}">
+                <input class="input-control" type="text" name="movementAmountMax" value="{criteria.movementAmountMax ?: ''}">
             </div>
         </div>
     </div>
