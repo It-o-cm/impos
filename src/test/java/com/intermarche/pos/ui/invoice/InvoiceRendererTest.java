@@ -1,13 +1,13 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.DocumentType;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;

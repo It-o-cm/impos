@@ -1,10 +1,10 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.CrudOption;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.EmployeeProfile;
-import com.intermarche.pos.domain.Feature;
-import com.intermarche.pos.domain.Profile;
+import com.intermarche.pos.domain.people.CrudOption;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.people.EmployeeProfile;
+import com.intermarche.pos.domain.setting.Feature;
+import com.intermarche.pos.domain.people.Profile;
 import com.intermarche.pos.service.PermissionService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * The USER-to-PROFILE assignment screen ({@code /admin/users}, BO-01-03-02
@@ -49,6 +50,9 @@ import java.util.Map;
  */
 @Path("/admin/users")
 public class AdminUserProfileResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminUserProfileResource.class);
 
     /** The users-and-assignments template. */
     @Inject
@@ -106,8 +110,10 @@ public class AdminUserProfileResource {
     @Authenticated
     public Object listPage(@QueryParam("notice") String notice,
                            @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method listPage with notice: " + notice + ", noticeOk: " + noticeOk);
         Response denied = guard(CrudOption.VIEW);
         if (denied != null) {
+            LOGGER.info("Exiting method listPage");
             return denied;
         }
         Map<Long, String> profileNames = new HashMap<>();
@@ -123,6 +129,7 @@ public class AdminUserProfileResource {
         for (Employee employee : Employee.<Employee>listAll()) {
             users.add(userRow(employee, profileNames));
         }
+        LOGGER.info("Exiting method listPage");
         return adminUsers.data("users", users)
                 .data("profiles", profiles)
                 .data("notice", notice)
@@ -141,22 +148,27 @@ public class AdminUserProfileResource {
     @Authenticated
     @Transactional
     public Response assign(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method assign with form: " + form);
         Response denied = guard(CrudOption.UPDATE);
         if (denied != null) {
+            LOGGER.info("Exiting method assign");
             return denied;
         }
         Long employeeId = parseId(form.getFirst("employeeId"));
         Long profileId = parseId(form.getFirst("profileId"));
         if (employeeId == null || profileId == null) {
+            LOGGER.info("Exiting method assign");
             return redirect("Utilisateur et profil sont obligatoires.", false);
         }
         Employee employee = Employee.findById(employeeId);
         Profile profile = Profile.findById(profileId);
         if (employee == null || profile == null) {
+            LOGGER.info("Exiting method assign");
             return redirect("Utilisateur ou profil introuvable.", false);
         }
         String scope = scope(form.getFirst("echelonScope"));
         if (EmployeeProfile.exists(employeeId, profileId, scope)) {
+            LOGGER.info("Exiting method assign");
             return redirect("Ce profil est déjà affecté à cet échelon.", false);
         }
         EmployeeProfile binding = new EmployeeProfile();
@@ -164,6 +176,7 @@ public class AdminUserProfileResource {
         binding.profileId = profileId;
         binding.echelonScope = scope;
         binding.persist();
+        LOGGER.info("Exiting method assign");
         return redirect("Profil « " + profile.name + " » affecté à " + employee.getFullName() + ".", true);
     }
 
@@ -179,16 +192,20 @@ public class AdminUserProfileResource {
     @Authenticated
     @Transactional
     public Response unassign(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method unassign with form: " + form);
         Response denied = guard(CrudOption.DELETE);
         if (denied != null) {
+            LOGGER.info("Exiting method unassign");
             return denied;
         }
         Long bindingId = parseId(form.getFirst("bindingId"));
         EmployeeProfile binding = bindingId == null ? null : EmployeeProfile.<EmployeeProfile>findById(bindingId);
         if (binding == null) {
+            LOGGER.info("Exiting method unassign");
             return redirect("Affectation introuvable.", false);
         }
         binding.delete();
+        LOGGER.info("Exiting method unassign");
         return redirect("Affectation retirée.", true);
     }
 

@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -429,7 +429,7 @@ class EanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.RECALL, "true");
         ScanContext ctx = new ScanContext(CODE, state);
         EanScanHandler handler = newHandler(true);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
@@ -453,7 +453,7 @@ class EanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
         Price price = new Price();
         price.priceIncludingTax = new BigDecimal("1.5000");
         price.vatRate = new BigDecimal("0.0550");
@@ -500,7 +500,7 @@ class EanScanHandlerTest {
         ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
         PosState state = newState(ticket);
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
@@ -523,7 +523,7 @@ class EanScanHandlerTest {
         ticket.items = new java.util.ArrayList<>(java.util.List.of(added));
         PosState state = newState(ticket);
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L123;L456");
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);

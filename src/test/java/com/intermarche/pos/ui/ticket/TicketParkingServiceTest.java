@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;

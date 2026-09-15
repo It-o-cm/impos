@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Location;
 import io.quarkus.security.Authenticated;
@@ -24,6 +24,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * The store back office's PARAMETERS page ({@code /admin/settings}) —
@@ -49,6 +50,9 @@ import java.util.List;
  */
 @Path("/")
 public class AdminSettingsResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminSettingsResource.class);
 
     /** The parameters page template. */
     @Inject
@@ -103,7 +107,9 @@ public class AdminSettingsResource {
     @Path("/admin")
     @Authenticated
     public Response adminRoot() {
+        LOGGER.info("Entering method adminRoot");
         boolean admin = identity != null && identity.hasRole(Employee.EmployeeRole.ADMIN.name());
+        LOGGER.info("Exiting method adminRoot");
         return Response.seeOther(URI.create(admin ? "/admin/settings" : "/dashboard")).build();
     }
 
@@ -119,6 +125,7 @@ public class AdminSettingsResource {
     @RolesAllowed("ADMIN")
     public TemplateInstance settingsPage(@QueryParam("notice") String notice,
                                          @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method settingsPage with notice: " + notice + ", noticeOk: " + noticeOk);
         List<Entry> entries = new ArrayList<>();
         String lastSection = null;
         for (PosSettingsService.Def def : PosSettingsService.CATALOG) {
@@ -134,6 +141,7 @@ public class AdminSettingsResource {
             lastSection = def.section();
             entries.add(entry);
         }
+        LOGGER.info("Exiting method settingsPage");
         return adminSettings.data("entries", entries)
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
@@ -151,6 +159,7 @@ public class AdminSettingsResource {
     @RolesAllowed("ADMIN")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         int saved = 0;
         for (PosSettingsService.Def def : PosSettingsService.CATALOG) {
             String raw = form.getFirst(def.key());
@@ -162,6 +171,7 @@ public class AdminSettingsResource {
                     if (parsed < 0) throw new NumberFormatException();
                     value = String.valueOf(parsed);
                 } catch (NumberFormatException e) {
+                    LOGGER.info("Exiting method save");
                     return redirect("Valeur invalide pour « " + def.label() + " » — entier positif attendu.", false);
                 }
             } else if (def.type() == PosSettingsService.Type.BOOL) {
@@ -170,6 +180,7 @@ public class AdminSettingsResource {
             posSettingsService.store(def.key(), value);
             saved++;
         }
+        LOGGER.info("Exiting method save");
         return redirect(saved + " paramètre(s) enregistré(s). Application aux caisses au prochain tirage.", true);
     }
 

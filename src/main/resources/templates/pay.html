@@ -332,21 +332,39 @@
 
                 <!-- Colonne moyens de paiement -->
                 <div class="pay-methods">
+                    {#if offeredTenders.contains('CARD')}
                     <button class="btn btn-primary" onclick="openInput('card')">CARTE BANCAIRE</button>
+                    {/if}
+                    {#if offeredTenders.contains('CASH')}
                     <button class="btn btn-success" onclick="openInput('cash')">ESPÈCES</button>
+                    {/if}
+                    {#if offeredTenders.contains('TR')}
                     <button class="btn btn-muted" onclick="openInput('tr')">TICKET RESTO</button>
+                    {/if}
+                    {#if offeredTenders.contains('CHEQUE')}
                     <button class="btn btn-muted" onclick="openInput('cheque')">CHÈQUE</button>
+                    {/if}
+                    {#if offeredTenders.contains('VOUCHER')}
                     <button class="btn btn-voucher" onclick="openVoucher()">BONS D'ACHAT</button>
+                    {/if}
+                    {#if offeredTenders.contains('CREDIT')}
                     <form action="/action/credit-open" method="POST" style="display:contents;">
                         <button type="submit" class="btn" style="background-color:#5C6BC0;">CRÉDIT CLIENT</button>
                     </form>
+                    {/if}
+                    {#if offeredTenders.contains('DEVISE')}
                     <form action="/action/currency-open" method="POST" style="display:contents;">
                         <button type="submit" class="btn" style="background-color:#00695C;">DEVISES</button>
                     </form>
+                    {/if}
+                    {#if offeredTenders.contains('SECOURS')}
                     <form action="/action/backup-open" method="POST" style="display:contents;">
                         <button type="submit" class="btn" style="background-color:#8D6E63;">SECOURS MONÉTIQUE</button>
                     </form>
+                    {/if}
+                    {#if offeredTenders.contains('FIDELITY')}
                     <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
+                    {/if}
                     <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
                     <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
                     <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
@@ -558,6 +576,33 @@
     </div>
     {/if}
 
+    {#if state.payment.tenderAuthorizationPending}
+    {!
+     ! ADMINISTERED TENDER BOUND passed by a supervisor (BO-03-02-10/12/13/14),
+     ! as a POPUP over the payment screen. The settlement is HELD, not lost: what
+     ! the supervisor authorizes is the amount the cashier asked for, replayed
+     ! from the state, so nothing depends on what the pad shows by the time they
+     ! have walked over.
+    !}
+    <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:86; display:flex; justify-content:center; align-items:center;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+        <div class="pos-title" style="text-align:center;">AUTORISATION SUPERVISEUR</div>
+        <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.tenderHeldMessage}</div>
+        <div class="pos-row-sub" style="text-align:center;">{state.payment.tenderHeldLabel}</div>
+        <div class="pos-total" style="text-align:center;">{state.payment.tenderHeldAmount} €</div>
+        <form action="/action/tender-authorize" method="POST"
+              style="display:flex; flex-direction:column; gap:8px;">
+            <input type="text" name="login" class="sub-display" placeholder="Identifiant" autocomplete="off">
+            <input type="password" name="password" class="sub-display" placeholder="Mot de passe" autocomplete="off">
+            <button type="submit" class="btn btn-success">AUTORISER LE RÈGLEMENT</button>
+        </form>
+        <form action="/action/tender-authorize-cancel" method="POST">
+            <button type="submit" class="btn btn-muted" style="width:100%;">ABANDONNER</button>
+        </form>
+      </div>
+    </div>
+    {/if}
+
     {#if state.payment.creditPanelOpen}
     {!
      ! CUSTOMER CREDIT (LC-07-09), as a POPUP over the payment screen: the sale
@@ -690,6 +735,12 @@
        which is the rounded remainder where the shop rounds. */
     const cashDefault = "{state.cashRoundedRemainingNumpad}";
 
+    /* BO-03-02-23: which settlement key each pad stands for, and the pre-fill
+       answer of the ADMINISTERED tenders only — a key absent from the second
+       object is a tender the back office never touched. */
+    const TENDER_KEY_OF_MODE = { card: 'CARD', cash: 'CASH', cheque: 'CHEQUE', fid: 'FIDELITY', tr: 'TR' };
+    const TENDER_DEFAULTS = { {#for entry in tenderDefaults}'{entry.key}': {entry.value}{#if entry_hasNext}, {/if}{/for} };
+
     function openInput(mode) {
         const noSelectionDiv = document.getElementById('payNoSelection');
         noSelectionDiv.style.display = 'none';
@@ -717,16 +768,26 @@
             onEnter: () => { form.submit(); }
         });
 
-        if (mode === 'card' || mode === 'cheque' || mode === 'fid') {
-            PosInput.buffer = remainingDefault;
-            PosInput.updateDisplay();
+        // BO-03-02-23: an ADMINISTERED tender says itself whether the pad opens
+        // on the remaining due. A tender the back office never touched keeps the
+        // register's own rule below — the card, the cheque and the purse open on
+        // the remainder, the meal voucher opens empty.
+        const tenderKey = TENDER_KEY_OF_MODE[mode];
+        const administered = tenderKey ? TENDER_DEFAULTS[tenderKey] : undefined;
+        const prefill = (administered === undefined)
+                ? (mode === 'card' || mode === 'cheque' || mode === 'fid' || mode === 'cash')
+                : administered;
+
+        if (!prefill) {
+            PosInput.clear();
         } else if (mode === 'cash') {
             // LC-07-03-01: the cash pad opens on the ROUNDED remainder — the exact
             // sum the customer can physically hand over.
             PosInput.buffer = cashDefault;
             PosInput.updateDisplay();
         } else {
-            PosInput.clear();
+            PosInput.buffer = remainingDefault;
+            PosInput.updateDisplay();
         }
     }
 

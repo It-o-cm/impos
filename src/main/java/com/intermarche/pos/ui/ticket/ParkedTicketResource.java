@@ -16,6 +16,7 @@ import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving parked tickets: parking the current cart, listing
@@ -23,6 +24,9 @@ import java.util.List;
  */
 @Path("/")
 public class ParkedTicketResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ParkedTicketResource.class);
 
     /**
      * Rows per page. The list area is 460 px tall and a row is 72 px with its
@@ -45,10 +49,12 @@ public class ParkedTicketResource {
     @GET
     @Path("/action/parked/park")
     public Response parkCurrent() {
+        LOGGER.info("Entering method parkCurrent");
         String error = ticketParkingService.parkCurrent();
         if (error != null) {
             state.ticket.setError(error);
         }
+        LOGGER.info("Exiting method parkCurrent");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -63,6 +69,7 @@ public class ParkedTicketResource {
     @Path("/parked")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance parkedPage(@QueryParam("page") Integer page) {
+        LOGGER.info("Entering method parkedPage with page: " + page);
         List<?> all = ticketParkingService.listParked();
         int pageCount = Math.max(1, (all.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         int current = page == null ? 0 : page;
@@ -74,6 +81,7 @@ public class ParkedTicketResource {
         }
         int from = current * PAGE_SIZE;
         int to = Math.min(all.size(), from + PAGE_SIZE);
+        LOGGER.info("Exiting method parkedPage");
         return parked
                 .data("state", state)
                 .data("tickets", all.subList(from, to))
@@ -95,10 +103,12 @@ public class ParkedTicketResource {
     @GET
     @Path("/action/parked/resume/{id}")
     public Response resume(@PathParam("id") Long id) {
+        LOGGER.info("Entering method resume with id: " + id);
         String error = ticketParkingService.resume(id);
         if (error != null) {
             state.ticket.setError(error);
         }
+        LOGGER.info("Exiting method resume");
         return Response.seeOther(URI.create("/")).build();
     }
 }

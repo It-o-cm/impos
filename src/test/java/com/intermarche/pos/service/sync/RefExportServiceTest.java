@@ -1,16 +1,18 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.Country;
-import com.intermarche.pos.domain.EchelonLevel;
-import com.intermarche.pos.domain.EchelonSetting;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
-import com.intermarche.pos.domain.ProductType;
+import com.intermarche.pos.domain.barcode.CouponControl;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.setting.EchelonSetting;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.catalog.ProductType;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -188,7 +190,7 @@ class RefExportServiceTest {
         family.code = "F1";
         family.description = "Fruits";
         family.flags = "BIO";
-        com.intermarche.pos.domain.Product apple = mock(com.intermarche.pos.domain.Product.class);
+        com.intermarche.pos.domain.catalog.Product apple = mock(com.intermarche.pos.domain.catalog.Product.class);
         apple.ean = "3001";
         family.products = new java.util.HashSet<>(java.util.Set.of(apple));
         ProductFamily parent = mock(ProductFamily.class);
@@ -373,6 +375,97 @@ class RefExportServiceTest {
             assertEquals("ENCODED", dto.amountSource);
             assertEquals(10, dto.priority);
             assertTrue(dto.active);
+            assertNull(dto.codeKind);
+            assertFalse(dto.manualAmountOnAllNines);
+            assertNull(dto.islandCodes);
+            assertTrue(dto.fields.isEmpty());
+            assertTrue(dto.controls.isEmpty());
+        }
+    }
+
+    /**
+     * Covers the administered half of {@code toDto(CouponType)}: the range
+     * description travels with the type, and a null row or a row without a
+     * role is left out of the snapshot.
+     */
+    @Test
+    void getPageMapsTheAdministeredRangeDescription() {
+        RefExportService service = new RefExportService();
+        CouponType type = mock(CouponType.class);
+        type.code = "C2";
+        type.amountSource = CouponType.AmountSource.ENCODED;
+        type.prefix = "298";
+        type.codeLength = 13;
+        type.codeKind = CouponField.Kind.ALPHANUMERIC;
+        CouponField price = new CouponField();
+        price.role = CouponField.Role.PRICE;
+        price.offsetPosition = 9;
+        price.fieldLength = 4;
+        price.kind = CouponField.Kind.NUMERIC;
+        price.decimals = 2;
+        price.dateFormat = null;
+        price.currency = CouponField.PriceCurrency.EUR;
+        CouponField bare = new CouponField();
+        bare.role = CouponField.Role.TPV_NUMBER;
+        bare.offsetPosition = 3;
+        bare.fieldLength = 2;
+        bare.kind = null;
+        CouponField roleless = new CouponField();
+        type.fields = new java.util.ArrayList<>(List.of(price, bare, roleless));
+        type.fields.add(null);
+        CouponControl expiry = new CouponControl();
+        expiry.kind = CouponControl.Kind.EXPIRED;
+        expiry.level = com.intermarche.pos.domain.barcode.AlertLevel.BLOCK;
+        expiry.message = "BON PERIME";
+        CouponControl kindless = new CouponControl();
+        type.controls = new java.util.ArrayList<>(List.of(expiry, kindless));
+        type.controls.add(null);
+        PanacheQuery<CouponType> query = singlePage(0, 10, List.of(type));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> CouponType.find("order by code")).thenReturn(query);
+            RefPayloads.CouponTypeDto dto =
+                    (RefPayloads.CouponTypeDto) service.getPage("COUPON_TYPES", 0, 10).get(0);
+            assertEquals("298", dto.prefix);
+            assertEquals(13, dto.codeLength);
+            assertEquals("ALPHANUMERIC", dto.codeKind);
+            assertEquals(2, dto.fields.size());
+            assertEquals("PRICE", dto.fields.get(0).role);
+            assertEquals(9, dto.fields.get(0).offsetPosition);
+            assertEquals(4, dto.fields.get(0).fieldLength);
+            assertEquals("NUMERIC", dto.fields.get(0).kind);
+            assertEquals(2, dto.fields.get(0).decimals);
+            assertNull(dto.fields.get(0).dateFormat);
+            assertEquals("EUR", dto.fields.get(0).currency);
+            assertEquals("TPV_NUMBER", dto.fields.get(1).role);
+            assertNull(dto.fields.get(1).kind);
+            assertNull(dto.fields.get(1).decimals);
+            assertNull(dto.fields.get(1).currency);
+            assertEquals(1, dto.controls.size());
+            assertEquals("EXPIRED", dto.controls.get(0).kind);
+            assertEquals("BLOCK", dto.controls.get(0).level);
+            assertEquals("BON PERIME", dto.controls.get(0).message);
+        }
+    }
+
+    /**
+     * A range holding no field list is exported with no position at all
+     * (second leg of the field-list guard).
+     */
+    @Test
+    void getPageToleratesARangeWithoutFieldList() {
+        RefExportService service = new RefExportService();
+        CouponType type = mock(CouponType.class);
+        type.code = "C3";
+        type.amountSource = CouponType.AmountSource.MANUAL;
+        type.fields = null;
+        type.controls = null;
+        PanacheQuery<CouponType> query = singlePage(0, 10, List.of(type));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> CouponType.find("order by code")).thenReturn(query);
+            RefPayloads.CouponTypeDto dto =
+                    (RefPayloads.CouponTypeDto) service.getPage("COUPON_TYPES", 0, 10).get(0);
+            assertTrue(dto.fields.isEmpty());
+            assertTrue(dto.controls.isEmpty());
         }
     }
 
@@ -532,20 +625,20 @@ class RefExportServiceTest {
         PanacheQuery<Price> prices = pagedQuery(List.of());
         PanacheQuery<Employee> employees = pagedQuery(List.of());
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> customers = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.Currency> currencies = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.setting.PosSetting> settings = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> engineFeeds = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> customers = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.payment.Currency> currencies = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
             mocked.when(() -> Price.find("order by id")).thenReturn(prices);
             mocked.when(() -> Employee.find("order by loginName")).thenReturn(employees);
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
-            mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
-            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
-            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code")).thenReturn(currencies);
+            mocked.when(() -> com.intermarche.pos.domain.setting.PosSetting.find("order by settingKey")).thenReturn(settings);
+            mocked.when(() -> com.intermarche.pos.domain.sync.EngineFeed.find("order by code")).thenReturn(engineFeeds);
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
+            mocked.when(() -> com.intermarche.pos.domain.payment.Currency.find("order by code")).thenReturn(currencies);
             Map<String, String> fingerprints = service.getFingerprints();
             assertEquals(RefExportService.DOMAINS, List.copyOf(fingerprints.keySet()));
             assertEquals(EMPTY_SHA256, fingerprints.get("FAMILIES"));
@@ -598,20 +691,20 @@ class RefExportServiceTest {
         PanacheQuery<Price> prices = pagedQuery(List.of());
         PanacheQuery<Employee> employees = pagedQuery(List.of());
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> customers = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.Currency> currencies = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.setting.PosSetting> settings = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> engineFeeds = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> customers = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.payment.Currency> currencies = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
             mocked.when(() -> Price.find("order by id")).thenReturn(prices);
             mocked.when(() -> Employee.find("order by loginName")).thenReturn(employees);
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
-            mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
-            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
-            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code")).thenReturn(currencies);
+            mocked.when(() -> com.intermarche.pos.domain.setting.PosSetting.find("order by settingKey")).thenReturn(settings);
+            mocked.when(() -> com.intermarche.pos.domain.sync.EngineFeed.find("order by code")).thenReturn(engineFeeds);
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
+            mocked.when(() -> com.intermarche.pos.domain.payment.Currency.find("order by code")).thenReturn(currencies);
             Map<String, String> fingerprints = service.getFingerprints();
             // The canonical product row carries EIGHTEEN fields: the two last —
             // variableWeight and the declared attributes — joined the export
@@ -670,20 +763,20 @@ class RefExportServiceTest {
         PanacheQuery<Price> prices = pagedQuery(List.of());
         PanacheQuery<Employee> employees = pagedQuery(List.of());
         PanacheQuery<CouponType> couponTypes = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.PosSetting> settings = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.EngineFeed> engineFeeds = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> customers = pagedQuery(List.of());
-        PanacheQuery<com.intermarche.pos.domain.Currency> currencies = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.setting.PosSetting> settings = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> engineFeeds = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> customers = pagedQuery(List.of());
+        PanacheQuery<com.intermarche.pos.domain.payment.Currency> currencies = pagedQuery(List.of());
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(families);
             mocked.when(() -> Product.find("order by ean")).thenReturn(products);
             mocked.when(() -> Price.find("order by id")).thenReturn(prices);
             mocked.when(() -> Employee.find("order by loginName")).thenReturn(employees);
             mocked.when(() -> CouponType.find("order by code")).thenReturn(couponTypes);
-            mocked.when(() -> com.intermarche.pos.domain.PosSetting.find("order by settingKey")).thenReturn(settings);
-            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code")).thenReturn(engineFeeds);
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
-            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code")).thenReturn(currencies);
+            mocked.when(() -> com.intermarche.pos.domain.setting.PosSetting.find("order by settingKey")).thenReturn(settings);
+            mocked.when(() -> com.intermarche.pos.domain.sync.EngineFeed.find("order by code")).thenReturn(engineFeeds);
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer.find("order by accountNumber")).thenReturn(customers);
+            mocked.when(() -> com.intermarche.pos.domain.payment.Currency.find("order by code")).thenReturn(currencies);
             Map<String, String> fingerprints = service.getFingerprints();
             for (String domain : RefExportService.DOMAINS) {
                 assertEquals(EMPTY_SHA256, fingerprints.get(domain));
@@ -817,7 +910,44 @@ class RefExportServiceTest {
         type.priority = 10;
         type.active = true;
         type.depositLine = false;
-        assertEquals("C1|Bon|^9|ENCODED||10|true|false", canonical.invoke(service, type));
+        assertEquals("C1|Bon|^9|ENCODED||10|true|false||||false|||", canonical.invoke(service, type));
+        RefPayloads.CouponTypeDto administered = new RefPayloads.CouponTypeDto();
+        administered.code = "C2";
+        administered.label = "Bon administré";
+        administered.matchPattern = "^298\\d{10}$";
+        administered.amountSource = "ENCODED";
+        administered.amountPattern = "^298\\d{6}(\\d{4})$";
+        administered.priority = 5;
+        administered.active = true;
+        administered.depositLine = true;
+        administered.prefix = "298";
+        administered.codeLength = 13;
+        administered.codeKind = "NUMERIC";
+        RefPayloads.CouponFieldDto tpv = new RefPayloads.CouponFieldDto();
+        tpv.role = "TPV_NUMBER";
+        tpv.offsetPosition = 3;
+        tpv.fieldLength = 2;
+        tpv.kind = "NUMERIC";
+        RefPayloads.CouponFieldDto amount = new RefPayloads.CouponFieldDto();
+        amount.role = "PRICE";
+        amount.offsetPosition = 9;
+        amount.fieldLength = 4;
+        amount.kind = "NUMERIC";
+        amount.decimals = 2;
+        amount.currency = "EUR";
+        administered.fields = new java.util.ArrayList<>(java.util.List.of(tpv, amount));
+        RefPayloads.CouponControlDto expiry = new RefPayloads.CouponControlDto();
+        expiry.kind = "EXPIRED";
+        expiry.level = "BLOCK";
+        expiry.message = "BON PERIME";
+        RefPayloads.CouponControlDto duplicate = new RefPayloads.CouponControlDto();
+        duplicate.kind = "DUPLICATE";
+        duplicate.level = "INFO";
+        administered.controls = new java.util.ArrayList<>(java.util.List.of(expiry, duplicate));
+        assertEquals("C2|Bon administré|^298\\d{10}$|ENCODED|^298\\d{6}(\\d{4})$|5|true|true"
+                        + "|298|13|NUMERIC|false||PRICE:9:4:NUMERIC:2::EUR,TPV_NUMBER:3:2:NUMERIC:::"
+                        + "|DUPLICATE:INFO:,EXPIRED:BLOCK:BON PERIME",
+                canonical.invoke(service, administered));
         RefPayloads.SettingDto setting = new RefPayloads.SettingDto();
         setting.key = "display.show-ean";
         setting.value = null;
@@ -863,24 +993,24 @@ class RefExportServiceTest {
     @Test
     void getPageMapsCurrenciesWithAndWithoutRate() {
         RefExportService service = new RefExportService();
-        com.intermarche.pos.domain.Currency rated = mock(com.intermarche.pos.domain.Currency.class);
+        com.intermarche.pos.domain.payment.Currency rated = mock(com.intermarche.pos.domain.payment.Currency.class);
         rated.code = "CHF";
         rated.label = "Franc Suisse";
         rated.symbol = "CHF";
         rated.euroPerUnit = new BigDecimal("1.050000");
         rated.active = true;
         rated.displayOrder = 1;
-        com.intermarche.pos.domain.Currency rateless = mock(com.intermarche.pos.domain.Currency.class);
+        com.intermarche.pos.domain.payment.Currency rateless = mock(com.intermarche.pos.domain.payment.Currency.class);
         rateless.code = "USD";
         rateless.label = "Dollar";
         rateless.symbol = null;
         rateless.euroPerUnit = null;
         rateless.active = false;
         rateless.displayOrder = 2;
-        PanacheQuery<com.intermarche.pos.domain.Currency> query =
+        PanacheQuery<com.intermarche.pos.domain.payment.Currency> query =
                 singlePage(0, 10, List.of(rated, rateless));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> com.intermarche.pos.domain.Currency.find("order by code"))
+            mocked.when(() -> com.intermarche.pos.domain.payment.Currency.find("order by code"))
                     .thenReturn(query);
             List<?> result = service.getPage("CURRENCIES", 0, 10);
             assertEquals(2, result.size());
@@ -910,13 +1040,13 @@ class RefExportServiceTest {
     @Test
     void getPageMapsCustomersWithAndWithoutAddressAndCredit() {
         RefExportService service = new RefExportService();
-        com.intermarche.pos.domain.AccountCustomer full =
-                mock(com.intermarche.pos.domain.AccountCustomer.class);
+        com.intermarche.pos.domain.payment.AccountCustomer full =
+                mock(com.intermarche.pos.domain.payment.AccountCustomer.class);
         full.accountNumber = "A1";
         full.companyName = "Acme";
         full.lastName = "Martin";
         full.firstName = "Alice";
-        com.intermarche.pos.domain.Address address = new com.intermarche.pos.domain.Address();
+        com.intermarche.pos.domain.store.Address address = new com.intermarche.pos.domain.store.Address();
         address.streetLine1 = "10 rue X";
         address.postalCode = "75008";
         address.city = "Paris";
@@ -927,8 +1057,8 @@ class RefExportServiceTest {
         full.email = "a@x.fr";
         full.creditLimit = new BigDecimal("1000.00");
         full.creditBalance = new BigDecimal("250.00");
-        com.intermarche.pos.domain.AccountCustomer bare =
-                mock(com.intermarche.pos.domain.AccountCustomer.class);
+        com.intermarche.pos.domain.payment.AccountCustomer bare =
+                mock(com.intermarche.pos.domain.payment.AccountCustomer.class);
         bare.accountNumber = "A2";
         bare.companyName = "Beta";
         bare.lastName = null;
@@ -940,10 +1070,10 @@ class RefExportServiceTest {
         bare.email = null;
         bare.creditLimit = null;
         bare.creditBalance = null;
-        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> query =
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> query =
                 singlePage(0, 10, List.of(full, bare));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
                     .find("order by accountNumber")).thenReturn(query);
             List<?> result = service.getPage("CUSTOMERS", 0, 10);
             assertEquals(2, result.size());
@@ -974,15 +1104,15 @@ class RefExportServiceTest {
     @Test
     void getPageMapsEngineFeeds() {
         RefExportService service = new RefExportService();
-        com.intermarche.pos.domain.EngineFeed feed =
-                mock(com.intermarche.pos.domain.EngineFeed.class);
+        com.intermarche.pos.domain.sync.EngineFeed feed =
+                mock(com.intermarche.pos.domain.sync.EngineFeed.class);
         feed.code = "VAL";
         feed.version = "abc123";
         feed.content = "verbatim-body";
-        PanacheQuery<com.intermarche.pos.domain.EngineFeed> query =
+        PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> query =
                 singlePage(0, 10, List.of(feed));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("order by code"))
+            mocked.when(() -> com.intermarche.pos.domain.sync.EngineFeed.find("order by code"))
                     .thenReturn(query);
             List<?> result = service.getPage("ENGINE_FEEDS", 0, 10);
             assertEquals(1, result.size());
@@ -1031,5 +1161,420 @@ class RefExportServiceTest {
         customer.creditBalance = null;
         assertEquals("A1|Acme|Martin|Alice|10 rue X|75008|Paris|SIR||0102|a@x.fr|1000.00|",
                 canonical.invoke(service, customer));
+    }
+
+    // --- Plages ARTICLE (BO-03-06-02/03/04/05/10) ---
+
+    /**
+     * The all-nines rule travels with its range (BO-03-06-12): a register that
+     * never received the flag would settle a 9999 voucher for 99,99 €.
+     */
+    @Test
+    void getPageCarriesTheAllNinesRule() {
+        RefExportService service = new RefExportService();
+        CouponType type = mock(CouponType.class);
+        type.code = "C1";
+        type.amountSource = CouponType.AmountSource.ENCODED;
+        type.manualAmountOnAllNines = true;
+        // BO-03-06-07: the islands accepting the range travel with it — a
+        // register receiving the range without them would accept it everywhere.
+        type.islandCodes = "AVANT;COMPTOIR";
+        PanacheQuery<CouponType> query = singlePage(0, 10, List.of(type));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> CouponType.find("order by code")).thenReturn(query);
+            RefPayloads.CouponTypeDto dto =
+                    (RefPayloads.CouponTypeDto) service.getPage("COUPON_TYPES", 0, 10).get(0);
+            assertTrue(dto.manualAmountOnAllNines);
+            assertEquals("AVANT;COMPTOIR", dto.islandCodes);
+        }
+    }
+
+    /**
+     * Covers the ARTICLE_RANGES switch arm and {@code toDto(ArticleBarcodeRange)}:
+     * every administered position, the three enum names and the generated
+     * pattern flow into the snapshot row, so a register reads its scale plan
+     * from the referential.
+     */
+    @Test
+    void getPageMapsArticleBarcodeRanges() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.barcode.ArticleBarcodeRange range =
+                mock(com.intermarche.pos.domain.barcode.ArticleBarcodeRange.class);
+        range.code = "BALANCE_PRIX";
+        range.label = "Étiquette prix";
+        range.active = true;
+        range.priority = 10;
+        range.prefix = "21";
+        range.codeLength = 13;
+        range.codeKind = com.intermarche.pos.domain.barcode.CouponField.Kind.ALPHANUMERIC;
+        // Deliberately NOT the historical 2/5/7/5 plan: a fixture matching the
+        // old literals could not tell a real copy from a hard-coded one.
+        range.articlePosition = 4;
+        range.articleLength = 6;
+        range.valueSource = com.intermarche.pos.domain.barcode.ArticleBarcodeRange
+                .ValueSource.WEIGHT;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        range.valueDecimals = 3;
+        range.currency = com.intermarche.pos.domain.barcode.CouponField.PriceCurrency.FRF;
+        range.checkDigit = true;
+        range.matchPattern = "^21[A-Za-z0-9]{11}$";
+        PanacheQuery<com.intermarche.pos.domain.barcode.ArticleBarcodeRange> query =
+                singlePage(0, 10, List.of(range));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.barcode.ArticleBarcodeRange
+                    .find("order by code")).thenReturn(query);
+            List<?> result = service.getPage("ARTICLE_RANGES", 0, 10);
+            assertEquals(1, result.size());
+            RefPayloads.ArticleBarcodeRangeDto dto =
+                    (RefPayloads.ArticleBarcodeRangeDto) result.get(0);
+            assertEquals("BALANCE_PRIX", dto.code);
+            assertEquals("Étiquette prix", dto.label);
+            assertTrue(dto.active);
+            assertEquals(10, dto.priority);
+            assertEquals("21", dto.prefix);
+            assertEquals(13, dto.codeLength);
+            assertEquals("ALPHANUMERIC", dto.codeKind);
+            assertEquals(4, dto.articlePosition);
+            assertEquals(6, dto.articleLength);
+            assertEquals("WEIGHT", dto.valueSource);
+            assertEquals(7, dto.valuePosition);
+            assertEquals(5, dto.valueLength);
+            assertEquals(3, dto.valueDecimals);
+            assertEquals("FRF", dto.currency);
+            assertTrue(dto.checkDigit);
+            assertEquals("^21[A-Za-z0-9]{11}$", dto.matchPattern);
+        }
+    }
+
+    /**
+     * A range naming neither a character kind, nor a nature of value, nor a
+     * currency renders those three as null (the three null arms of the mapper).
+     */
+    @Test
+    void getPageMapsAnArticleRangeWithoutItsThreeEnums() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.barcode.ArticleBarcodeRange range =
+                mock(com.intermarche.pos.domain.barcode.ArticleBarcodeRange.class);
+        range.code = "R";
+        range.codeKind = null;
+        range.valueSource = null;
+        range.currency = null;
+        PanacheQuery<com.intermarche.pos.domain.barcode.ArticleBarcodeRange> query =
+                singlePage(0, 10, List.of(range));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.barcode.ArticleBarcodeRange
+                    .find("order by code")).thenReturn(query);
+            RefPayloads.ArticleBarcodeRangeDto dto = (RefPayloads.ArticleBarcodeRangeDto)
+                    service.getPage("ARTICLE_RANGES", 0, 10).get(0);
+            assertNull(dto.codeKind);
+            assertNull(dto.valueSource);
+            assertNull(dto.currency);
+        }
+    }
+
+    /**
+     * An article range renders into the canonical string field by field, so a
+     * position moved upstream changes the domain fingerprint and the registers
+     * pull the new plan. A range missing its three enum names renders them as
+     * the empty field (the null arms).
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void canonicalRendersAnArticleRange() throws Exception {
+        RefExportService service = new RefExportService();
+        Method canonical = RefExportService.class.getDeclaredMethod("canonical", Object.class);
+        canonical.setAccessible(true);
+        RefPayloads.ArticleBarcodeRangeDto dto = new RefPayloads.ArticleBarcodeRangeDto();
+        dto.code = "BALANCE_PRIX";
+        dto.label = "Étiquette prix";
+        dto.active = true;
+        dto.priority = 10;
+        dto.prefix = "21";
+        dto.codeLength = 13;
+        dto.codeKind = "NUMERIC";
+        dto.articlePosition = 2;
+        dto.articleLength = 5;
+        dto.valueSource = "PRICE";
+        dto.valuePosition = 7;
+        dto.valueLength = 5;
+        dto.valueDecimals = 2;
+        dto.currency = "EUR";
+        dto.checkDigit = true;
+        dto.matchPattern = "^21\\d{11}$";
+        assertEquals("BALANCE_PRIX|Étiquette prix|true|10|21|13|NUMERIC|2|5|PRICE|7|5|2|EUR|true|^21\\d{11}$",
+                canonical.invoke(service, dto));
+        // Moving the value segment by one position changes the canonical string:
+        // that is what makes the tills pull a corrected plan.
+        dto.valuePosition = 8;
+        assertEquals("BALANCE_PRIX|Étiquette prix|true|10|21|13|NUMERIC|2|5|PRICE|8|5|2|EUR|true|^21\\d{11}$",
+                canonical.invoke(service, dto));
+        RefPayloads.ArticleBarcodeRangeDto bare = new RefPayloads.ArticleBarcodeRangeDto();
+        bare.code = "R";
+        assertEquals("R||false|0||0||0|0||0|0|0||false|", canonical.invoke(service, bare));
+    }
+
+    /**
+     * The ARTICLE_RANGES domain is part of the pulled snapshot, right after the
+     * voucher ranges it shares its vocabulary with.
+     */
+    @Test
+    void theArticleRangesDomainIsPartOfTheSnapshot() {
+        assertTrue(RefExportService.DOMAINS.contains("ARTICLE_RANGES"));
+        assertEquals(RefExportService.DOMAINS.indexOf("COUPON_TYPES") + 1,
+                RefExportService.DOMAINS.indexOf("ARTICLE_RANGES"));
+    }
+
+    // --- Îlots de caisse (BO-03-06-07, BO-03-06-50) ---
+
+    /**
+     * Covers the ISLANDS switch arm and {@code toDto(CheckoutIsland)}: a
+     * register cannot know which island it stands on unless the island travels.
+     */
+    @Test
+    void getPageMapsCheckoutIslands() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.store.CheckoutIsland island =
+                mock(com.intermarche.pos.domain.store.CheckoutIsland.class);
+        island.code = "AVANT";
+        island.label = "Ligne avant";
+        island.active = true;
+        island.terminalIds = "POS01;POS02";
+        PanacheQuery<com.intermarche.pos.domain.store.CheckoutIsland> query =
+                singlePage(0, 10, List.of(island));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.store.CheckoutIsland
+                    .find("order by code")).thenReturn(query);
+            RefPayloads.CheckoutIslandDto dto =
+                    (RefPayloads.CheckoutIslandDto) service.getPage("ISLANDS", 0, 10).get(0);
+            assertEquals("AVANT", dto.code);
+            assertEquals("Ligne avant", dto.label);
+            assertTrue(dto.active);
+            assertEquals("POS01;POS02", dto.terminalIds);
+        }
+    }
+
+    /**
+     * An island renders into the canonical string field by field, so attaching
+     * a register upstream changes the domain fingerprint.
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void canonicalRendersACheckoutIsland() throws Exception {
+        RefExportService service = new RefExportService();
+        Method canonical = RefExportService.class.getDeclaredMethod("canonical", Object.class);
+        canonical.setAccessible(true);
+        RefPayloads.CheckoutIslandDto dto = new RefPayloads.CheckoutIslandDto();
+        dto.code = "AVANT";
+        dto.label = "Ligne avant";
+        dto.active = true;
+        dto.terminalIds = "POS01;POS02";
+        assertEquals("AVANT|Ligne avant|true|POS01;POS02", canonical.invoke(service, dto));
+        dto.terminalIds = "POS01;POS02;POS03";
+        assertEquals("AVANT|Ligne avant|true|POS01;POS02;POS03", canonical.invoke(service, dto));
+        RefPayloads.CheckoutIslandDto bare = new RefPayloads.CheckoutIslandDto();
+        bare.code = "VIDE";
+        assertEquals("VIDE||false|", canonical.invoke(service, bare));
+    }
+
+    /**
+     * The ISLANDS domain is part of the pulled snapshot, right after the
+     * article ranges.
+     */
+    @Test
+    void theIslandsDomainIsPartOfTheSnapshot() {
+        assertTrue(RefExportService.DOMAINS.contains("ISLANDS"));
+        assertEquals(RefExportService.DOMAINS.indexOf("ARTICLE_RANGES") + 1,
+                RefExportService.DOMAINS.indexOf("ISLANDS"));
+    }
+
+    /**
+     * Covers the TENDERS switch arm and {@code toDto(TenderDefinition)}: a
+     * register cannot oppose a ceiling it was never told about, so the whole
+     * administered description travels (BO-03-02-03/04/10 to 30).
+     */
+    @Test
+    void getPageMapsTenders() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                mock(com.intermarche.pos.domain.payment.TenderDefinition.class);
+        tender.code = "TR";
+        tender.functionalId = "030";
+        tender.label = "Titre restaurant";
+        tender.active = true;
+        tender.displayOrder = 30;
+        tender.maxAmount = new java.math.BigDecimal("25.00");
+        tender.maxAmountControl =
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING;
+        tender.maxCount = 2;
+        tender.maxCountControl =
+                com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR;
+        tender.drawerOpening =
+                com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening.IF_CHANGE_DUE;
+        tender.changeTenderCode = "CASH";
+        tender.refundAllowed = true;
+        tender.fidelityReported = true;
+        PanacheQuery<com.intermarche.pos.domain.payment.TenderDefinition> query =
+                singlePage(0, 10, List.of(tender));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .find("order by code")).thenReturn(query);
+            RefPayloads.TenderDefinitionDto dto =
+                    (RefPayloads.TenderDefinitionDto) service.getPage("TENDERS", 0, 10).get(0);
+            assertEquals("TR", dto.code);
+            assertEquals("030", dto.functionalId);
+            assertEquals("Titre restaurant", dto.label);
+            assertTrue(dto.active);
+            assertEquals(30, dto.displayOrder);
+            assertEquals("25.00", dto.maxAmount);
+            assertEquals("BLOCKING", dto.maxAmountControl);
+            assertEquals(Integer.valueOf(2), dto.maxCount);
+            assertEquals("SUPERVISOR", dto.maxCountControl);
+            assertEquals("IF_CHANGE_DUE", dto.drawerOpening);
+            assertEquals("CASH", dto.changeTenderCode);
+            assertTrue(dto.refundAllowed);
+            assertTrue(dto.fidelityReported);
+            assertNull(dto.minAmount);
+            assertNull(dto.secondMaxAmount);
+            assertNull(dto.maxChangeAmount);
+        }
+    }
+
+    /**
+     * A tender renders into the canonical string field by field, so raising a
+     * ceiling upstream changes the domain fingerprint — and an unadministered
+     * row renders its absent bounds as empty rather than as "null".
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void canonicalRendersATender() throws Exception {
+        RefExportService service = new RefExportService();
+        Method canonical = RefExportService.class.getDeclaredMethod("canonical", Object.class);
+        canonical.setAccessible(true);
+        RefPayloads.TenderDefinitionDto dto = new RefPayloads.TenderDefinitionDto();
+        dto.code = "TR";
+        dto.functionalId = "030";
+        dto.label = "Titre restaurant";
+        dto.active = true;
+        dto.displayOrder = 30;
+        dto.maxAmount = "25.00";
+        dto.maxAmountControl = "BLOCKING";
+        dto.maxCount = 2;
+        dto.maxCountControl = "SUPERVISOR";
+        dto.drawerOpening = "IF_CHANGE_DUE";
+        dto.changeTenderCode = "CASH";
+        dto.refundAllowed = true;
+        dto.fidelityReported = true;
+        assertEquals("TR|030|Titre restaurant|true|30|25.00|BLOCKING|||||2|SUPERVISOR|||"
+                        + "true|false|CASH|false|false|IF_CHANGE_DUE|false|false|false|false|"
+                        + "false|true",
+                canonical.invoke(service, dto));
+
+        dto.maxAmount = "19.00";
+        assertEquals("TR|030|Titre restaurant|true|30|19.00|BLOCKING|||||2|SUPERVISOR|||"
+                        + "true|false|CASH|false|false|IF_CHANGE_DUE|false|false|false|false|"
+                        + "false|true",
+                canonical.invoke(service, dto));
+
+        RefPayloads.TenderDefinitionDto bare = new RefPayloads.TenderDefinitionDto();
+        bare.code = "VIDE";
+        assertEquals("VIDE|||false|0|||||||||||false|false||false|false||false|false|false|"
+                        + "false|false|false",
+                canonical.invoke(service, bare));
+    }
+
+    /**
+     * The TENDERS domain is part of the pulled snapshot, right after the
+     * islands.
+     */
+    @Test
+    void theTendersDomainIsPartOfTheSnapshot() {
+        assertTrue(RefExportService.DOMAINS.contains("TENDERS"));
+        assertEquals(RefExportService.DOMAINS.indexOf("ISLANDS") + 1,
+                RefExportService.DOMAINS.indexOf("TENDERS"));
+    }
+
+    /**
+     * Covers the DOCUMENT_TEMPLATES switch arm and
+     * {@code toDto(DocumentTemplate)}: a register cannot lay out a document it
+     * was never handed the layout of, so the source travels verbatim (BO-03-03).
+     */
+    @Test
+    void getPageMapsDocumentTemplates() {
+        RefExportService service = new RefExportService();
+        com.intermarche.pos.domain.setting.DocumentTemplate template =
+                mock(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+        template.code = "TICKET_VENTE";
+        template.label = "Ticket de vente";
+        template.documentType = com.intermarche.pos.domain.setting.DocumentTemplate
+                .DocumentType.SALE_RECEIPT;
+        template.active = true;
+        template.priority = 100;
+        template.width = 42;
+        template.copies = 2;
+        template.source = "TOTAL {totals.includingTax}";
+        PanacheQuery<com.intermarche.pos.domain.setting.DocumentTemplate> query =
+                singlePage(0, 10, List.of(template));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate
+                    .find("order by code")).thenReturn(query);
+            RefPayloads.DocumentTemplateDto dto = (RefPayloads.DocumentTemplateDto)
+                    service.getPage("DOCUMENT_TEMPLATES", 0, 10).get(0);
+            assertEquals("TICKET_VENTE", dto.code);
+            assertEquals("Ticket de vente", dto.label);
+            assertEquals("SALE_RECEIPT", dto.documentType);
+            assertTrue(dto.active);
+            assertEquals(100, dto.priority);
+            assertEquals(42, dto.width);
+            assertEquals(2, dto.copies);
+            assertEquals("TOTAL {totals.includingTax}", dto.source);
+        }
+    }
+
+    /**
+     * A template renders into the canonical string field by field, so rewriting
+     * a layout upstream changes the domain fingerprint — and a template attached
+     * to no document renders its absent type as empty rather than as "null".
+     *
+     * @throws Exception if reflection fails
+     */
+    @Test
+    void canonicalRendersADocumentTemplate() throws Exception {
+        RefExportService service = new RefExportService();
+        Method canonical = RefExportService.class.getDeclaredMethod("canonical", Object.class);
+        canonical.setAccessible(true);
+        RefPayloads.DocumentTemplateDto dto = new RefPayloads.DocumentTemplateDto();
+        dto.code = "TICKET_VENTE";
+        dto.label = "Ticket de vente";
+        dto.documentType = "SALE_RECEIPT";
+        dto.active = true;
+        dto.priority = 100;
+        dto.width = 42;
+        dto.copies = 2;
+        dto.source = "TOTAL {totals.includingTax}";
+        assertEquals("TICKET_VENTE|Ticket de vente|SALE_RECEIPT|true|100|42|2|"
+                + "TOTAL {totals.includingTax}", canonical.invoke(service, dto));
+
+        dto.source = "TOTAL {totals.excludingTax}";
+        assertEquals("TICKET_VENTE|Ticket de vente|SALE_RECEIPT|true|100|42|2|"
+                + "TOTAL {totals.excludingTax}", canonical.invoke(service, dto));
+
+        RefPayloads.DocumentTemplateDto bare = new RefPayloads.DocumentTemplateDto();
+        bare.code = "VIDE";
+        assertEquals("VIDE|||false|0|0|0|", canonical.invoke(service, bare));
+    }
+
+    /**
+     * The DOCUMENT_TEMPLATES domain is part of the pulled snapshot, right after
+     * the tenders.
+     */
+    @Test
+    void theDocumentTemplatesDomainIsPartOfTheSnapshot() {
+        assertTrue(RefExportService.DOMAINS.contains("DOCUMENT_TEMPLATES"));
+        assertEquals(RefExportService.DOMAINS.indexOf("TENDERS") + 1,
+                RefExportService.DOMAINS.indexOf("DOCUMENT_TEMPLATES"));
     }
 }

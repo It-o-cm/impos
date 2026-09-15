@@ -1,12 +1,12 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * Read side of the electronic journal (BO-04-01, lot 4). It produces nothing:
@@ -40,6 +41,9 @@ import java.util.Map;
  */
 @ApplicationScoped
 public class JournalService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(JournalService.class);
 
     /** The number of rows one page of a result list shows. */
     static final int PAGE_SIZE = 100;
@@ -428,7 +432,7 @@ public class JournalService {
             // authorized it, but it is still a card acceptance, not cash.
             query.and("exists (select p from t.payments p where type(p) = :cardType or type(p) = :backupType)");
             query.bind("cardType", CardPayment.class);
-            query.bind("backupType", com.intermarche.pos.domain.ticket.BackupPayment.class);
+            query.bind("backupType", com.intermarche.pos.domain.payment.BackupPayment.class);
         }
         if (criteria.flags.contains(JournalCriteria.Flag.DEGRADED)) {
             query.and("exists (select p from t.payments p where treat(p as CardPayment).degradedMode = true)");
@@ -449,10 +453,12 @@ public class JournalService {
      * @return the requested page of rows and the total row count
      */
     public JournalPage<JournalRow> search(JournalCriteria criteria) {
+        LOGGER.info("Entering method search with criteria: " + criteria);
         JournalQuery query = buildTicketQuery(criteria);
         long total = count("select count(t.id) from Ticket t" + query.whereClause(), query);
         int number = clampPage(criteria.page, total, PAGE_SIZE);
         List<JournalRow> rows = ticketRows(criteria, query, (number - 1) * PAGE_SIZE, PAGE_SIZE);
+        LOGGER.info("Exiting method search");
         return new JournalPage<>(rows, number, PAGE_SIZE, total);
     }
 
@@ -548,8 +554,10 @@ public class JournalService {
      * @return the materialized detail, or null
      */
     public JournalTicketDetail buildDetail(Long id) {
+        LOGGER.info("Entering method buildDetail with id: " + id);
         Ticket ticket = entityManager.find(Ticket.class, id);
         if (ticket == null) {
+            LOGGER.info("Exiting method buildDetail");
             return null;
         }
         List<JournalTicketDetail.Line> lines = new ArrayList<>();
@@ -570,6 +578,7 @@ public class JournalService {
                     payment.getMethodKey(),
                     formatAmount(payment.amount)));
         }
+        LOGGER.info("Exiting method buildDetail");
         return new JournalTicketDetail(
                 ticket.ticketNumber,
                 ticket.terminalId,
@@ -664,6 +673,7 @@ public class JournalService {
      * @return the requested page of event rows and the total row count
      */
     public JournalPage<JournalEventRow> searchEvents(JournalCriteria criteria) {
+        LOGGER.info("Entering method searchEvents with criteria: " + criteria);
         JournalQuery query = buildEventQuery(criteria);
         long total = count("select count(e.id) from TechnicalEvent e" + query.whereClause(), query);
         int number = clampPage(criteria.page, total, PAGE_SIZE);
@@ -683,6 +693,7 @@ public class JournalService {
                     event.eventDate.format(TIME),
                     event.detail));
         }
+        LOGGER.info("Exiting method searchEvents");
         return new JournalPage<>(rows, number, PAGE_SIZE, total);
     }
 
@@ -759,6 +770,7 @@ public class JournalService {
      * @return the requested page of movement rows and the total row count
      */
     public JournalPage<JournalMovementRow> searchMovements(JournalCriteria criteria) {
+        LOGGER.info("Entering method searchMovements with criteria: " + criteria);
         JournalQuery query = buildMovementQuery(criteria);
         long total = count("select count(m.id) from CashMovement m" + query.whereClause(), query);
         int number = clampPage(criteria.page, total, PAGE_SIZE);
@@ -780,6 +792,7 @@ public class JournalService {
                     movement.reason,
                     movement.endorsedBy));
         }
+        LOGGER.info("Exiting method searchMovements");
         return new JournalPage<>(rows, number, PAGE_SIZE, total);
     }
 
@@ -798,6 +811,8 @@ public class JournalService {
      * @return the CSV document
      */
     public String exportCsv(JournalCriteria criteria) {
+        LOGGER.info("Entering method exportCsv with criteria: " + criteria);
+        LOGGER.info("Exiting method exportCsv");
         return exportCsv(criteria, EXPORT_CHUNK);
     }
 

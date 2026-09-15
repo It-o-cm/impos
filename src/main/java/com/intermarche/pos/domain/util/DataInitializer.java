@@ -1,6 +1,14 @@
 package com.intermarche.pos.domain.util;
 
-import com.intermarche.pos.domain.*;
+import com.intermarche.pos.domain.barcode.*;
+import com.intermarche.pos.domain.catalog.*;
+import com.intermarche.pos.domain.payment.*;
+import com.intermarche.pos.domain.people.*;
+import com.intermarche.pos.domain.sale.*;
+import com.intermarche.pos.domain.session.*;
+import com.intermarche.pos.domain.setting.*;
+import com.intermarche.pos.domain.store.*;
+import com.intermarche.pos.domain.sync.*;
 import io.quarkus.arc.profile.IfBuildProfile;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -9,6 +17,7 @@ import jakarta.transaction.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 
 /**
  * Development/test data seeder.
@@ -265,38 +274,73 @@ public class DataInitializer {
         // NB : les formats réels des bons Intermarché ne sont pas publics ;
         //      les motifs ci-dessous sont des exemples à adapter au format réel.
         // amountPattern : 1er groupe capturant = montant en centimes (si ENCODED).
+        // Chaque plage porte AUSSI sa description administrée (préfixe, longueur,
+        // position du montant) : c'est elle qui engendre le motif au back-office,
+        // et un test vérifie qu'elle redonne exactement les motifs écrits ici.
 
         // Chèque cadeau : 10 chiffres, 4 derniers = montant en centimes.
         // Registry-backed instruments: the number is a pure identifier, the
         // registry holds the balance (phase: credit notes & gift cards).
-        createCouponType("AVOIR", "Avoir", "^297\\d{12}$",
-                CouponType.AmountSource.REGISTRY, null, 5);
-        createCouponType("GIFT_CARD", "Carte cadeau", "^296\\d{12}$",
-                CouponType.AmountSource.REGISTRY, null, 5);
-        createCouponType("GIFT_VOUCHER", "Chèque cadeau", "^\\d{10}$",
-                CouponType.AmountSource.ENCODED, "\\d{6}(\\d{4})$", 10);
+        administer(createCouponType("AVOIR", "Avoir", "^297\\d{12}$",
+                CouponType.AmountSource.REGISTRY, null, 5), "297", 15, -1, 0);
+        administer(createCouponType("GIFT_CARD", "Carte cadeau", "^296\\d{12}$",
+                CouponType.AmountSource.REGISTRY, null, 5), "296", 15, -1, 0);
+        administer(createCouponType("GIFT_VOUCHER", "Chèque cadeau", "^\\d{10}$",
+                CouponType.AmountSource.ENCODED, "\\d{6}(\\d{4})$", 10), "", 10, 6, 4);
 
         // Bon enseigne : préfixe 50 + 12 chiffres, 4 derniers = montant en centimes.
-        createCouponType("STORE_VOUCHER", "Bon enseigne", "^50\\d{12}$",
-                CouponType.AmountSource.ENCODED, "\\d{10}(\\d{4})$", 20);
+        administer(createCouponType("STORE_VOUCHER", "Bon enseigne", "^50\\d{12}$",
+                CouponType.AmountSource.ENCODED, "\\d{10}(\\d{4})$", 20), "50", 14, 10, 4);
 
         // Chèque fidélité : préfixe 789 + 12 chiffres, 4 derniers = montant en centimes.
-        createCouponType("LOYALTY_CHEQUE", "Chèque fidélité", "^789\\d{12}$",
-                CouponType.AmountSource.ENCODED, "\\d{11}(\\d{4})$", 30);
+        administer(createCouponType("LOYALTY_CHEQUE", "Chèque fidélité", "^789\\d{12}$",
+                CouponType.AmountSource.ENCODED, "\\d{11}(\\d{4})$", 30), "789", 15, 11, 4);
 
         // Catalina : préfixe 0482 + 10 chiffres ; montant non déductible -> saisie manuelle.
-        createCouponType("CATALINA", "Catalina", "^0482\\d{10}$",
-                CouponType.AmountSource.MANUAL, null, 40);
+        administer(createCouponType("CATALINA", "Catalina", "^0482\\d{10}$",
+                CouponType.AmountSource.MANUAL, null, 40), "0482", 14, -1, 0);
 
         // Deposit-return vouchers (reverse vending machine): 298 + 6-digit
         // serial + 4-digit amount in cents. Scanned on the sale screen, they
         // become a negative ticket line, never a payment.
-        createDepositCouponType("DEPOSIT_VOUCHER", "Bon de consigne", "^298\\d{10}$",
-                "^298\\d{6}(\\d{4})$", 5);
+        administer(createDepositCouponType("DEPOSIT_VOUCHER", "Bon de consigne", "^298\\d{10}$",
+                "^298\\d{6}(\\d{4})$", 5), "298", 13, 9, 4);
 
-        // Bon générique / éphémère : aucun numéro -> montant seul.
+        // Bon générique / éphémère : aucun numéro -> aucune plage à administrer.
         createCouponType("GENERIC", "Bon générique", "",
                 CouponType.AmountSource.MANUAL, null, 100);
+    }
+
+    /**
+     * Adds to a seeded coupon type the administered description of its range:
+     * the literal head, the total length and, when the amount sits in the
+     * number, the position of the price field (BO-03-06).
+     *
+     * @param type the seeded type
+     * @param prefix the literal head, possibly empty
+     * @param codeLength the total number of characters of a code of the range
+     * @param priceOffset the zero-based position of the price, or a negative
+     *        value when the range carries no price
+     * @param priceLength the number of characters of the price, ignored when
+     *        the range carries none
+     */
+    private void administer(CouponType type, String prefix, int codeLength,
+                            int priceOffset, int priceLength) {
+        type.prefix = prefix.isEmpty() ? null : prefix;
+        type.codeLength = codeLength;
+        type.codeKind = CouponField.Kind.NUMERIC;
+        type.fields = new ArrayList<>();
+        if (priceOffset >= 0) {
+            CouponField price = new CouponField();
+            price.couponType = type;
+            price.role = CouponField.Role.PRICE;
+            price.offsetPosition = priceOffset;
+            price.fieldLength = priceLength;
+            price.kind = CouponField.Kind.NUMERIC;
+            price.decimals = 2;
+            price.currency = CouponField.PriceCurrency.EUR;
+            type.fields.add(price);
+        }
     }
 
     /**
@@ -446,9 +490,10 @@ public class DataInitializer {
      * @param amountSource where the amount comes from (ENCODED or MANUAL)
      * @param amountPattern the extraction regex (first group = cents), or null
      * @param priority the matching priority (lower runs first)
+     * @return the persisted type, so the caller can administer its range
      */
-    private void createCouponType(String code, String label, String matchPattern,
-                                  CouponType.AmountSource amountSource, String amountPattern, int priority) {
+    private CouponType createCouponType(String code, String label, String matchPattern,
+                                        CouponType.AmountSource amountSource, String amountPattern, int priority) {
         CouponType ct = new CouponType();
         ct.code = code;
         ct.label = label;
@@ -458,6 +503,7 @@ public class DataInitializer {
         ct.active = true;
         ct.priority = priority;
         ct.persist();
+        return ct;
     }
 
     /**
@@ -469,9 +515,10 @@ public class DataInitializer {
      * @param matchPattern the recognition regex
      * @param amountPattern the extraction regex (first group = cents)
      * @param priority the matching priority (lower runs first)
+     * @return the persisted type, so the caller can administer its range
      */
-    private void createDepositCouponType(String code, String label, String matchPattern,
-                                         String amountPattern, int priority) {
+    private CouponType createDepositCouponType(String code, String label, String matchPattern,
+                                               String amountPattern, int priority) {
         CouponType ct = new CouponType();
         ct.code = code;
         ct.label = label;
@@ -482,6 +529,7 @@ public class DataInitializer {
         ct.priority = priority;
         ct.depositLine = true;
         ct.persist();
+        return ct;
     }
 
     /**

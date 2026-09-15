@@ -1,11 +1,11 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.CrudOption;
-import com.intermarche.pos.domain.EmployeeProfile;
-import com.intermarche.pos.domain.Feature;
-import com.intermarche.pos.domain.Menu;
-import com.intermarche.pos.domain.Profile;
-import com.intermarche.pos.domain.ProfileGrant;
+import com.intermarche.pos.domain.people.CrudOption;
+import com.intermarche.pos.domain.people.EmployeeProfile;
+import com.intermarche.pos.domain.setting.Feature;
+import com.intermarche.pos.domain.people.Menu;
+import com.intermarche.pos.domain.people.Profile;
+import com.intermarche.pos.domain.people.ProfileGrant;
 import com.intermarche.pos.service.PermissionService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * The PROFILES administration screen ({@code /admin/profiles}, BO-01-03-01,
@@ -54,6 +55,9 @@ import java.util.Map;
  */
 @Path("/admin/profiles")
 public class AdminProfileResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminProfileResource.class);
 
     /** The profiles list template. */
     @Inject
@@ -128,10 +132,13 @@ public class AdminProfileResource {
     @Authenticated
     public Object listPage(@QueryParam("notice") String notice,
                            @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method listPage with notice: " + notice + ", noticeOk: " + noticeOk);
         Response denied = guard(CrudOption.VIEW);
         if (denied != null) {
+            LOGGER.info("Exiting method listPage");
             return denied;
         }
+        LOGGER.info("Exiting method listPage");
         return adminProfiles.data("profiles", Profile.listAllOrdered())
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
@@ -146,10 +153,13 @@ public class AdminProfileResource {
     @Path("/new")
     @Authenticated
     public Object newForm() {
+        LOGGER.info("Entering method newForm");
         Response denied = guard(CrudOption.VIEW);
         if (denied != null) {
+            LOGGER.info("Exiting method newForm");
             return denied;
         }
+        LOGGER.info("Exiting method newForm");
         return form(null);
     }
 
@@ -163,14 +173,18 @@ public class AdminProfileResource {
     @Path("/edit")
     @Authenticated
     public Object editForm(@QueryParam("id") Long id) {
+        LOGGER.info("Entering method editForm with id: " + id);
         Response denied = guard(CrudOption.VIEW);
         if (denied != null) {
+            LOGGER.info("Exiting method editForm");
             return denied;
         }
         Profile profile = id == null ? null : Profile.<Profile>findById(id);
         if (profile == null) {
+            LOGGER.info("Exiting method editForm");
             return redirect("Profil introuvable.", false);
         }
+        LOGGER.info("Exiting method editForm");
         return form(profile);
     }
 
@@ -185,14 +199,17 @@ public class AdminProfileResource {
     @Authenticated
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         String idRaw = form.getFirst("id");
         boolean creating = idRaw == null || idRaw.isBlank();
         Response denied = guard(creating ? CrudOption.CREATE : CrudOption.UPDATE);
         if (denied != null) {
+            LOGGER.info("Exiting method save");
             return denied;
         }
         String name = trimmed(form.getFirst("name"));
         if (name.isEmpty()) {
+            LOGGER.info("Exiting method save");
             return redirect("Le nom du profil est obligatoire.", false);
         }
         Profile profile;
@@ -201,11 +218,13 @@ public class AdminProfileResource {
         } else {
             profile = Profile.findById(Long.valueOf(idRaw));
             if (profile == null) {
+                LOGGER.info("Exiting method save");
                 return redirect("Profil introuvable.", false);
             }
         }
         Profile clash = Profile.findByName(name);
         if (clash != null && !clash.equals(profile)) {
+            LOGGER.info("Exiting method save");
             return redirect("Un profil porte déjà le nom « " + name + " ».", false);
         }
         profile.name = name;
@@ -214,6 +233,7 @@ public class AdminProfileResource {
         if (creating) {
             profile.persist();
         }
+        LOGGER.info("Exiting method save");
         return redirect("Profil « " + name + " » enregistré.", true);
     }
 
@@ -229,18 +249,22 @@ public class AdminProfileResource {
     @Authenticated
     @Transactional
     public Response delete(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method delete with form: " + form);
         Response denied = guard(CrudOption.DELETE);
         if (denied != null) {
+            LOGGER.info("Exiting method delete");
             return denied;
         }
         String idRaw = form.getFirst("id");
         Profile profile = idRaw == null || idRaw.isBlank() ? null : Profile.<Profile>findById(Long.valueOf(idRaw));
         if (profile == null) {
+            LOGGER.info("Exiting method delete");
             return redirect("Profil introuvable.", false);
         }
         String name = profile.name;
         EmployeeProfile.delete("profileId", profile.id);
         profile.delete();
+        LOGGER.info("Exiting method delete");
         return redirect("Profil « " + name + " » supprimé.", true);
     }
 

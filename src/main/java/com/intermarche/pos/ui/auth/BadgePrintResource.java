@@ -16,6 +16,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * Operator badge reprint (LC-01-06-01): the typed operator number is parked
@@ -26,6 +27,9 @@ import java.net.URI;
 @Path("/")
 @DrawerMustBeClosed
 public class BadgePrintResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(BadgePrintResource.class);
 
     /** The badge-reprint entry page. */
     @Inject
@@ -48,6 +52,8 @@ public class BadgePrintResource {
     @GET
     @Path("/badge-print")
     public TemplateInstance badgePrintPage() {
+        LOGGER.info("Entering method badgePrintPage");
+        LOGGER.info("Exiting method badgePrintPage");
         return badgePrint.data("state", state);
     }
 
@@ -62,9 +68,11 @@ public class BadgePrintResource {
     @Path("/action/badge-print")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response requestBadgePrint(@FormParam("operator") String operator) {
+        LOGGER.info("Entering method requestBadgePrint with operator: " + operator);
         if (operator != null && !operator.isBlank()) {
             endorsementService.requestAuthorization(state, "PRINT_BADGE_" + operator.trim());
         }
+        LOGGER.info("Exiting method requestBadgePrint");
         return Response.seeOther(URI.create("/")).build();
     }
 }

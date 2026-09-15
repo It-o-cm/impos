@@ -1,6 +1,6 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.PosSetting;
+import com.intermarche.pos.domain.setting.PosSetting;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.eclipse.microprofile.config.Config;

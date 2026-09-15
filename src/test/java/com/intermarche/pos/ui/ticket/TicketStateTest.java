@@ -1147,4 +1147,123 @@ class TicketStateTest {
         line.unitName = null;
         assertFalse(line.getHtml().contains("m x 4,99"));
     }
+
+    // --- Remise globale et articles sans remise (BO-02-03-09) ---
+
+    /**
+     * A line whose article bans discounts receives NO share of the ticket
+     * discount, and the other line carries the whole of it.
+     */
+    @Test
+    void aLineBanningDiscountsGetsNoShareOfTheTicketDiscount() {
+        TicketState ts = new TicketState();
+        TicketItem banned = addLine(ts, "10.00", "1");
+        banned.discountForbidden = true;
+        TicketItem ordinary = addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("4.00"));
+        ts.recomputeTotal();
+        assertNull(banned.globalDiscountShare);
+        assertEquals(0, new BigDecimal("4.00").compareTo(ordinary.globalDiscountShare));
+        assertEquals(0, new BigDecimal("4.00").compareTo(ts.globalDiscountApplied));
+    }
+
+    /**
+     * The banned line is out of the BASE too: a 50 % request on a ticket of two
+     * ten-euro lines, one of them banned, discounts five euros — half of the
+     * discountable ten — and not ten.
+     */
+    @Test
+    void aBannedLineIsOutOfThePercentageBase() {
+        TicketState ts = new TicketState();
+        TicketItem banned = addLine(ts, "10.00", "1");
+        banned.discountForbidden = true;
+        addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("PERCENT", new BigDecimal("50"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("5.00").compareTo(ts.globalDiscountApplied));
+        assertEquals(0, new BigDecimal("15.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * A euro request is capped at the DISCOUNTABLE base: asking 50 € on a
+     * ticket whose only ten euros are banned discounts nothing at all.
+     */
+    @Test
+    void aTicketOfBannedLinesOnlyDiscountsNothing() {
+        TicketState ts = new TicketState();
+        TicketItem banned = addLine(ts, "10.00", "1");
+        banned.discountForbidden = true;
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("50.00"));
+        ts.recomputeTotal();
+        assertNull(ts.globalDiscountApplied);
+        assertNull(banned.globalDiscountShare);
+        assertEquals(0, new BigDecimal("10.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * With no line banned, the allocation is unchanged — the guard's false arm.
+     */
+    @Test
+    void anOrdinaryTicketIsAllocatedAsBefore() {
+        TicketState ts = new TicketState();
+        TicketItem first = addLine(ts, "10.00", "1");
+        TicketItem second = addLine(ts, "10.00", "1");
+        ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("4.00"));
+        ts.recomputeTotal();
+        assertEquals(0, new BigDecimal("2.00").compareTo(first.globalDiscountShare));
+        assertEquals(0, new BigDecimal("2.00").compareTo(second.globalDiscountShare));
+    }
+
+    // --- Assiette titre-restaurant portée par les lignes (BO-02-03-06) ---
+
+    /**
+     * The eligible total sums the lines their article declares eligible, and
+     * only those.
+     */
+    @Test
+    void theEligibleTotalSumsTheEligibleLinesOnly() {
+        TicketState ts = new TicketState();
+        TicketItem eligible = addLine(ts, "12.34", "1");
+        eligible.mealVoucherEligible = true;
+        addLine(ts, "99.00", "1");
+        assertEquals(0, new BigDecimal("12.34").compareTo(ts.mealVoucherEligibleTotal()));
+    }
+
+    /**
+     * A SECOND eligible line adds to the base, quantity included.
+     */
+    @Test
+    void theEligibleTotalAddsEveryEligibleLine() {
+        TicketState ts = new TicketState();
+        TicketItem first = addLine(ts, "10.00", "2");
+        first.mealVoucherEligible = true;
+        TicketItem second = addLine(ts, "1.50", "1");
+        second.mealVoucherEligible = true;
+        assertEquals(0, new BigDecimal("21.50").compareTo(ts.mealVoucherEligibleTotal()));
+    }
+
+    /**
+     * A ticket with no eligible line has a zero base, and so does an empty one.
+     */
+    @Test
+    void aTicketWithoutAnEligibleLineHasNoBase() {
+        TicketState ts = new TicketState();
+        addLine(ts, "10.00", "1");
+        assertEquals(0, BigDecimal.ZERO.compareTo(ts.mealVoucherEligibleTotal()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(new TicketState().mealVoucherEligibleTotal()));
+    }
+
+    /**
+     * A negative eligible line is skipped rather than subtracted: a deposit
+     * return does not shrink what a meal ticket may settle.
+     */
+    @Test
+    void aNegativeEligibleLineIsSkipped() {
+        TicketState ts = new TicketState();
+        TicketItem eligible = addLine(ts, "10.00", "1");
+        eligible.mealVoucherEligible = true;
+        TicketItem deposit = addLine(ts, "-1.00", "1");
+        deposit.mealVoucherEligible = true;
+        assertEquals(0, new BigDecimal("10.00").compareTo(ts.mealVoucherEligibleTotal()));
+    }
 }

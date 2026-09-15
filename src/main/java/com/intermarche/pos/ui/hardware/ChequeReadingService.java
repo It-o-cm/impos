@@ -28,7 +28,7 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class ChequeReadingService {
 
-    private static final Logger LOG = Logger.getLogger(ChequeReadingService.class);
+    private static final Logger LOGGER = Logger.getLogger(ChequeReadingService.class);
 
     /** Status key naming where the reading stands. */
     private static final String STATE_KEY = "state";
@@ -84,14 +84,17 @@ public class ChequeReadingService {
      * @param onError receives the operator-facing message when it was not
      */
     public void read(String endorsement, Consumer<String> onRead, Consumer<String> onError) {
+        LOGGER.info("Entering method read with endorsement: " + endorsement + ", onRead: " + onRead + ", onError: " + onError);
         try {
             hardware.startCheque(endorsement == null ? "" : endorsement);
         } catch (RuntimeException e) {
-            LOG.errorf(e, "Le pont materiel a refuse la lecture du cheque");
+            LOGGER.errorf(e, "Le pont materiel a refuse la lecture du cheque");
             onError.accept(UNREACHABLE);
+            LOGGER.info("Exiting method read");
             return;
         }
         follower.execute(() -> follow(onRead, onError));
+        LOGGER.info("Exiting method read");
     }
 
     /**
@@ -107,7 +110,7 @@ public class ChequeReadingService {
             try {
                 status = parse(hardware.getChequeStatus());
             } catch (RuntimeException e) {
-                LOG.errorf(e, "Lecture de l'etat du cheque impossible");
+                LOGGER.errorf(e, "Lecture de l'etat du cheque impossible");
                 onError.accept(UNREACHABLE);
                 return;
             }
@@ -119,7 +122,7 @@ public class ChequeReadingService {
                 return;
             }
         }
-        LOG.errorf("Aucune lecture de cheque apres %d ms", deadlineMillis);
+        LOGGER.errorf("Aucune lecture de cheque apres %d ms", deadlineMillis);
         onError.accept("PAS DE REPONSE DU LECTEUR DE CHEQUES");
     }
 
@@ -134,13 +137,13 @@ public class ChequeReadingService {
             Consumer<String> onError) {
         String failure = status.get(FAILURE_KEY);
         if (failure != null && !failure.isBlank()) {
-            LOG.infof("Cheque non lu: %s", failure);
+            LOGGER.infof("Cheque non lu: %s", failure);
             onError.accept(failure.toUpperCase());
             return;
         }
         String raw = status.get(RAW_KEY);
         if (raw == null || raw.isBlank()) {
-            LOG.errorf("Lecture terminee sans ligne magnetique ni cause");
+            LOGGER.errorf("Lecture terminee sans ligne magnetique ni cause");
             onError.accept("CHEQUE NON LU");
             return;
         }

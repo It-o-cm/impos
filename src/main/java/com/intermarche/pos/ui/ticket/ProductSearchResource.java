@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -16,6 +16,7 @@ import java.math.RoundingMode;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the product search screen: full-text search over
@@ -23,6 +24,9 @@ import java.util.List;
  */
 @Path("/")
 public class ProductSearchResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ProductSearchResource.class);
 
     /** Maximum number of results the search brings back. */
     private static final int MAX_RESULTS = 24;
@@ -85,6 +89,7 @@ public class ProductSearchResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance searchPage(@QueryParam("q") String query,
                                        @QueryParam("page") Integer page) {
+        LOGGER.info("Entering method searchPage with query: " + query + ", page: " + page);
         String q = (query != null) ? query.trim() : "";
         List<SearchHit> hits = new ArrayList<>();
         if (q.length() >= 2) {
@@ -115,6 +120,7 @@ public class ProductSearchResource {
         int current = page == null ? 1 : Math.min(Math.max(page, 1), pageCount);
         int from = (current - 1) * PAGE_SIZE;
         int to = Math.min(from + PAGE_SIZE, hits.size());
+        LOGGER.info("Exiting method searchPage");
         return search
                 .data("state", state)
                 .data("q", q)
@@ -154,10 +160,12 @@ public class ProductSearchResource {
     @Path("/action/search/scan")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response scanTypedCode(@FormParam("q") String code) {
+        LOGGER.info("Entering method scanTypedCode with code: " + code);
         String typed = code == null ? "" : code.trim();
         if (!typed.isEmpty()) {
             ticketService.processScan(typed);
         }
+        LOGGER.info("Exiting method scanTypedCode");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -171,7 +179,9 @@ public class ProductSearchResource {
     @GET
     @Path("/action/search/add/{ean}")
     public Response addFromSearch(@PathParam("ean") String ean) {
+        LOGGER.info("Entering method addFromSearch with ean: " + ean);
         ticketService.addItemByEan(state, ean, BigDecimal.ONE);
+        LOGGER.info("Exiting method addFromSearch");
         return Response.seeOther(URI.create("/")).build();
     }
 }

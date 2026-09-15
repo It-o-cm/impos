@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.ArticleAttributeDefinition;
+import com.intermarche.pos.domain.catalog.ArticleAttributeDefinition;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -20,6 +20,7 @@ import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import org.jboss.logging.Logger;
 
 /**
  * The ARTICLE ATTRIBUTES administration screen ({@code /admin/article-attributes},
@@ -34,6 +35,9 @@ import java.nio.charset.StandardCharsets;
  */
 @Path("/admin/article-attributes")
 public class AdminArticleAttributeResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminArticleAttributeResource.class);
 
     /** The attribute-definitions list template. */
     @Inject
@@ -51,6 +55,8 @@ public class AdminArticleAttributeResource {
     @RolesAllowed("ADMIN")
     public TemplateInstance list(@QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method list with notice: " + notice + ", noticeOk: " + noticeOk);
+        LOGGER.info("Exiting method list");
         return adminArticleAttributes.data("definitions", ArticleAttributeDefinition.listAllOrdered())
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
@@ -67,19 +73,23 @@ public class AdminArticleAttributeResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         String code = trimmedUpper(form.getFirst("code"));
         String label = trimmed(form.getFirst("label"));
         if (code.isEmpty() || label.isEmpty()) {
+            LOGGER.info("Exiting method save");
             return redirect("Le code et le libellé de l'attribut sont obligatoires.", false);
         }
         Long id = parseId(form.getFirst("id"));
         ArticleAttributeDefinition definition = id != null
                 ? ArticleAttributeDefinition.<ArticleAttributeDefinition>findById(id) : null;
         if (id != null && definition == null) {
+            LOGGER.info("Exiting method save");
             return redirect("Attribut introuvable.", false);
         }
         ArticleAttributeDefinition clash = ArticleAttributeDefinition.findByCode(code);
         if (clash != null && !clash.equals(definition)) {
+            LOGGER.info("Exiting method save");
             return redirect("Un attribut porte déjà le code « " + code + " ».", false);
         }
         if (definition == null) {
@@ -91,6 +101,7 @@ public class AdminArticleAttributeResource {
             definition.code = code;
             definition.label = label;
         }
+        LOGGER.info("Exiting method save");
         return redirect("Attribut « " + code + " » enregistré.", true);
     }
 
@@ -106,14 +117,17 @@ public class AdminArticleAttributeResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response delete(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method delete with form: " + form);
         Long id = parseId(form.getFirst("id"));
         ArticleAttributeDefinition definition = id != null
                 ? ArticleAttributeDefinition.<ArticleAttributeDefinition>findById(id) : null;
         if (definition == null) {
+            LOGGER.info("Exiting method delete");
             return redirect("Attribut introuvable.", false);
         }
         String code = definition.code;
         definition.delete();
+        LOGGER.info("Exiting method delete");
         return redirect("Attribut « " + code + " » supprimé.", true);
     }
 

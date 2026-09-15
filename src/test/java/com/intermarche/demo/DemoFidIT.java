@@ -232,9 +232,9 @@ public class DemoFidIT {
     private String resolveEanByNamePrefix(String namePrefix) {
         final String[] ean = new String[1];
         io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() -> {
-            com.intermarche.pos.domain.Product product =
-                    com.intermarche.pos.domain.Product
-                            .<com.intermarche.pos.domain.Product>find(
+            com.intermarche.pos.domain.catalog.Product product =
+                    com.intermarche.pos.domain.catalog.Product
+                            .<com.intermarche.pos.domain.catalog.Product>find(
                                     "lower(name) like ?1", namePrefix + "%")
                             .firstResult();
             if (product != null) {

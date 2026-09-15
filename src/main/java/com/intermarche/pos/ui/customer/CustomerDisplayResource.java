@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.qute.Location;
@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * Customer-facing display (phase 4): a dedicated page opened on the second
@@ -38,6 +39,9 @@ import java.util.Map;
 @Path("/")
 public class CustomerDisplayResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(CustomerDisplayResource.class);
+
     @Inject @Location("customer") Template customer;
     @Inject PosState state;
 
@@ -54,7 +58,9 @@ public class CustomerDisplayResource {
     @Path("/customer")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance customerPage() {
+        LOGGER.info("Entering method customerPage");
         state.customerDisplaySeenAt = System.currentTimeMillis();
+        LOGGER.info("Exiting method customerPage");
         return customer.data("state", state);
     }
 
@@ -69,6 +75,7 @@ public class CustomerDisplayResource {
     @Path("/customer-data")
     @Produces(MediaType.APPLICATION_JSON)
     public Map<String, Object> customerData(@QueryParam("v") Long clientVersion) {
+        LOGGER.info("Entering method customerData with clientVersion: " + clientVersion);
         // Every poll is the proof that a customer screen exists and is showing this
         // page: it is the only evidence there is, a screen being no device on any bus.
         // The hardware gate reads this timestamp.
@@ -76,6 +83,7 @@ public class CustomerDisplayResource {
         Map<String, Object> result = new HashMap<>();
         if (clientVersion != null && state.version == clientVersion) {
             result.put("changed", false);
+            LOGGER.info("Exiting method customerData");
             return result;
         }
         result.put("changed", true);
@@ -120,6 +128,7 @@ public class CustomerDisplayResource {
             items.add(row);
         }
         result.put("items", items);
+        LOGGER.info("Exiting method customerData");
         return result;
     }
 

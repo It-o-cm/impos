@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.returnprocess;
 
-import com.intermarche.pos.domain.ticket.Refund;
+import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -10,6 +10,7 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the refund screens: ticket search, line quantity
@@ -29,6 +30,9 @@ import java.net.URI;
 @Path("/return")
 public class RefundResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(RefundResource.class);
+
     @Inject
     PosState state;
     @Inject RefundService refundService;
@@ -43,7 +47,9 @@ public class RefundResource {
      */
     @GET
     public TemplateInstance showSearchPage() {
-        if (state.refund.isTicketSelected()) return returnDetailPage.data("state", state);
+        LOGGER.info("Entering method showSearchPage");
+        if (state.refund.isTicketSelected()) { LOGGER.info("Exiting method showSearchPage"); return returnDetailPage.data("state", state); }
+        LOGGER.info("Exiting method showSearchPage");
         return returnSearchPage.data("state", state);
     }
 
@@ -58,11 +64,13 @@ public class RefundResource {
     @POST
     @Path("/search")
     public Response doSearch(@FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method doSearch with rawValue: " + rawValue);
         // A new search supersedes any stale selection (e.g. a refused refund
         // left its detail open): the PRG GET must render the result list.
         state.refund.clearSelection();
         state.refund.searchPattern = rawValue != null ? rawValue.trim() : "";
         refundService.searchTickets(state);
+        LOGGER.info("Exiting method doSearch");
         return redirectReturn();
     }
 
@@ -75,7 +83,9 @@ public class RefundResource {
     @GET
     @Path("/select/{id}")
     public TemplateInstance selectTicket(@PathParam("id") Long id) {
+        LOGGER.info("Entering method selectTicket with id: " + id);
         refundService.selectTicket(state, id);
+        LOGGER.info("Exiting method selectTicket");
         return returnDetailPage.data("state", state);
     }
 
@@ -88,7 +98,9 @@ public class RefundResource {
     @GET
     @Path("/select-line/{id}")
     public TemplateInstance selectLine(@PathParam("id") Long id) {
+        LOGGER.info("Entering method selectLine with id: " + id);
         refundService.selectLine(state, id);
+        LOGGER.info("Exiting method selectLine");
         return returnDetailPage.data("state", state);
     }
 
@@ -100,7 +112,9 @@ public class RefundResource {
     @GET
     @Path("/edit-amount")
     public TemplateInstance editAmount() {
+        LOGGER.info("Entering method editAmount");
         refundService.startAmountEdit(state);
+        LOGGER.info("Exiting method editAmount");
         return returnDetailPage.data("state", state);
     }
 
@@ -115,7 +129,9 @@ public class RefundResource {
     @POST
     @Path("/submit-line")
     public Response submitLine(@FormParam("lineId") Long lineId, @FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method submitLine with lineId: " + lineId + ", rawValue: " + rawValue);
         refundService.submitLineQuantity(state, lineId, rawValue);
+        LOGGER.info("Exiting method submitLine");
         return redirectReturn();
     }
 
@@ -129,7 +145,9 @@ public class RefundResource {
     @POST
     @Path("/submit-amount")
     public Response submitAmount(@FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method submitAmount with rawValue: " + rawValue);
         refundService.submitManualAmount(state, rawValue);
+        LOGGER.info("Exiting method submitAmount");
         return redirectReturn();
     }
 
@@ -142,7 +160,9 @@ public class RefundResource {
     @GET
     @Path("/line/{id}/add")
     public TemplateInstance addQty(@PathParam("id") Long lineId) {
+        LOGGER.info("Entering method addQty with lineId: " + lineId);
         refundService.incrementQty(state, lineId);
+        LOGGER.info("Exiting method addQty");
         return returnDetailPage.data("state", state);
     }
 
@@ -155,7 +175,9 @@ public class RefundResource {
     @GET
     @Path("/line/{id}/sub")
     public TemplateInstance subQty(@PathParam("id") Long lineId) {
+        LOGGER.info("Entering method subQty with lineId: " + lineId);
         refundService.decrementQty(state, lineId);
+        LOGGER.info("Exiting method subQty");
         return returnDetailPage.data("state", state);
     }
 
@@ -168,7 +190,9 @@ public class RefundResource {
     @GET
     @Path("/page/{p}")
     public TemplateInstance changePage(@PathParam("p") int page) {
+        LOGGER.info("Entering method changePage with page: " + page);
         state.refund.detailPage = page;
+        LOGGER.info("Exiting method changePage");
         return returnDetailPage.data("state", state);
     }
 
@@ -180,7 +204,9 @@ public class RefundResource {
     @GET
     @Path("/pay/cash")
     public TemplateInstance payCash() {
+        LOGGER.info("Entering method payCash");
         refundService.requestRefund(state, Refund.RefundMethod.CASH);
+        LOGGER.info("Exiting method payCash");
         return returnDetailPage.data("state", state);
     }
 
@@ -192,7 +218,9 @@ public class RefundResource {
     @GET
     @Path("/pay/card")
     public TemplateInstance payCard() {
+        LOGGER.info("Entering method payCard");
         refundService.requestRefund(state, Refund.RefundMethod.CARD);
+        LOGGER.info("Exiting method payCard");
         return returnDetailPage.data("state", state);
     }
 
@@ -204,7 +232,9 @@ public class RefundResource {
     @GET
     @Path("/pay/voucher")
     public TemplateInstance payVoucher() {
+        LOGGER.info("Entering method payVoucher");
         refundService.requestRefund(state, Refund.RefundMethod.VOUCHER);
+        LOGGER.info("Exiting method payVoucher");
         return returnDetailPage.data("state", state);
     }
 
@@ -216,7 +246,9 @@ public class RefundResource {
     @GET
     @Path("/pay/loyalty")
     public TemplateInstance payLoyalty() {
+        LOGGER.info("Entering method payLoyalty");
         refundService.requestRefund(state, Refund.RefundMethod.LOYALTY);
+        LOGGER.info("Exiting method payLoyalty");
         return returnDetailPage.data("state", state);
     }
     /**

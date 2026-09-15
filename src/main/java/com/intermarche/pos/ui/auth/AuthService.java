@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.auth;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -10,6 +10,7 @@ import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.LocalDateTime;
+import org.jboss.logging.Logger;
 
 /**
  * Authentication of operators at the register.
@@ -37,6 +38,9 @@ import java.time.LocalDateTime;
  */
 @ApplicationScoped
 public class AuthService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AuthService.class);
 
     /** Number of consecutive PIN failures triggering a lockout. */
     @ConfigProperty(name = "pos.auth.max-attempts", defaultValue = "3")
@@ -102,20 +106,25 @@ public class AuthService {
      */
     @Transactional
     public CredentialStatus checkCredentials(String loginInfo, String rawPassword) {
+        LOGGER.info("Entering method checkCredentials with loginInfo: " + loginInfo + ", rawPassword: ***");
         if (loginInfo == null || rawPassword == null) {
+            LOGGER.info("Exiting method checkCredentials");
             return new CredentialStatus(null, false);
         }
         Employee employee = Employee.findActiveLogin(loginInfo.toLowerCase());
         if (employee == null) {
+            LOGGER.info("Exiting method checkCredentials");
             return new CredentialStatus(null, false);
         }
         if (employee.isCurrentlyLocked()) {
+            LOGGER.info("Exiting method checkCredentials");
             return new CredentialStatus(null, true);
         }
         if (employee.verifyPassword(rawPassword)) {
             employee.failedAttempts = 0;
             employee.lockedUntil = null;
             employee.persist();
+            LOGGER.info("Exiting method checkCredentials");
             return new CredentialStatus(employee, false);
         }
         employee.failedAttempts++;
@@ -129,6 +138,7 @@ public class AuthService {
                     loginInfo + " (" + lockoutMinutes + " min)", employee.badgeId);
         }
         employee.persist();
+        LOGGER.info("Exiting method checkCredentials");
         return new CredentialStatus(null, nowLocked);
     }
 
@@ -142,14 +152,17 @@ public class AuthService {
      * @return the login outcome (success, invalid credentials, or locked account)
      */
     public LoginResult login(PosState state, String loginInfo, String rawPassword) {
+        LOGGER.info("Entering method login with state: " + state + ", loginInfo: " + loginInfo + ", rawPassword: ***");
         CredentialStatus status = checkCredentials(loginInfo, rawPassword);
         if (status.isSuccess()) {
             state.auth.login(status.employee.id, status.employee.getFullName(),
                     status.employee.badgeId);
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
                     null, status.employee.badgeId);
+            LOGGER.info("Exiting method login");
             return LoginResult.SUCCESS;
         }
+        LOGGER.info("Exiting method login");
         return status.locked ? LoginResult.LOCKED : LoginResult.INVALID;
     }
 
@@ -159,6 +172,7 @@ public class AuthService {
      * @param state the current POS state
      */
     public void logout(PosState state) {
+        LOGGER.info("Entering method logout with state: " + state);
         // A DELIBERATE lock is journaled exactly like the idle one
         // (BO-04-01-27): the requirement asks for the registers that went on
         // pause, and a cashier locking the till on purpose is one of them —
@@ -171,6 +185,7 @@ public class AuthService {
         }
         state.auth.logout();
         state.clearTicket();
+        LOGGER.info("Exiting method logout");
     }
 
     /**
@@ -187,26 +202,33 @@ public class AuthService {
      */
     @Transactional
     public String changePin(PosState state, String currentPin, String newPin, String confirmPin) {
+        LOGGER.info("Entering method changePin with state: " + state + ", currentPin: ***" + ", newPin: ***" + ", confirmPin: ***");
         Long operatorId = state.auth.operatorId;
         if (operatorId == null) {
+            LOGGER.info("Exiting method changePin");
             return "Aucun opérateur connecté";
         }
         Employee employee = Employee.findById(operatorId);
         if (employee == null) {
+            LOGGER.info("Exiting method changePin");
             return "Opérateur introuvable";
         }
         if (currentPin == null || !employee.verifyPassword(currentPin)) {
+            LOGGER.info("Exiting method changePin");
             return "Code PIN actuel incorrect";
         }
         if (newPin == null || !newPin.matches("\\d{4}")) {
+            LOGGER.info("Exiting method changePin");
             return "Le nouveau code doit comporter 4 chiffres";
         }
         if (!newPin.equals(confirmPin)) {
+            LOGGER.info("Exiting method changePin");
             return "Les nouveaux codes ne correspondent pas";
         }
         employee.password = Employee.hashPassword(newPin);
         employee.persist();
         technicalEventService.log(TechnicalEvent.EventType.PASSWORD_CHANGED, null, employee.badgeId);
+        LOGGER.info("Exiting method changePin");
         return null;
     }
 }

@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.Currency;
+import com.intermarche.pos.domain.payment.Currency;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;

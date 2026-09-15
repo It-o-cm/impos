@@ -1,7 +1,7 @@
 package com.intermarche.pos.graphql;
 
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;

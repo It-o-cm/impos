@@ -18,6 +18,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the invoice screen, under its own {@code /invoice} prefix.
@@ -34,6 +35,9 @@ import java.net.URI;
 @Path("/invoice")
 @DrawerMustBeClosed
 public class InvoiceResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(InvoiceResource.class);
 
     /** The register state, carrying the invoice sub-state the screen reads. */
     @Inject
@@ -74,7 +78,9 @@ public class InvoiceResource {
     @GET
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance showInvoiceScreen() {
+        LOGGER.info("Entering method showInvoiceScreen");
         invoiceService.open();
+        LOGGER.info("Exiting method showInvoiceScreen");
         return request();
     }
 
@@ -143,7 +149,9 @@ public class InvoiceResource {
     public TemplateInstance chooseTicket(@FormParam("ticketNumber") String ticketNumber,
             @FormParam("ticketDate") String ticketDate,
             @FormParam("ticketTerminal") String ticketTerminal) {
+        LOGGER.info("Entering method chooseTicket with ticketNumber: " + ticketNumber + ", ticketDate: " + ticketDate + ", ticketTerminal: " + ticketTerminal);
         invoiceService.chooseTicket(ticketNumber, ticketDate, ticketTerminal);
+        LOGGER.info("Exiting method chooseTicket");
         return request();
     }
 
@@ -157,9 +165,11 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/ticket/{ticketNumber}")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance pickTicket(@PathParam("ticketNumber") String ticketNumber) {
+        LOGGER.info("Entering method pickTicket with ticketNumber: " + ticketNumber);
         // Picked from the list, the ticket is named by its number alone: the row the
         // operator touched IS the ticket, so narrowing it further could only miss it.
         invoiceService.chooseTicket(ticketNumber, "", "");
+        LOGGER.info("Exiting method pickTicket");
         return request();
     }
 
@@ -173,7 +183,9 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/type/{type}")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance chooseDocumentType(@PathParam("type") String type) {
+        LOGGER.info("Entering method chooseDocumentType with type: " + type);
         invoiceService.chooseDocumentType(type);
+        LOGGER.info("Exiting method chooseDocumentType");
         return request();
     }
 
@@ -195,11 +207,13 @@ public class InvoiceResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance lookupCustomer(@FormParam("search") String search,
             @FormParam("customerNumber") String customerNumber) {
+        LOGGER.info("Entering method lookupCustomer with search: " + search + ", customerNumber: " + customerNumber);
         if (customerNumber != null && !customerNumber.isBlank()) {
             invoiceService.chooseCustomerByNumber(customerNumber);
         } else {
             invoiceService.searchCustomers(search);
         }
+        LOGGER.info("Exiting method lookupCustomer");
         return request();
     }
 
@@ -213,7 +227,9 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/customer/{id}")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance chooseCustomer(@PathParam("id") Long id) {
+        LOGGER.info("Entering method chooseCustomer with id: " + id);
         invoiceService.chooseCustomer(id);
+        LOGGER.info("Exiting method chooseCustomer");
         return request();
     }
 
@@ -226,9 +242,11 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/customer/new")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance newCustomer() {
+        LOGGER.info("Entering method newCustomer");
         state.invoice.creatingCustomer = true;
         state.invoice.error = "";
         state.touch();
+        LOGGER.info("Exiting method newCustomer");
         return request();
     }
 
@@ -259,8 +277,10 @@ public class InvoiceResource {
             @FormParam("vatNumber") String vatNumber,
             @FormParam("phone") String phone,
             @FormParam("email") String email) {
+        LOGGER.info("Entering method createCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
         invoiceService.createCustomer(companyName, contactName, street, postalCode, city,
                 siret, vatNumber, phone, email);
+        LOGGER.info("Exiting method createCustomer");
         return request();
     }
 
@@ -273,10 +293,13 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/preview")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance preview(@QueryParam("page") Integer page) {
+        LOGGER.info("Entering method preview with page: " + page);
         InvoiceDocument document = invoiceService.preview();
         if (document == null) {
+            LOGGER.info("Exiting method preview");
             return request();
         }
+        LOGGER.info("Exiting method preview");
         return onePage(document, false, page, "/invoice/preview?page=");
     }
 
@@ -288,16 +311,20 @@ public class InvoiceResource {
     @POST
     @jakarta.ws.rs.Path("/issue")
     public Response issue() {
+        LOGGER.info("Entering method issue");
         Long issued = invoiceService.issue();
         if (issued == null) {
+            LOGGER.info("Exiting method issue");
             return Response.seeOther(URI.create("/invoice/preview")).build();
         }
         // LC-08-04-12: a document that comes out of the slip station is not printed
         // yet. The operator is sent to the sheet-by-sheet screen, which tells them how
         // many sheets to have ready BEFORE the first one goes in.
         if (state.invoice.isOnInsertStep()) {
+            LOGGER.info("Exiting method issue");
             return Response.seeOther(URI.create("/invoice/slip")).build();
         }
+        LOGGER.info("Exiting method issue");
         return Response.seeOther(URI.create("/invoice/document/" + issued)).build();
     }
 
@@ -314,6 +341,8 @@ public class InvoiceResource {
     @jakarta.ws.rs.Path("/slip")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance showSlip() {
+        LOGGER.info("Entering method showSlip");
+        LOGGER.info("Exiting method showSlip");
         return request();
     }
 
@@ -326,13 +355,17 @@ public class InvoiceResource {
     @POST
     @jakarta.ws.rs.Path("/slip")
     public Response printSlip() {
+        LOGGER.info("Entering method printSlip");
         if (invoiceService.printNextSlip()) {
+            LOGGER.info("Exiting method printSlip");
             return Response.seeOther(URI.create("/invoice/slip")).build();
         }
         Long issued = state.invoice.issuedInvoiceId;
         if (issued == null) {
+            LOGGER.info("Exiting method printSlip");
             return Response.seeOther(URI.create("/invoice")).build();
         }
+        LOGGER.info("Exiting method printSlip");
         return Response.seeOther(URI.create("/invoice/document/" + issued)).build();
     }
 
@@ -347,10 +380,13 @@ public class InvoiceResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance showDocument(@PathParam("id") Long id,
             @QueryParam("page") Integer page) {
+        LOGGER.info("Entering method showDocument with id: " + id + ", page: " + page);
         InvoiceDocument document = invoiceService.issued(id);
         if (document == null) {
+            LOGGER.info("Exiting method showDocument");
             return request();
         }
+        LOGGER.info("Exiting method showDocument");
         return onePage(document, true, page, "/invoice/document/" + id + "?page=");
     }
 
@@ -396,7 +432,9 @@ public class InvoiceResource {
     @GET
     @jakarta.ws.rs.Path("/back/ticket")
     public Response backToTicket() {
+        LOGGER.info("Entering method backToTicket");
         invoiceService.backToTicketStep();
+        LOGGER.info("Exiting method backToTicket");
         return Response.seeOther(URI.create("/invoice")).build();
     }
 
@@ -408,7 +446,9 @@ public class InvoiceResource {
     @GET
     @jakarta.ws.rs.Path("/back/type")
     public Response backToDocumentType() {
+        LOGGER.info("Entering method backToDocumentType");
         invoiceService.backToDocumentStep();
+        LOGGER.info("Exiting method backToDocumentType");
         return Response.seeOther(URI.create("/invoice")).build();
     }
 
@@ -420,7 +460,9 @@ public class InvoiceResource {
     @GET
     @jakarta.ws.rs.Path("/back/customer")
     public Response backToCustomer() {
+        LOGGER.info("Entering method backToCustomer");
         invoiceService.backToCustomerStep();
+        LOGGER.info("Exiting method backToCustomer");
         return Response.seeOther(URI.create("/invoice")).build();
     }
 
@@ -432,7 +474,9 @@ public class InvoiceResource {
     @GET
     @jakarta.ws.rs.Path("/abandon")
     public Response abandon() {
+        LOGGER.info("Entering method abandon");
         invoiceService.abandon();
+        LOGGER.info("Exiting method abandon");
         return Response.seeOther(URI.create("/")).build();
     }
 }

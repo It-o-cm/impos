@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.AccountCustomer;
+import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.ui.payment.PaymentState.PaymentEntry;
 import org.junit.jupiter.api.Test;
 
@@ -574,5 +574,51 @@ class PaymentStateTest {
         PaymentState state = new PaymentState();
         state.creditPendingAmount = new BigDecimal("5.00");
         assertTrue(state.isCreditOverLimitPending());
+    }
+
+    /**
+     * A settlement is pending a supervisor's authorization exactly while a
+     * tender is held — both arms (BO-03-02-10/12/13/14).
+     */
+    @Test
+    void aTenderIsPendingExactlyWhileOneIsHeld() {
+        PaymentState state = new PaymentState();
+        assertFalse(state.isTenderAuthorizationPending());
+        state.tenderHeldMethod = "CASH";
+        assertTrue(state.isTenderAuthorizationPending());
+    }
+
+    /**
+     * Abandoning the hold forgets the settlement AND the authorization granted
+     * for it, so nothing carries over to the next one.
+     */
+    @Test
+    void clearingTheHoldForgetsTheAuthorizationToo() {
+        PaymentState state = new PaymentState();
+        state.tenderHeldMethod = "CASH";
+        state.tenderHeldLabel = "ESPECES";
+        state.tenderHeldAmount = new BigDecimal("40.00");
+        state.tenderHeldMessage = "PLAFOND";
+        state.tenderOverride = "CASH";
+        state.clearTenderHold();
+        assertNull(state.tenderHeldMethod);
+        assertNull(state.tenderHeldLabel);
+        assertNull(state.tenderHeldAmount);
+        assertNull(state.tenderHeldMessage);
+        assertNull(state.tenderOverride);
+    }
+
+    /**
+     * A new transaction owes no change as a credit note and holds no settlement,
+     * whatever the previous one left behind (BO-03-02-16).
+     */
+    @Test
+    void resetForgetsTheBookedNoteAndTheHold() {
+        PaymentState state = new PaymentState();
+        state.changeAsCreditNote = new BigDecimal("30.00");
+        state.tenderHeldMethod = "CASH";
+        state.reset();
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.changeAsCreditNote));
+        assertFalse(state.isTenderAuthorizationPending());
     }
 }

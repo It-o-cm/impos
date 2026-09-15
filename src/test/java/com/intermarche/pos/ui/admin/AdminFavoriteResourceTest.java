@@ -1,9 +1,9 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.CrudOption;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Feature;
-import com.intermarche.pos.domain.UserFavorite;
+import com.intermarche.pos.domain.people.CrudOption;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.setting.Feature;
+import com.intermarche.pos.domain.people.UserFavorite;
 import com.intermarche.pos.service.PermissionService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;

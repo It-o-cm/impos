@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.supervision;
 
-import com.intermarche.pos.domain.RefState;
+import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.service.sync.EngineFeedDeliveryService;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import com.intermarche.pos.service.sync.RefPullService;
@@ -111,6 +111,9 @@ class SyncSupervisionServiceTest {
             assertEquals("11/09 08:00:00", products.receivedAt);
             assertEquals("11/09 08:01:00", products.appliedAt);
             SyncSupervisionService.FeedRow offers = view.feeds.get(1);
+            // Two DISTINCT codes asserted: the screen names each feed, it does
+            // not print one label for all of them (BO-08-01-07/08/16).
+            assertEquals("OFFERS", offers.code);
             assertEquals("—", offers.appliedVersion);
             assertEquals("—", offers.appliedAt);
             assertEquals("boom", offers.lastError);

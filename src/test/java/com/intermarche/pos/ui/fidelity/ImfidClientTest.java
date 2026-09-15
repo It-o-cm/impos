@@ -67,7 +67,7 @@ class ImfidClientTest {
         client.url = Optional.of("http://127.0.0.1:" + server.getAddress().getPort());
         client.user = Optional.of("pos");
         client.password = Optional.of("pos-password");
-        client.posSettingsService = org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        client.posSettingsService = settings();
         org.mockito.Mockito.when(client.posSettingsService.fidelityExternalEnabled()).thenReturn(true);
     }
 
@@ -77,6 +77,21 @@ class ImfidClientTest {
     @AfterEach
     void tearDown() {
         server.stop(0);
+    }
+
+    /**
+     * Builds an administered-settings mock answering the loyalty endpoint keys
+     * (BO-11-04-04) with an empty value, so the deployment properties apply and
+     * the pre-existing cases are unchanged.
+     *
+     * @return the settings mock
+     */
+    private com.intermarche.pos.service.PosSettingsService settings() {
+        com.intermarche.pos.service.PosSettingsService settings =
+                org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
+        org.mockito.Mockito.when(settings.fidelityUrl()).thenReturn("");
+        org.mockito.Mockito.when(settings.fidelityUser()).thenReturn("");
+        return settings;
     }
 
     /**
@@ -128,6 +143,7 @@ class ImfidClientTest {
         org.mockito.Mockito.when(client.posSettingsService.fidelityExternalEnabled()).thenReturn(false);
         assertFalse(client.isConfigured());
         ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = settings();
         bare.url = Optional.empty();
         assertFalse(bare.isConfigured());
         assertNull(bare.targetUrl());
@@ -504,6 +520,7 @@ class ImfidClientTest {
     @Test
     void releaseSwallowsAnAbsentConfiguration() {
         ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = settings();
         bare.url = Optional.empty();
         bare.user = Optional.empty();
         bare.password = Optional.empty();
@@ -575,6 +592,7 @@ class ImfidClientTest {
     @Test
     void healthIsFalseWhenNoUrlIsConfigured() {
         ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = settings();
         bare.url = Optional.empty();
         assertFalse(bare.health());
     }
@@ -808,5 +826,129 @@ class ImfidClientTest {
         assertTrue(line.contains("firstName=%C3%89ric"), line);
         assertFalse(line.contains("email="), line);
         assertFalse(line.contains("name=Dupont"), line);
+    }
+
+    // --- BO-11-04-04 : point d'appel fidélité administré ---
+
+    /**
+     * The ADMINISTERED base URL wins over the deployment property, so an
+     * echelon can point its registers at another endpoint without a
+     * redeployment (administered arm).
+     */
+    @Test
+    void theAdministeredUrlWinsOverTheDeploymentProperty() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl())
+                .thenReturn("http://imfid.echelon:8080");
+        assertEquals("http://imfid.echelon:8080", client.targetUrl());
+    }
+
+    /**
+     * A SECOND administered value lands as itself, which is what proves the
+     * setting is read rather than a literal returned; padding is trimmed.
+     */
+    @Test
+    void aSecondAdministeredUrlLandsTrimmed() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl())
+                .thenReturn("  http://imfid.other:9090  ");
+        assertEquals("http://imfid.other:9090", client.targetUrl());
+    }
+
+    /**
+     * A BLANK administered URL leaves the deployment property in charge (blank
+     * arm — the leg a null check alone would miss).
+     */
+    @Test
+    void aBlankAdministeredUrlKeepsTheDeploymentProperty() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl()).thenReturn("   ");
+        assertEquals("http://127.0.0.1:" + server.getAddress().getPort(), client.targetUrl());
+    }
+
+    /**
+     * A NULL administered URL behaves like a blank one (null arm).
+     */
+    @Test
+    void aNullAdministeredUrlKeepsTheDeploymentProperty() {
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl()).thenReturn(null);
+        assertEquals("http://127.0.0.1:" + server.getAddress().getPort(), client.targetUrl());
+    }
+
+    /**
+     * An administered URL with no deployment property at all still configures
+     * the service: administering the endpoint is enough on its own.
+     */
+    @Test
+    void anAdministeredUrlAloneConfiguresTheService() {
+        ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = settings();
+        bare.url = Optional.empty();
+        org.mockito.Mockito.when(bare.posSettingsService.fidelityUrl())
+                .thenReturn("http://imfid.echelon:8080");
+        org.mockito.Mockito.when(bare.posSettingsService.fidelityExternalEnabled()).thenReturn(true);
+        assertTrue(bare.isConfigured());
+        assertEquals("http://imfid.echelon:8080", bare.targetUrl());
+    }
+
+    /**
+     * The ADMINISTERED machine account is the one sent in the Basic header, the
+     * deployment property being only its fallback (administered arm).
+     *
+     * @throws Exception on transport
+     */
+    @Test
+    void theAdministeredUserIsSentInTheBasicHeader() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("caisse-12");
+        client.earn("{}", "{}");
+        assertEquals("Basic " + java.util.Base64.getEncoder()
+                        .encodeToString("caisse-12:pos-password".getBytes()),
+                receivedAuthorization.get());
+    }
+
+    /**
+     * A SECOND administered account lands as itself, padding trimmed.
+     *
+     * @throws Exception on transport
+     */
+    @Test
+    void aSecondAdministeredUserIsSentTrimmed() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("  caisse-7  ");
+        client.earn("{}", "{}");
+        assertEquals("Basic " + java.util.Base64.getEncoder()
+                        .encodeToString("caisse-7:pos-password".getBytes()),
+                receivedAuthorization.get());
+    }
+
+    /**
+     * A BLANK administered account leaves the deployment property in charge
+     * (blank arm).
+     *
+     * @throws Exception on transport
+     */
+    @Test
+    void aBlankAdministeredUserKeepsTheDeploymentProperty() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("   ");
+        client.earn("{}", "{}");
+        assertEquals("Basic " + java.util.Base64.getEncoder()
+                        .encodeToString("pos:pos-password".getBytes()),
+                receivedAuthorization.get());
+    }
+
+    /**
+     * An administered account with NO deployment user still authenticates: the
+     * administered half is a complete credential once the password is on file.
+     *
+     * @throws Exception on transport
+     */
+    @Test
+    void anAdministeredUserAloneAuthenticates() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
+        client.user = Optional.empty();
+        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("caisse-12");
+        client.earn("{}", "{}");
+        assertEquals("Basic " + java.util.Base64.getEncoder()
+                        .encodeToString("caisse-12:pos-password".getBytes()),
+                receivedAuthorization.get());
     }
 }

@@ -1,14 +1,14 @@
 package com.intermarche.pos.ui.returnprocess;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.StoredValue;
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.payment.StoredValue;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
@@ -682,10 +682,104 @@ class RefundServiceTest {
         PosState state = new PosState();
         state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
         state.refund.returnQuantities.put(1L, BigDecimal.ONE);
-        s.requestRefund(state, Refund.RefundMethod.CASH);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            s.requestRefund(state, Refund.RefundMethod.CASH);
+        }
         assertNull(state.refund.errorMessage);
         verify(s.endorsementService).requestAuthorization(state, "REFUND_CASH_10");
         assertEquals(1L, state.version);
+    }
+
+    /**
+     * Stubs the TENDER referential for one settlement key (BO-03-02-15).
+     *
+     * @param panache the active Panache static mock
+     * @param code the settlement key
+     * @param tender the administered row, or null when none administers it
+     */
+    @SuppressWarnings("unchecked")
+    private void stubTender(MockedStatic<PanacheEntityBase> panache, String code,
+            com.intermarche.pos.domain.payment.TenderDefinition tender) {
+        PanacheQuery<com.intermarche.pos.domain.payment.TenderDefinition> query =
+                mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(tender);
+        panache.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                .find("code", code)).thenReturn(query);
+    }
+
+    /**
+     * Builds an administered tender for a settlement key.
+     *
+     * @param code the settlement key
+     * @param refundAllowed whether the back office allows refunds on it
+     * @return the administered row
+     */
+    private com.intermarche.pos.domain.payment.TenderDefinition tender(String code,
+            boolean refundAllowed) {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.code = code;
+        tender.functionalId = "010";
+        tender.label = code;
+        tender.active = true;
+        tender.refundAllowed = refundAllowed;
+        return tender;
+    }
+
+    /**
+     * A tender the back office does NOT allow for refunds is refused before the
+     * endorsement is even asked for (BO-03-02-15).
+     */
+    @Test
+    void requestRefundRefusesAForbiddenTender() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", tender("CASH", false));
+            s.requestRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertEquals("MOYEN NON AUTORISE AU REMBOURSEMENT", state.refund.errorMessage);
+        verify(s.endorsementService, never()).requestAuthorization(any(), any());
+    }
+
+    /**
+     * A tender the back office DOES allow goes through — the other arm, and the
+     * proof that the flag is read rather than the refusal hard-coded.
+     */
+    @Test
+    void requestRefundAcceptsAnAllowedTender() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", line(1L, "5", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", tender("CASH", true));
+            s.requestRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertNull(state.refund.errorMessage);
+        verify(s.endorsementService).requestAuthorization(state, "REFUND_CASH_10");
+    }
+
+    /**
+     * Each refund method asks about ITS OWN tender: the card about the card, the
+     * voucher about the voucher, the loyalty credit about the purse — and a null
+     * method asks about nothing at all.
+     */
+    @Test
+    void eachRefundMethodAsksAboutItsOwnTender() {
+        RefundService s = newService();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CARD", tender("CARD", false));
+            stubTender(panache, "VOUCHER", tender("VOUCHER", true));
+            stubTender(panache, "FIDELITY", tender("FIDELITY", false));
+            assertFalse(s.isRefundAllowed(Refund.RefundMethod.CARD));
+            assertTrue(s.isRefundAllowed(Refund.RefundMethod.VOUCHER));
+            assertFalse(s.isRefundAllowed(Refund.RefundMethod.LOYALTY));
+            assertTrue(s.isRefundAllowed(null));
+        }
     }
 
     // --- performRefund ---
@@ -907,7 +1001,7 @@ class RefundServiceTest {
         verify(s.ticketPrinterService).printLoyaltyCredit(any());
         verify(s.ticketPrinterService).printRefund(55L);
         verify(s.fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN), anyString());
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN), anyString());
     }
 
     /**
@@ -942,7 +1036,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CASH);
         }
         verify(s.fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN),
                 payload.capture());
         assertTrue(payload.getValue().contains("\"lineId\":\"U-1\""));
         assertTrue(payload.getValue().contains("\"quantity\":2"));
@@ -985,7 +1079,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CASH);
         }
         verify(s.fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN),
                 payload.capture());
         String json = payload.getValue();
         assertTrue(json.contains("\"lineId\":\"U-1\""));
@@ -1024,7 +1118,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CASH);
         }
         verify(s.fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN),
                 payload.capture());
         assertTrue(payload.getValue().contains("\"lines\":[]"));
     }
@@ -1061,7 +1155,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CASH);
         }
         verify(s.fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN),
                 payload.capture());
         assertFalse(payload.getValue().contains("refundToCard"));
     }
@@ -1099,7 +1193,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.LOYALTY);
         }
         verify(s.fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN),
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN),
                 payload.capture());
         assertTrue(payload.getValue().contains("\"refundToCard\""));
         assertTrue(payload.getValue().contains("\"card\":\"2990000000019\""));
@@ -1337,5 +1431,75 @@ class RefundServiceTest {
         assertEquals("PLAFOND DU TICKET DÉPASSÉ (DÉJÀ REMBOURSÉ : 3.00 €)", state.refund.errorMessage);
         verifyNoInteractions(s.technicalEventService, s.syncOutboxService,
                 s.ticketPrinterService, s.hardwareService);
+    }
+
+    /**
+     * BO-03-13-07: a return may cover the ticket ENTIRELY. Every unit of the
+     * only line comes back, the refund equals the ticket total to the cent, and
+     * it goes through — no exception, the row is persisted, journalled, pushed
+     * and printed.
+     *
+     * <p>The ticket-cap guard is a STRICT {@code >}, and nothing else in this
+     * class exercises the equality: every nominal case refunds a fraction, and
+     * the only cap case is a plain overshoot. Turn the {@code >} into a
+     * {@code >=} and the suite stays green without this test — while a customer
+     * bringing back everything they bought would be refused at the register.
+     */
+    @Test
+    void performRefundAcceptsFullTicketCoverage() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "30.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("3"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals(new BigDecimal("30.00"), refund.totalAmount);
+            assertEquals(new BigDecimal("3"), refund.lines.get(0).quantity);
+            verify(refund).persist();
+        }
+        assertNull(state.refund.errorMessage);
+        assertNull(state.refund.selectedTicket);
+        verify(s.syncOutboxService).enqueue(SyncOutbox.EntityType.REFUND, 55L);
+        verify(s.ticketPrinterService).printRefund(55L);
+    }
+
+    /**
+     * BO-03-13-07: one cent PAST the ticket total is refused. Paired with the
+     * case above, the two bracket the boundary exactly — full coverage yes,
+     * beyond it never.
+     */
+    @Test
+    void performRefundRefusesOneCentBeyondTheTicketTotal() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "29.99", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("3"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            assertThrows(IllegalStateException.class,
+                    () -> s.performRefund(state, Refund.RefundMethod.CASH));
+            verify(mc.constructed().get(0), never()).persist();
+        }
+        assertEquals("PLAFOND DU TICKET DÉPASSÉ (DÉJÀ REMBOURSÉ : 0.00 €)", state.refund.errorMessage);
     }
 }

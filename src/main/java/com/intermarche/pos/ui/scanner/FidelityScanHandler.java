@@ -16,7 +16,11 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 @Priority(1) // Juste après l'authentification
 public class FidelityScanHandler implements ScanContext.ScanHandler {
 
-    /** Recognition regex of fidelity cards. */
+    /**
+     * Recognition regex of fidelity cards, as the deployment states it. The
+     * ADMINISTERED range wins over it (BO-03-06-54); this stays the fallback
+     * for a node administering none.
+     */
     @ConfigProperty(name = "scan.pattern.fidelity")
     String fidelityPattern;
 
@@ -37,7 +41,7 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
         if (ctx.handled) return;
 
         // On n'applique la fidélité que si la caisse est déverrouillée
-        if (!ctx.state.isLocked() && ctx.code.matches(fidelityPattern)) {
+        if (!ctx.state.isLocked() && ctx.code.matches(cardPattern())) {
             // BO-10-03-02: a card already attached blocks any further scan
             // unless the back office allows multiple scans (last one wins).
             if (!posSettingsService.fidelityAllowMultipleScan() && ctx.state.fidelity.active) {
@@ -48,5 +52,21 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
             fidelityService.validateCard(ctx.state, ctx.code);
             ctx.handled = true;
         }
+    }
+
+    /**
+     * Resolves the range of loyalty cards this register recognises
+     * (BO-03-06-54): the ADMINISTERED pattern wins, so an echelon can widen or
+     * narrow its card range without a redeployment, and the deployment
+     * property remains the fallback for a node administering none.
+     *
+     * @return the recognition regex, never null
+     */
+    String cardPattern() {
+        String administered = posSettingsService.fidelityCardPattern();
+        if (administered != null && !administered.isBlank()) {
+            return administered.trim();
+        }
+        return fidelityPattern;
     }
 }

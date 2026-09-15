@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
@@ -19,6 +19,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * Sends the last closed ticket by e-mail FROM THE REGISTER (LC-08-02-09/-10/-11).
@@ -37,6 +38,9 @@ import java.net.URI;
 @Path("/ticket-email")
 @DrawerMustBeClosed
 public class TicketEmailResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(TicketEmailResource.class);
 
     /** The register state: the last closed ticket and the attached card's holder. */
     @Inject
@@ -69,6 +73,7 @@ public class TicketEmailResource {
     @GET
     @Produces(MediaType.TEXT_HTML)
     public Object showEmailScreen() {
+        LOGGER.info("Entering method showEmailScreen");
         // NO TICKET, NO SCREEN — through the same gate as RÉIMPRIMER, CODE-BARRES
         // TICKET and DUPLICATA CB, so the four functions of the menu that need the
         // last closed sale refuse in the same words at the same moment. Opening a
@@ -76,8 +81,10 @@ public class TicketEmailResource {
         // press a button that cannot work before being told.
         ticketService.resolveLastClosedTicketId(state);
         if (!state.requireLastClosedTicket()) {
+            LOGGER.info("Exiting method showEmailScreen");
             return Response.seeOther(URI.create("/")).build();
         }
+        LOGGER.info("Exiting method showEmailScreen");
         return page(state.fidelity.holderEmail == null ? "" : state.fidelity.holderEmail,
                 "", false);
     }
@@ -93,21 +100,26 @@ public class TicketEmailResource {
     @Produces(MediaType.TEXT_HTML)
     @Transactional
     public TemplateInstance sendEmail(@FormParam("email") String email) {
+        LOGGER.info("Entering method sendEmail with email: " + email);
         String address = email == null ? "" : email.trim();
         // Same two conditions as the gate above, worded the same way; they are
         // re-checked here because the ticket can be gone by the time the form
         // comes back (a Z closing between the two requests, say).
         if (state.trainingMode) {
+            LOGGER.info("Exiting method sendEmail");
             return page(address, PosState.TRAINING_FORBIDDEN, false);
         }
         if (state.lastClosedTicketId == null) {
+            LOGGER.info("Exiting method sendEmail");
             return page(address, PosState.NO_LAST_TICKET, false);
         }
         if (!address.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
+            LOGGER.info("Exiting method sendEmail");
             return page(address, "ADRESSE INVALIDE", false);
         }
         Ticket ticket = Ticket.findById(state.lastClosedTicketId);
         if (ticket == null) {
+            LOGGER.info("Exiting method sendEmail");
             return page(address, "AUCUN TICKET À ENVOYER", false);
         }
         // The address the customer gave at the till belongs to the ticket, exactly as
@@ -115,6 +127,7 @@ public class TicketEmailResource {
         ticket.customerEmail = address;
         ticket.persist();
         ticketMailService.send(ticket, address);
+        LOGGER.info("Exiting method sendEmail");
         return page(address, "", true);
     }
 

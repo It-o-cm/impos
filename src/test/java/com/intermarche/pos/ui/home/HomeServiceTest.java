@@ -2,7 +2,7 @@ package com.intermarche.pos.ui.home;
 
 import com.intermarche.pos.ui.PriceModType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncOutboxService;
@@ -12,7 +12,7 @@ import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.mockito.MockedStatic;
@@ -1360,10 +1360,10 @@ class HomeServiceTest {
     void eachTenderTotalsOnlyItsOwnLines() {
         when(service.posSettingsService.restrictedTenders()).thenReturn("");
         lineWithTenders("10.00",
-                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
         lineWithTenders("2.50",
-                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE
-                        + "," + com.intermarche.pos.domain.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE
+                        + "," + com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
         lineWithTenders("7.00", null);
         java.util.List<HomeService.RestrictedTenderRow> rows = service.restrictedTenderRows();
         assertEquals(2, rows.size());
@@ -1400,12 +1400,12 @@ class HomeServiceTest {
     @Test
     void theAdministeredListIsHonoured() {
         when(service.posSettingsService.restrictedTenders()).thenReturn(
-                "ECO:" + com.intermarche.pos.domain.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE
+                "ECO:" + com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE
                         + ":Éco-chèque");
         lineWithTenders("10.00",
-                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE);
         lineWithTenders("4.00",
-                com.intermarche.pos.domain.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.ECO_VOUCHER_ELIGIBLE);
         java.util.List<HomeService.RestrictedTenderRow> rows = service.restrictedTenderRows();
         assertEquals(1, rows.size());
         assertEquals("4,00", rows.get(0).amount());

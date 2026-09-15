@@ -32,7 +32,7 @@ import java.net.URI;
 @DrawerMustBeClosed
 public class DrawerCheckFilter implements ContainerRequestFilter {
 
-    private static final Logger LOG = Logger.getLogger(DrawerCheckFilter.class);
+    private static final Logger LOGGER = Logger.getLogger(DrawerCheckFilter.class);
 
     @Inject
     HardwareService hardwareService;
@@ -71,7 +71,7 @@ public class DrawerCheckFilter implements ContainerRequestFilter {
                 }
             }
             state.touch();
-            LOG.warn("Accès bloqué (Tiroir ouvert). Return URL enregistrée: " + state.returnUrl);
+            LOGGER.warn("Accès bloqué (Tiroir ouvert). Return URL enregistrée: " + state.returnUrl);
             requestContext.abortWith(
                     Response.seeOther(URI.create("/drawer-error")).build()
             );

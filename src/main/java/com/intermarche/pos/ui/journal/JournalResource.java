@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -20,6 +20,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * The electronic journal back office (BO-04-01, lot 4): a multi-criteria
@@ -41,6 +42,9 @@ import java.util.Map;
  */
 @Path("/admin/journal")
 public class JournalResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(JournalResource.class);
 
     /** The journal search page template (both tabs). */
     @Inject
@@ -65,8 +69,10 @@ public class JournalResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance transactional(@Context UriInfo uriInfo) {
+        LOGGER.info("Entering method transactional with uriInfo: " + uriInfo);
         JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
         JournalPage<JournalRow> tickets = journalService.search(criteria);
+        LOGGER.info("Exiting method transactional");
         return page("transactional", criteria, uriInfo, tickets, emptyPage(), emptyPage());
     }
 
@@ -82,8 +88,10 @@ public class JournalResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance functional(@Context UriInfo uriInfo) {
+        LOGGER.info("Entering method functional with uriInfo: " + uriInfo);
         JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
         JournalPage<JournalEventRow> events = journalService.searchEvents(criteria);
+        LOGGER.info("Exiting method functional");
         return page("functional", criteria, uriInfo, emptyPage(), events, emptyPage());
     }
 
@@ -102,8 +110,10 @@ public class JournalResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance movements(@Context UriInfo uriInfo) {
+        LOGGER.info("Entering method movements with uriInfo: " + uriInfo);
         JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
         JournalPage<JournalMovementRow> movements = journalService.searchMovements(criteria);
+        LOGGER.info("Exiting method movements");
         return page("movements", criteria, uriInfo, emptyPage(), emptyPage(), movements);
     }
 
@@ -129,7 +139,9 @@ public class JournalResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance detail(@PathParam("id") Long id) {
+        LOGGER.info("Entering method detail with id: " + id);
         JournalTicketDetail ticket = journalService.buildDetail(id);
+        LOGGER.info("Exiting method detail");
         return journalDetail.data("ticket", ticket);
     }
 
@@ -145,8 +157,10 @@ public class JournalResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces("text/csv")
     public Response export(@Context UriInfo uriInfo) {
+        LOGGER.info("Entering method export with uriInfo: " + uriInfo);
         JournalCriteria criteria = JournalCriteria.fromParams(uriInfo.getQueryParameters());
         String csv = journalService.exportCsv(criteria);
+        LOGGER.info("Exiting method export");
         return Response.ok(csv)
                 .header("Content-Disposition", "attachment; filename=\"journal.csv\"")
                 .build();

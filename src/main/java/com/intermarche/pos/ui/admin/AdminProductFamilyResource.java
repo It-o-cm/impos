@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -26,6 +26,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * The ARTICLE GROUPS administration screen ({@code /admin/article-groups}),
@@ -57,6 +58,9 @@ import java.util.Set;
 @Path("/admin/article-groups")
 public class AdminProductFamilyResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminProductFamilyResource.class);
+
     /**
      * The reserved code of the level-0 group — the container of articles placed
      * directly on the till without a group touch (BO-03-01-05). Created on
@@ -84,6 +88,7 @@ public class AdminProductFamilyResource {
     public TemplateInstance list(@QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk,
                                  @QueryParam("edit") Long editId) {
+        LOGGER.info("Entering method list with notice: " + notice + ", noticeOk: " + noticeOk + ", editId: " + editId);
         List<ProductFamily> families = ProductFamily.<ProductFamily>find("order by code").list();
         List<GroupRow> rows = new ArrayList<>();
         for (ProductFamily family : families) {
@@ -93,6 +98,7 @@ public class AdminProductFamilyResource {
         }
         ProductFamily selected = editId == null ? null : ProductFamily.<ProductFamily>findById(editId);
         List<Product> members = selected == null ? List.of() : sortedMembers(selected);
+        LOGGER.info("Exiting method list");
         return adminArticleGroups.data("groups", rows)
                 .data("selected", selected)
                 .data("members", members)
@@ -114,15 +120,18 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         Long id = parseId(form.getFirst("id"));
         String description = blankToNull(form.getFirst("description"));
         Long parentId = parseId(form.getFirst("parentId"));
         if (id == null) {
             String code = trimmed(form.getFirst("code"));
             if (code.isEmpty()) {
+                LOGGER.info("Exiting method save");
                 return redirect(null, "Le code du groupe est obligatoire.", false);
             }
             if (ProductFamily.count("code", code) > 0) {
+                LOGGER.info("Exiting method save");
                 return redirect(null, "Un groupe porte déjà le code « " + code + " ».", false);
             }
             ProductFamily family = new ProductFamily();
@@ -132,23 +141,28 @@ public class AdminProductFamilyResource {
             if (parentId != null) {
                 ProductFamily parent = ProductFamily.findById(parentId);
                 if (parent == null) {
+                    LOGGER.info("Exiting method save");
                     return redirect(null, "Groupe parent introuvable.", false);
                 }
                 parent.productFamilies.add(family);
             }
+            LOGGER.info("Exiting method save");
             return redirect(family.id, "Groupe « " + code + " » créé.", true);
         }
         ProductFamily family = ProductFamily.findById(id);
         if (family == null) {
+            LOGGER.info("Exiting method save");
             return redirect(null, "Groupe introuvable.", false);
         }
         family.description = description;
         if (parentId != null) {
             if (parentId.equals(family.id)) {
+                LOGGER.info("Exiting method save");
                 return redirect(family.id, "Un groupe ne peut pas être son propre parent.", false);
             }
             ProductFamily parent = ProductFamily.findById(parentId);
             if (parent == null) {
+                LOGGER.info("Exiting method save");
                 return redirect(family.id, "Groupe parent introuvable.", false);
             }
             ProductFamily current = parentOf(family.id);
@@ -157,6 +171,7 @@ public class AdminProductFamilyResource {
             }
             parent.productFamilies.add(family);
         }
+        LOGGER.info("Exiting method save");
         return redirect(family.id, "Groupe « " + family.code + " » mis à jour.", true);
     }
 
@@ -172,13 +187,16 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response delete(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method delete with form: " + form);
         Long id = parseId(form.getFirst("id"));
         ProductFamily family = id == null ? null : ProductFamily.<ProductFamily>findById(id);
         if (family == null) {
+            LOGGER.info("Exiting method delete");
             return redirect(null, "Groupe introuvable.", false);
         }
         String code = family.code;
         family.delete();
+        LOGGER.info("Exiting method delete");
         return redirect(null, "Groupe « " + code + " » supprimé.", true);
     }
 
@@ -196,16 +214,20 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response duplicate(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method duplicate with form: " + form);
         Long sourceId = parseId(form.getFirst("sourceId"));
         ProductFamily source = sourceId == null ? null : ProductFamily.<ProductFamily>findById(sourceId);
         if (source == null) {
+            LOGGER.info("Exiting method duplicate");
             return redirect(null, "Groupe à dupliquer introuvable.", false);
         }
         String newCode = trimmed(form.getFirst("newCode"));
         if (newCode.isEmpty()) {
+            LOGGER.info("Exiting method duplicate");
             return redirect(source.id, "Le code du nouveau groupe est obligatoire.", false);
         }
         if (ProductFamily.count("code", newCode) > 0) {
+            LOGGER.info("Exiting method duplicate");
             return redirect(source.id, "Un groupe porte déjà le code « " + newCode + " ».", false);
         }
         ProductFamily copy = new ProductFamily();
@@ -214,6 +236,7 @@ public class AdminProductFamilyResource {
         copy.flags = source.flags;
         copy.products.addAll(source.products);
         copy.persist();
+        LOGGER.info("Exiting method duplicate");
         return redirect(copy.id, "Groupe « " + source.code + " » dupliqué en « " + newCode + " ».", true);
     }
 
@@ -231,11 +254,14 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response addArticles(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method addArticles with form: " + form);
         Long id = parseId(form.getFirst("id"));
         ProductFamily family = id == null ? null : ProductFamily.<ProductFamily>findById(id);
         if (family == null) {
+            LOGGER.info("Exiting method addArticles");
             return redirect(null, "Groupe introuvable.", false);
         }
+        LOGGER.info("Exiting method addArticles");
         return attach(family, form);
     }
 
@@ -253,6 +279,7 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response addAtLevelZero(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method addAtLevelZero with form: " + form);
         ProductFamily family = ProductFamily.findByCode(LEVEL_ZERO_CODE);
         if (family == null) {
             family = new ProductFamily();
@@ -260,6 +287,7 @@ public class AdminProductFamilyResource {
             family.description = "Articles niveau 0 (touches directes)";
             family.persist();
         }
+        LOGGER.info("Exiting method addAtLevelZero");
         return attach(family, form);
     }
 
@@ -276,17 +304,21 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response removeArticle(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method removeArticle with form: " + form);
         Long id = parseId(form.getFirst("id"));
         ProductFamily family = id == null ? null : ProductFamily.<ProductFamily>findById(id);
         if (family == null) {
+            LOGGER.info("Exiting method removeArticle");
             return redirect(null, "Groupe introuvable.", false);
         }
         Long productId = parseId(form.getFirst("productId"));
         Product product = productId == null ? null : Product.<Product>findById(productId);
         if (product == null) {
+            LOGGER.info("Exiting method removeArticle");
             return redirect(family.id, "Article introuvable.", false);
         }
         family.products.remove(product);
+        LOGGER.info("Exiting method removeArticle");
         return redirect(family.id, "Article « " + product.name + " » retiré du groupe.", true);
     }
 
@@ -304,14 +336,17 @@ public class AdminProductFamilyResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response toggleArticle(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method toggleArticle with form: " + form);
         Long id = parseId(form.getFirst("id"));
         Long productId = parseId(form.getFirst("productId"));
         Product product = productId == null ? null : Product.<Product>findById(productId);
         if (product == null) {
+            LOGGER.info("Exiting method toggleArticle");
             return redirect(id, "Article introuvable.", false);
         }
         product.active = !product.active;
         String state = product.active ? "réactivé" : "désactivé";
+        LOGGER.info("Exiting method toggleArticle");
         return redirect(id, "Article « " + product.name + " » " + state + ".", true);
     }
 

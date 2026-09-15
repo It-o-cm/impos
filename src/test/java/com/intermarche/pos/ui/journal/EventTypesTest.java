@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

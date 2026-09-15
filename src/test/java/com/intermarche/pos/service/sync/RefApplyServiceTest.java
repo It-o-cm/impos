@@ -1,22 +1,26 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.Country;
-import com.intermarche.pos.domain.Currency;
-import com.intermarche.pos.domain.EchelonLevel;
-import com.intermarche.pos.domain.EchelonSetting;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.EngineFeed;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
-import com.intermarche.pos.domain.PosSetting;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
-import com.intermarche.pos.domain.ProductType;
-import com.intermarche.pos.domain.RefState;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.barcode.AlertLevel;
+import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
+import com.intermarche.pos.domain.barcode.CouponControl;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.payment.Currency;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.setting.EchelonSetting;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sync.EngineFeed;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
+import com.intermarche.pos.domain.setting.PosSetting;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -27,6 +31,7 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -464,6 +469,8 @@ class RefApplyServiceTest {
         insert.priority = 10;
         insert.active = true;
         insert.depositLine = false;
+        insert.manualAmountOnAllNines = true;
+        insert.islandCodes = "AVANT;COMPTOIR";
         RefPayloads.CouponTypeDto update = new RefPayloads.CouponTypeDto();
         update.code = "C2";
         update.label = "Bon manuel";
@@ -494,6 +501,10 @@ class RefApplyServiceTest {
             CouponType inserted = created.constructed().get(0);
             assertEquals("C1", inserted.code);
             assertEquals(CouponType.AmountSource.ENCODED, inserted.amountSource);
+            // BO-03-06-12 : la règle du montant 9999 voyage avec la plage.
+            assertTrue(inserted.manualAmountOnAllNines);
+            assertEquals("AVANT;COMPTOIR", inserted.islandCodes);
+            assertFalse(existing.manualAmountOnAllNines);
             verify(inserted, times(1)).persist();
             assertEquals(CouponType.AmountSource.MANUAL, existing.amountSource);
             assertTrue(existing.depositLine);
@@ -504,6 +515,122 @@ class RefApplyServiceTest {
             verify(absentActive, times(1)).persist();
             assertFalse(absentInactive.active);
             verify(absentInactive, never()).persist();
+        }
+    }
+
+    /**
+     * Covers {@code applyCouponFields}: the administered description rides
+     * with the type, an unusable row is skipped, and the positions a stored
+     * type already carried are dropped wholesale.
+     */
+    @Test
+    void applyCouponTypesReplacesTheAdministeredPositions() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CouponTypeDto dto = new RefPayloads.CouponTypeDto();
+        dto.code = "C3";
+        dto.label = "Bon administré";
+        dto.amountSource = "ENCODED";
+        dto.priority = 5;
+        dto.active = true;
+        dto.prefix = "298";
+        dto.codeLength = 13;
+        dto.codeKind = "ALPHANUMERIC";
+        RefPayloads.CouponFieldDto price = new RefPayloads.CouponFieldDto();
+        price.role = "PRICE";
+        price.offsetPosition = 9;
+        price.fieldLength = 4;
+        price.kind = "NUMERIC";
+        price.decimals = 2;
+        price.currency = "EUR";
+        RefPayloads.CouponFieldDto date = new RefPayloads.CouponFieldDto();
+        date.role = "DATE_END";
+        date.offsetPosition = 3;
+        date.fieldLength = 6;
+        date.kind = null;
+        date.dateFormat = "DDMMYY";
+        RefPayloads.CouponFieldDto roleless = new RefPayloads.CouponFieldDto();
+        dto.fields = new ArrayList<>(List.of(price, date, roleless));
+        dto.fields.add(null);
+        RefPayloads.CouponControlDto expiry = new RefPayloads.CouponControlDto();
+        expiry.kind = "EXPIRED";
+        expiry.level = "BLOCK";
+        expiry.message = "BON PERIME";
+        RefPayloads.CouponControlDto unreadable = new RefPayloads.CouponControlDto();
+        unreadable.kind = "DUPLICATE";
+        unreadable.level = "PEUT-ETRE";
+        RefPayloads.CouponControlDto kindless = new RefPayloads.CouponControlDto();
+        dto.controls = new ArrayList<>(List.of(expiry, unreadable, kindless));
+        dto.controls.add(null);
+        CouponType existing = mock(CouponType.class);
+        existing.fields = new ArrayList<>();
+        CouponField stale = new CouponField();
+        stale.role = CouponField.Role.TPV_NUMBER;
+        existing.fields.add(stale);
+        existing.controls = new ArrayList<>();
+        CouponControl staleControl = new CouponControl();
+        staleControl.kind = CouponControl.Kind.OTHER_STORE;
+        existing.controls.add(staleControl);
+        PanacheQuery<CouponType> found = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> CouponType.find("code", "C3")).thenReturn(found);
+            mocked.when(CouponType::listAll).thenReturn(List.of());
+            service.applyCouponTypes(List.of(dto));
+            assertEquals("298", existing.prefix);
+            assertEquals(13, existing.codeLength);
+            assertEquals(CouponField.Kind.ALPHANUMERIC, existing.codeKind);
+            assertEquals(2, existing.fields.size());
+            CouponField applied = existing.fields.get(0);
+            assertSame(existing, applied.couponType);
+            assertEquals(CouponField.Role.PRICE, applied.role);
+            assertEquals(9, applied.offsetPosition);
+            assertEquals(4, applied.fieldLength);
+            assertEquals(CouponField.Kind.NUMERIC, applied.kind);
+            assertEquals(2, applied.decimals);
+            assertNull(applied.dateFormat);
+            assertEquals(CouponField.PriceCurrency.EUR, applied.currency);
+            CouponField second = existing.fields.get(1);
+            assertEquals(CouponField.Role.DATE_END, second.role);
+            assertEquals(CouponField.Kind.NUMERIC, second.kind);
+            assertEquals(CouponField.DateFormat.DDMMYY, second.dateFormat);
+            assertNull(second.decimals);
+            assertNull(second.currency);
+            assertEquals(2, existing.controls.size());
+            assertSame(existing, existing.controls.get(0).couponType);
+            assertEquals(CouponControl.Kind.EXPIRED, existing.controls.get(0).kind);
+            assertEquals(AlertLevel.BLOCK, existing.controls.get(0).level);
+            assertEquals("BON PERIME", existing.controls.get(0).message);
+            assertEquals(CouponControl.Kind.DUPLICATE, existing.controls.get(1).kind);
+            assertEquals(AlertLevel.NONE, existing.controls.get(1).level);
+        }
+    }
+
+    /**
+     * Covers the remaining arms of {@code applyCouponFields}: a type carrying
+     * no field list is given one, an absent code kind falls back to digits,
+     * and a snapshot row without positions leaves the type with none.
+     */
+    @Test
+    void applyCouponTypesToleratesAnAbsentDescription() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CouponTypeDto dto = new RefPayloads.CouponTypeDto();
+        dto.code = "C4";
+        dto.label = "Bon nu";
+        dto.amountSource = "MANUAL";
+        dto.priority = 5;
+        dto.active = true;
+        dto.fields = null;
+        dto.controls = null;
+        CouponType existing = mock(CouponType.class);
+        PanacheQuery<CouponType> found = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> CouponType.find("code", "C4")).thenReturn(found);
+            mocked.when(CouponType::listAll).thenReturn(List.of());
+            service.applyCouponTypes(List.of(dto));
+            assertNull(existing.prefix);
+            assertNull(existing.codeLength);
+            assertEquals(CouponField.Kind.NUMERIC, existing.codeKind);
+            assertTrue(existing.fields.isEmpty());
+            assertTrue(existing.controls.isEmpty());
         }
     }
 
@@ -1042,5 +1169,480 @@ class RefApplyServiceTest {
         assertEquals(new java.util.HashSet<>(names), seen,
                 "a database method was renamed or removed: review the pull loop's"
                         + " transactional boundary before updating this list");
+    }
+
+    // --- Plages ARTICLE (BO-03-06-02/03/04/05/10) ---
+
+    /**
+     * Builds a snapshot row describing an article range.
+     *
+     * @param code the range code
+     * @return the row
+     */
+    private RefPayloads.ArticleBarcodeRangeDto rangeDto(String code) {
+        RefPayloads.ArticleBarcodeRangeDto dto = new RefPayloads.ArticleBarcodeRangeDto();
+        dto.code = code;
+        dto.label = "Étiquette prix";
+        dto.active = true;
+        dto.priority = 10;
+        dto.prefix = "21";
+        dto.codeLength = 13;
+        dto.codeKind = "NUMERIC";
+        // Deliberately NOT the historical 2/5 plan: a fixture matching the old
+        // literals could not tell a real copy from a hard-coded one.
+        dto.articlePosition = 4;
+        dto.articleLength = 6;
+        dto.valueSource = "PRICE";
+        dto.valuePosition = 7;
+        dto.valueLength = 5;
+        dto.valueDecimals = 2;
+        dto.currency = "EUR";
+        dto.checkDigit = true;
+        dto.matchPattern = "^21\\d{11}$";
+        return dto;
+    }
+
+    /**
+     * {@code applyArticleBarcodeRanges} covers the insert arm, the update arm
+     * and the three deactivation arms — a seen range left untouched, an absent
+     * active range deactivated, an absent inactive one left alone.
+     */
+    @Test
+    void applyArticleRangesInsertsUpdatesAndDeactivates() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.ArticleBarcodeRangeDto insert = rangeDto("R1");
+        RefPayloads.ArticleBarcodeRangeDto update = rangeDto("R2");
+        update.prefix = "297";
+        update.codeLength = 16;
+        update.valueSource = "WEIGHT";
+        update.valueDecimals = 3;
+        update.currency = "FRF";
+        update.checkDigit = false;
+        update.priority = 20;
+        ArticleBarcodeRange existing = mock(ArticleBarcodeRange.class);
+        ArticleBarcodeRange seen = mock(ArticleBarcodeRange.class);
+        seen.code = "R1";
+        seen.active = true;
+        ArticleBarcodeRange absentActive = mock(ArticleBarcodeRange.class);
+        absentActive.code = "Z1";
+        absentActive.active = true;
+        ArticleBarcodeRange absentInactive = mock(ArticleBarcodeRange.class);
+        absentInactive.code = "Z2";
+        absentInactive.active = false;
+        PanacheQuery<ArticleBarcodeRange> absentQuery = queryReturning(null);
+        PanacheQuery<ArticleBarcodeRange> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<ArticleBarcodeRange> created =
+                        mockConstruction(ArticleBarcodeRange.class)) {
+            mocked.when(() -> ArticleBarcodeRange.find("code", "R1")).thenReturn(absentQuery);
+            mocked.when(() -> ArticleBarcodeRange.find("code", "R2")).thenReturn(existingQuery);
+            mocked.when(ArticleBarcodeRange::listAll)
+                    .thenReturn(List.of(seen, absentActive, absentInactive));
+            service.applyArticleBarcodeRanges(List.of(insert, update));
+            ArticleBarcodeRange inserted = created.constructed().get(0);
+            assertEquals("R1", inserted.code);
+            assertEquals("21", inserted.prefix);
+            assertEquals(13, inserted.codeLength);
+            assertEquals(4, inserted.articlePosition);
+            assertEquals(6, inserted.articleLength);
+            assertEquals(CouponField.Kind.NUMERIC, inserted.codeKind);
+            assertEquals(ArticleBarcodeRange.ValueSource.PRICE, inserted.valueSource);
+            assertEquals(2, inserted.valueDecimals);
+            assertEquals(CouponField.PriceCurrency.EUR, inserted.currency);
+            assertTrue(inserted.checkDigit);
+            assertEquals("^21\\d{11}$", inserted.matchPattern);
+            verify(inserted, times(1)).persist();
+
+            assertEquals("297", existing.prefix);
+            assertEquals(16, existing.codeLength);
+            assertEquals(ArticleBarcodeRange.ValueSource.WEIGHT, existing.valueSource);
+            assertEquals(3, existing.valueDecimals);
+            assertEquals(CouponField.PriceCurrency.FRF, existing.currency);
+            assertFalse(existing.checkDigit);
+            assertEquals(20, existing.priority);
+            verify(existing, times(1)).persist();
+
+            assertTrue(seen.active);
+            verify(seen, never()).persist();
+            assertFalse(absentActive.active);
+            verify(absentActive, times(1)).persist();
+            assertFalse(absentInactive.active);
+            verify(absentInactive, never()).persist();
+        }
+    }
+
+    /**
+     * A row naming neither a character kind, nor a nature of value, nor a
+     * currency falls back to the three defaults (the three null arms).
+     */
+    @Test
+    void applyArticleRangesFallsBackOnTheThreeAbsentNames() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.ArticleBarcodeRangeDto dto = rangeDto("R1");
+        dto.codeKind = null;
+        dto.valueSource = null;
+        dto.currency = null;
+        ArticleBarcodeRange existing = mock(ArticleBarcodeRange.class);
+        PanacheQuery<ArticleBarcodeRange> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ArticleBarcodeRange.find("code", "R1")).thenReturn(existingQuery);
+            mocked.when(ArticleBarcodeRange::listAll).thenReturn(List.of());
+            service.applyArticleBarcodeRanges(List.of(dto));
+        }
+        assertEquals(CouponField.Kind.NUMERIC, existing.codeKind);
+        assertEquals(ArticleBarcodeRange.ValueSource.PRICE, existing.valueSource);
+        assertEquals(CouponField.PriceCurrency.EUR, existing.currency);
+    }
+
+    // --- Îlots de caisse (BO-03-06-07, BO-03-06-50) ---
+
+    /**
+     * {@code applyCheckoutIslands} covers the insert arm, the update arm and
+     * the three deactivation arms.
+     */
+    @Test
+    void applyCheckoutIslandsInsertsUpdatesAndDeactivates() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CheckoutIslandDto insert = new RefPayloads.CheckoutIslandDto();
+        insert.code = "AVANT";
+        insert.label = "Ligne avant";
+        insert.active = true;
+        insert.terminalIds = "POS01;POS02";
+        RefPayloads.CheckoutIslandDto update = new RefPayloads.CheckoutIslandDto();
+        update.code = "COMPTOIR";
+        update.label = "Comptoir";
+        update.active = true;
+        update.terminalIds = "POS08";
+        com.intermarche.pos.domain.store.CheckoutIsland existing =
+                mock(com.intermarche.pos.domain.store.CheckoutIsland.class);
+        com.intermarche.pos.domain.store.CheckoutIsland seen =
+                mock(com.intermarche.pos.domain.store.CheckoutIsland.class);
+        seen.code = "AVANT";
+        seen.active = true;
+        com.intermarche.pos.domain.store.CheckoutIsland absentActive =
+                mock(com.intermarche.pos.domain.store.CheckoutIsland.class);
+        absentActive.code = "Z1";
+        absentActive.active = true;
+        com.intermarche.pos.domain.store.CheckoutIsland absentInactive =
+                mock(com.intermarche.pos.domain.store.CheckoutIsland.class);
+        absentInactive.code = "Z2";
+        absentInactive.active = false;
+        PanacheQuery<com.intermarche.pos.domain.store.CheckoutIsland> absentQuery =
+                queryReturning(null);
+        PanacheQuery<com.intermarche.pos.domain.store.CheckoutIsland> existingQuery =
+                queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.store.CheckoutIsland> created =
+                        mockConstruction(com.intermarche.pos.domain.store.CheckoutIsland.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.store.CheckoutIsland
+                    .find("code", "AVANT")).thenReturn(absentQuery);
+            mocked.when(() -> com.intermarche.pos.domain.store.CheckoutIsland
+                    .find("code", "COMPTOIR")).thenReturn(existingQuery);
+            mocked.when(com.intermarche.pos.domain.store.CheckoutIsland::listAll)
+                    .thenReturn(List.of(seen, absentActive, absentInactive));
+            service.applyCheckoutIslands(List.of(insert, update));
+            com.intermarche.pos.domain.store.CheckoutIsland inserted = created.constructed().get(0);
+            assertEquals("AVANT", inserted.code);
+            assertEquals("Ligne avant", inserted.label);
+            assertEquals("POS01;POS02", inserted.terminalIds);
+            assertTrue(inserted.active);
+            verify(inserted, times(1)).persist();
+
+            assertEquals("Comptoir", existing.label);
+            assertEquals("POS08", existing.terminalIds);
+            verify(existing, times(1)).persist();
+
+            assertTrue(seen.active);
+            verify(seen, never()).persist();
+            assertFalse(absentActive.active);
+            verify(absentActive, times(1)).persist();
+            assertFalse(absentInactive.active);
+            verify(absentInactive, never()).persist();
+        }
+    }
+
+    // --- Modes de règlement (BO-03-02-03/04/10 à 30) ---
+
+    /**
+     * {@code applyTenders} covers the insert arm, the update arm and the three
+     * deactivation arms, and carries the whole administered description down to
+     * the register.
+     */
+    @Test
+    void applyTendersInsertsUpdatesAndDeactivates() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.TenderDefinitionDto insert = new RefPayloads.TenderDefinitionDto();
+        insert.code = "TR";
+        insert.functionalId = "030";
+        insert.label = "Titre restaurant";
+        insert.active = true;
+        insert.displayOrder = 30;
+        insert.maxAmount = "25.00";
+        insert.maxAmountControl = "BLOCKING";
+        insert.maxCount = 2;
+        insert.maxCountControl = "SUPERVISOR";
+        insert.drawerOpening = "IF_CHANGE_DUE";
+        insert.changeTenderCode = "CASH";
+        insert.refundAllowed = true;
+        insert.fidelityReported = true;
+        RefPayloads.TenderDefinitionDto update = new RefPayloads.TenderDefinitionDto();
+        update.code = "CHEQUE";
+        update.functionalId = "020";
+        update.label = "Chèque";
+        update.active = true;
+        update.displayOrder = 20;
+        update.minAmount = "5.00";
+        update.minAmountControl = "WARNING";
+        update.secondMaxAmount = "300.00";
+        update.secondMaxAmountControl = "INFO";
+        update.maxChangeAmount = "8.00";
+        update.maxChangeControl = "INFO";
+        update.changeAllowed = true;
+        update.cashierDeclaration = true;
+        update.automaticWithdrawal = true;
+        update.movementAllowed = true;
+        update.bankDeposit = true;
+        update.floatAllowed = true;
+        update.defaultsToTotal = true;
+        update.withdrawalReportDetail = true;
+        com.intermarche.pos.domain.payment.TenderDefinition existing =
+                mock(com.intermarche.pos.domain.payment.TenderDefinition.class);
+        com.intermarche.pos.domain.payment.TenderDefinition seen =
+                mock(com.intermarche.pos.domain.payment.TenderDefinition.class);
+        seen.code = "TR";
+        seen.active = true;
+        com.intermarche.pos.domain.payment.TenderDefinition absentActive =
+                mock(com.intermarche.pos.domain.payment.TenderDefinition.class);
+        absentActive.code = "DEVISE";
+        absentActive.active = true;
+        com.intermarche.pos.domain.payment.TenderDefinition absentInactive =
+                mock(com.intermarche.pos.domain.payment.TenderDefinition.class);
+        absentInactive.code = "SECOURS";
+        absentInactive.active = false;
+        PanacheQuery<com.intermarche.pos.domain.payment.TenderDefinition> absentQuery =
+                queryReturning(null);
+        PanacheQuery<com.intermarche.pos.domain.payment.TenderDefinition> existingQuery =
+                queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.payment.TenderDefinition> created =
+                        mockConstruction(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .find("code", "TR")).thenReturn(absentQuery);
+            mocked.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .find("code", "CHEQUE")).thenReturn(existingQuery);
+            mocked.when(com.intermarche.pos.domain.payment.TenderDefinition::listAll)
+                    .thenReturn(List.of(seen, absentActive, absentInactive));
+            service.applyTenders(List.of(insert, update));
+            com.intermarche.pos.domain.payment.TenderDefinition inserted = created.constructed().get(0);
+            assertEquals("TR", inserted.code);
+            assertEquals("030", inserted.functionalId);
+            assertEquals("Titre restaurant", inserted.label);
+            assertTrue(inserted.active);
+            assertEquals(30, inserted.displayOrder);
+            assertEquals(new java.math.BigDecimal("25.00"), inserted.maxAmount);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                    inserted.maxAmountControl);
+            assertEquals(Integer.valueOf(2), inserted.maxCount);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                    inserted.maxCountControl);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening.IF_CHANGE_DUE,
+                    inserted.drawerOpening);
+            assertEquals("CASH", inserted.changeTenderCode);
+            assertTrue(inserted.refundAllowed);
+            assertTrue(inserted.fidelityReported);
+            verify(inserted, times(1)).persist();
+
+            assertEquals("Chèque", existing.label);
+            assertEquals("020", existing.functionalId);
+            assertEquals(new java.math.BigDecimal("5.00"), existing.minAmount);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.WARNING,
+                    existing.minAmountControl);
+            assertEquals(new java.math.BigDecimal("300.00"), existing.secondMaxAmount);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.INFO,
+                    existing.secondMaxAmountControl);
+            assertEquals(new java.math.BigDecimal("8.00"), existing.maxChangeAmount);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.INFO,
+                    existing.maxChangeControl);
+            assertTrue(existing.changeAllowed);
+            assertTrue(existing.cashierDeclaration);
+            assertTrue(existing.automaticWithdrawal);
+            assertTrue(existing.movementAllowed);
+            assertTrue(existing.bankDeposit);
+            assertTrue(existing.floatAllowed);
+            assertTrue(existing.defaultsToTotal);
+            assertTrue(existing.withdrawalReportDetail);
+            verify(existing, times(1)).persist();
+
+            assertTrue(seen.active);
+            verify(seen, never()).persist();
+            assertFalse(absentActive.active);
+            verify(absentActive, times(1)).persist();
+            assertFalse(absentInactive.active);
+            verify(absentInactive, never()).persist();
+        }
+    }
+
+    /**
+     * A snapshot row whose bounds and enumerations did not travel, or travelled
+     * unreadable, lands as an unbounded tender rather than failing the pull —
+     * every leg of the three fallbacks: null, blank, malformed and unknown.
+     */
+    @Test
+    void applyTendersToleratesAnUnreadableRow() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.TenderDefinitionDto bare = new RefPayloads.TenderDefinitionDto();
+        bare.code = "CASH";
+        bare.functionalId = "010";
+        bare.label = "Espèces";
+        bare.active = true;
+        bare.maxAmount = null;
+        bare.secondMaxAmount = "   ";
+        bare.minAmount = "pas un nombre";
+        bare.maxChangeAmount = "";
+        bare.maxAmountControl = null;
+        bare.minAmountControl = "INEXISTANT";
+        bare.drawerOpening = "JAMAIS_VU";
+        PanacheQuery<com.intermarche.pos.domain.payment.TenderDefinition> absentQuery =
+                queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.payment.TenderDefinition> created =
+                        mockConstruction(com.intermarche.pos.domain.payment.TenderDefinition.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .find("code", "CASH")).thenReturn(absentQuery);
+            mocked.when(com.intermarche.pos.domain.payment.TenderDefinition::listAll)
+                    .thenReturn(List.of());
+            service.applyTenders(List.of(bare));
+            com.intermarche.pos.domain.payment.TenderDefinition inserted = created.constructed().get(0);
+            assertNull(inserted.maxAmount);
+            assertNull(inserted.secondMaxAmount);
+            assertNull(inserted.minAmount);
+            assertNull(inserted.maxChangeAmount);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE,
+                    inserted.maxAmountControl);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE,
+                    inserted.minAmountControl);
+            assertEquals(com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening.NEVER,
+                    inserted.drawerOpening);
+        }
+    }
+
+    // --- Gabarits de documents (BO-03-03) ---
+
+    /**
+     * {@code applyDocumentTemplates} covers the insert arm, the update arm and
+     * the three deactivation arms, carries the source verbatim, and tells the
+     * renderer to forget what it had parsed.
+     */
+    @Test
+    void applyDocumentTemplatesInsertsUpdatesAndDeactivates() {
+        RefApplyService service = new RefApplyService();
+        service.documentTemplateService =
+                mock(com.intermarche.pos.service.DocumentTemplateService.class);
+        RefPayloads.DocumentTemplateDto insert = new RefPayloads.DocumentTemplateDto();
+        insert.code = "TICKET_VENTE";
+        insert.label = "Ticket de vente";
+        insert.documentType = "SALE_RECEIPT";
+        insert.active = true;
+        insert.priority = 100;
+        insert.width = 42;
+        insert.copies = 2;
+        insert.source = "TOTAL {totals.includingTax}";
+        RefPayloads.DocumentTemplateDto update = new RefPayloads.DocumentTemplateDto();
+        update.code = "RAPPORT_Z";
+        update.label = "Rapport Z";
+        update.documentType = "Z_REPORT";
+        update.active = true;
+        update.width = 42;
+        update.source = "Z {session.number}";
+        com.intermarche.pos.domain.setting.DocumentTemplate existing =
+                mock(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+        com.intermarche.pos.domain.setting.DocumentTemplate seen =
+                mock(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+        seen.code = "TICKET_VENTE";
+        seen.active = true;
+        com.intermarche.pos.domain.setting.DocumentTemplate absentActive =
+                mock(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+        absentActive.code = "VIEUX";
+        absentActive.active = true;
+        com.intermarche.pos.domain.setting.DocumentTemplate absentInactive =
+                mock(com.intermarche.pos.domain.setting.DocumentTemplate.class);
+        absentInactive.code = "ANCIEN";
+        absentInactive.active = false;
+        PanacheQuery<com.intermarche.pos.domain.setting.DocumentTemplate> absentQuery =
+                queryReturning(null);
+        PanacheQuery<com.intermarche.pos.domain.setting.DocumentTemplate> existingQuery =
+                queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.setting.DocumentTemplate> created =
+                        mockConstruction(
+                                com.intermarche.pos.domain.setting.DocumentTemplate.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate
+                    .find("code", "TICKET_VENTE")).thenReturn(absentQuery);
+            mocked.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate
+                    .find("code", "RAPPORT_Z")).thenReturn(existingQuery);
+            mocked.when(com.intermarche.pos.domain.setting.DocumentTemplate::listAll)
+                    .thenReturn(List.of(seen, absentActive, absentInactive));
+            service.applyDocumentTemplates(List.of(insert, update));
+            com.intermarche.pos.domain.setting.DocumentTemplate inserted =
+                    created.constructed().get(0);
+            assertEquals("TICKET_VENTE", inserted.code);
+            assertEquals("Ticket de vente", inserted.label);
+            assertEquals(com.intermarche.pos.domain.setting.DocumentTemplate
+                    .DocumentType.SALE_RECEIPT, inserted.documentType);
+            assertTrue(inserted.active);
+            assertEquals(100, inserted.priority);
+            assertEquals(42, inserted.width);
+            assertEquals(2, inserted.copies);
+            assertEquals("TOTAL {totals.includingTax}", inserted.source);
+            verify(inserted, times(1)).persist();
+
+            assertEquals("Rapport Z", existing.label);
+            assertEquals(com.intermarche.pos.domain.setting.DocumentTemplate
+                    .DocumentType.Z_REPORT, existing.documentType);
+            assertEquals("Z {session.number}", existing.source);
+            verify(existing, times(1)).persist();
+
+            assertTrue(seen.active);
+            verify(seen, never()).persist();
+            assertFalse(absentActive.active);
+            verify(absentActive, times(1)).persist();
+            assertFalse(absentInactive.active);
+            verify(absentInactive, never()).persist();
+        }
+        verify(service.documentTemplateService, times(1)).clearCache();
+    }
+
+    /**
+     * A snapshot row naming a document the register does not know leaves the
+     * template attached to none rather than failing the pull — the unknown and
+     * absent legs of the type fallback.
+     */
+    @Test
+    void applyDocumentTemplatesToleratesAnUnknownDocumentType() {
+        RefApplyService service = new RefApplyService();
+        service.documentTemplateService =
+                mock(com.intermarche.pos.service.DocumentTemplateService.class);
+        RefPayloads.DocumentTemplateDto unknown = new RefPayloads.DocumentTemplateDto();
+        unknown.code = "EXOTIQUE";
+        unknown.documentType = "BON_DE_LIVRAISON";
+        RefPayloads.DocumentTemplateDto absent = new RefPayloads.DocumentTemplateDto();
+        absent.code = "SANS_TYPE";
+        absent.documentType = null;
+        PanacheQuery<com.intermarche.pos.domain.setting.DocumentTemplate> absentQuery =
+                queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.setting.DocumentTemplate> created =
+                        mockConstruction(
+                                com.intermarche.pos.domain.setting.DocumentTemplate.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate
+                    .find("code", "EXOTIQUE")).thenReturn(absentQuery);
+            mocked.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate
+                    .find("code", "SANS_TYPE")).thenReturn(absentQuery);
+            mocked.when(com.intermarche.pos.domain.setting.DocumentTemplate::listAll)
+                    .thenReturn(List.of());
+            service.applyDocumentTemplates(List.of(unknown, absent));
+            assertNull(created.constructed().get(0).documentType);
+            assertNull(created.constructed().get(1).documentType);
+        }
     }
 }

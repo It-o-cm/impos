@@ -35,7 +35,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class BalanceTicketClient {
 
-    private static final Logger LOG = Logger.getLogger(BalanceTicketClient.class);
+    private static final Logger LOGGER = Logger.getLogger(BalanceTicketClient.class);
 
     /** Carries the store node's URL and whether the synchronization is wired at all. */
     @Inject
@@ -151,7 +151,7 @@ public class BalanceTicketClient {
                 return Answer.failed(Outcome.ALREADY_CONSUMED);
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                LOG.infof("Ticket comptoir %s refusé par le nœud magasin (HTTP %d)",
+                LOGGER.infof("Ticket comptoir %s refusé par le nœud magasin (HTTP %d)",
                         reference, response.statusCode());
                 return Answer.failed(Outcome.UNREACHABLE);
             }
@@ -160,7 +160,7 @@ public class BalanceTicketClient {
             // A body that parses to nothing usable is a broken shop, not an empty ticket:
             // saying UNREACHABLE keeps the paper keyable by hand instead of losing it.
             if (served == null || served.lines == null || served.lines.isEmpty()) {
-                LOG.warnf("Ticket comptoir %s servi sans ligne exploitable", reference);
+                LOGGER.warnf("Ticket comptoir %s servi sans ligne exploitable", reference);
                 return Answer.failed(Outcome.UNREACHABLE);
             }
             return Answer.served(served);
@@ -168,7 +168,7 @@ public class BalanceTicketClient {
             Thread.currentThread().interrupt();
             return Answer.failed(Outcome.UNREACHABLE);
         } catch (Exception e) {
-            LOG.warnf("Nœud magasin injoignable pour le ticket comptoir %s : %s",
+            LOGGER.warnf("Nœud magasin injoignable pour le ticket comptoir %s : %s",
                     reference, e.getMessage());
             return Answer.failed(Outcome.UNREACHABLE);
         }

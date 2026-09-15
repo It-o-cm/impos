@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -21,6 +21,7 @@ import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import org.jboss.logging.Logger;
 
 /**
  * The store back office's POINT-OF-SALE INFORMATION page
@@ -44,6 +45,9 @@ import java.nio.charset.StandardCharsets;
 @Path("/admin/store")
 public class AdminStoreResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminStoreResource.class);
+
     /** The point-of-sale information page template. */
     @Inject
     @Location("admin-store")
@@ -60,10 +64,12 @@ public class AdminStoreResource {
     @RolesAllowed("ADMIN")
     public TemplateInstance storePage(@QueryParam("notice") String notice,
                                        @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method storePage with notice: " + notice + ", noticeOk: " + noticeOk);
         Store store = currentStore();
         if (store != null && store.address == null) {
             store.address = new Address();
         }
+        LOGGER.info("Exiting method storePage");
         return adminStore.data("store", store)
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
@@ -81,8 +87,10 @@ public class AdminStoreResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         Store store = currentStore();
         if (store == null) {
+            LOGGER.info("Exiting method save");
             return redirect("Aucun point de vente sur ce nœud : importez-le avant de le configurer.", false);
         }
         store.name = trimmed(form, "name", store.name);
@@ -98,6 +106,7 @@ public class AdminStoreResource {
         store.siret = trimmed(form, "siret", store.siret);
         store.phone = trimmed(form, "phone", store.phone);
         store.bankAccountNumber = trimmed(form, "bankAccountNumber", store.bankAccountNumber);
+        LOGGER.info("Exiting method save");
         return redirect("Informations du point de vente enregistrées.", true);
     }
 

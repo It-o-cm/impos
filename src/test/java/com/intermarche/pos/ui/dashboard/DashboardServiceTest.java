@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.dashboard;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;

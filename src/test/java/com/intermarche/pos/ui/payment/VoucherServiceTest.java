@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.StoredValue;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.payment.StoredValue;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -44,16 +44,21 @@ class VoucherServiceTest {
     @Mock
     PosState state;
 
+    /** The mocked control engine recording the accepted codes (BO-03-06-39/49). */
+    @Mock
+    com.intermarche.pos.service.CouponCheckService couponCheckService;
+
     /** The service under test, wired with the mocked payment service. */
     VoucherService service;
 
     /**
-     * Builds a fresh service and injects the mocked payment service before each test.
+     * Builds a fresh service and injects the mocked collaborators before each test.
      */
     @BeforeEach
     void setUp() {
         service = new VoucherService();
         service.paymentService = paymentService;
+        service.couponCheckService = couponCheckService;
     }
 
     /**

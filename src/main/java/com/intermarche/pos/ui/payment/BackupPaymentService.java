@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
@@ -41,7 +41,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class BackupPaymentService {
 
-    private static final Logger LOG = Logger.getLogger(BackupPaymentService.class);
+    private static final Logger LOGGER = Logger.getLogger(BackupPaymentService.class);
 
     /** Refusal shown when the scanned answer cannot be trusted. */
     static final String REFUSED = "SECOURS MONETIQUE : CODE INVALIDE OU ETRANGER A CETTE VENTE";
@@ -93,6 +93,7 @@ public class BackupPaymentService {
      * @param state the current POS state
      */
     public void openPanel(PosState state) {
+        LOGGER.info("Entering method openPanel with state: " + state);
         state.payment.clearCreditPanel();
         state.payment.clearCurrencyPanel();
         state.payment.clearBackupPanel();
@@ -101,6 +102,7 @@ public class BackupPaymentService {
         if (remaining.signum() <= 0) {
             state.payment.backupError = "RIEN A REGLER";
             state.touch();
+            LOGGER.info("Exiting method openPanel");
             return;
         }
         BackupPaymentTicket.Request request = new BackupPaymentTicket.Request(
@@ -114,6 +116,7 @@ public class BackupPaymentService {
         state.payment.backupRequest = request;
         state.payment.backupRequestSvg = qrCodeService.toSvg(request.encode(secret.orElse("")));
         state.touch();
+        LOGGER.info("Exiting method openPanel");
     }
 
     /**
@@ -122,8 +125,10 @@ public class BackupPaymentService {
      * @param state the current POS state
      */
     public void closePanel(PosState state) {
+        LOGGER.info("Entering method closePanel with state: " + state);
         state.payment.clearBackupPanel();
         state.touch();
+        LOGGER.info("Exiting method closePanel");
     }
 
     /**
@@ -134,10 +139,12 @@ public class BackupPaymentService {
      * @return true when the settlement was registered
      */
     public boolean validateScanned(PosState state, String payload) {
+        LOGGER.info("Entering method validateScanned with state: " + state + ", payload: " + payload);
         BackupPaymentTicket.Request request = state.payment.backupRequest;
         if (request == null) {
             state.payment.backupError = NO_REQUEST;
             state.touch();
+            LOGGER.info("Exiting method validateScanned");
             return false;
         }
         BackupPaymentTicket.Response response =
@@ -149,12 +156,14 @@ public class BackupPaymentService {
             // only tell an attacker which part they got wrong.
             state.payment.backupError = REFUSED;
             state.touch();
-            LOG.warnf("Secours monétique refusé pour la transaction %s", request.transactionNumber());
+            LOGGER.warnf("Secours monétique refusé pour la transaction %s", request.transactionNumber());
+            LOGGER.info("Exiting method validateScanned");
             return false;
         }
         register(state, BackupPaymentTicket.toEuro(response.acceptedCents()),
                 methodLabel(response.methodId()), request.transactionNumber(), false);
         printCardReceipt(response.receiptBase64());
+        LOGGER.info("Exiting method validateScanned");
         return true;
     }
 
@@ -170,15 +179,18 @@ public class BackupPaymentService {
      */
     public boolean validateManually(PosState state, BigDecimal acceptedAmount, String login,
             String password) {
+        LOGGER.info("Entering method validateManually with state: " + state + ", acceptedAmount: " + acceptedAmount + ", login: " + login + ", password: ***");
         BackupPaymentTicket.Request request = state.payment.backupRequest;
         if (request == null) {
             state.payment.backupError = NO_REQUEST;
             state.touch();
+            LOGGER.info("Exiting method validateManually");
             return false;
         }
         if (acceptedAmount == null || acceptedAmount.signum() <= 0) {
             state.payment.backupError = BAD_AMOUNT;
             state.touch();
+            LOGGER.info("Exiting method validateManually");
             return false;
         }
         if (posSettingsService.backupManualEndorsement()
@@ -186,9 +198,11 @@ public class BackupPaymentService {
                 && !endorsementService.authorize(login, password, MANUAL_ACTION)) {
             state.payment.backupError = "AUTORISATION REFUSEE";
             state.touch();
+            LOGGER.info("Exiting method validateManually");
             return false;
         }
         register(state, acceptedAmount, GENERIC_LABEL, request.transactionNumber(), true);
+        LOGGER.info("Exiting method validateManually");
         return true;
     }
 
@@ -227,7 +241,7 @@ public class BackupPaymentService {
             hardwareService.printReceipt(text);
             hardwareService.cutPaper();
         } catch (IllegalArgumentException e) {
-            LOG.warnf("Ticket carte du secours monétique illisible : %s", e.getMessage());
+            LOGGER.warnf("Ticket carte du secours monétique illisible : %s", e.getMessage());
         }
     }
 
@@ -290,8 +304,8 @@ public class BackupPaymentService {
      */
     private String transactionNumber(PosState state) {
         if (state.payment.ticketDbId != null) {
-            com.intermarche.pos.domain.ticket.Ticket ticket =
-                    com.intermarche.pos.domain.ticket.Ticket.findById(state.payment.ticketDbId);
+            com.intermarche.pos.domain.sale.Ticket ticket =
+                    com.intermarche.pos.domain.sale.Ticket.findById(state.payment.ticketDbId);
             if (ticket != null && ticket.ticketNumber != null) {
                 return ticket.ticketNumber;
             }

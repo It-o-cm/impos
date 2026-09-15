@@ -1,9 +1,9 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.SyncOutbox;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -34,7 +34,7 @@ import java.util.UUID;
 @ApplicationScoped
 public class CashMovementService {
 
-    private static final Logger LOG = Logger.getLogger(CashMovementService.class);
+    private static final Logger LOGGER = Logger.getLogger(CashMovementService.class);
 
     @Inject
     TicketNumberService ticketNumberService;
@@ -54,6 +54,8 @@ public class CashMovementService {
      * @return true when the amount is strictly above the endorsement threshold
      */
     public boolean requiresEndorsement(BigDecimal amount) {
+        LOGGER.info("Entering method requiresEndorsement with amount: " + amount);
+        LOGGER.info("Exiting method requiresEndorsement");
         return amount != null
                 && amount.compareTo(posSettingsService.cashMovementEndorsementThreshold()) > 0;
     }
@@ -75,6 +77,8 @@ public class CashMovementService {
     @Transactional
     public CashMovement record(CashSession session, Employee cashier, CashMovement.MovementType type,
                                BigDecimal amount, String reason, String endorsedBy) {
+        LOGGER.info("Entering method record with session: " + session + ", cashier: " + cashier + ", type: " + type + ", amount: " + amount + ", reason: " + reason + ", endorsedBy: " + endorsedBy);
+        LOGGER.info("Exiting method record");
         return record(session, cashier, type, amount, reason, endorsedBy, null, null, null);
     }
 
@@ -104,9 +108,11 @@ public class CashMovementService {
     public CashMovement record(CashSession session, Employee cashier, CashMovement.MovementType type,
                                BigDecimal amount, String reason, String endorsedBy,
                                String paymentMethod, String transferTo, String denominationDetail) {
+        LOGGER.info("Entering method record with session: " + session + ", cashier: " + cashier + ", type: " + type + ", amount: " + amount + ", reason: " + reason + ", endorsedBy: " + endorsedBy + ", paymentMethod: " + paymentMethod + ", transferTo: " + transferTo + ", denominationDetail: " + denominationDetail);
         if (requiresEndorsement(amount) && endorsedBy == null) {
-            LOG.warnf("Mouvement refuse : aval manager requis au-dela de %s",
+            LOGGER.warnf("Mouvement refuse : aval manager requis au-dela de %s",
                     posSettingsService.cashMovementEndorsementThreshold().toPlainString());
+            LOGGER.info("Exiting method record");
             return null;
         }
         CashMovement movement = new CashMovement();
@@ -124,6 +130,7 @@ public class CashMovementService {
         movement.denominationDetail = denominationDetail;
         movement.persist();
         syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        LOGGER.info("Exiting method record");
         return movement;
     }
 }

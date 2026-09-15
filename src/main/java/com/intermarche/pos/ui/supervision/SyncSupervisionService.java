@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.supervision;
 
-import com.intermarche.pos.domain.RefState;
+import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.service.sync.EngineFeedDeliveryService;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import com.intermarche.pos.service.sync.RefPullService;
@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * Read-only assembly of the SYNC SUPERVISION view (lot C2): the three outbound
@@ -39,6 +40,9 @@ import java.util.List;
  */
 @ApplicationScoped
 public class SyncSupervisionService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(SyncSupervisionService.class);
 
     /** How a version or fingerprint hash is shortened for the screen. */
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("dd/MM HH:mm:ss");
@@ -121,6 +125,7 @@ public class SyncSupervisionService {
      * @return the assembled, pre-formatted view
      */
     public SyncView build() {
+        LOGGER.info("Entering method build");
         SyncView view = new SyncView();
         boolean engineError = false;
         for (EngineFeedService.FeedState state : engineFeedService.feedStates()) {
@@ -156,6 +161,7 @@ public class SyncSupervisionService {
         view.pushSeconds = pushIntervalSeconds;
         view.engineError = engineError;
         view.healthy = !engineError && outboxCount == 0;
+        LOGGER.info("Exiting method build");
         return view;
     }
 

@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
@@ -9,6 +9,7 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the FRUITS &amp; LÉGUMES weighing screen. Display
@@ -18,6 +19,9 @@ import java.util.List;
 @Path("/")
 @DrawerMustBeClosed
 public class FruitResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(FruitResource.class);
 
     @Inject Template fruits;
     @Inject FruitService fruitService;
@@ -33,7 +37,9 @@ public class FruitResource {
     @GET
     @Path("/fruits")
     public TemplateInstance fruitsPage() {
+        LOGGER.info("Entering method fruitsPage");
         List<Product> products = fruitService.getPluProducts();
+        LOGGER.info("Exiting method fruitsPage");
         return fruits.data("state", state).data("products", products);
     }
 }

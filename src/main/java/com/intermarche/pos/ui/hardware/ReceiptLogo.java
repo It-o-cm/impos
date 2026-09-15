@@ -28,7 +28,7 @@ import org.jboss.logging.Logger;
  */
 public final class ReceiptLogo {
 
-    private static final Logger LOG = Logger.getLogger(ReceiptLogo.class);
+    private static final Logger LOGGER = Logger.getLogger(ReceiptLogo.class);
 
     /** Where the logo is looked for on the classpath. */
     private static final String RESOURCE = "/print/logo.png";
@@ -121,24 +121,24 @@ public final class ReceiptLogo {
     private static Optional<byte[]> croppedPng() {
         try (InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE)) {
             if (stream == null) {
-                LOG.infof("Aucun logo (%s absent) : document sans logo", RESOURCE);
+                LOGGER.infof("Aucun logo (%s absent) : document sans logo", RESOURCE);
                 return Optional.empty();
             }
             BufferedImage source = ImageIO.read(stream);
             if (source == null) {
-                LOG.warnf("Logo illisible (%s) : document sans logo", RESOURCE);
+                LOGGER.warnf("Logo illisible (%s) : document sans logo", RESOURCE);
                 return Optional.empty();
             }
             BufferedImage fitted = fit(source);
             if (fitted == null) {
-                LOG.warnf("Logo entierement blanc (%s) : document sans logo", RESOURCE);
+                LOGGER.warnf("Logo entierement blanc (%s) : document sans logo", RESOURCE);
                 return Optional.empty();
             }
             java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
             ImageIO.write(fitted, "png", png);
             return Optional.of(png.toByteArray());
         } catch (IOException e) {
-            LOG.warnf(e, "Logo illisible (%s) : document sans logo", RESOURCE);
+            LOGGER.warnf(e, "Logo illisible (%s) : document sans logo", RESOURCE);
             return Optional.empty();
         }
     }
@@ -151,22 +151,22 @@ public final class ReceiptLogo {
     private static Optional<String> read() {
         try (InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE)) {
             if (stream == null) {
-                LOG.infof("Aucun logo de ticket (%s absent) : en-tete texte seul", RESOURCE);
+                LOGGER.infof("Aucun logo de ticket (%s absent) : en-tete texte seul", RESOURCE);
                 return Optional.empty();
             }
             BufferedImage source = ImageIO.read(stream);
             if (source == null) {
-                LOG.warnf("Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
+                LOGGER.warnf("Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
                 return Optional.empty();
             }
             BufferedImage fitted = fit(source);
             if (fitted == null) {
-                LOG.warnf("Logo de ticket entierement blanc (%s) : en-tete texte seul", RESOURCE);
+                LOGGER.warnf("Logo de ticket entierement blanc (%s) : en-tete texte seul", RESOURCE);
                 return Optional.empty();
             }
             return Optional.of(encode(fitted));
         } catch (IOException e) {
-            LOG.warnf(e, "Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
+            LOGGER.warnf(e, "Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
             return Optional.empty();
         }
     }

@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.Response;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the cash-movement screen: the cashier records a drawer
@@ -49,6 +50,9 @@ import java.net.URI;
 @Path("/")
 public class CashMovementResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(CashMovementResource.class);
+
     /** Action code journaled when a manager endorses a cash movement. */
     static final String ENDORSEMENT_ACTION = "CASH_MOVEMENT";
 
@@ -72,6 +76,7 @@ public class CashMovementResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance cashMovementPage(@QueryParam("error") String error,
                                              @QueryParam("ok") String ok) {
+        LOGGER.info("Entering method cashMovementPage with error: " + error + ", ok: " + ok);
         String message;
         if ("no-session".equals(error)) {
             message = "AUCUNE SESSION OUVERTE";
@@ -84,6 +89,7 @@ public class CashMovementResource {
         } else {
             message = null;
         }
+        LOGGER.info("Exiting method cashMovementPage");
         return cashMovement
                 .data("state", state)
                 .data("reasons", posSettingsService.cashMovementReasons())
@@ -114,15 +120,19 @@ public class CashMovementResource {
                            @FormParam("paymentMethod") String paymentMethod,
                            @FormParam("managerLogin") String managerLogin,
                            @FormParam("managerPin") String managerPin) {
+        LOGGER.info("Entering method record with typeStr: " + typeStr + ", amountStr: " + amountStr + ", reason: " + reason + ", paymentMethod: " + paymentMethod + ", managerLogin: " + managerLogin + ", managerPin: ***");
         if (state.trainingMode) {
+            LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=training");
         }
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
+            LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=no-session");
         }
         CashMovement.MovementType type = parseType(typeStr);
         if (type == null) {
+            LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=bad-type");
         }
         BigDecimal amount = parseAmount(amountStr);
@@ -130,6 +140,7 @@ public class CashMovementResource {
         if (cashMovementService.requiresEndorsement(amount)) {
             endorsedBy = resolveEndorsement(managerLogin, managerPin);
             if (endorsedBy == null) {
+                LOGGER.info("Exiting method record");
                 return redirect("/cash-movement?error=endorsement");
             }
         }
@@ -142,8 +153,10 @@ public class CashMovementResource {
                 session, cashier, type, amount, reason, endorsedBy, tender, null, null);
         state.touch();
         if (recorded == null) {
+            LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=endorsement");
         }
+        LOGGER.info("Exiting method record");
         return redirect("/cash-movement?ok=1");
     }
 

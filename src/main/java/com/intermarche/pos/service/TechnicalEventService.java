@@ -1,13 +1,14 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.time.LocalDateTime;
+import org.jboss.logging.Logger;
 
 /**
  * Appends entries to the technical event journal, stamped with this register's
@@ -23,6 +24,9 @@ import java.time.LocalDateTime;
 @ApplicationScoped
 public class TechnicalEventService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(TechnicalEventService.class);
+
     @Inject
     TicketNumberService ticketNumberService;
 
@@ -37,7 +41,9 @@ public class TechnicalEventService {
      */
     @Transactional
     public void log(TechnicalEvent.EventType type, String detail) {
+        LOGGER.info("Entering method log with type: " + type + ", detail: " + detail);
         log(type, detail, null);
+        LOGGER.info("Exiting method log");
     }
 
     /**
@@ -52,6 +58,7 @@ public class TechnicalEventService {
      */
     @Transactional
     public void log(TechnicalEvent.EventType type, String detail, String operatorBadgeId) {
+        LOGGER.info("Entering method log with type: " + type + ", detail: " + detail + ", operatorBadgeId: " + operatorBadgeId);
         TechnicalEvent event = new TechnicalEvent();
         event.eventType = type;
         event.terminalId = ticketNumberService.getTerminalId();
@@ -61,5 +68,6 @@ public class TechnicalEventService {
         event.eventUid = java.util.UUID.randomUUID().toString();
         event.persist();
         syncOutboxService.enqueue(SyncOutbox.EntityType.EVENT, event.id);
+        LOGGER.info("Exiting method log");
     }
 }

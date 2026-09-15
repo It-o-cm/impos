@@ -36,7 +36,7 @@ import org.jboss.logging.Logger;
 @ApplicationScoped
 public class TerminalClientProducer {
 
-    private static final Logger LOG = Logger.getLogger(TerminalClientProducer.class);
+    private static final Logger LOGGER = Logger.getLogger(TerminalClientProducer.class);
 
     /** The configured terminal mode. */
     @ConfigProperty(name = "pos.tpe.mode", defaultValue = "virtual")
@@ -113,7 +113,7 @@ public class TerminalClientProducer {
             case "virtual":
                 return virtualTerminalClient;
             default:
-                LOG.warnf("Unknown pos.tpe.mode '%s' - falling back to the virtual terminal", mode);
+                LOGGER.warnf("Unknown pos.tpe.mode '%s' - falling back to the virtual terminal", mode);
                 return virtualTerminalClient;
         }
     }

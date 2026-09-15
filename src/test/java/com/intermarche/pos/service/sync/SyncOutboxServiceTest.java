@@ -1,19 +1,19 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -499,30 +499,30 @@ class SyncOutboxServiceTest {
         ticket.totalExcludingTax = new BigDecimal("10.00");
         ticket.totalIncludingTax = new BigDecimal("12.00");
         ticket.totalVat = new BigDecimal("2.00");
-        com.intermarche.pos.domain.ticket.ChequePayment cheque =
-                mock(com.intermarche.pos.domain.ticket.ChequePayment.class);
+        com.intermarche.pos.domain.payment.ChequePayment cheque =
+                mock(com.intermarche.pos.domain.payment.ChequePayment.class);
         when(cheque.getMethodKey()).thenReturn("CHEQUE");
         cheque.paymentIndex = 1;
         cheque.amount = new BigDecimal("3.00");
         cheque.magneticLine = "CMC7-LINE";
-        com.intermarche.pos.domain.ticket.BackupPayment secours =
-                mock(com.intermarche.pos.domain.ticket.BackupPayment.class);
+        com.intermarche.pos.domain.payment.BackupPayment secours =
+                mock(com.intermarche.pos.domain.payment.BackupPayment.class);
         when(secours.getMethodKey()).thenReturn("BACKUP");
         secours.paymentIndex = 2;
         secours.amount = new BigDecimal("3.00");
         secours.methodLabel = "Secours CB";
         secours.transactionNumber = "TX42";
         secours.manual = true;
-        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise =
-                mock(com.intermarche.pos.domain.ticket.ForeignCurrencyPayment.class);
+        com.intermarche.pos.domain.payment.ForeignCurrencyPayment devise =
+                mock(com.intermarche.pos.domain.payment.ForeignCurrencyPayment.class);
         when(devise.getMethodKey()).thenReturn("DEVISE");
         devise.paymentIndex = 3;
         devise.amount = new BigDecimal("3.00");
         devise.currencyCode = "USD";
         devise.foreignAmount = new BigDecimal("3.30");
         devise.exchangeRate = new BigDecimal("1.10");
-        com.intermarche.pos.domain.ticket.CreditPayment credit =
-                mock(com.intermarche.pos.domain.ticket.CreditPayment.class);
+        com.intermarche.pos.domain.payment.CreditPayment credit =
+                mock(com.intermarche.pos.domain.payment.CreditPayment.class);
         when(credit.getMethodKey()).thenReturn("CREDIT");
         credit.paymentIndex = 4;
         credit.amount = new BigDecimal("3.00");
@@ -788,13 +788,13 @@ class SyncOutboxServiceTest {
         SyncOutbox row = new SyncOutbox();
         row.entityType = SyncOutbox.EntityType.CUSTOMER;
         row.entityId = 400L;
-        com.intermarche.pos.domain.AccountCustomer customer =
-                new com.intermarche.pos.domain.AccountCustomer();
+        com.intermarche.pos.domain.payment.AccountCustomer customer =
+                new com.intermarche.pos.domain.payment.AccountCustomer();
         customer.accountNumber = "AC1";
         customer.companyName = "ACME SARL";
         customer.lastName = "Doe";
         customer.firstName = "John";
-        com.intermarche.pos.domain.Address address = new com.intermarche.pos.domain.Address();
+        com.intermarche.pos.domain.store.Address address = new com.intermarche.pos.domain.store.Address();
         address.streetLine1 = "1 rue de la Paix";
         address.postalCode = "75002";
         address.city = "Paris";
@@ -805,7 +805,7 @@ class SyncOutboxServiceTest {
         customer.email = "contact@acme.example";
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.findById(400L)).thenReturn(customer);
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer.findById(400L)).thenReturn(customer);
             SyncOutboxService.PreparedItem item = service.prepare(1L);
             assertEquals("customer", item.pathSuffix);
             SyncPayloads.CustomerDto out =
@@ -835,14 +835,14 @@ class SyncOutboxServiceTest {
         SyncOutbox row = new SyncOutbox();
         row.entityType = SyncOutbox.EntityType.CUSTOMER;
         row.entityId = 400L;
-        com.intermarche.pos.domain.AccountCustomer customer =
-                new com.intermarche.pos.domain.AccountCustomer();
+        com.intermarche.pos.domain.payment.AccountCustomer customer =
+                new com.intermarche.pos.domain.payment.AccountCustomer();
         customer.accountNumber = "AC2";
         customer.companyName = "SOLO SARL";
         customer.address = null;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.findById(400L)).thenReturn(customer);
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer.findById(400L)).thenReturn(customer);
             SyncOutboxService.PreparedItem item = service.prepare(1L);
             SyncPayloads.CustomerDto out =
                     new ObjectMapper().readValue(item.json, SyncPayloads.CustomerDto.class);
@@ -866,7 +866,7 @@ class SyncOutboxServiceTest {
         row.entityId = 400L;
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer.findById(400L)).thenReturn(null);
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer.findById(400L)).thenReturn(null);
             assertNull(service.prepare(1L));
         }
     }

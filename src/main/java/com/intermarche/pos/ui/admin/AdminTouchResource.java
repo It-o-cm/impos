@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -24,6 +24,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * The CAISSE TOUCHES administration screen ({@code /admin/touches}), Lot 5F —
@@ -51,6 +52,9 @@ import java.util.List;
  */
 @Path("/admin/touches")
 public class AdminTouchResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminTouchResource.class);
 
     /** The maximum number of groups that may be pinned at once (BO-03-01-07). */
     static final int MAX_PINNED = 4;
@@ -83,6 +87,7 @@ public class AdminTouchResource {
     @RolesAllowed("ADMIN")
     public TemplateInstance list(@QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method list with notice: " + notice + ", noticeOk: " + noticeOk);
         List<ProductFamily> families = ProductFamily.<ProductFamily>find("order by code").list();
         List<TouchRow> rows = new ArrayList<>();
         int pinnedCount = 0;
@@ -93,6 +98,7 @@ public class AdminTouchResource {
                 pinnedCount++;
             }
         }
+        LOGGER.info("Exiting method list");
         return adminTouches.data("groups", rows)
                 .data("orderMode", posSettingsService.touchDisplayOrder())
                 .data("perPage", posSettingsService.touchGroupsPerPage())
@@ -115,26 +121,32 @@ public class AdminTouchResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response saveConfig(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method saveConfig with form: " + form);
         Long id = parseLong(form.getFirst("id"));
         ProductFamily family = id == null ? null : ProductFamily.<ProductFamily>findById(id);
         if (family == null) {
+            LOGGER.info("Exiting method saveConfig");
             return redirect("Groupe introuvable.", false);
         }
         String size = trimmed(form.getFirst("buttonSize")).toUpperCase();
         if (!SIZES.contains(size)) {
+            LOGGER.info("Exiting method saveConfig");
             return redirect("Taille de touche invalide pour « " + family.code + " ».", false);
         }
         Integer order = parseNonNegativeInt(form.getFirst("displayOrder"));
         if (order == null) {
+            LOGGER.info("Exiting method saveConfig");
             return redirect("Ordre personnalisé invalide — entier positif attendu.", false);
         }
         Long volume = parseNonNegativeLong(form.getFirst("salesVolume"));
         if (volume == null) {
+            LOGGER.info("Exiting method saveConfig");
             return redirect("Volume de vente invalide — entier positif attendu.", false);
         }
         family.buttonSize = size;
         family.displayOrder = order;
         family.salesVolume = volume;
+        LOGGER.info("Exiting method saveConfig");
         return redirect("Touche du groupe « " + family.code + " » mise à jour.", true);
     }
 
@@ -152,16 +164,20 @@ public class AdminTouchResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response togglePin(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method togglePin with form: " + form);
         Long id = parseLong(form.getFirst("id"));
         ProductFamily family = id == null ? null : ProductFamily.<ProductFamily>findById(id);
         if (family == null) {
+            LOGGER.info("Exiting method togglePin");
             return redirect("Groupe introuvable.", false);
         }
         if (!family.pinned && ProductFamily.count("pinned", true) >= MAX_PINNED) {
+            LOGGER.info("Exiting method togglePin");
             return redirect("Maximum " + MAX_PINNED + " groupes épinglés — désépinglez-en un d'abord.", false);
         }
         family.pinned = !family.pinned;
         String state = family.pinned ? "épinglé" : "désépinglé";
+        LOGGER.info("Exiting method togglePin");
         return redirect("Groupe « " + family.code + " » " + state + ".", true);
     }
 
@@ -180,9 +196,11 @@ public class AdminTouchResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response saveImages(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method saveImages with form: " + form);
         List<String> codes = form.get("imgCode");
         List<String> images = form.get("imgData");
         if (codes == null || images == null || codes.isEmpty()) {
+            LOGGER.info("Exiting method saveImages");
             return redirect("Aucune image à importer.", false);
         }
         int attached = 0;
@@ -209,6 +227,7 @@ public class AdminTouchResource {
             product.imageData = resized;
             attached++;
         }
+        LOGGER.info("Exiting method saveImages");
         return redirect(attached + " image(s) importée(s), " + skipped + " ignorée(s).", attached > 0);
     }
 
@@ -225,12 +244,15 @@ public class AdminTouchResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response clearImage(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method clearImage with form: " + form);
         String code = trimmed(form.getFirst("code"));
         Product product = code.isEmpty() ? null : resolveProduct(code);
         if (product == null) {
+            LOGGER.info("Exiting method clearImage");
             return redirect("Article introuvable.", false);
         }
         product.imageData = null;
+        LOGGER.info("Exiting method clearImage");
         return redirect("Image de « " + product.name + " » supprimée.", true);
     }
 

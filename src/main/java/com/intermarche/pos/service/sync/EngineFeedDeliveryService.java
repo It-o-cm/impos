@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 @ApplicationScoped
 public class EngineFeedDeliveryService {
 
-    private static final Logger LOG = Logger.getLogger(EngineFeedDeliveryService.class);
+    private static final Logger LOGGER = Logger.getLogger(EngineFeedDeliveryService.class);
 
     /** Base URL of the local engine; absent = delivery disabled. */
     @ConfigProperty(name = "pos.valuation.url")
@@ -84,7 +84,7 @@ public class EngineFeedDeliveryService {
      */
     void onStart(@Observes StartupEvent event) {
         if (url.isEmpty() || url.get().isBlank()) {
-            LOG.info("Livraison des flux moteur désactivée (pos.valuation.url absent)");
+            LOGGER.info("Livraison des flux moteur désactivée (pos.valuation.url absent)");
             return;
         }
         executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -97,7 +97,7 @@ public class EngineFeedDeliveryService {
         // boot-quiet 20 seconds.
         executor.scheduleWithFixedDelay(this::deliverSafely,
                 Math.min(20, deliverySeconds), deliverySeconds, TimeUnit.SECONDS);
-        LOG.infof("Livraison des flux moteur active vers %s (toutes les %ds)", url.get(), deliverySeconds);
+        LOGGER.infof("Livraison des flux moteur active vers %s (toutes les %ds)", url.get(), deliverySeconds);
     }
 
     /**
@@ -124,7 +124,7 @@ public class EngineFeedDeliveryService {
         try {
             deliverPending();
         } catch (Exception e) {
-            LOG.warnf("Cycle de livraison moteur en échec: %s", e.getMessage());
+            LOGGER.warnf("Cycle de livraison moteur en échec: %s", e.getMessage());
         }
     }
 
@@ -152,11 +152,14 @@ public class EngineFeedDeliveryService {
      * @return null when the cycle ran, or the failure message otherwise
      */
     public String triggerDelivery() {
+        LOGGER.info("Entering method triggerDelivery");
         try {
             deliverPending();
+            LOGGER.info("Exiting method triggerDelivery");
             return null;
         } catch (Exception e) {
-            LOG.warnf("Livraison manuelle des flux moteur en échec: %s", e.getMessage());
+            LOGGER.warnf("Livraison manuelle des flux moteur en échec: %s", e.getMessage());
+            LOGGER.info("Exiting method triggerDelivery");
             return e.getMessage();
         }
     }
@@ -168,6 +171,8 @@ public class EngineFeedDeliveryService {
      * @return the delivery period in seconds
      */
     public long getDeliverySeconds() {
+        LOGGER.info("Entering method getDeliverySeconds");
+        LOGGER.info("Exiting method getDeliverySeconds");
         return deliverySeconds;
     }
 
@@ -198,7 +203,7 @@ public class EngineFeedDeliveryService {
                 // characters raised StringIndexOutOfBoundsException after markApplied and
                 // before the return, and the method's own catch turned a delivered feed
                 // into a recorded failure that stopped the walk.
-                LOG.infof("Flux moteur %s livré (version %s)", feed.code(), shortVersion(feed.version()));
+                LOGGER.infof("Flux moteur %s livré (version %s)", feed.code(), shortVersion(feed.version()));
                 return true;
             }
             recordFailure(feed, "HTTP " + response.statusCode() + " sur " + feed.enginePath()
@@ -240,7 +245,7 @@ public class EngineFeedDeliveryService {
      */
     private void recordFailure(EngineFeedService.PendingFeed feed, String error) {
         if (!Objects.equals(feed.lastError(), error)) {
-            LOG.warnf("Livraison du flux moteur %s en échec: %s", feed.code(), error);
+            LOGGER.warnf("Livraison du flux moteur %s en échec: %s", feed.code(), error);
         }
         engineFeedService.markError(feed.code(), error);
     }

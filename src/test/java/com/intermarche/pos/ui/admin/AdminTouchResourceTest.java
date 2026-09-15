@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -256,6 +256,57 @@ class AdminTouchResourceTest {
             assertEquals("LARGE", f.buttonSize);
             assertEquals(3, f.displayOrder);
             assertEquals(99L, f.salesVolume);
+        }
+    }
+
+    /**
+     * BO-03-01-08: SMALL is one of the three administered sizes and is written
+     * as typed, upper-cased.
+     *
+     * <p>Each of these three cases starts from a SENTINEL size rather than from
+     * the helper's default, so none of them can pass because the family already
+     * carried the expected value.
+     */
+    @Test
+    void saveConfigStoresTheSmallSize() {
+        assertSizeIsStored("small", "SMALL");
+    }
+
+    /**
+     * BO-03-01-08: NORMAL is one of the three administered sizes and is written
+     * as typed, upper-cased.
+     */
+    @Test
+    void saveConfigStoresTheNormalSize() {
+        assertSizeIsStored("normal", "NORMAL");
+    }
+
+    /**
+     * BO-03-01-08: LARGE is one of the three administered sizes and is written
+     * as typed, upper-cased.
+     */
+    @Test
+    void saveConfigStoresTheLargeSize() {
+        assertSizeIsStored("large", "LARGE");
+    }
+
+    /**
+     * Posts a button size on a family carrying a sentinel size, and asserts the
+     * screen accepted it and stored the upper-cased form.
+     *
+     * @param posted the size as the form spells it
+     * @param stored the size as the family must carry it afterwards
+     */
+    private void assertSizeIsStored(String posted, String stored) {
+        AdminTouchResource resource = newResource();
+        ProductFamily f = family(6L, "F", false);
+        f.buttonSize = "SENTINEL";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.findById(6L)).thenReturn(f);
+            Response response = resource.saveConfig(
+                    form("id", "6", "buttonSize", posted, "displayOrder", "0", "salesVolume", "0"));
+            assertRedirect(response, true);
+            assertEquals(stored, f.buttonSize);
         }
     }
 

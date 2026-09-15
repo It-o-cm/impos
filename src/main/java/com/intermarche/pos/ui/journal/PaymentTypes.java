@@ -1,15 +1,15 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.ticket.BackupPayment;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.ChequePayment;
-import com.intermarche.pos.domain.ticket.CreditPayment;
-import com.intermarche.pos.domain.ticket.FidelityPayment;
-import com.intermarche.pos.domain.ticket.ForeignCurrencyPayment;
-import com.intermarche.pos.domain.ticket.RoundingPayment;
-import com.intermarche.pos.domain.ticket.TicketRestoPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.payment.BackupPayment;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.ChequePayment;
+import com.intermarche.pos.domain.payment.CreditPayment;
+import com.intermarche.pos.domain.payment.FidelityPayment;
+import com.intermarche.pos.domain.payment.ForeignCurrencyPayment;
+import com.intermarche.pos.domain.payment.RoundingPayment;
+import com.intermarche.pos.domain.payment.TicketRestoPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

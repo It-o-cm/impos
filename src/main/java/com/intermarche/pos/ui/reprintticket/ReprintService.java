@@ -1,10 +1,11 @@
 package com.intermarche.pos.ui.reprintticket;
 
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 /**
  * Drives the ticket-reprint screen: loads the closed-ticket history and
@@ -16,6 +17,9 @@ import jakarta.inject.Inject;
  */
 @ApplicationScoped
 public class ReprintService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ReprintService.class);
 
     @Inject
     PosState state;
@@ -31,10 +35,12 @@ public class ReprintService {
      * Loads the closed tickets, most recent first, into the reprint state.
      */
     public void loadHistory() {
+        LOGGER.info("Entering method loadHistory");
         state.reprint.setTickets(
                 Ticket.find("status = ?1 ORDER BY creationDate DESC", Ticket.TicketStatus.CLOSED).list()
         );
         state.touch();
+        LOGGER.info("Exiting method loadHistory");
     }
 
     /**
@@ -44,31 +50,38 @@ public class ReprintService {
      * @param ticketId the database id of the ticket to reprint
      */
     public void print(Long ticketId) {
+        LOGGER.info("Entering method print with ticketId: " + ticketId);
         if (state.trainingMode) {
             state.ticket.setError("RÉIMPRESSION INDISPONIBLE EN FORMATION");
             state.touch();
+            LOGGER.info("Exiting method print");
             return;
         }
         if (ticketId != null) {
             ticketPrinterService.printTicket(ticketId);
         }
+        LOGGER.info("Exiting method print");
     }
 
     /**
      * Opens the bon-pour-échange preparation on the viewed ticket (LC-08-05-10).
      */
     public void startExchange() {
+        LOGGER.info("Entering method startExchange");
         state.reprint.clearExchange();
         state.reprint.exchangeMode = true;
         state.touch();
+        LOGGER.info("Exiting method startExchange");
     }
 
     /**
      * Leaves the bon-pour-échange preparation without printing anything.
      */
     public void cancelExchange() {
+        LOGGER.info("Entering method cancelExchange");
         state.reprint.clearExchange();
         state.touch();
+        LOGGER.info("Exiting method cancelExchange");
     }
 
     /**
@@ -77,8 +90,10 @@ public class ReprintService {
      * @param lineId the database id of the line touched
      */
     public void toggleExchangeLine(Long lineId) {
+        LOGGER.info("Entering method toggleExchangeLine with lineId: " + lineId);
         state.reprint.toggleExchangeLine(lineId);
         state.touch();
+        LOGGER.info("Exiting method toggleExchangeLine");
     }
 
     /**
@@ -93,9 +108,11 @@ public class ReprintService {
      * @param ticketId the database id of the original ticket
      */
     public void printExchange(Long ticketId) {
+        LOGGER.info("Entering method printExchange with ticketId: " + ticketId);
         if (state.trainingMode) {
             state.ticket.setError("IMPRESSION INDISPONIBLE EN FORMATION");
             state.touch();
+            LOGGER.info("Exiting method printExchange");
             return;
         }
         if (ticketId != null) {
@@ -104,15 +121,18 @@ public class ReprintService {
         }
         state.reprint.clearExchange();
         state.touch();
+        LOGGER.info("Exiting method printExchange");
     }
 
     /**
      * Opens the mask naming a ticket held by another register (LC-08-05-05).
      */
     public void startForeign() {
+        LOGGER.info("Entering method startForeign");
         state.reprint.foreignTicketNumber = "";
         state.reprint.foreignError = "";
         state.touch();
+        LOGGER.info("Exiting method startForeign");
     }
 
     /**
@@ -125,21 +145,25 @@ public class ReprintService {
      * @param ticketNumber the number of the ticket, as printed on the customer's paper
      */
     public void printForeign(String ticketNumber) {
+        LOGGER.info("Entering method printForeign with ticketNumber: " + ticketNumber);
         state.reprint.foreignTicketNumber = ticketNumber == null ? "" : ticketNumber.trim();
         state.reprint.foreignError = "";
         if (state.trainingMode) {
             state.reprint.foreignError = "RÉIMPRESSION INDISPONIBLE EN FORMATION";
             state.touch();
+            LOGGER.info("Exiting method printForeign");
             return;
         }
         if (state.reprint.foreignTicketNumber.isEmpty()) {
             state.reprint.foreignError = "NUMÉRO DE TICKET VIDE";
             state.touch();
+            LOGGER.info("Exiting method printForeign");
             return;
         }
         if (!storeTicketClient.isAvailable()) {
             state.reprint.foreignError = "AUCUN NŒUD MAGASIN CONFIGURÉ";
             state.touch();
+            LOGGER.info("Exiting method printForeign");
             return;
         }
         java.util.Optional<String> rendered =
@@ -148,9 +172,11 @@ public class ReprintService {
             state.reprint.foreignError =
                     "TICKET INTROUVABLE AU MAGASIN : " + state.reprint.foreignTicketNumber;
             state.touch();
+            LOGGER.info("Exiting method printForeign");
             return;
         }
         ticketPrinterService.printRenderedTicket(rendered.get());
         state.touch();
+        LOGGER.info("Exiting method printForeign");
     }
 }

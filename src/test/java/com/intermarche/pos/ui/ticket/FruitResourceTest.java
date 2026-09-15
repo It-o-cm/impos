@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;

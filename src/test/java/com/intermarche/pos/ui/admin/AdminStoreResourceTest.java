@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.qute.Template;
@@ -191,6 +191,36 @@ class AdminStoreResourceTest {
         assertEquals("12345678900012", store.siret);
         assertEquals("0472000000", store.phone);
         assertEquals("FR76001", store.bankAccountNumber);
+    }
+
+    /**
+     * BO-03-12-06: the PDV number is READ-ONLY. A form that posts {@code code}
+     * — a stale page, a hand-edited request — leaves the store's number
+     * untouched.
+     *
+     * <p>The success case above also asserts the code, but its form never posts
+     * one, so it would stay green if the screen started writing it. This case
+     * posts a different number on purpose: it is the one that fails the day
+     * someone adds {@code store.code = trimmed(form, "code", store.code)}. The
+     * number is the sync key of the node — an editable one silently reattaches
+     * the register to another shop.
+     */
+    @Test
+    void saveIgnoresAPostedStoreCode() {
+        AdminStoreResource resource = newResource();
+        Store store = new Store();
+        store.code = "0101";
+        store.address = new Address();
+        MultivaluedMap<String, String> form = new MultivaluedHashMap<>();
+        form.putSingle("code", "9999");
+        form.putSingle("name", "Intermarché Lyon");
+        withStore(store, () -> {
+            Response response = resource.save(form);
+            assertEquals(303, response.getStatus());
+            assertTrue(response.getLocation().toString().contains("noticeOk=true"));
+        });
+        assertEquals("0101", store.code);
+        assertEquals("Intermarché Lyon", store.name);
     }
 
     /**

@@ -1,19 +1,19 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.BalanceTicket;
-import com.intermarche.pos.domain.BalanceTicketLine;
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.barcode.BalanceTicket;
+import com.intermarche.pos.domain.barcode.BalanceTicketLine;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
@@ -47,7 +47,7 @@ import java.util.Map;
 @ApplicationScoped
 public class SyncIngestService {
 
-    private static final Logger LOG = Logger.getLogger(SyncIngestService.class);
+    private static final Logger LOGGER = Logger.getLogger(SyncIngestService.class);
 
     @Inject
     Instance<TicketPayment.Factory> factoryInstances;
@@ -68,9 +68,11 @@ public class SyncIngestService {
      */
     @PostConstruct
     public void init() {
+        LOGGER.info("Entering method init");
         for (TicketPayment.Factory factory : factoryInstances) {
             paymentFactories.put(factory.getKey(), factory);
         }
+        LOGGER.info("Exiting method init");
     }
 
     /**
@@ -80,6 +82,7 @@ public class SyncIngestService {
      */
     @Transactional
     public void ingestSession(SyncPayloads.SessionDto dto) {
+        LOGGER.info("Entering method ingestSession with dto: " + dto);
         CashSession session = CashSession.find("sessionNumber", dto.sessionNumber).firstResult();
         boolean created = false;
         if (session == null) {
@@ -100,7 +103,8 @@ public class SyncIngestService {
         session.withdrawnAmount = dto.withdrawnAmount;
         session.countDetail = dto.countDetail;
         session.persist();
-        LOG.infof("Session %s %s (%s)", dto.sessionNumber, created ? "créée" : "mise à jour", dto.status);
+        LOGGER.infof("Session %s %s (%s)", dto.sessionNumber, created ? "créée" : "mise à jour", dto.status);
+        LOGGER.info("Exiting method ingestSession");
     }
 
     /**
@@ -110,6 +114,7 @@ public class SyncIngestService {
      */
     @Transactional
     public void ingestTicket(SyncPayloads.TicketDto dto) {
+        LOGGER.info("Entering method ingestTicket with dto: " + dto);
         Ticket ticket = Ticket.find("ticketNumber", dto.ticketNumber).firstResult();
         boolean created = false;
         if (ticket == null) {
@@ -197,24 +202,24 @@ public class SyncIngestService {
                 voucher.voucherLabel = paymentDto.voucherLabel;
                 voucher.voucherNumber = paymentDto.voucherNumber;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment card) {
+            if (payment instanceof com.intermarche.pos.domain.payment.CardPayment card) {
                 card.authorizationNumber = paymentDto.authorizationNumber;
                 card.degradedMode = paymentDto.degradedMode;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.ChequePayment cheque) {
+            if (payment instanceof com.intermarche.pos.domain.payment.ChequePayment cheque) {
                 cheque.magneticLine = paymentDto.magneticLine;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment secours) {
+            if (payment instanceof com.intermarche.pos.domain.payment.BackupPayment secours) {
                 secours.methodLabel = paymentDto.backupMethodLabel;
                 secours.transactionNumber = paymentDto.backupTransaction;
                 secours.manual = paymentDto.backupManual;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+            if (payment instanceof com.intermarche.pos.domain.payment.ForeignCurrencyPayment devise) {
                 devise.currencyCode = paymentDto.currencyCode;
                 devise.foreignAmount = paymentDto.currencyAmount;
                 devise.exchangeRate = paymentDto.currencyRate;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+            if (payment instanceof com.intermarche.pos.domain.payment.CreditPayment credit) {
                 credit.accountNumber = paymentDto.creditAccountNumber;
                 credit.accountName = paymentDto.creditAccountName;
                 credit.overLimit = paymentDto.creditOverLimit;
@@ -224,7 +229,8 @@ public class SyncIngestService {
         }
 
         ticket.persist();
-        LOG.infof("Ticket %s %s (%s)", dto.ticketNumber, created ? "créé" : "mis à jour", dto.status);
+        LOGGER.infof("Ticket %s %s (%s)", dto.ticketNumber, created ? "créé" : "mis à jour", dto.status);
+        LOGGER.info("Exiting method ingestTicket");
     }
 
     /**
@@ -235,6 +241,7 @@ public class SyncIngestService {
      */
     @Transactional
     public void ingestRefund(SyncPayloads.RefundDto dto) {
+        LOGGER.info("Entering method ingestRefund with dto: " + dto);
         Ticket original = Ticket.find("ticketNumber", dto.originalTicketNumber).firstResult();
         if (original == null) {
             throw new IllegalStateException("Ticket d'origine absent: " + dto.originalTicketNumber);
@@ -279,7 +286,8 @@ public class SyncIngestService {
         }
 
         refund.persist();
-        LOG.infof("Remboursement %s %s", dto.refundNumber, created ? "créé" : "mis à jour");
+        LOGGER.infof("Remboursement %s %s", dto.refundNumber, created ? "créé" : "mis à jour");
+        LOGGER.info("Exiting method ingestRefund");
     }
 
     /**
@@ -295,15 +303,19 @@ public class SyncIngestService {
      * @return the rendered duplicata, or null when the shop holds no such ticket
      */
     public String renderTicketDuplicate(String ticketNumber) {
+        LOGGER.info("Entering method renderTicketDuplicate with ticketNumber: " + ticketNumber);
         if (ticketNumber == null || ticketNumber.isBlank()) {
+            LOGGER.info("Exiting method renderTicketDuplicate");
             return null;
         }
-        com.intermarche.pos.domain.ticket.Ticket ticket =
-                com.intermarche.pos.domain.ticket.Ticket
+        com.intermarche.pos.domain.sale.Ticket ticket =
+                com.intermarche.pos.domain.sale.Ticket
                         .find("ticketNumber", ticketNumber.trim()).firstResult();
         if (ticket == null) {
+            LOGGER.info("Exiting method renderTicketDuplicate");
             return null;
         }
+        LOGGER.info("Exiting method renderTicketDuplicate");
         return ticketPrinterService.renderTicket(ticket, true, Math.max(1, ticket.printCount));
     }
 
@@ -319,12 +331,13 @@ public class SyncIngestService {
      */
     @Transactional
     public void ingestCustomer(SyncPayloads.CustomerDto dto) {
-        com.intermarche.pos.domain.AccountCustomer customer =
-                com.intermarche.pos.domain.AccountCustomer
+        LOGGER.info("Entering method ingestCustomer with dto: " + dto);
+        com.intermarche.pos.domain.payment.AccountCustomer customer =
+                com.intermarche.pos.domain.payment.AccountCustomer
                         .find("accountNumber", dto.accountNumber).firstResult();
         boolean created = false;
         if (customer == null) {
-            customer = new com.intermarche.pos.domain.AccountCustomer();
+            customer = new com.intermarche.pos.domain.payment.AccountCustomer();
             customer.accountNumber = dto.accountNumber;
             created = true;
         }
@@ -332,7 +345,7 @@ public class SyncIngestService {
         customer.lastName = dto.lastName;
         customer.firstName = dto.firstName;
         if (customer.address == null) {
-            customer.address = new com.intermarche.pos.domain.Address();
+            customer.address = new com.intermarche.pos.domain.store.Address();
         }
         customer.address.streetLine1 = dto.street;
         customer.address.postalCode = dto.postalCode;
@@ -342,7 +355,8 @@ public class SyncIngestService {
         customer.phone = dto.phone;
         customer.email = dto.email;
         customer.persist();
-        LOG.infof("Client en compte %s %s", dto.accountNumber, created ? "créé" : "mis à jour");
+        LOGGER.infof("Client en compte %s %s", dto.accountNumber, created ? "créé" : "mis à jour");
+        LOGGER.info("Exiting method ingestCustomer");
     }
 
     /**
@@ -352,6 +366,7 @@ public class SyncIngestService {
      */
     @Transactional
     public void ingestEvent(SyncPayloads.EventDto dto) {
+        LOGGER.info("Entering method ingestEvent with dto: " + dto);
         TechnicalEvent event = TechnicalEvent.find("eventUid", dto.eventUid).firstResult();
         if (event == null) {
             event = new TechnicalEvent();
@@ -363,6 +378,7 @@ public class SyncIngestService {
         event.operatorBadgeId = dto.operatorBadgeId;
         event.eventDate = parse(dto.eventDate);
         event.persist();
+        LOGGER.info("Exiting method ingestEvent");
     }
 
     /**
@@ -385,6 +401,7 @@ public class SyncIngestService {
      */
     @Transactional
     public void ingestBalanceTicket(SyncPayloads.BalanceTicketDto dto) {
+        LOGGER.info("Entering method ingestBalanceTicket with dto: " + dto);
         BalanceTicket ticket = BalanceTicket.findByReference(dto.reference);
         boolean created = false;
         if (ticket == null) {
@@ -392,7 +409,8 @@ public class SyncIngestService {
             ticket.reference = dto.reference;
             created = true;
         } else if (ticket.isConsumed()) {
-            LOG.infof("Ticket balance %s déjà consommé : poussée ignorée", dto.reference);
+            LOGGER.infof("Ticket balance %s déjà consommé : poussée ignorée", dto.reference);
+            LOGGER.info("Exiting method ingestBalanceTicket");
             return;
         }
         ticket.counterLabel = dto.counterLabel;
@@ -411,8 +429,9 @@ public class SyncIngestService {
             }
         }
         ticket.persist();
-        LOG.infof("Ticket balance %s %s (%d ligne(s))", dto.reference,
+        LOGGER.infof("Ticket balance %s %s (%d ligne(s))", dto.reference,
                 created ? "créé" : "mis à jour", ticket.lines.size());
+        LOGGER.info("Exiting method ingestBalanceTicket");
     }
 
     /**
@@ -431,8 +450,10 @@ public class SyncIngestService {
      */
     @Transactional
     public SyncPayloads.BalanceTicketDto consumeBalanceTicket(String reference, String terminalId) {
+        LOGGER.info("Entering method consumeBalanceTicket with reference: " + reference + ", terminalId: " + terminalId);
         BalanceTicket ticket = BalanceTicket.findByReference(reference);
         if (ticket == null || ticket.isConsumed()) {
+            LOGGER.info("Exiting method consumeBalanceTicket");
             return null;
         }
         ticket.consumedAt = java.time.LocalDateTime.now();
@@ -451,12 +472,14 @@ public class SyncIngestService {
             lineDto.vatRate = line.vatRate;
             dto.lines.add(lineDto);
         }
-        LOG.infof("Ticket balance %s servi à %s (%d ligne(s))", reference, terminalId, dto.lines.size());
+        LOGGER.infof("Ticket balance %s servi à %s (%d ligne(s))", reference, terminalId, dto.lines.size());
+        LOGGER.info("Exiting method consumeBalanceTicket");
         return dto;
     }
 
     @Transactional
     public void ingestMovement(SyncPayloads.MovementDto dto) {
+        LOGGER.info("Entering method ingestMovement with dto: " + dto);
         CashMovement movement = CashMovement.find("movementUid", dto.movementUid).firstResult();
         boolean created = false;
         if (movement == null) {
@@ -475,7 +498,8 @@ public class SyncIngestService {
         movement.movementDate = parse(dto.movementDate);
         movement.endorsedBy = dto.endorsedBy;
         movement.persist();
-        LOG.infof("Mouvement %s %s (%s)", dto.movementUid, created ? "créé" : "mis à jour", dto.type);
+        LOGGER.infof("Mouvement %s %s (%s)", dto.movementUid, created ? "créé" : "mis à jour", dto.type);
+        LOGGER.info("Exiting method ingestMovement");
     }
 
     // --------------------------------------------------

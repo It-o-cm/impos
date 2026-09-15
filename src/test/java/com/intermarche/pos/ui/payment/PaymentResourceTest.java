@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -81,6 +81,10 @@ class PaymentResourceTest {
         resource.creditClientService = mock(CreditClientService.class);
         resource.backupPaymentService = mock(BackupPaymentService.class);
         resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        // The administered tender rules (BO-03-02-03/23): every display of the
+        // payment screen asks which tenders it offers and which of them pre-fill
+        // the remaining due, so the collaborator belongs to the fixture.
+        resource.tenderRulesService = mock(TenderRulesService.class);
         resource.pay = mock(Template.class);
         return resource;
     }
@@ -95,8 +99,8 @@ class PaymentResourceTest {
      * the page carries one more value.
      */
     private static final List<String> PAY_DATA_KEYS =
-            List.of("couponTypes", "currencies", "backupEndorsement", "digitalPath",
-                    "printConditional", "printChoices");
+            List.of("offeredTenders", "tenderDefaults", "couponTypes", "currencies",
+                    "backupEndorsement", "digitalPath", "printConditional", "printChoices");
 
     /**
      * Stubs the whole {@code pay} template chain, one link per data key, with
@@ -468,6 +472,30 @@ class PaymentResourceTest {
         PaymentResource resource = newResource();
         assertRedirectPay(resource.cancelCreditOverLimit());
         verify(resource.creditClientService).cancelOverLimit(resource.state);
+    }
+
+    // --- Administered tender bound passed by a supervisor (BO-03-02-10) ---
+
+    /**
+     * {@code authorizeHeldTender()} passes the supervisor credentials to the
+     * payment service to release the held settlement, then redirects.
+     */
+    @Test
+    void authorizeHeldTenderDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.authorizeHeldTender("mcurie", "1111"));
+        verify(resource.paymentService).authorizeHeldTender(resource.state, "mcurie", "1111");
+    }
+
+    /**
+     * {@code cancelHeldTender()} gives up on the held settlement through the
+     * payment service and redirects to the payment page.
+     */
+    @Test
+    void cancelHeldTenderDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.cancelHeldTender());
+        verify(resource.paymentService).cancelHeldTender(resource.state);
     }
 
     // --- selectCreditAccount (LC-07-09-08) ---

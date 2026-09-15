@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityState;

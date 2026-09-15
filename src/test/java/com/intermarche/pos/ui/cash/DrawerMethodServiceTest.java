@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.CashMovement;
+import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.service.PosSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,9 +1,9 @@
 package com.intermarche.pos.ui.hardware;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.attribute.ProductAttributeCatalog;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.service.PosSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

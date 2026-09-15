@@ -1,6 +1,6 @@
 package com.intermarche.pos.security;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.security.identity.SecurityIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

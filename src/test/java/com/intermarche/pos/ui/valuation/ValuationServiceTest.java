@@ -2,8 +2,8 @@ package com.intermarche.pos.ui.valuation;
 
 import com.intermarche.pos.ui.PriceModType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityService;
@@ -97,6 +97,10 @@ class ValuationServiceTest {
     /** The loyalty projection, fed at every revaluation outcome. */
     private final FidelityService fidelityService = mock(FidelityService.class);
 
+    /** The administered settings, carrying the card-linked promotion flag. */
+    private final com.intermarche.pos.service.PosSettingsService posSettingsService =
+            mock(com.intermarche.pos.service.PosSettingsService.class);
+
     private ValuationService newService() {
         ValuationService service = new ValuationService();
         service.valuationClient = valuationClient;
@@ -110,6 +114,11 @@ class ValuationServiceTest {
         service.fidelityService = fidelityService;
         service.objectMapper = new ObjectMapper();
         service.retrySeconds = 10L;
+        // BO-10-03-22: card-linked promotions are on by default here, so the
+        // pre-existing cases keep sending the card; the two dedicated tests
+        // below re-stub the flag to prove it is READ and not hard-coded.
+        service.posSettingsService = posSettingsService;
+        when(posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
         return service;
     }
 
@@ -776,6 +785,82 @@ class ValuationServiceTest {
         assertEquals("CARD9", basket.customerCode);
         assertEquals("0000", basket.storeCode);
         assertEquals(new BigDecimal("7.00"), basket.items.get(0).manualForcedPrice);
+    }
+
+    // --- BO-10-03-22 : promotions personnalisées à la carte ---
+
+    /**
+     * Card-linked promotions administered ON send the attached card to the
+     * promotion engine, which is what lets it read the holder's personal
+     * offers (true arm).
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void theAdministeredFlagSendsTheCardToThePromotionEngine() throws Exception {
+        assertEquals("CARD9", basketSentWithCard("CARD9", true).customerCode);
+    }
+
+    /**
+     * Card-linked promotions administered OFF price the basket anonymously:
+     * the card never reaches the promotion engine, so no personal offer can be
+     * read or triggered (false arm). Asserting a SECOND administered value is
+     * what proves the flag is read rather than a literal returned.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void theAdministeredFlagOffPricesTheBasketAnonymously() throws Exception {
+        assertNull(basketSentWithCard("CARD9", false).customerCode);
+    }
+
+    /**
+     * With the flag ON but no card attached, the basket stays anonymous: the
+     * flag governs the card, it does not invent one (card-null arm).
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void theAdministeredFlagDoesNotInventACard() throws Exception {
+        assertNull(basketSentWithCard(null, true).customerCode);
+    }
+
+    /**
+     * With the flag ON but a BLANK card, the basket stays anonymous (card-blank
+     * arm — the leg a null check alone would miss).
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void theAdministeredFlagIgnoresABlankCard() throws Exception {
+        assertNull(basketSentWithCard("   ", true).customerCode);
+    }
+
+    /**
+     * Valuates a one-line cart with the given card and the given administered
+     * value of the card-linked promotion flag, and returns the basket the
+     * engine actually received.
+     *
+     * @param card the attached fidelity card, or null
+     * @param jvPromotion the administered value of {@code fidelity.jv-promotion-enabled}
+     * @return the basket sent to the engine
+     * @throws Exception on transport or serialization
+     */
+    private ValuationPayloads.BasketDto basketSentWithCard(String card, boolean jvPromotion)
+            throws Exception {
+        ValuationService service = newService();
+        when(posSettingsService.fidelityJvPromotionEnabled()).thenReturn(jvPromotion);
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response(null));
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Store> storeQuery = query(null);
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(item("A", "10", "10", "1")), card, LocalDateTime.now());
+        }
+        verify(valuationClient).valuate(captor.capture());
+        return captor.getValue();
     }
 
     /**

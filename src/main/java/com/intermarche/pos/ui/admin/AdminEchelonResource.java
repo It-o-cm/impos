@@ -1,9 +1,9 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Country;
-import com.intermarche.pos.domain.EchelonLevel;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
 import com.intermarche.pos.service.EchelonSettingService;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Location;
@@ -26,6 +26,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * The central back office's ECHELONS page ({@code /admin/echelons}): the
@@ -46,6 +47,9 @@ import java.util.List;
  */
 @Path("/admin/echelons")
 public class AdminEchelonResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminEchelonResource.class);
 
     /** The echelons page template. */
     @Inject
@@ -72,12 +76,14 @@ public class AdminEchelonResource {
                                          @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk,
                                          @QueryParam("viewEnseigne") String viewEnseigne,
                                          @QueryParam("viewKey") String viewKey) {
+        LOGGER.info("Entering method echelonsPage with notice: " + notice + ", noticeOk: " + noticeOk + ", viewEnseigne: " + viewEnseigne + ", viewKey: " + viewKey);
         List<Pdv> personalised;
         if (viewEnseigne != null && !viewEnseigne.isBlank() && viewKey != null && !viewKey.isBlank()) {
             personalised = echelonSettings.personalizedPdvs(viewEnseigne, viewKey);
         } else {
             personalised = List.of();
         }
+        LOGGER.info("Exiting method echelonsPage");
         return adminEchelons.data("countries", Country.listAllOrdered())
                 .data("enseignes", Enseigne.listAllOrdered())
                 .data("pdvs", Pdv.listAllOrdered())
@@ -101,8 +107,10 @@ public class AdminEchelonResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response saveCountry(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method saveCountry with form: " + form);
         String code = trimmed(form, "code");
         if (code.isEmpty()) {
+            LOGGER.info("Exiting method saveCountry");
             return redirect("Le code pays est obligatoire.", false);
         }
         Country country = Country.findByCode(code);
@@ -113,6 +121,7 @@ public class AdminEchelonResource {
         }
         country.name = trimmed(form, "name");
         country.defaultLanguage = blankToNull(trimmed(form, "defaultLanguage"));
+        LOGGER.info("Exiting method saveCountry");
         return redirect("Pays enregistré.", true);
     }
 
@@ -128,8 +137,10 @@ public class AdminEchelonResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response saveEnseigne(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method saveEnseigne with form: " + form);
         String code = trimmed(form, "code");
         if (code.isEmpty()) {
+            LOGGER.info("Exiting method saveEnseigne");
             return redirect("Le code enseigne est obligatoire.", false);
         }
         Enseigne enseigne = Enseigne.findByCode(code);
@@ -141,6 +152,7 @@ public class AdminEchelonResource {
         enseigne.name = trimmed(form, "name");
         enseigne.countryCode = blankToNull(trimmed(form, "countryCode"));
         enseigne.defaultLanguage = blankToNull(trimmed(form, "defaultLanguage"));
+        LOGGER.info("Exiting method saveEnseigne");
         return redirect("Enseigne enregistrée.", true);
     }
 
@@ -159,8 +171,10 @@ public class AdminEchelonResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response savePdv(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method savePdv with form: " + form);
         String number = trimmed(form, "pdvNumber");
         if (!Pdv.isValidNumber(number)) {
+            LOGGER.info("Exiting method savePdv");
             return redirect("Le numéro de PDV doit comporter exactement 5 chiffres.", false);
         }
         String original = trimmed(form, "originalNumber");
@@ -168,9 +182,11 @@ public class AdminEchelonResource {
         if (!original.isEmpty() && !original.equals(number)) {
             pdv = Pdv.findByNumber(original);
             if (pdv == null) {
+                LOGGER.info("Exiting method savePdv");
                 return redirect("PDV à renommer introuvable.", false);
             }
             if (Pdv.findByNumber(number) != null) {
+                LOGGER.info("Exiting method savePdv");
                 return redirect("Ce numéro de PDV est déjà utilisé.", false);
             }
             pdv.pdvNumber = number;
@@ -189,6 +205,7 @@ public class AdminEchelonResource {
         pdv.enseigneCode = blankToNull(trimmed(form, "enseigneCode"));
         pdv.adherentCode = blankToNull(trimmed(form, "adherentCode"));
         pdv.active = form.getFirst("active") != null;
+        LOGGER.info("Exiting method savePdv");
         return redirect("Point de vente enregistré.", true);
     }
 
@@ -205,10 +222,12 @@ public class AdminEchelonResource {
     @RolesAllowed("ADMIN")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response saveSetting(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method saveSetting with form: " + form);
         EchelonLevel level = parseLevel(trimmed(form, "level"));
         String echelonCode = trimmed(form, "echelonCode");
         String key = trimmed(form, "key");
         if (level == null || echelonCode.isEmpty() || key.isEmpty()) {
+            LOGGER.info("Exiting method saveSetting");
             return redirect("Niveau, échelon et paramètre sont obligatoires.", false);
         }
         String rawDate = trimmed(form, "effectiveDate");
@@ -219,10 +238,12 @@ public class AdminEchelonResource {
             try {
                 effectiveDate = java.time.LocalDate.parse(rawDate);
             } catch (java.time.format.DateTimeParseException e) {
+                LOGGER.info("Exiting method saveSetting");
                 return redirect("Date d'effet invalide (attendu AAAA-MM-JJ).", false);
             }
         }
         echelonSettings.set(level, echelonCode, key, trimmed(form, "value"), effectiveDate);
+        LOGGER.info("Exiting method saveSetting");
         return redirect("Paramètre d'échelon enregistré.", true);
     }
 
@@ -238,16 +259,20 @@ public class AdminEchelonResource {
     @RolesAllowed("ADMIN")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response clearSetting(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method clearSetting with form: " + form);
         EchelonLevel level = parseLevel(trimmed(form, "level"));
         String echelonCode = trimmed(form, "echelonCode");
         String key = trimmed(form, "key");
         if (level == null || echelonCode.isEmpty() || key.isEmpty()) {
+            LOGGER.info("Exiting method clearSetting");
             return redirect("Niveau, échelon et paramètre sont obligatoires.", false);
         }
         boolean removed = echelonSettings.clear(level, echelonCode, key);
         if (removed) {
+            LOGGER.info("Exiting method clearSetting");
             return redirect("Paramètre d'échelon supprimé.", true);
         }
+        LOGGER.info("Exiting method clearSetting");
         return redirect("Aucun paramètre à supprimer à cet échelon.", false);
     }
 

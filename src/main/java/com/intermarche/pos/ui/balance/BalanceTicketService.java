@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.balance;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.attribute.ProductAttributes;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncPayloads;
 import com.intermarche.pos.ui.PosState;
@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * Turns a counter reference scanned at the till into ticket lines (LC-06-01-02).
@@ -36,6 +37,9 @@ import java.util.Set;
  */
 @ApplicationScoped
 public class BalanceTicketService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(BalanceTicketService.class);
 
     /** Beyond this many remembered references, the oldest are forgotten. */
     private static final int CONSUMED_MEMORY_SIZE = 500;
@@ -84,8 +88,10 @@ public class BalanceTicketService {
      * @return true when lines were added, false when the paper was refused
      */
     public boolean integrate(PosState state, String reference) {
+        LOGGER.info("Entering method integrate with state: " + state + ", reference: " + reference);
         if (isAlreadyPickedHere(reference)) {
             state.ticket.setError(ALREADY_PICKED_HERE);
+            LOGGER.info("Exiting method integrate");
             return false;
         }
         BalanceTicketClient.Answer answer =
@@ -93,17 +99,21 @@ public class BalanceTicketService {
         switch (answer.outcome()) {
             case NO_STORE_NODE:
                 state.ticket.setError(NO_STORE_NODE);
+                LOGGER.info("Exiting method integrate");
                 return false;
             case UNREACHABLE:
                 state.ticket.setError(UNREACHABLE);
+                LOGGER.info("Exiting method integrate");
                 return false;
             case ALREADY_CONSUMED:
                 state.ticket.setError(ALREADY_PICKED_ELSEWHERE);
+                LOGGER.info("Exiting method integrate");
                 return false;
             default:
                 break;
         }
         remember(reference);
+        LOGGER.info("Exiting method integrate");
         return addLines(state, reference, answer.ticket());
     }
 
@@ -247,7 +257,7 @@ public class BalanceTicketService {
         }
         // LC-09-01-11 to -18: what the article may be paid with.
         added.restrictedTenders =
-                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
+                com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(product);
     }
 
     /**

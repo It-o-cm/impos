@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jboss.logging.Logger;
 
 /**
  * Manager-facing supervision IHM (phase 5 lot 2), separate from the register
@@ -44,6 +45,9 @@ import java.util.Optional;
  */
 @Path("/")
 public class DashboardResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(DashboardResource.class);
 
     @Inject @Location("dashboard") Template dashboard;
     @Inject DashboardService dashboardService;
@@ -82,6 +86,8 @@ public class DashboardResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance dashboardPage() {
+        LOGGER.info("Entering method dashboardPage");
+        LOGGER.info("Exiting method dashboardPage");
         return dashboard.instance();
     }
 
@@ -96,6 +102,7 @@ public class DashboardResource {
     @RolesAllowed({"ADMIN", "MANAGER"})
     @Produces(MediaType.APPLICATION_JSON)
     public Map<String, Object> dashboardData() {
+        LOGGER.info("Entering method dashboardData");
         Map<String, Object> data = dashboardService.buildData();
         List<Map<String, Object>> calls = new ArrayList<>();
         // BO-10-08-01: the register alerts are shown only when the back office
@@ -112,6 +119,7 @@ public class DashboardResource {
             }
         }
         data.put("calls", calls);
+        LOGGER.info("Exiting method dashboardData");
         return data;
     }
 
@@ -125,7 +133,9 @@ public class DashboardResource {
     @Path("/dashboard/ack/{id}")
     @RolesAllowed({"ADMIN", "MANAGER"})
     public Response acknowledge(@PathParam("id") long id) {
+        LOGGER.info("Entering method acknowledge with id: " + id);
         supervisorCallRegistry.acknowledge(id);
+        LOGGER.info("Exiting method acknowledge");
         return Response.noContent().build();
     }
 
@@ -143,16 +153,20 @@ public class DashboardResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public Response receiveCall(@HeaderParam("X-Sync-Token") String presentedToken, CallDto dto) {
+        LOGGER.info("Entering method receiveCall with presentedToken: ***" + ", dto: " + dto);
         if (!"store".equalsIgnoreCase(role)) {
+            LOGGER.info("Exiting method receiveCall");
             return Response.status(Response.Status.FORBIDDEN)
                     .entity("Ce nœud n'a pas le rôle store").build();
         }
         String expectedToken = token.orElse("");
         if (!expectedToken.isBlank() && !expectedToken.equals(presentedToken)) {
+            LOGGER.info("Exiting method receiveCall");
             return Response.status(Response.Status.UNAUTHORIZED)
                     .entity("Jeton invalide").build();
         }
         supervisorCallRegistry.add(dto.terminalId, dto.operator, dto.reason);
+        LOGGER.info("Exiting method receiveCall");
         return Response.ok("OK").build();
     }
 }

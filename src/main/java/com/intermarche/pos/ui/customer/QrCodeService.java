@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.customer;
 
 import io.nayuki.qrcodegen.QrCode;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.jboss.logging.Logger;
 
 /**
  * Renders QR codes as standalone SVG documents (debt sweep of phase 4: the
@@ -21,6 +22,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class QrCodeService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(QrCodeService.class);
+
     /** Quiet-zone width around the code, in modules. */
     private static final int BORDER = 3;
 
@@ -32,6 +36,7 @@ public class QrCodeService {
      * @return the SVG document
      */
     public String toSvg(String text) {
+        LOGGER.info("Entering method toSvg with text: " + text);
         QrCode qr = QrCode.encodeText(text, QrCode.Ecc.MEDIUM);
         int size = qr.size + BORDER * 2;
         StringBuilder path = new StringBuilder();
@@ -42,6 +47,7 @@ public class QrCodeService {
                 }
             }
         }
+        LOGGER.info("Exiting method toSvg");
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + size + " " + size + "\""
                 + " shape-rendering=\"crispEdges\">"

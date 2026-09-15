@@ -119,6 +119,41 @@ class ImageResizeServiceTest {
     }
 
     /**
+     * BO-03-01-24: an oversized image is scaled down to the DEFAULT bound the
+     * register actually applies, through the single-argument entry point the
+     * touch screen calls.
+     *
+     * <p>Every other case here passes its own {@code maxDimension}, so none of
+     * them notices what the default is: raising it to 4096 leaves them green.
+     * This case pins the figure the production path uses — 300×200 comes back
+     * 128×85 — and the one below pins its exact frontier.
+     *
+     * @throws IOException never, in practice
+     */
+    @Test
+    void resizesToTheDefaultMaxDimension() throws IOException {
+        ImageResizeService service = new ImageResizeService();
+        BufferedImage result = decode(service.resizeToDataUri(pngBase64(300, 200)));
+        assertEquals(128, result.getWidth());
+        assertEquals(85, result.getHeight());
+    }
+
+    /**
+     * BO-03-01-24: the default bound is INCLUSIVE — a square one pixel over it
+     * is scaled, and the scaling lands exactly on the bound.
+     *
+     * @throws IOException never, in practice
+     */
+    @Test
+    void defaultMaxDimensionBoundIsInclusive() throws IOException {
+        ImageResizeService service = new ImageResizeService();
+        BufferedImage scaled = decode(service.resizeToDataUri(pngBase64(129, 129)));
+        assertEquals(128, scaled.getWidth());
+        BufferedImage untouched = decode(service.resizeToDataUri(pngBase64(128, 128)));
+        assertEquals(128, untouched.getWidth());
+    }
+
+    /**
      * A {@code data:} URI input has its prefix stripped before decoding.
      *
      * @throws IOException never, in practice

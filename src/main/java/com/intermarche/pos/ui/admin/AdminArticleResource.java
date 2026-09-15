@@ -1,13 +1,13 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.ArticleAttributeDefinition;
-import com.intermarche.pos.domain.ArticleSelection;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductType;
-import com.intermarche.pos.domain.attribute.ProductAttributeCatalog;
-import com.intermarche.pos.domain.attribute.ProductAttributeDef;
-import com.intermarche.pos.domain.attribute.ProductAttributes;
+import com.intermarche.pos.domain.catalog.ArticleAttributeDefinition;
+import com.intermarche.pos.domain.catalog.ArticleSelection;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributeDef;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import org.jboss.logging.Logger;
 
 /**
  * The ARTICLE FILE back-office screen ({@code /admin/articles}, BO-02-03-*):
@@ -61,6 +62,9 @@ import java.util.TreeMap;
  */
 @Path("/admin/articles")
 public class AdminArticleResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminArticleResource.class);
 
     /**
      * The attribute code under which the on-screen article-code flag is stored
@@ -137,6 +141,7 @@ public class AdminArticleResource {
     public TemplateInstance list(@Context UriInfo uriInfo,
                                  @QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method list with uriInfo: " + uriInfo + ", notice: " + notice + ", noticeOk: " + noticeOk);
         MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
         String selectionName = ArticleSearchCriteria.blankToNull(params.getFirst("selection"));
         ArticleSelection selection = selectionName != null
@@ -150,6 +155,7 @@ public class AdminArticleResource {
                 matches.add(product);
             }
         }
+        LOGGER.info("Exiting method list");
         return adminArticles.data("products", matches)
                 .data("criteria", criteria)
                 .data("selectedSelection", selection != null ? selection.name : null)
@@ -172,6 +178,7 @@ public class AdminArticleResource {
     @Path("/edit")
     @RolesAllowed("ADMIN")
     public TemplateInstance edit(@QueryParam("id") Long id) {
+        LOGGER.info("Entering method edit with id: " + id);
         Product product = id != null ? Product.<Product>findById(id) : null;
         List<Price> history = product != null ? Price.findByProduct(product.id) : List.of();
         List<Price> offers = new ArrayList<>();
@@ -181,6 +188,7 @@ public class AdminArticleResource {
             }
         }
         Price currentPrice = product != null ? Price.findCurrentPrice(product.id) : null;
+        LOGGER.info("Exiting method edit");
         return adminArticle.data("product", product)
                 .data("attributes", product != null ? attributeRows(product) : List.of())
                 .data("customAttributes", product != null ? customAttributeRows(product) : List.of())
@@ -204,9 +212,11 @@ public class AdminArticleResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         Long id = parseId(form.getFirst("id"));
         Product product = id != null ? Product.<Product>findById(id) : null;
         if (product == null) {
+            LOGGER.info("Exiting method save");
             return redirect("Article introuvable.", false);
         }
         product.checkoutLabel = blankToNull(form.getFirst("checkoutLabel"));
@@ -239,6 +249,7 @@ public class AdminArticleResource {
         }
         product.attributes.put(CODE_ON_SCREEN,
                 form.getFirst("codeOnScreen") != null ? "true" : "false");
+        LOGGER.info("Exiting method save");
         return redirect("Fiche article « " + product.ean + " » enregistrée.", true);
     }
 
@@ -257,6 +268,7 @@ public class AdminArticleResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response bulkCodeOnScreen(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method bulkCodeOnScreen with form: " + form);
         boolean value = form.getFirst("value") != null;
         ArticleSearchCriteria criteria = ArticleSearchCriteria.fromParams(form);
         int count = 0;
@@ -266,6 +278,7 @@ public class AdminArticleResource {
                 count++;
             }
         }
+        LOGGER.info("Exiting method bulkCodeOnScreen");
         return redirect("Code article à l'écran " + (value ? "activé" : "désactivé")
                 + " sur " + count + " article(s).", true);
     }

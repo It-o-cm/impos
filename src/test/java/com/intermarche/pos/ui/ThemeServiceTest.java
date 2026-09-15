@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import io.quarkus.arc.Arc;
@@ -49,6 +49,11 @@ class ThemeServiceTest {
     private ThemeService newService() {
         ThemeService service = new ThemeService();
         service.state = new PosState();
+        // BO-10-07-08: no training theme administered by default, so the whole
+        // pre-existing resolution chain below is unchanged; the dedicated tests
+        // re-stub it to prove the setting is READ and not hard-coded.
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.trainingTheme()).thenReturn("");
         return service;
     }
 
@@ -629,5 +634,104 @@ class ThemeServiceTest {
     @Test
     void globalsHolderIsInstantiable() {
         assertNotNull(new ThemeService.Globals());
+    }
+
+    // --------------------------------------------------
+    // BO-10-07-08 : écran caisse du mode école
+    // --------------------------------------------------
+
+    /**
+     * In training, the administered training theme wins the whole chain, so the
+     * school screen is visibly another screen than the sale one (training arm,
+     * non-blank arm). The operator's own preference is NOT consulted.
+     */
+    @Test
+    void trainingTakesTheAdministeredTrainingTheme() {
+        ThemeService service = newService();
+        service.state.trainingMode = true;
+        when(service.posSettingsService.trainingTheme()).thenReturn("clair");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertEquals("clair", service.currentTheme());
+        }
+    }
+
+    /**
+     * A SECOND administered value lands as itself, which is what proves the
+     * setting is read rather than a literal returned.
+     */
+    @Test
+    void trainingTakesASecondAdministeredTrainingTheme() {
+        ThemeService service = newService();
+        service.state.trainingMode = true;
+        when(service.posSettingsService.trainingTheme()).thenReturn("sombre");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertEquals("sombre", service.currentTheme());
+        }
+    }
+
+    /**
+     * An administered value padded with spaces is trimmed before it lands on
+     * the {@code data-theme} attribute.
+     */
+    @Test
+    void theAdministeredTrainingThemeIsTrimmed() {
+        ThemeService service = newService();
+        service.state.trainingMode = true;
+        when(service.posSettingsService.trainingTheme()).thenReturn("  clair  ");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            assertEquals("clair", service.currentTheme());
+        }
+    }
+
+    /**
+     * A BLANK administered value leaves training on the ordinary resolution —
+     * the store's theme here (blank arm, the leg a null check alone would miss).
+     */
+    @Test
+    void aBlankTrainingThemeKeepsTheOrdinaryChain() {
+        ThemeService service = newService();
+        service.state.trainingMode = true;
+        when(service.posSettingsService.trainingTheme()).thenReturn("   ");
+        Store store = new Store();
+        store.theme = "clair";
+        // The query mock is built BEFORE the static mock: building a mock
+        // inside the block confuses Mockito's stubbing state (see above).
+        PanacheQuery<Store> query = storeQuery(store);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(query);
+            assertEquals("clair", service.currentTheme());
+        }
+    }
+
+    /**
+     * A NULL administered value behaves like a blank one (null arm).
+     */
+    @Test
+    void aNullTrainingThemeKeepsTheOrdinaryChain() {
+        ThemeService service = newService();
+        service.state.trainingMode = true;
+        when(service.posSettingsService.trainingTheme()).thenReturn(null);
+        PanacheQuery<Store> query = storeQuery(null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(query);
+            assertEquals(ThemeService.DEFAULT_THEME, service.currentTheme());
+        }
+    }
+
+    /**
+     * OUTSIDE training, the administered training theme is ignored entirely —
+     * the setting is never even read (training false arm).
+     */
+    @Test
+    void theSaleScreenIgnoresTheTrainingTheme() {
+        ThemeService service = newService();
+        service.state.trainingMode = false;
+        when(service.posSettingsService.trainingTheme()).thenReturn("clair");
+        PanacheQuery<Store> query = storeQuery(null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(query);
+            assertEquals(ThemeService.DEFAULT_THEME, service.currentTheme());
+        }
+        verify(service.posSettingsService, never()).trainingTheme();
     }
 }

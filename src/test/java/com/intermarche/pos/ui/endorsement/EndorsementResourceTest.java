@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.endorsement;
 
 import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.ticket.Refund;
+import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.home.HomeService;
 import com.intermarche.pos.ui.returnprocess.RefundService;

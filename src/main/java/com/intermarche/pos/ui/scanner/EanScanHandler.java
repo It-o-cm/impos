@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.attribute.ProductAttributes;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.annotation.Priority;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -112,7 +112,7 @@ public class EanScanHandler implements ScanContext.ScanHandler {
                 }
                 // LC-09-01-11 to -18: what this article may be paid with, snapshotted
                 // on the line so the eligible bases can be totalled without a lookup.
-                line.restrictedTenders = com.intermarche.pos.domain.attribute
+                line.restrictedTenders = com.intermarche.pos.domain.catalog.attribute
                         .RestrictedTender.snapshot(p);
                 // LC-02-03-13: a plain EAN names no lot, so the register cannot tell
                 // whether this pack is one of the recalled ones. It lists them and lets

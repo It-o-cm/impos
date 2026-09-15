@@ -36,7 +36,7 @@ import java.util.List;
 public class ScannerReaderService {
 
     /** The class logger. */
-    private static final Logger LOG = Logger.getLogger(ScannerReaderService.class);
+    private static final Logger LOGGER = Logger.getLogger(ScannerReaderService.class);
 
     /** Whether the reader runs at all (a till with no scanner turns it off). */
     @ConfigProperty(name = "pos.scanner.enabled", defaultValue = "true")
@@ -89,7 +89,7 @@ public class ScannerReaderService {
      */
     void onStart(@Observes StartupEvent event) {
         if (!enabled) {
-            LOG.info("Lecteur douchette desactive (pos.scanner.enabled=false).");
+            LOGGER.info("Lecteur douchette desactive (pos.scanner.enabled=false).");
             return;
         }
         for (ScannerDiscovery.DiscoveredDevice device : new ScannerDiscovery(namePatterns).discover()) {
@@ -127,7 +127,7 @@ public class ScannerReaderService {
         reader.setDaemon(true);
         readers.add(reader);
         reader.start();
-        LOG.infof("Lecture douchette active sur %s", source.path());
+        LOGGER.infof("Lecture douchette active sur %s", source.path());
     }
 
     /**
@@ -144,7 +144,7 @@ public class ScannerReaderService {
             int read = LinuxInput.C.read(fd, buffer, buffer.length);
             if (read <= 0) {
                 if (running) {
-                    LOG.warnf("Fin de lecture douchette %s (read=%d)", source.path(), read);
+                    LOGGER.warnf("Fin de lecture douchette %s (read=%d)", source.path(), read);
                 }
                 return;
             }
@@ -168,7 +168,7 @@ public class ScannerReaderService {
                     .build();
             httpClient.send(request, HttpResponse.BodyHandlers.discarding());
         } catch (Exception e) {
-            LOG.errorf("Envoi du code douchette '%s' echoue: %s", code, e.getMessage());
+            LOGGER.errorf("Envoi du code douchette '%s' echoue: %s", code, e.getMessage());
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }

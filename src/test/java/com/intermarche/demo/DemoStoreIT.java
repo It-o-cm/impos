@@ -197,11 +197,11 @@ public class DemoStoreIT {
         // store refused it (or never answered); an empty outbox means either
         // nothing was ever enqueued, or everything went through.
         long remaining = QuarkusTransaction.requiringNew().call(
-                () -> com.intermarche.pos.domain.SyncOutbox.count());
+                () -> com.intermarche.pos.domain.sync.SyncOutbox.count());
         String lastError = QuarkusTransaction.requiringNew().call(() -> {
-            com.intermarche.pos.domain.SyncOutbox row =
-                    com.intermarche.pos.domain.SyncOutbox
-                            .<com.intermarche.pos.domain.SyncOutbox>find("order by id desc")
+            com.intermarche.pos.domain.sync.SyncOutbox row =
+                    com.intermarche.pos.domain.sync.SyncOutbox
+                            .<com.intermarche.pos.domain.sync.SyncOutbox>find("order by id desc")
                             .firstResult();
             return row == null ? null : row.attempts + " essai(s), dernière erreur: " + row.lastError;
         });

@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.List;
@@ -139,7 +139,7 @@ public class InvoiceRepository {
      * @return the document, or null when the ticket carries none of that kind
      */
     public Invoice findInvoiceOfTicket(String ticketNumber,
-            com.intermarche.pos.domain.ticket.DocumentType documentType) {
+            com.intermarche.pos.domain.sale.DocumentType documentType) {
         return Invoice.find("ticketNumber = ?1 and documentType = ?2",
                 ticketNumber, documentType).firstResult();
     }

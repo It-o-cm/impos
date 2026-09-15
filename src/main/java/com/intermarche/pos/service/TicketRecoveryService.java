@@ -1,11 +1,11 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.runtime.StartupEvent;
@@ -46,7 +46,7 @@ import java.util.List;
 @ApplicationScoped
 public class TicketRecoveryService {
 
-    private static final Logger LOG = Logger.getLogger(TicketRecoveryService.class);
+    private static final Logger LOGGER = Logger.getLogger(TicketRecoveryService.class);
 
     @Inject
     PosState state;
@@ -67,7 +67,7 @@ public class TicketRecoveryService {
         try {
             recover();
         } catch (Exception e) {
-            LOG.error("Échec de la reprise du ticket en cours", e);
+            LOGGER.error("Échec de la reprise du ticket en cours", e);
         }
     }
 
@@ -78,11 +78,13 @@ public class TicketRecoveryService {
      */
     @Transactional
     public void recover() {
+        LOGGER.info("Entering method recover");
         String terminalId = ticketNumberService.getTerminalId();
 
         List<Ticket> openDrafts = Ticket.list("status = ?1 and terminalId = ?2 order by id desc",
                 Ticket.TicketStatus.OPEN, terminalId);
         if (openDrafts.isEmpty()) {
+            LOGGER.info("Exiting method recover");
             return;
         }
 
@@ -93,13 +95,14 @@ public class TicketRecoveryService {
             Ticket stale = openDrafts.get(i);
             stale.status = Ticket.TicketStatus.CANCELLED;
             stale.persist();
-            LOG.warnf("Draft périmé annulé ID: %d (%s)", stale.id, stale.ticketNumber);
+            LOGGER.warnf("Draft périmé annulé ID: %d (%s)", stale.id, stale.ticketNumber);
         }
 
         restoreDraft(draft);
         technicalEventService.log(TechnicalEvent.EventType.DRAFT_RECOVERED, draft.ticketNumber);
-        LOG.infof("Ticket en cours restauré ID: %d (%s), %d ligne(s), %d paiement(s)",
+        LOGGER.infof("Ticket en cours restauré ID: %d (%s), %d ligne(s), %d paiement(s)",
                 draft.id, draft.ticketNumber, draft.lines.size(), draft.payments.size());
+        LOGGER.info("Exiting method recover");
     }
 
     /**
@@ -110,10 +113,12 @@ public class TicketRecoveryService {
      * @param draft the persisted draft to restore
      */
     public void restoreDraft(Ticket draft) {
+        LOGGER.info("Entering method restoreDraft with draft: " + draft);
         restoreCart(draft);
         restorePayments(draft);
         state.payment.ticketDbId = draft.id;
         state.touch();
+        LOGGER.info("Exiting method restoreDraft");
     }
 
     /**
@@ -199,19 +204,19 @@ public class TicketRecoveryService {
                 state.payment.addVoucherPayment(voucher.voucherLabel, voucher.voucherNumber, voucher.amount);
             } else if (payment instanceof CashPayment cash) {
                 state.payment.addCashPayment(cash.amount, cash.tenderedAmount);
-            } else if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment secours) {
+            } else if (payment instanceof com.intermarche.pos.domain.payment.BackupPayment secours) {
                 // The scheme, the transaction and HOW the outcome was obtained are
                 // restored with the line: a recovered settlement that lost the manual
                 // flag would claim a signature nobody ever verified.
                 state.payment.addBackupPayment(secours.amount, secours.methodLabel,
                         secours.transactionNumber, secours.manual);
-            } else if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+            } else if (payment instanceof com.intermarche.pos.domain.payment.ForeignCurrencyPayment devise) {
                 // The currency, the amount handed over and the rate are restored with
                 // the line: LC-07-14-05 prints all three, and a recovered settlement
                 // that lost them could not be printed at all.
                 state.payment.addCurrencyPayment(devise.amount, devise.currencyCode,
                         devise.foreignAmount, devise.exchangeRate);
-            } else if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+            } else if (payment instanceof com.intermarche.pos.domain.payment.CreditPayment credit) {
                 // The debtor is restored with the line: a recovered credit
                 // settlement that lost its account would print a debt owed by
                 // nobody on the receipt the customer is about to be handed.

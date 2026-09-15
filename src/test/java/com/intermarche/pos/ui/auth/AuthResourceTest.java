@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.auth;
 
-import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;

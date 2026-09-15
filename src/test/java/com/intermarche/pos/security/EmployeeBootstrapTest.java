@@ -1,6 +1,6 @@
 package com.intermarche.pos.security;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.runtime.StartupEvent;
 import org.junit.jupiter.api.Test;

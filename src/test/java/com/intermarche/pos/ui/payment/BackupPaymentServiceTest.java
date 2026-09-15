@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;

@@ -1,6 +1,8 @@
 package com.intermarche.pos.service.sync;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -239,6 +241,142 @@ public final class RefPayloads {
     /**
      * A coupon type (upsert by code).
      */
+    public static class CheckoutIslandDto {
+        /** The island code (upsert key). */
+        public String code;
+        /** The display label. */
+        public String label;
+        /** Whether the island is in service. */
+        public boolean active;
+        /** The attached registers, as a semicolon list of terminal identifiers. */
+        public String terminalIds;
+    }
+
+    /**
+     * One administered DOCUMENT TEMPLATE — the layout of one printed document
+     * (BO-03-03).
+     */
+    public static class DocumentTemplateDto {
+        /** The template code (upsert key). */
+        public String code;
+        /** The display label. */
+        public String label;
+        /** The document the template lays out. */
+        public String documentType;
+        /** Whether the template is used. */
+        public boolean active;
+        /** The order competing templates of one document type are tried in. */
+        public int priority;
+        /** The width the template lays out for, in characters. */
+        public int width;
+        /** How many copies of the document are printed. */
+        public int copies;
+        /** The Qute source. */
+        public String source;
+    }
+
+    /**
+     * One administered TENDER — a settlement method put in service and bounded
+     * (BO-03-02-03/04/10 to 30).
+     */
+    public static class TenderDefinitionDto {
+        /** The settlement key, equal to the payment discriminator (upsert key). */
+        public String code;
+        /** The functional identifier administered by the store. */
+        public String functionalId;
+        /** The display label. */
+        public String label;
+        /** Whether the tender is in service. */
+        public boolean active;
+        /** The order the tenders are offered in. */
+        public int displayOrder;
+        /** The first ceiling of one settlement, or null when unbounded. */
+        public String maxAmount;
+        /** What the register does when the first ceiling is exceeded. */
+        public String maxAmountControl;
+        /** The second ceiling of one settlement, or null when unbounded. */
+        public String secondMaxAmount;
+        /** What the register does when the second ceiling is exceeded. */
+        public String secondMaxAmountControl;
+        /** The floor of one settlement, or null when unbounded. */
+        public String minAmount;
+        /** What the register does when the floor is not reached. */
+        public String minAmountControl;
+        /** How many settlements of this tender one sale may carry, or null. */
+        public Integer maxCount;
+        /** What the register does when the count is reached. */
+        public String maxCountControl;
+        /** The largest change this tender may give back, or null. */
+        public String maxChangeAmount;
+        /** What the register does when the change ceiling is exceeded. */
+        public String maxChangeControl;
+        /** Whether the tender may be used to refund a customer. */
+        public boolean refundAllowed;
+        /** Whether an overpayment on this tender gives change back. */
+        public boolean changeAllowed;
+        /** The tender the change is given in, or null for the tender itself. */
+        public String changeTenderCode;
+        /** Whether the cashier's holding is declared automatically. */
+        public boolean cashierDeclaration;
+        /** Whether this tender is withdrawn from the drawer automatically. */
+        public boolean automaticWithdrawal;
+        /** When the cash drawer opens for this tender. */
+        public String drawerOpening;
+        /** Whether cash movements may use this tender. */
+        public boolean movementAllowed;
+        /** Whether the takings of this tender are deposited at the bank. */
+        public boolean bankDeposit;
+        /** Whether this tender may make up the opening float. */
+        public boolean floatAllowed;
+        /** Whether the remaining due is pre-filled when this tender is picked. */
+        public boolean defaultsToTotal;
+        /** Whether the withdrawal report details this tender. */
+        public boolean withdrawalReportDetail;
+        /** Whether the use of this tender is reported to the fidelity programme. */
+        public boolean fidelityReported;
+    }
+
+    /**
+     * One administered ARTICLE barcode range (BO-03-06-02/03/04/05/10).
+     */
+    public static class ArticleBarcodeRangeDto {
+        /** The range code (upsert key). */
+        public String code;
+        /** The display label. */
+        public String label;
+        /** Whether the range is considered at scan time. */
+        public boolean active;
+        /** The order the ranges are tested in. */
+        public int priority;
+        /** The literal head every code of the range carries. */
+        public String prefix;
+        /** The total code length. */
+        public int codeLength;
+        /** The character kind outside the two administered segments. */
+        public String codeKind;
+        /** The 0-based offset of the segment naming the article. */
+        public int articlePosition;
+        /** The number of characters of the article segment. */
+        public int articleLength;
+        /** What the value segment carries (PRICE or WEIGHT). */
+        public String valueSource;
+        /** The 0-based offset of the segment carrying the value. */
+        public int valuePosition;
+        /** The number of characters of the value segment. */
+        public int valueLength;
+        /** The number of decimals the value segment carries. */
+        public int valueDecimals;
+        /** The currency a PRICE segment is expressed in. */
+        public String currency;
+        /** Whether the last character is a verified check digit. */
+        public boolean checkDigit;
+        /** The generated recognition pattern. */
+        public String matchPattern;
+    }
+
+    /**
+     * One administered voucher range (BO-03-06).
+     */
     public static class CouponTypeDto {
         /** The type code (upsert key). */
         public String code;
@@ -256,6 +394,56 @@ public final class RefPayloads {
         public boolean active;
         /** Whether the type is a deposit-return line type. */
         public boolean depositLine;
+        /** The literal head every code of the range carries, or null. */
+        public String prefix;
+        /** The total code length, or null when the range is not administered. */
+        public Integer codeLength;
+        /** The character kind outside the administered fields, or null. */
+        public String codeKind;
+        /** Whether an all-nines price means "ask the cashier" (BO-03-06-12). */
+        public boolean manualAmountOnAllNines;
+        /** The checkout islands accepting the range, or null for all (BO-03-06-07). */
+        public String islandCodes;
+        /** The administered positions of the range, empty when there are none. */
+        public List<CouponFieldDto> fields = new ArrayList<>();
+        /** The administered controls of the range, empty when there are none. */
+        public List<CouponControlDto> controls = new ArrayList<>();
+    }
+
+    /**
+     * One administered control of a barcode range (BO-03-06): what the register
+     * checks, how loudly it reacts and what it says. A control is what gives an
+     * administered position a reader, so it travels with the type.
+     */
+    public static class CouponControlDto {
+        /** The control kind name, which is also its key within its type. */
+        public String kind;
+        /** The alert level name. */
+        public String level;
+        /** The administered wording, or null for the control's own. */
+        public String message;
+    }
+
+    /**
+     * One administered position of a barcode range (BO-03-06): where a value
+     * sits in the code and how to read it. The recognition pattern of the
+     * owning type is generated from these rows, so they travel with it.
+     */
+    public static class CouponFieldDto {
+        /** The role name, which is also the field's key within its type. */
+        public String role;
+        /** The zero-based position of the field's first character. */
+        public int offsetPosition;
+        /** The number of characters the field spans. */
+        public int fieldLength;
+        /** The character kind name. */
+        public String kind;
+        /** The decimal count of a monetary field, or null for the default. */
+        public Integer decimals;
+        /** The date or time layout name, or null. */
+        public String dateFormat;
+        /** The currency name of a price field, or null for euros. */
+        public String currency;
     }
 
     /**

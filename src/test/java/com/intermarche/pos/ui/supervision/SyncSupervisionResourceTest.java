@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.supervision;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.sync.EngineFeedDeliveryService;

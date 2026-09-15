@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.supervision;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.sync.EngineFeedDeliveryService;
@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import org.jboss.logging.Logger;
 
 /**
  * The store back office's SYNC SUPERVISION screen ({@code /admin/sync}, lot C2):
@@ -44,6 +45,9 @@ import java.nio.charset.StandardCharsets;
  */
 @Path("/admin/sync")
 public class SyncSupervisionResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(SyncSupervisionResource.class);
 
     /** The supervision page template. */
     @Inject
@@ -82,6 +86,8 @@ public class SyncSupervisionResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance page(@QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method page with notice: " + notice + ", noticeOk: " + noticeOk);
+        LOGGER.info("Exiting method page");
         return adminSync.data("view", syncSupervisionService.build())
                 .data("sessionOpen", cashSessionService.getOpenSession() != null)
                 .data("notice", notice)
@@ -98,14 +104,17 @@ public class SyncSupervisionResource {
     @Path("/pull")
     @RolesAllowed("ADMIN")
     public Response relaunchPull() {
+        LOGGER.info("Entering method relaunchPull");
         String error = refPullService.triggerPull();
         if (error == null) {
             technicalEventService.log(TechnicalEvent.EventType.REFERENTIAL_PULL_FORCED,
                     "Tirage manuel des référentiels réussi");
+            LOGGER.info("Exiting method relaunchPull");
             return redirect("Tirage des référentiels relancé.", true);
         }
         technicalEventService.log(TechnicalEvent.EventType.REFERENTIAL_PULL_FORCED,
                 "Tirage manuel des référentiels en échec: " + error);
+        LOGGER.info("Exiting method relaunchPull");
         return redirect("Tirage des référentiels en échec : " + error, false);
     }
 
@@ -119,14 +128,17 @@ public class SyncSupervisionResource {
     @Path("/deliver")
     @RolesAllowed("ADMIN")
     public Response relaunchDelivery() {
+        LOGGER.info("Entering method relaunchDelivery");
         String error = engineFeedDeliveryService.triggerDelivery();
         if (error == null) {
             technicalEventService.log(TechnicalEvent.EventType.ENGINE_FEED_DELIVERY_FORCED,
                     "Livraison manuelle des flux moteur réussie");
+            LOGGER.info("Exiting method relaunchDelivery");
             return redirect("Livraison des flux moteur relancée.", true);
         }
         technicalEventService.log(TechnicalEvent.EventType.ENGINE_FEED_DELIVERY_FORCED,
                 "Livraison manuelle des flux moteur en échec: " + error);
+        LOGGER.info("Exiting method relaunchDelivery");
         return redirect("Livraison des flux moteur en échec : " + error, false);
     }
 
@@ -143,11 +155,14 @@ public class SyncSupervisionResource {
     @Path("/force-close")
     @RolesAllowed("ADMIN")
     public Response forceCloseSession() {
+        LOGGER.info("Entering method forceCloseSession");
         CashSessionService.SessionReport report = cashSessionService.closeSession(
                 null, BigDecimal.ZERO, BigDecimal.ZERO, null);
         if (report == null) {
+            LOGGER.info("Exiting method forceCloseSession");
             return redirect("Aucune session ouverte sur ce nœud.", false);
         }
+        LOGGER.info("Exiting method forceCloseSession");
         return redirect("Session " + report.session.sessionNumber + " clôturée de force.", true);
     }
 

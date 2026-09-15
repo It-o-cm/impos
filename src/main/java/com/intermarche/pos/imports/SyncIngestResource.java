@@ -30,7 +30,7 @@ import org.jboss.logging.Logger;
 @Path("/api/sync")
 public class SyncIngestResource {
 
-    private static final Logger LOG = Logger.getLogger(SyncIngestResource.class);
+    private static final Logger LOGGER = Logger.getLogger(SyncIngestResource.class);
 
     /** The role of this node: "register" (default) or "store". */
     @ConfigProperty(name = "pos.role", defaultValue = "register")
@@ -55,6 +55,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestSession(@HeaderParam("X-Sync-Token") String presentedToken,
                                   SyncPayloads.SessionDto dto) {
+        LOGGER.info("Entering method ingestSession with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestSession");
         return handle(presentedToken, () -> syncIngestService.ingestSession(dto));
     }
 
@@ -70,6 +72,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestTicket(@HeaderParam("X-Sync-Token") String presentedToken,
                                  SyncPayloads.TicketDto dto) {
+        LOGGER.info("Entering method ingestTicket with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestTicket");
         return handle(presentedToken, () -> syncIngestService.ingestTicket(dto));
     }
 
@@ -86,6 +90,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestMovement(@HeaderParam("X-Sync-Token") String presentedToken,
                                    SyncPayloads.MovementDto dto) {
+        LOGGER.info("Entering method ingestMovement with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestMovement");
         return handle(presentedToken, () -> syncIngestService.ingestMovement(dto));
     }
 
@@ -101,6 +107,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestRefund(@HeaderParam("X-Sync-Token") String presentedToken,
                                  SyncPayloads.RefundDto dto) {
+        LOGGER.info("Entering method ingestRefund with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestRefund");
         return handle(presentedToken, () -> syncIngestService.ingestRefund(dto));
     }
 
@@ -117,6 +125,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestEvent(@HeaderParam("X-Sync-Token") String presentedToken,
                                 SyncPayloads.EventDto dto) {
+        LOGGER.info("Entering method ingestEvent with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestEvent");
         return handle(presentedToken, () -> syncIngestService.ingestEvent(dto));
     }
 
@@ -133,6 +143,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestCustomer(@HeaderParam("X-Sync-Token") String presentedToken,
                                    SyncPayloads.CustomerDto dto) {
+        LOGGER.info("Entering method ingestCustomer with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestCustomer");
         return handle(presentedToken, () -> syncIngestService.ingestCustomer(dto));
     }
 
@@ -153,6 +165,8 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ingestBalanceTicket(@HeaderParam("X-Sync-Token") String presentedToken,
                                         SyncPayloads.BalanceTicketDto dto) {
+        LOGGER.info("Entering method ingestBalanceTicket with presentedToken: ***" + ", dto: " + dto);
+        LOGGER.info("Exiting method ingestBalanceTicket");
         return handle(presentedToken, () -> syncIngestService.ingestBalanceTicket(dto));
     }
 
@@ -177,20 +191,25 @@ public class SyncIngestResource {
     public Response consumeBalanceTicket(@HeaderParam("X-Sync-Token") String presentedToken,
                                          @jakarta.ws.rs.PathParam("reference") String reference,
                                          @jakarta.ws.rs.QueryParam("terminal") String terminalId) {
+        LOGGER.info("Entering method consumeBalanceTicket with presentedToken: ***" + ", reference: " + reference + ", terminalId: " + terminalId);
         if (!"store".equalsIgnoreCase(role)) {
+            LOGGER.info("Exiting method consumeBalanceTicket");
             return Response.status(Response.Status.FORBIDDEN)
                     .entity("Ce nœud n'a pas le rôle store").build();
         }
         String expectedToken = token.orElse("");
         if (!expectedToken.isBlank() && !expectedToken.equals(presentedToken)) {
+            LOGGER.info("Exiting method consumeBalanceTicket");
             return Response.status(Response.Status.UNAUTHORIZED)
                     .entity("Jeton de synchronisation invalide").build();
         }
         SyncPayloads.BalanceTicketDto served =
                 syncIngestService.consumeBalanceTicket(reference, terminalId);
         if (served == null) {
+            LOGGER.info("Exiting method consumeBalanceTicket");
             return Response.status(Response.Status.NOT_FOUND).build();
         }
+        LOGGER.info("Exiting method consumeBalanceTicket");
         return Response.ok(served).build();
     }
 
@@ -212,20 +231,25 @@ public class SyncIngestResource {
     @Produces(MediaType.TEXT_PLAIN)
     public Response ticketDuplicate(@HeaderParam("X-Sync-Token") String presentedToken,
                                     @jakarta.ws.rs.PathParam("ticketNumber") String ticketNumber) {
+        LOGGER.info("Entering method ticketDuplicate with presentedToken: ***" + ", ticketNumber: " + ticketNumber);
         if (!"store".equalsIgnoreCase(role)) {
+            LOGGER.info("Exiting method ticketDuplicate");
             return Response.status(Response.Status.FORBIDDEN)
                     .entity("Ce nœud n'a pas le rôle store").build();
         }
         String expectedToken = token.orElse("");
         if (!expectedToken.isBlank() && !expectedToken.equals(presentedToken)) {
+            LOGGER.info("Exiting method ticketDuplicate");
             return Response.status(Response.Status.UNAUTHORIZED)
                     .entity("Jeton de synchronisation invalide").build();
         }
         String rendered = syncIngestService.renderTicketDuplicate(ticketNumber);
         if (rendered == null) {
+            LOGGER.info("Exiting method ticketDuplicate");
             return Response.status(Response.Status.NOT_FOUND)
                     .entity("Ticket inconnu du magasin").build();
         }
+        LOGGER.info("Exiting method ticketDuplicate");
         return Response.ok(rendered).build();
     }
 
@@ -254,7 +278,7 @@ public class SyncIngestResource {
             // Missing referenced entity: the register retries later
             return Response.status(Response.Status.CONFLICT).entity(e.getMessage()).build();
         } catch (Exception e) {
-            LOG.errorf("Ingestion en erreur: %s", e.getMessage());
+            LOGGER.errorf("Ingestion en erreur: %s", e.getMessage());
             return Response.serverError().entity(e.getMessage()).build();
         }
     }

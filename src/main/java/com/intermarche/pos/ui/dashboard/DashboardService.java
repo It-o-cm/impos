@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.dashboard;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sale.Ticket;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.inject.Inject;
@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * Aggregations of the supervisor dashboard (phase 5 lot 2), computed over
@@ -36,6 +37,9 @@ import java.util.Map;
 @ApplicationScoped
 public class DashboardService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(DashboardService.class);
+
     @Inject
     EntityManager entityManager;
 
@@ -45,6 +49,7 @@ public class DashboardService {
      * @return the aggregated indicators, JSON-ready
      */
     public Map<String, Object> buildData() {
+        LOGGER.info("Entering method buildData");
         LocalDateTime from = LocalDate.now().atStartOfDay();
         Map<String, Object> data = new HashMap<>();
 
@@ -133,6 +138,7 @@ public class DashboardService {
         }
         data.put("sessions", sessions);
 
+        LOGGER.info("Exiting method buildData");
         return data;
     }
 

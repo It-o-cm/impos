@@ -1,6 +1,6 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.PosSetting;
+import com.intermarche.pos.domain.setting.PosSetting;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -44,7 +44,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class PosSettingsService {
 
-    private static final Logger LOG = Logger.getLogger(PosSettingsService.class);
+    private static final Logger LOGGER = Logger.getLogger(PosSettingsService.class);
 
     /** Value type of a catalog entry — drives the admin form widget. */
     public enum Type { BOOL, INT, TEXT }
@@ -199,6 +199,10 @@ public class PosSettingsService {
                 "Crédit client autorisé en mode dégradé",
                 "Le règlement en crédit client reste possible quand le référentiel client n'est plus à jour (coupure entre le BackOffice et la caisse). Désactivé : le crédit client est refusé tant que le référentiel n'a pas été rafraîchi, l'encours et le plafond n'étant plus fiables (LC-07-09-05).",
                 "false", null),
+        new Def("customer.account-pattern", Type.TEXT, "CREDIT CLIENT",
+                "Plage des numéros de compte client",
+                "Motif de reconnaissance d'un numéro de compte client, sous forme d'expression régulière (par exemple ^CC\\d{8}$). Un numéro hors de la plage est refusé avant toute recherche. Vide : tout numéro est accepté et aucune plage n'est reconnue au scan (BO-03-06-52).",
+                "", null),
         new Def("credit.degraded-after-minutes", Type.INT, "CREDIT CLIENT",
                 "Ancienneté du référentiel client tolérée (minutes)",
                 "Au-delà de ce délai sans tirage réussi du référentiel client, la caisse se considère en mode dégradé pour le crédit client (LC-07-09-05).",
@@ -334,6 +338,38 @@ public class PosSettingsService {
         new Def("cash.movement-tenders", Type.TEXT, "MOUVEMENTS DE CAISSE",
                 "Moyens de paiement d'un mouvement",
                 "Moyens de paiement proposes pour un mouvement de caisse (prelevement/apport d'un cheque, d'un titre-restaurant...), separes par des points-virgules. Vide : le mouvement porte toujours sur les especes (BO-03-02-20).",
+                "", null),
+        new Def("discount.line-max-amount", Type.TEXT, "GESTES DE PRIX",
+                "Plafond de remise ligne (€)",
+                "Montant maximum d'une remise en euros sur une ligne. Une remise à ce montant passe, au-delà elle est refusée. 0 = pas de plafond en euros (BO-03-07-04).",
+                "0.00", null),
+        new Def("discount.global-max-amount", Type.TEXT, "GESTES DE PRIX",
+                "Plafond de remise ticket (€)",
+                "Montant maximum d'une remise ticket en euros. Une remise à ce montant passe, au-delà elle est refusée. 0 = pas de plafond en euros (BO-03-07-04).",
+                "0.00", null),
+        new Def("fidelity.show-holder-name", Type.BOOL, "FIDÉLITÉ",
+                "Afficher le nom du porteur",
+                "Le nom et le prénom trouvés par une recherche de carte sont affichés en caisse à côté du numéro. Désactivé : la caisse n'affiche que le numéro de carte, comme pour une carte scannée (BO-10-03-04).",
+                "true", null),
+        new Def("fidelity.card-pattern", Type.TEXT, "FIDÉLITÉ",
+                "Plage des cartes de fidélité",
+                "Motif de reconnaissance d'une carte de fidélité au scan, sous forme d'expression régulière (par exemple ^299\\d{10}$). Vide : la propriété de déploiement scan.pattern.fidelity s'applique (BO-03-06-54).",
+                "", "scan.pattern.fidelity"),
+        new Def("fidelity.jv-promotion-enabled", Type.BOOL, "FIDÉLITÉ",
+                "Promotions personnalisées à la carte",
+                "La carte de fidélité est transmise au moteur de promotion, qui lit les offres personnelles du porteur et peut les déclencher. Désactivé : le panier est valorisé anonymement et aucune promotion personnalisée n'est déclenchée (BO-10-03-22).",
+                "true", null),
+        new Def("fidelity.url", Type.TEXT, "FIDÉLITÉ",
+                "URL du service fidélité",
+                "Adresse de base du service fidélité appelé pour valoriser le panier avec les avantages fid, projeter la cagnotte et envoyer les transactions. Vide : la propriété de déploiement pos.fid.url s'applique (BO-11-04-04).",
+                "", "pos.fid.url"),
+        new Def("fidelity.user", Type.TEXT, "FIDÉLITÉ",
+                "Compte machine du service fidélité",
+                "Identifiant du compte machine de la caisse auprès du service fidélité. Vide : la propriété de déploiement pos.fid.user s'applique. Le mot de passe reste un secret de déploiement et n'est pas administrable (BO-11-04-04).",
+                "", "pos.fid.user"),
+        new Def("training.theme", Type.TEXT, "MODE ÉCOLE",
+                "Thème de l'écran caisse en formation",
+                "Nom du thème appliqué à l'écran caisse en mode école, pour le distinguer de l'écran de vente standard (sombre, clair). Vide : la formation garde le thème habituel et seul le bandeau la signale (BO-10-07-08).",
                 "", null));
 
     /**
@@ -366,9 +402,11 @@ public class PosSettingsService {
      * @return the entry, or null for an unknown key
      */
     public Def def(String key) {
+        LOGGER.info("Entering method def with key: " + key);
         for (Def d : CATALOG) {
-            if (d.key().equals(key)) return d;
+            if (d.key().equals(key)) { LOGGER.info("Exiting method def"); return d; }
         }
+        LOGGER.info("Exiting method def");
         return null;
     }
 
@@ -380,22 +418,24 @@ public class PosSettingsService {
      * @return the effective value, as text
      */
     public String value(String key) {
+        LOGGER.info("Entering method value with key: " + key);
         Map<String, String> values = cache;
         if (values == null) {
             values = loadAll();
             cache = values;
         }
         String stored = values.get(key);
-        if (stored != null) return stored;
+        if (stored != null) { LOGGER.info("Exiting method value"); return stored; }
         Def d = def(key);
-        if (d == null) return null;
+        if (d == null) { LOGGER.info("Exiting method value"); return null; }
         String inherited = inherited().get(key);
-        if (inherited != null) return inherited;
+        if (inherited != null) { LOGGER.info("Exiting method value"); return inherited; }
         if (d.configFallback() != null) {
             Optional<String> fromConfig = ConfigProvider.getConfig()
                     .getOptionalValue(d.configFallback(), String.class);
-            if (fromConfig.isPresent()) return fromConfig.get();
+            if (fromConfig.isPresent()) { LOGGER.info("Exiting method value"); return fromConfig.get(); }
         }
+        LOGGER.info("Exiting method value");
         return d.defaultValue();
     }
 
@@ -429,7 +469,7 @@ public class PosSettingsService {
         } catch (Exception e) {
             // A failed resolution (boot ordering, missing table) falls back to
             // the local overrides and defaults; the next access retries.
-            LOG.warnf("Resolution des echelons impossible (%s): valeurs locales", e.getMessage());
+            LOGGER.warnf("Resolution des echelons impossible (%s): valeurs locales", e.getMessage());
             inheritedCache = null;
             return Map.of();
         }
@@ -449,7 +489,7 @@ public class PosSettingsService {
         } catch (Exception e) {
             // A failed read (boot ordering, missing table) falls back to the
             // defaults; the next access retries.
-            LOG.warnf("Lecture des paramètres impossible (%s): valeurs par défaut", e.getMessage());
+            LOGGER.warnf("Lecture des paramètres impossible (%s): valeurs par défaut", e.getMessage());
             cache = null;
         }
         return values;
@@ -473,6 +513,7 @@ public class PosSettingsService {
      * @return the administered key-to-effective-value map, ordered by key
      */
     public Map<String, String> administeredValues() {
+        LOGGER.info("Entering method administeredValues");
         Map<String, String> local = cache;
         if (local == null) {
             local = loadAll();
@@ -486,6 +527,7 @@ public class PosSettingsService {
         }
         java.util.TreeMap<String, String> result = new java.util.TreeMap<>(echelon);
         result.putAll(local);
+        LOGGER.info("Exiting method administeredValues");
         return result;
     }
 
@@ -495,8 +537,10 @@ public class PosSettingsService {
      * up on the next read.
      */
     public void invalidate() {
+        LOGGER.info("Entering method invalidate");
         cache = null;
         inheritedCache = null;
+        LOGGER.info("Exiting method invalidate");
     }
 
     /**
@@ -507,6 +551,7 @@ public class PosSettingsService {
      */
     @Transactional
     public void store(String key, String value) {
+        LOGGER.info("Entering method store with key: " + key + ", value: " + value);
         PosSetting row = PosSetting.findByKey(key);
         if (row == null) {
             row = new PosSetting();
@@ -515,6 +560,7 @@ public class PosSettingsService {
         row.settingValue = value;
         row.persist();
         invalidate();
+        LOGGER.info("Exiting method store");
     }
 
     /**
@@ -560,56 +606,88 @@ public class PosSettingsService {
      *
      * @return true when the EAN is displayed
      */
-    public boolean showEan() { return boolValue("display.show-ean"); }
+    public boolean showEan() {
+        LOGGER.info("Entering method showEan");
+        LOGGER.info("Exiting method showEan");
+        return boolValue("display.show-ean");
+    }
 
     /**
      * The idle-lockout delay in seconds; 0 disables the automatic pause.
      *
      * @return the delay in seconds
      */
-    public long idleLockoutSeconds() { return intValue("auth.idle-lockout-seconds"); }
+    public long idleLockoutSeconds() {
+        LOGGER.info("Entering method idleLockoutSeconds");
+        LOGGER.info("Exiting method idleLockoutSeconds");
+        return intValue("auth.idle-lockout-seconds");
+    }
 
     /**
      * Whether price gestures require a manager endorsement.
      *
      * @return true when the endorsement ceremony applies
      */
-    public boolean gestureEndorsementRequired() { return boolValue("gesture.endorsement-required"); }
+    public boolean gestureEndorsementRequired() {
+        LOGGER.info("Entering method gestureEndorsementRequired");
+        LOGGER.info("Exiting method gestureEndorsementRequired");
+        return boolValue("gesture.endorsement-required");
+    }
 
     /**
      * The maximal percentage of a line discount.
      *
      * @return the cap, in percent
      */
-    public int lineMaxDiscountPercent() { return intValue("discount.line-max-percent"); }
+    public int lineMaxDiscountPercent() {
+        LOGGER.info("Entering method lineMaxDiscountPercent");
+        LOGGER.info("Exiting method lineMaxDiscountPercent");
+        return intValue("discount.line-max-percent");
+    }
 
     /**
      * The maximal percentage of a whole-ticket discount.
      *
      * @return the cap, in percent
      */
-    public int globalMaxDiscountPercent() { return intValue("discount.global-max-percent"); }
+    public int globalMaxDiscountPercent() {
+        LOGGER.info("Entering method globalMaxDiscountPercent");
+        LOGGER.info("Exiting method globalMaxDiscountPercent");
+        return intValue("discount.global-max-percent");
+    }
 
     /**
      * The customer-display message while the register is open and idle.
      *
      * @return the display text
      */
-    public String customerOpenMessage() { return value("customer.message-open"); }
+    public String customerOpenMessage() {
+        LOGGER.info("Entering method customerOpenMessage");
+        LOGGER.info("Exiting method customerOpenMessage");
+        return value("customer.message-open");
+    }
 
     /**
      * The customer-display message while the register is locked.
      *
      * @return the display text
      */
-    public String customerClosedMessage() { return value("customer.message-closed"); }
+    public String customerClosedMessage() {
+        LOGGER.info("Entering method customerClosedMessage");
+        LOGGER.info("Exiting method customerClosedMessage");
+        return value("customer.message-closed");
+    }
 
     /**
      * Whether parking a ticket prints the resume receipt.
      *
      * @return true when the parked receipt is printed
      */
-    public boolean parkingPrintReceipt() { return boolValue("parking.print-receipt"); }
+    public boolean parkingPrintReceipt() {
+        LOGGER.info("Entering method parkingPrintReceipt");
+        LOGGER.info("Exiting method parkingPrintReceipt");
+        return boolValue("parking.print-receipt");
+    }
 
     /**
      * Whether the manual monetique degraded mode is active (BO-03-12-05):
@@ -618,7 +696,11 @@ public class PosSettingsService {
      *
      * @return true when degraded mode is on
      */
-    public boolean paymentDegradedMode() { return boolValue("payment.degraded-mode"); }
+    public boolean paymentDegradedMode() {
+        LOGGER.info("Entering method paymentDegradedMode");
+        LOGGER.info("Exiting method paymentDegradedMode");
+        return boolValue("payment.degraded-mode");
+    }
 
     /**
      * Whether the line and ticket discount/rebate gestures are offered at the
@@ -626,7 +708,11 @@ public class PosSettingsService {
      *
      * @return true when discounts and rebates are active
      */
-    public boolean discountEnabled() { return boolValue("discount.enabled"); }
+    public boolean discountEnabled() {
+        LOGGER.info("Entering method discountEnabled");
+        LOGGER.info("Exiting method discountEnabled");
+        return boolValue("discount.enabled");
+    }
 
     /**
      * Whether a forced price recalls the article's original price on screen
@@ -634,7 +720,11 @@ public class PosSettingsService {
      *
      * @return true when the original price is shown on a price forcing
      */
-    public boolean priceShowOriginalOnForce() { return boolValue("price.show-original-on-force"); }
+    public boolean priceShowOriginalOnForce() {
+        LOGGER.info("Entering method priceShowOriginalOnForce");
+        LOGGER.info("Exiting method priceShowOriginalOnForce");
+        return boolValue("price.show-original-on-force");
+    }
 
     /**
      * The message printed at the TOP of the sale ticket, under the store
@@ -642,7 +732,11 @@ public class PosSettingsService {
      *
      * @return the ticket header message, possibly empty
      */
-    public String ticketHeaderMessage() { return value("ticket.header-message"); }
+    public String ticketHeaderMessage() {
+        LOGGER.info("Entering method ticketHeaderMessage");
+        LOGGER.info("Exiting method ticketHeaderMessage");
+        return value("ticket.header-message");
+    }
 
     /**
      * The message printed at the BOTTOM of the sale ticket, after the closing
@@ -650,7 +744,11 @@ public class PosSettingsService {
      *
      * @return the ticket footer message, possibly empty
      */
-    public String ticketFooterMessage() { return value("ticket.footer-message"); }
+    public String ticketFooterMessage() {
+        LOGGER.info("Entering method ticketFooterMessage");
+        LOGGER.info("Exiting method ticketFooterMessage");
+        return value("ticket.footer-message");
+    }
 
     /**
      * Whether the physical-tender payments open the cash drawer (BO-10-02-12):
@@ -658,7 +756,11 @@ public class PosSettingsService {
      *
      * @return true when a physical payment opens the drawer
      */
-    public boolean drawerOpenOnPayment() { return boolValue("drawer.open-on-payment"); }
+    public boolean drawerOpenOnPayment() {
+        LOGGER.info("Entering method drawerOpenOnPayment");
+        LOGGER.info("Exiting method drawerOpenOnPayment");
+        return boolValue("drawer.open-on-payment");
+    }
 
     /**
      * Whether customer credit stays available while the client referential is
@@ -672,7 +774,11 @@ public class PosSettingsService {
      *
      * @return the rounding step in cents
      */
-    public int cashRoundingStepCents() { return intValue("cash.rounding-step-cents"); }
+    public int cashRoundingStepCents() {
+        LOGGER.info("Entering method cashRoundingStepCents");
+        LOGGER.info("Exiting method cashRoundingStepCents");
+        return intValue("cash.rounding-step-cents");
+    }
 
     /**
      * Whether a counter-ticket line keeps the price the scale computed, rather than
@@ -680,7 +786,11 @@ public class PosSettingsService {
      *
      * @return true when the counter's own price is booked
      */
-    public boolean balanceCounterPrice() { return boolValue("balance.counter-price"); }
+    public boolean balanceCounterPrice() {
+        LOGGER.info("Entering method balanceCounterPrice");
+        LOGGER.info("Exiting method balanceCounterPrice");
+        return boolValue("balance.counter-price");
+    }
 
     /**
      * Whether a manual backup-monetics validation needs a supervisor
@@ -688,7 +798,11 @@ public class PosSettingsService {
      *
      * @return true when the shop requires an endorsement
      */
-    public boolean backupManualEndorsement() { return boolValue("backup.manual-endorsement"); }
+    public boolean backupManualEndorsement() {
+        LOGGER.info("Entering method backupManualEndorsement");
+        LOGGER.info("Exiting method backupManualEndorsement");
+        return boolValue("backup.manual-endorsement");
+    }
 
     /**
      * Whether forcing or releasing the monetics degraded mode needs a supervisor
@@ -697,6 +811,8 @@ public class PosSettingsService {
      * @return true when the shop requires an endorsement
      */
     public boolean moneticsDegradedForcedEndorsement() {
+        LOGGER.info("Entering method moneticsDegradedForcedEndorsement");
+        LOGGER.info("Exiting method moneticsDegradedForcedEndorsement");
         return boolValue("payment.degraded-forced-endorsement");
     }
 
@@ -707,6 +823,8 @@ public class PosSettingsService {
      * @return the forcing duration in minutes
      */
     public int moneticsDegradedForcedMinutes() {
+        LOGGER.info("Entering method moneticsDegradedForcedMinutes");
+        LOGGER.info("Exiting method moneticsDegradedForcedMinutes");
         return intValue("payment.degraded-forced-minutes");
     }
 
@@ -715,9 +833,17 @@ public class PosSettingsService {
      *
      * @return the {@code ID=LABEL} pairs, comma separated
      */
-    public String backupMethodLabels() { return value("backup.method-labels"); }
+    public String backupMethodLabels() {
+        LOGGER.info("Entering method backupMethodLabels");
+        LOGGER.info("Exiting method backupMethodLabels");
+        return value("backup.method-labels");
+    }
 
-    public boolean creditAllowedInDegraded() { return boolValue("credit.allowed-in-degraded"); }
+    public boolean creditAllowedInDegraded() {
+        LOGGER.info("Entering method creditAllowedInDegraded");
+        LOGGER.info("Exiting method creditAllowedInDegraded");
+        return boolValue("credit.allowed-in-degraded");
+    }
 
     /**
      * How long the client referential may go without a successful pull before
@@ -725,7 +851,11 @@ public class PosSettingsService {
      *
      * @return the tolerated staleness in minutes
      */
-    public int creditDegradedAfterMinutes() { return intValue("credit.degraded-after-minutes"); }
+    public int creditDegradedAfterMinutes() {
+        LOGGER.info("Entering method creditDegradedAfterMinutes");
+        LOGGER.info("Exiting method creditDegradedAfterMinutes");
+        return intValue("credit.degraded-after-minutes");
+    }
 
     /**
      * Whether taking the post (unlock) opens the cash drawer to install the
@@ -733,7 +863,11 @@ public class PosSettingsService {
      *
      * @return true when the unlock pulse opens the drawer
      */
-    public boolean drawerOpenOnLogin() { return boolValue("drawer.open-on-login"); }
+    public boolean drawerOpenOnLogin() {
+        LOGGER.info("Entering method drawerOpenOnLogin");
+        LOGGER.info("Exiting method drawerOpenOnLogin");
+        return boolValue("drawer.open-on-login");
+    }
 
     /**
      * Whether a scanned EAN13 has its check digit validated before lookup
@@ -741,7 +875,11 @@ public class PosSettingsService {
      *
      * @return true when the EAN13 check digit is enforced
      */
-    public boolean ean13CheckDigitEnabled() { return boolValue("scan.ean13-check-digit"); }
+    public boolean ean13CheckDigitEnabled() {
+        LOGGER.info("Entering method ean13CheckDigitEnabled");
+        LOGGER.info("Exiting method ean13CheckDigitEnabled");
+        return boolValue("scan.ean13-check-digit");
+    }
 
     /**
      * Whether the register alerts (supervisor calls) are shown on the back
@@ -749,7 +887,11 @@ public class PosSettingsService {
      *
      * @return true when the dashboard shows the alerts
      */
-    public boolean dashboardAlertsEnabled() { return boolValue("dashboard.alerts-enabled"); }
+    public boolean dashboardAlertsEnabled() {
+        LOGGER.info("Entering method dashboardAlertsEnabled");
+        LOGGER.info("Exiting method dashboardAlertsEnabled");
+        return boolValue("dashboard.alerts-enabled");
+    }
 
     /**
      * Whether the loyalty advantage section is printed on the sale ticket
@@ -757,7 +899,11 @@ public class PosSettingsService {
      *
      * @return true when the advantage section is printed
      */
-    public boolean fidelityAdvantagesEnabled() { return boolValue("fidelity.advantages-enabled"); }
+    public boolean fidelityAdvantagesEnabled() {
+        LOGGER.info("Entering method fidelityAdvantagesEnabled");
+        LOGGER.info("Exiting method fidelityAdvantagesEnabled");
+        return boolValue("fidelity.advantages-enabled");
+    }
 
     /**
      * Whether several loyalty cards may be scanned during one transaction
@@ -766,7 +912,101 @@ public class PosSettingsService {
      *
      * @return true when multiple card scans are allowed
      */
-    public boolean fidelityAllowMultipleScan() { return boolValue("fidelity.allow-multiple-scan"); }
+    public boolean fidelityAllowMultipleScan() {
+        LOGGER.info("Entering method fidelityAllowMultipleScan");
+        LOGGER.info("Exiting method fidelityAllowMultipleScan");
+        return boolValue("fidelity.allow-multiple-scan");
+    }
+
+    /**
+     * Whether the holder's name found by a loyalty lookup is carried onto the
+     * register (BO-10-03-04): disabled, the register keeps the pseudonymity of
+     * a scanned card and shows the card number alone.
+     *
+     * @return true when the holder's name may be displayed
+     */
+    public boolean fidelityShowHolderName() {
+        LOGGER.info("Entering method fidelityShowHolderName");
+        LOGGER.info("Exiting method fidelityShowHolderName");
+        return boolValue("fidelity.show-holder-name");
+    }
+
+    /**
+     * The range of account-customer numbers the register accepts for a credit
+     * settlement (BO-03-06-52), as a regular expression; empty when any number
+     * is accepted and none is recognised at scan.
+     *
+     * @return the account-number regex, possibly empty
+     */
+    public String customerAccountPattern() {
+        LOGGER.info("Entering method customerAccountPattern");
+        LOGGER.info("Exiting method customerAccountPattern");
+        return value("customer.account-pattern");
+    }
+
+    /**
+     * The recognition pattern of a loyalty card at scan (BO-03-06-54); empty
+     * when the {@code scan.pattern.fidelity} deployment property applies.
+     *
+     * @return the card recognition regex, possibly empty
+     */
+    public String fidelityCardPattern() {
+        LOGGER.info("Entering method fidelityCardPattern");
+        LOGGER.info("Exiting method fidelityCardPattern");
+        return value("fidelity.card-pattern");
+    }
+
+    /**
+     * Whether card-linked personal promotions are active (BO-10-03-22): the
+     * loyalty card is sent to the promotion engine, which reads the holder's
+     * eligible personal offers and can trigger them. Disabled, the basket is
+     * priced anonymously and no personal promotion is triggered.
+     *
+     * @return true when card-linked promotions are active
+     */
+    public boolean fidelityJvPromotionEnabled() {
+        LOGGER.info("Entering method fidelityJvPromotionEnabled");
+        LOGGER.info("Exiting method fidelityJvPromotionEnabled");
+        return boolValue("fidelity.jv-promotion-enabled");
+    }
+
+    /**
+     * The base URL of the loyalty service this register calls (BO-11-04-04);
+     * empty when the {@code pos.fid.url} deployment property applies.
+     *
+     * @return the loyalty service base URL, possibly empty
+     */
+    public String fidelityUrl() {
+        LOGGER.info("Entering method fidelityUrl");
+        LOGGER.info("Exiting method fidelityUrl");
+        return value("fidelity.url");
+    }
+
+    /**
+     * The Basic-auth user of the register's machine account on the loyalty
+     * service (BO-11-04-04); empty when the deployment property applies. The
+     * password is NOT administrable and stays a deployment secret.
+     *
+     * @return the loyalty machine-account user, possibly empty
+     */
+    public String fidelityUser() {
+        LOGGER.info("Entering method fidelityUser");
+        LOGGER.info("Exiting method fidelityUser");
+        return value("fidelity.user");
+    }
+
+    /**
+     * The theme the register's screens take in training mode (BO-10-07-08):
+     * the school screen is then visibly another screen than the sale one.
+     * Blank, training keeps the ordinary theme resolution.
+     *
+     * @return the training theme name, or an empty string when none
+     */
+    public String trainingTheme() {
+        LOGGER.info("Entering method trainingTheme");
+        LOGGER.info("Exiting method trainingTheme");
+        return value("training.theme");
+    }
 
     /**
      * Whether the digital-receipt QR code is shown on the customer display at
@@ -774,7 +1014,11 @@ public class PosSettingsService {
      *
      * @return true when the customer-display QR code is shown
      */
-    public boolean customerQrEnabled() { return boolValue("customer.qr-enabled"); }
+    public boolean customerQrEnabled() {
+        LOGGER.info("Entering method customerQrEnabled");
+        LOGGER.info("Exiting method customerQrEnabled");
+        return boolValue("customer.qr-enabled");
+    }
 
     /**
      * Whether a scanned employee badge is honoured at the lock and endorsement
@@ -783,7 +1027,11 @@ public class PosSettingsService {
      *
      * @return true when badge scanning takes the post or endorses
      */
-    public boolean badgeScanEnabled() { return boolValue("auth.badge-scan-enabled"); }
+    public boolean badgeScanEnabled() {
+        LOGGER.info("Entering method badgeScanEnabled");
+        LOGGER.info("Exiting method badgeScanEnabled");
+        return boolValue("auth.badge-scan-enabled");
+    }
 
     /**
      * The pre-filled opening float shown on the session-opening form
@@ -792,7 +1040,11 @@ public class PosSettingsService {
      *
      * @return the default opening float, as administered text
      */
-    public String defaultOpeningFloat() { return value("cash.default-opening-float"); }
+    public String defaultOpeningFloat() {
+        LOGGER.info("Entering method defaultOpeningFloat");
+        LOGGER.info("Exiting method defaultOpeningFloat");
+        return value("cash.default-opening-float");
+    }
 
     /**
      * Whether launching the Z closing opens the cash drawer (BO-10-02-26):
@@ -800,7 +1052,11 @@ public class PosSettingsService {
      *
      * @return true when the close start opens the drawer
      */
-    public boolean drawerOpenOnSessionClose() { return boolValue("drawer.open-on-session-close"); }
+    public boolean drawerOpenOnSessionClose() {
+        LOGGER.info("Entering method drawerOpenOnSessionClose");
+        LOGGER.info("Exiting method drawerOpenOnSessionClose");
+        return boolValue("drawer.open-on-session-close");
+    }
 
     /**
      * Whether the per-rate VAT ventilation is printed on the sale and refund
@@ -808,7 +1064,11 @@ public class PosSettingsService {
      *
      * @return true when the VAT breakdown is printed
      */
-    public boolean vatBreakdownEnabled() { return boolValue("ticket.vat-breakdown-enabled"); }
+    public boolean vatBreakdownEnabled() {
+        LOGGER.info("Entering method vatBreakdownEnabled");
+        LOGGER.info("Exiting method vatBreakdownEnabled");
+        return boolValue("ticket.vat-breakdown-enabled");
+    }
 
     /**
      * Whether the external imfid loyalty service is queried at all
@@ -818,7 +1078,11 @@ public class PosSettingsService {
      *
      * @return true when the external loyalty service is active
      */
-    public boolean fidelityExternalEnabled() { return boolValue("fidelity.external-enabled"); }
+    public boolean fidelityExternalEnabled() {
+        LOGGER.info("Entering method fidelityExternalEnabled");
+        LOGGER.info("Exiting method fidelityExternalEnabled");
+        return boolValue("fidelity.external-enabled");
+    }
 
     /**
      * The tenders a cash movement may concern (BO-03-02-20), parsed from the
@@ -829,8 +1093,10 @@ public class PosSettingsService {
      * @return the administered movement tenders, in order
      */
     public List<String> cashMovementTenders() {
+        LOGGER.info("Entering method cashMovementTenders");
         String raw = value("cash.movement-tenders");
         if (raw.isBlank()) {
+            LOGGER.info("Exiting method cashMovementTenders");
             return List.of();
         }
         List<String> tenders = new ArrayList<>();
@@ -840,6 +1106,7 @@ public class PosSettingsService {
                 tenders.add(trimmed);
             }
         }
+        LOGGER.info("Exiting method cashMovementTenders");
         return tenders;
     }
 
@@ -852,7 +1119,39 @@ public class PosSettingsService {
      * @return the endorsement threshold, in euros
      */
     public BigDecimal cashMovementEndorsementThreshold() {
+        LOGGER.info("Entering method cashMovementEndorsementThreshold");
+        LOGGER.info("Exiting method cashMovementEndorsementThreshold");
         return bigDecimalValue("cash.movement-endorsement-threshold");
+    }
+
+    /**
+     * The largest discount, in euros, a cashier may take off ONE line
+     * (BO-03-07-04).
+     *
+     * <p>The percentage cap and this one are independent guards: a shop can
+     * allow 100 % and still forbid handing back more than ten euros on a line.
+     * Zero means no euro ceiling at all, which is the default — a register that
+     * suddenly started refusing remises because a cap was introduced would be a
+     * checkout outage.
+     *
+     * @return the ceiling in euros, zero when none is administered
+     */
+    public BigDecimal lineMaxDiscountAmount() {
+        LOGGER.info("Entering method lineMaxDiscountAmount");
+        LOGGER.info("Exiting method lineMaxDiscountAmount");
+        return bigDecimalValue("discount.line-max-amount");
+    }
+
+    /**
+     * The largest discount, in euros, a cashier may take off the WHOLE ticket
+     * (BO-03-07-04).
+     *
+     * @return the ceiling in euros, zero when none is administered
+     */
+    public BigDecimal globalMaxDiscountAmount() {
+        LOGGER.info("Entering method globalMaxDiscountAmount");
+        LOGGER.info("Exiting method globalMaxDiscountAmount");
+        return bigDecimalValue("discount.global-max-amount");
     }
 
     /**
@@ -863,7 +1162,9 @@ public class PosSettingsService {
      * @return the strictly positive page size
      */
     public int touchGroupsPerPage() {
+        LOGGER.info("Entering method touchGroupsPerPage");
         int configured = intValue("touch.groups-per-page");
+        LOGGER.info("Exiting method touchGroupsPerPage");
         return configured < 1 ? Integer.parseInt(def("touch.groups-per-page").defaultValue()) : configured;
     }
 
@@ -875,10 +1176,13 @@ public class PosSettingsService {
      * @return the normalized order mode, never null
      */
     public String touchDisplayOrder() {
+        LOGGER.info("Entering method touchDisplayOrder");
         String raw = value("touch.display-order").trim().toUpperCase();
         if (raw.equals("CUSTOM") || raw.equals("VOLUME")) {
+            LOGGER.info("Exiting method touchDisplayOrder");
             return raw;
         }
+        LOGGER.info("Exiting method touchDisplayOrder");
         return "ALPHA";
     }
 
@@ -891,10 +1195,12 @@ public class PosSettingsService {
      * @return the authorized movement reasons, in catalog order
      */
     public List<String> cashMovementReasons() {
+        LOGGER.info("Entering method cashMovementReasons");
         // value() never returns null for a catalog key: an absent row falls to
         // the catalog default, which is a non-null string.
         String raw = value("cash.movement-reasons");
         if (raw.isBlank()) {
+            LOGGER.info("Exiting method cashMovementReasons");
             return List.of();
         }
         List<String> reasons = new ArrayList<>();
@@ -904,6 +1210,7 @@ public class PosSettingsService {
                 reasons.add(trimmed);
             }
         }
+        LOGGER.info("Exiting method cashMovementReasons");
         return reasons;
     }
 
@@ -915,7 +1222,11 @@ public class PosSettingsService {
      *
      * @return true when conditional printing is active
      */
-    public boolean printConditionalEnabled() { return boolValue("print.conditional-enabled"); }
+    public boolean printConditionalEnabled() {
+        LOGGER.info("Entering method printConditionalEnabled");
+        LOGGER.info("Exiting method printConditionalEnabled");
+        return boolValue("print.conditional-enabled");
+    }
 
     /**
      * The documents printed WHATEVER the cashier chooses (LC-08-03-07),
@@ -926,10 +1237,12 @@ public class PosSettingsService {
      * @return the forced document keys, in administered order
      */
     public List<String> printForcedDocuments() {
+        LOGGER.info("Entering method printForcedDocuments");
         // value() never returns null for a catalog key: an absent row falls to
         // the catalog default, which is a non-null string.
         String raw = value("print.forced-documents");
         if (raw.isBlank()) {
+            LOGGER.info("Exiting method printForcedDocuments");
             return List.of();
         }
         List<String> documents = new ArrayList<>();
@@ -939,6 +1252,7 @@ public class PosSettingsService {
                 documents.add(trimmed);
             }
         }
+        LOGGER.info("Exiting method printForcedDocuments");
         return documents;
     }
 
@@ -948,7 +1262,11 @@ public class PosSettingsService {
      *
      * @return true when the GLC ticket is forced
      */
-    public boolean printForceTicketGlc() { return boolValue("print.force-ticket-glc"); }
+    public boolean printForceTicketGlc() {
+        LOGGER.info("Entering method printForceTicketGlc");
+        LOGGER.info("Exiting method printForceTicketGlc");
+        return boolValue("print.force-ticket-glc");
+    }
 
     /**
      * Whether the card receipt of a refund — a "credit" card transaction —
@@ -956,7 +1274,11 @@ public class PosSettingsService {
      *
      * @return true when the credit card receipt is forced
      */
-    public boolean printForceCardCredit() { return boolValue("print.force-card-credit"); }
+    public boolean printForceCardCredit() {
+        LOGGER.info("Entering method printForceCardCredit");
+        LOGGER.info("Exiting method printForceCardCredit");
+        return boolValue("print.force-card-credit");
+    }
 
     /**
      * Whether a card receipt asking for the customer's signature is printed
@@ -964,7 +1286,11 @@ public class PosSettingsService {
      *
      * @return true when the signature card receipt is forced
      */
-    public boolean printForceCardSignature() { return boolValue("print.force-card-signature"); }
+    public boolean printForceCardSignature() {
+        LOGGER.info("Entering method printForceCardSignature");
+        LOGGER.info("Exiting method printForceCardSignature");
+        return boolValue("print.force-card-signature");
+    }
 
     /**
      * Whether the card receipt of a not-completed transaction (TNA), carrying
@@ -972,7 +1298,11 @@ public class PosSettingsService {
      *
      * @return true when the TNA card receipt is forced
      */
-    public boolean printForceCardTna() { return boolValue("print.force-card-tna"); }
+    public boolean printForceCardTna() {
+        LOGGER.info("Entering method printForceCardTna");
+        LOGGER.info("Exiting method printForceCardTna");
+        return boolValue("print.force-card-tna");
+    }
 
     /**
      * The administered customer-creation mask of the invoice screen
@@ -981,7 +1311,11 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String invoiceCustomerFields() { return value("invoice.customer-fields"); }
+    public String invoiceCustomerFields() {
+        LOGGER.info("Entering method invoiceCustomerFields");
+        LOGGER.info("Exiting method invoiceCustomerFields");
+        return value("invoice.customer-fields");
+    }
 
     /**
      * The document kinds the back office activated for the registers
@@ -990,7 +1324,11 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String invoiceDocumentTypes() { return value("invoice.document-types"); }
+    public String invoiceDocumentTypes() {
+        LOGGER.info("Entering method invoiceDocumentTypes");
+        LOGGER.info("Exiting method invoiceDocumentTypes");
+        return value("invoice.document-types");
+    }
 
     /**
      * The printer each kind of document comes out of (LC-08-04-11), as the raw
@@ -999,7 +1337,11 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String invoiceDocumentOutput() { return value("invoice.document-output"); }
+    public String invoiceDocumentOutput() {
+        LOGGER.info("Entering method invoiceDocumentOutput");
+        LOGGER.info("Exiting method invoiceDocumentOutput");
+        return value("invoice.document-output");
+    }
 
     /**
      * How many lines are printed on one slip before the operator is asked for the
@@ -1007,7 +1349,11 @@ public class PosSettingsService {
      *
      * @return the administered line count
      */
-    public int invoiceSlipLines() { return intValue("invoice.slip-lines"); }
+    public int invoiceSlipLines() {
+        LOGGER.info("Entering method invoiceSlipLines");
+        LOGGER.info("Exiting method invoiceSlipLines");
+        return intValue("invoice.slip-lines");
+    }
 
     /**
      * The document emitted automatically at the end of a sale, per payment method
@@ -1015,7 +1361,11 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String invoiceAutoPrint() { return value("invoice.auto-print"); }
+    public String invoiceAutoPrint() {
+        LOGGER.info("Entering method invoiceAutoPrint");
+        LOGGER.info("Exiting method invoiceAutoPrint");
+        return value("invoice.auto-print");
+    }
 
     /**
      * What the register does with an expiry date carried by a GS1 code on an
@@ -1023,7 +1373,11 @@ public class PosSettingsService {
      *
      * @return the administered level, never null
      */
-    public String gs1ExpiryAlert() { return value("gs1.expiry-alert"); }
+    public String gs1ExpiryAlert() {
+        LOGGER.info("Entering method gs1ExpiryAlert");
+        LOGGER.info("Exiting method gs1ExpiryAlert");
+        return value("gs1.expiry-alert");
+    }
 
     /**
      * The restricted tenders whose eligible base is shown during the sale
@@ -1032,7 +1386,11 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String restrictedTenders() { return value("tender.restricted"); }
+    public String restrictedTenders() {
+        LOGGER.info("Entering method restrictedTenders");
+        LOGGER.info("Exiting method restrictedTenders");
+        return value("tender.restricted");
+    }
 
     /**
      * The abandon reasons offered to the cashier (LC-04-04-10), as the raw
@@ -1040,7 +1398,11 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String abandonReasons() { return value("abandon.reasons"); }
+    public String abandonReasons() {
+        LOGGER.info("Entering method abandonReasons");
+        LOGGER.info("Exiting method abandonReasons");
+        return value("abandon.reasons");
+    }
 
     /**
      * The tenders offered for a manual withdrawal (LC-12-03-02/03), as the raw
@@ -1048,14 +1410,22 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String drawerWithdrawalMethods() { return value("drawer.withdrawal-methods"); }
+    public String drawerWithdrawalMethods() {
+        LOGGER.info("Entering method drawerWithdrawalMethods");
+        LOGGER.info("Exiting method drawerWithdrawalMethods");
+        return value("drawer.withdrawal-methods");
+    }
 
     /**
      * Whether a withdrawal ticket is printed (LC-12-03-07).
      *
      * @return true when the ticket comes out
      */
-    public boolean drawerWithdrawalPrint() { return boolValue("drawer.withdrawal-print"); }
+    public boolean drawerWithdrawalPrint() {
+        LOGGER.info("Entering method drawerWithdrawalPrint");
+        LOGGER.info("Exiting method drawerWithdrawalPrint");
+        return boolValue("drawer.withdrawal-print");
+    }
 
     /**
      * The tenders offered as the source and the destination of a settlement
@@ -1063,14 +1433,22 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String drawerTransferMethods() { return value("drawer.transfer-methods"); }
+    public String drawerTransferMethods() {
+        LOGGER.info("Entering method drawerTransferMethods");
+        LOGGER.info("Exiting method drawerTransferMethods");
+        return value("drawer.transfer-methods");
+    }
 
     /**
      * Whether a transfer ticket is printed (LC-12-10-05).
      *
      * @return true when the ticket comes out
      */
-    public boolean drawerTransferPrint() { return boolValue("drawer.transfer-print"); }
+    public boolean drawerTransferPrint() {
+        LOGGER.info("Entering method drawerTransferPrint");
+        LOGGER.info("Exiting method drawerTransferPrint");
+        return boolValue("drawer.transfer-print");
+    }
 
     /**
      * What the register does when a partial settlement is already registered and
@@ -1079,7 +1457,11 @@ public class PosSettingsService {
      *
      * @return the administered behaviour, never null
      */
-    public String abandonPartialPayment() { return value("abandon.partial-payment"); }
+    public String abandonPartialPayment() {
+        LOGGER.info("Entering method abandonPartialPayment");
+        LOGGER.info("Exiting method abandonPartialPayment");
+        return value("abandon.partial-payment");
+    }
 
     /**
      * When the abandon ticket is printed (LC-04-04-12): {@code NEVER},
@@ -1087,7 +1469,11 @@ public class PosSettingsService {
      *
      * @return the administered rule, never null
      */
-    public String abandonPrint() { return value("abandon.print"); }
+    public String abandonPrint() {
+        LOGGER.info("Entering method abandonPrint");
+        LOGGER.info("Exiting method abandonPrint");
+        return value("abandon.print");
+    }
 
     /**
      * Whether the abandon ticket lists the articles of the abandoned sale
@@ -1095,14 +1481,22 @@ public class PosSettingsService {
      *
      * @return true when the article detail is printed
      */
-    public boolean abandonPrintDetail() { return boolValue("abandon.print-detail"); }
+    public boolean abandonPrintDetail() {
+        LOGGER.info("Entering method abandonPrintDetail");
+        LOGGER.info("Exiting method abandonPrintDetail");
+        return boolValue("abandon.print-detail");
+    }
 
     /**
      * How many days before an expiry date it counts as near (LC-11-03-13).
      *
      * @return the administered number of days
      */
-    public int gs1ExpiryWarnDays() { return intValue("gs1.expiry-warn-days"); }
+    public int gs1ExpiryWarnDays() {
+        LOGGER.info("Entering method gs1ExpiryWarnDays");
+        LOGGER.info("Exiting method gs1ExpiryWarnDays");
+        return intValue("gs1.expiry-warn-days");
+    }
 
     /**
      * What the register does with an expiry date carried by a GS1 coupon
@@ -1110,7 +1504,11 @@ public class PosSettingsService {
      *
      * @return the administered level, never null
      */
-    public String gs1CouponExpiryAlert() { return value("gs1.coupon-expiry-alert"); }
+    public String gs1CouponExpiryAlert() {
+        LOGGER.info("Entering method gs1CouponExpiryAlert");
+        LOGGER.info("Exiting method gs1CouponExpiryAlert");
+        return value("gs1.coupon-expiry-alert");
+    }
 
     /**
      * The settlement type of a GS1 gift document, by issuer prefix (LC-11-03-05),
@@ -1118,14 +1516,22 @@ public class PosSettingsService {
      *
      * @return the administered list, never null
      */
-    public String gs1GiftCouponTypes() { return value("gs1.gdti-coupon-types"); }
+    public String gs1GiftCouponTypes() {
+        LOGGER.info("Entering method gs1GiftCouponTypes");
+        LOGGER.info("Exiting method gs1GiftCouponTypes");
+        return value("gs1.gdti-coupon-types");
+    }
 
     /**
      * The settlement type of a GS1 coupon (LC-11-03-06).
      *
      * @return the administered coupon-type code, never null
      */
-    public String gs1CouponType() { return value("gs1.gcn-coupon-type"); }
+    public String gs1CouponType() {
+        LOGGER.info("Entering method gs1CouponType");
+        LOGGER.info("Exiting method gs1CouponType");
+        return value("gs1.gcn-coupon-type");
+    }
 
     /**
      * The order the articles are printed in on the sale ticket (LC-08-01-07), as
@@ -1134,7 +1540,11 @@ public class PosSettingsService {
      *
      * @return the administered order, never null
      */
-    public String ticketLineOrder() { return value("ticket.line-order"); }
+    public String ticketLineOrder() {
+        LOGGER.info("Entering method ticketLineOrder");
+        LOGGER.info("Exiting method ticketLineOrder");
+        return value("ticket.line-order");
+    }
 
     /**
      * How the ticket travels in the e-mail (LC-08-02-07/08), as administered. The
@@ -1143,7 +1553,11 @@ public class PosSettingsService {
      *
      * @return the administered form, never null
      */
-    public String ticketEmailFormat() { return value("ticket.email-format"); }
+    public String ticketEmailFormat() {
+        LOGGER.info("Entering method ticketEmailFormat");
+        LOGGER.info("Exiting method ticketEmailFormat");
+        return value("ticket.email-format");
+    }
 
     /**
      * Whether the address read from the customer referential may be corrected at the
@@ -1152,5 +1566,9 @@ public class PosSettingsService {
      *
      * @return true when the retrieved address is editable
      */
-    public boolean ticketEmailEditable() { return boolValue("ticket.email-editable"); }
+    public boolean ticketEmailEditable() {
+        LOGGER.info("Entering method ticketEmailEditable");
+        LOGGER.info("Exiting method ticketEmailEditable");
+        return boolValue("ticket.email-editable");
+    }
 }

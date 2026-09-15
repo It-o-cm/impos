@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
 @ApplicationScoped
 public class MoneticsDegradedService {
 
-    private static final Logger LOG = Logger.getLogger(MoneticsDegradedService.class);
+    private static final Logger LOGGER = Logger.getLogger(MoneticsDegradedService.class);
 
     /** The action code journalled when a supervisor allows the forcing. */
     static final String ACTIVATE_ACTION = "MONETICS_DEGRADED_ON";
@@ -61,8 +61,10 @@ public class MoneticsDegradedService {
      * @return true when the forcing was turned on
      */
     public boolean activate(PosState state, String login, String password) {
+        LOGGER.info("Entering method activate with state: " + state + ", login: " + login + ", password: ***");
         if (!granted(state, login, password, ACTIVATE_ACTION)) {
             state.ticket.setError("AUTORISATION REFUSEE");
+            LOGGER.info("Exiting method activate");
             return false;
         }
         int minutes = Math.max(1, posSettingsService.moneticsDegradedForcedMinutes());
@@ -70,8 +72,9 @@ public class MoneticsDegradedService {
         technicalEventService.log(TechnicalEvent.EventType.ENDORSEMENT_GRANTED,
                 "Mode dégradé monétique forcé pour " + minutes + " min par "
                         + state.auth.operatorName);
-        LOG.infof("Mode dégradé monétique forcé jusqu'à %s", state.moneticsDegradedUntil);
+        LOGGER.infof("Mode dégradé monétique forcé jusqu'à %s", state.moneticsDegradedUntil);
         state.ticket.setNotice("MODE DÉGRADÉ MONÉTIQUE ACTIVÉ (" + minutes + " MIN)");
+        LOGGER.info("Exiting method activate");
         return true;
     }
 
@@ -84,20 +87,24 @@ public class MoneticsDegradedService {
      * @return true when the forcing was turned off
      */
     public boolean deactivate(PosState state, String login, String password) {
+        LOGGER.info("Entering method deactivate with state: " + state + ", login: " + login + ", password: ***");
         if (!state.isMoneticsDegradedForced()) {
             // Already off — expired on its own, or never on. Saying so beats an
             // authorization prompt for a state that does not exist.
             state.ticket.setNotice("MODE DÉGRADÉ MONÉTIQUE DÉJÀ INACTIF");
+            LOGGER.info("Exiting method deactivate");
             return false;
         }
         if (!granted(state, login, password, DEACTIVATE_ACTION)) {
             state.ticket.setError("AUTORISATION REFUSEE");
+            LOGGER.info("Exiting method deactivate");
             return false;
         }
         state.moneticsDegradedUntil = null;
         technicalEventService.log(TechnicalEvent.EventType.ENDORSEMENT_GRANTED,
                 "Mode dégradé monétique levé par " + state.auth.operatorName);
         state.ticket.setNotice("MODE DÉGRADÉ MONÉTIQUE DÉSACTIVÉ");
+        LOGGER.info("Exiting method deactivate");
         return true;
     }
 

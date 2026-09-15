@@ -2,8 +2,8 @@ package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLineValuation;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLineValuation;
 import com.intermarche.pos.ui.ticket.TicketState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -50,7 +50,7 @@ import java.util.Map;
 @ApplicationScoped
 public class ValuationReconciler {
 
-    private static final Logger LOG = Logger.getLogger(ValuationReconciler.class);
+    private static final Logger LOGGER = Logger.getLogger(ValuationReconciler.class);
 
     /** BigDecimal-safe, tolerant JSON mapper (same stance as the client). */
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -72,7 +72,7 @@ public class ValuationReconciler {
         try {
             response = objectMapper.readValue(responseJson, ValuationPayloads.ValuationResponseDto.class);
         } catch (Exception e) {
-            LOG.warnf("Réponse de valorisation illisible (%s): totaux locaux conservés", e.getMessage());
+            LOGGER.warnf("Réponse de valorisation illisible (%s): totaux locaux conservés", e.getMessage());
             return BigDecimal.ZERO;
         }
 
@@ -97,7 +97,7 @@ public class ValuationReconciler {
                     || advantage.discountAmount.amountIncludingTax == null) continue; // upsell, MEAL_VOUCHER...
             ValuationPayloads.OfferDto offer = resolveOffer(response, advantage.offer);
             if (offer == null || offer.items.isEmpty()) {
-                LOG.warnf("Advantage sans offre résoluble, ignoré: %s", advantage.type);
+                LOGGER.warnf("Advantage sans offre résoluble, ignoré: %s", advantage.type);
                 continue;
             }
             allocate(advantage, offer, advantageByLine, advantageLabelByLine);
@@ -113,7 +113,7 @@ public class ValuationReconciler {
             BigDecimal valued = valuedByLine.remove(item.uid);
             if (valued == null) {
                 if (item.ean != null && !item.ean.isEmpty() && item.getTotalPrice().signum() > 0) {
-                    LOG.warnf("Ligne éligible non couverte par le moteur, total local conservé: %s", item.label);
+                    LOGGER.warnf("Ligne éligible non couverte par le moteur, total local conservé: %s", item.label);
                 }
                 continue;
             }
@@ -137,12 +137,12 @@ public class ValuationReconciler {
             }
         }
         valuedByLine.keySet().forEach(unknown ->
-                LOG.warnf("Ligne moteur inconnue du panier, ignorée: %s", unknown));
+                LOGGER.warnf("Ligne moteur inconnue du panier, ignorée: %s", unknown));
 
         if (draft != null) {
             draft.valuationStatus = Ticket.ValuationStatus.VALUATED;
         }
-        LOG.infof("Valorisation appliquée: ajustement total %s €", adjustment);
+        LOGGER.infof("Valorisation appliquée: ajustement total %s €", adjustment);
         return adjustment;
     }
 

@@ -33,7 +33,7 @@ import java.util.function.Consumer;
 public class HidBarcodeDecoder {
 
     /** The class logger. */
-    private static final Logger LOG = Logger.getLogger(HidBarcodeDecoder.class);
+    private static final Logger LOGGER = Logger.getLogger(HidBarcodeDecoder.class);
 
     /** How many unrecognized reports are dumped per device before going quiet. */
     static final int MAX_UNKNOWN_TRACES = 5;
@@ -111,10 +111,10 @@ public class HidBarcodeDecoder {
     private void traceUnknown(byte[] report, int length) {
         unknownFrames++;
         if (unknownFrames <= MAX_UNKNOWN_TRACES) {
-            LOG.warnf("Trame douchette de format inconnu (#%d): %s",
+            LOGGER.warnf("Trame douchette de format inconnu (#%d): %s",
                     unknownFrames, hex(report, length));
             if (unknownFrames == MAX_UNKNOWN_TRACES) {
-                LOG.warn("Trames de format inconnu: trace interrompue (seul le compteur continue).");
+                LOGGER.warn("Trames de format inconnu: trace interrompue (seul le compteur continue).");
             }
         }
     }

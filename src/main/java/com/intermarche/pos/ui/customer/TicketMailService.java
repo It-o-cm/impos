@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
@@ -42,7 +42,7 @@ import java.util.Properties;
 @ApplicationScoped
 public class TicketMailService {
 
-    private static final Logger LOG = Logger.getLogger(TicketMailService.class);
+    private static final Logger LOGGER = Logger.getLogger(TicketMailService.class);
 
     /** The ticket travels in the message body. */
     public static final String FORMAT_BODY = "BODY";
@@ -95,6 +95,8 @@ public class TicketMailService {
      * @return true when a letter can actually leave
      */
     public boolean isConfigured() {
+        LOGGER.info("Entering method isConfigured");
+        LOGGER.info("Exiting method isConfigured");
         return host.isPresent() && !host.get().isBlank();
     }
 
@@ -106,13 +108,17 @@ public class TicketMailService {
      * @return {@link #FORMAT_BODY}, {@link #FORMAT_ATTACHMENT} or {@link #FORMAT_BOTH}
      */
     public static String normalizeFormat(String raw) {
+        LOGGER.info("Entering method normalizeFormat with raw: " + raw);
         if (raw == null) {
+            LOGGER.info("Exiting method normalizeFormat");
             return FORMAT_BODY;
         }
         String value = raw.trim().toUpperCase();
         if (value.equals(FORMAT_ATTACHMENT) || value.equals(FORMAT_BOTH)) {
+            LOGGER.info("Exiting method normalizeFormat");
             return value;
         }
+        LOGGER.info("Exiting method normalizeFormat");
         return FORMAT_BODY;
     }
 
@@ -124,9 +130,12 @@ public class TicketMailService {
      * @return the ticket as text, never null
      */
     public String contentOf(Ticket ticket) {
+        LOGGER.info("Entering method contentOf with ticket: " + ticket);
         if (ticket.formattedContent != null && !ticket.formattedContent.isBlank()) {
+            LOGGER.info("Exiting method contentOf");
             return ticket.formattedContent;
         }
+        LOGGER.info("Exiting method contentOf");
         return ticketPrinterService.renderTicket(ticket, false, 0);
     }
 
@@ -145,22 +154,26 @@ public class TicketMailService {
      *         the relay refused it
      */
     public boolean send(Ticket ticket, String address) {
+        LOGGER.info("Entering method send with ticket: " + ticket + ", address: " + address);
         String content = contentOf(ticket);
         String format = normalizeFormat(posSettingsService.ticketEmailFormat());
         technicalEventService.log(TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
                 ticket.ticketNumber + " -> " + address);
         if (!isConfigured()) {
-            LOG.infof("Ticket %s envoyé à %s (aucun relais SMTP configuré : journalisé seulement)",
+            LOGGER.infof("Ticket %s envoyé à %s (aucun relais SMTP configuré : journalisé seulement)",
                     ticket.ticketNumber, address);
+            LOGGER.info("Exiting method send");
             return false;
         }
         try {
             Transport.send(build(ticket, address, content, format));
-            LOG.infof("Ticket %s envoyé à %s (%s)", ticket.ticketNumber, address, format);
+            LOGGER.infof("Ticket %s envoyé à %s (%s)", ticket.ticketNumber, address, format);
+            LOGGER.info("Exiting method send");
             return true;
         } catch (Exception e) {
-            LOG.warnf("Envoi du ticket %s à %s impossible : %s",
+            LOGGER.warnf("Envoi du ticket %s à %s impossible : %s",
                     ticket.ticketNumber, address, e.getMessage());
+            LOGGER.info("Exiting method send");
             return false;
         }
     }

@@ -7,6 +7,7 @@ import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -65,6 +66,9 @@ class FidelityScanHandlerTest {
         handler.fidelityService = fidelityService;
         PosSettingsService settings = mock(PosSettingsService.class);
         when(settings.fidelityAllowMultipleScan()).thenReturn(allowMultiple);
+        // BO-03-06-54: no card range administered by default, so every case
+        // below keeps running against the deployment property.
+        when(settings.fidelityCardPattern()).thenReturn("");
         handler.posSettingsService = settings;
         return handler;
     }
@@ -169,6 +173,81 @@ class FidelityScanHandlerTest {
         ScanContext ctx = new ScanContext(FIDELITY_CODE, state);
         newHandler(fidelityService, false).handle(ctx);
         verify(fidelityService).validateCard(state, FIDELITY_CODE);
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * Builds an unlocked register state carrying an empty loyalty sub-state.
+     *
+     * @param locked whether the register is locked
+     * @return the mocked state
+     */
+    private PosState newState(boolean locked) {
+        PosState state = mock(PosState.class);
+        when(state.isLocked()).thenReturn(locked);
+        state.fidelity = new FidelityState();
+        return state;
+    }
+
+    // --- Plage des cartes de fidélité (BO-03-06-54) ---
+
+    /**
+     * The ADMINISTERED range wins over the deployment property: a card the
+     * property would not recognise is attached, and one the property WOULD
+     * recognise is left alone.
+     */
+    @Test
+    void theAdministeredRangeWinsOverTheDeploymentProperty() {
+        FidelityService service = mock(FidelityService.class);
+        FidelityScanHandler handler = newHandler(service);
+        when(handler.posSettingsService.fidelityCardPattern()).thenReturn("^299\\d{10}$");
+        assertEquals("^299\\d{10}$", handler.cardPattern());
+
+        PosState state = newState(false);
+        ScanContext ctx = new ScanContext("2990000000019", state);
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        verify(service).validateCard(state, "2990000000019");
+
+        ScanContext other = new ScanContext(FIDELITY_CODE, newState(false));
+        handler.handle(other);
+        assertFalse(other.handled);
+    }
+
+    /**
+     * A SECOND administered range recognises another shape, which is what
+     * proves the setting is read rather than a literal returned; padding is
+     * trimmed.
+     */
+    @Test
+    void aSecondAdministeredRangeRecognisesAnotherShape() {
+        FidelityService service = mock(FidelityService.class);
+        FidelityScanHandler handler = newHandler(service);
+        when(handler.posSettingsService.fidelityCardPattern()).thenReturn("  ^30\\d{11}$  ");
+        assertEquals("^30\\d{11}$", handler.cardPattern());
+        ScanContext ctx = new ScanContext("301000000012", newState(false));
+        handler.handle(ctx);
+        assertFalse(ctx.handled);
+        ScanContext twelve = new ScanContext("3010000000123", newState(false));
+        handler.handle(twelve);
+        assertTrue(twelve.handled);
+    }
+
+    /**
+     * A BLANK administered range leaves the deployment property in charge —
+     * the leg a null check alone would miss — and a NULL one behaves the same.
+     */
+    @Test
+    void anEmptyAdministeredRangeKeepsTheDeploymentProperty() {
+        FidelityService service = mock(FidelityService.class);
+        FidelityScanHandler blank = newHandler(service);
+        when(blank.posSettingsService.fidelityCardPattern()).thenReturn("   ");
+        assertEquals(FIDELITY_PATTERN, blank.cardPattern());
+        FidelityScanHandler missing = newHandler(service);
+        when(missing.posSettingsService.fidelityCardPattern()).thenReturn(null);
+        assertEquals(FIDELITY_PATTERN, missing.cardPattern());
+        ScanContext ctx = new ScanContext(FIDELITY_CODE, newState(false));
+        missing.handle(ctx);
         assertTrue(ctx.handled);
     }
 }

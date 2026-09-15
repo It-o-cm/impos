@@ -1,6 +1,6 @@
 package com.intermarche.pos.security;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.qute.TemplateData;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.enterprise.context.RequestScoped;

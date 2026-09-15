@@ -1,7 +1,7 @@
 package com.intermarche.pos.graphql;
 
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.eclipse.microprofile.graphql.GraphQLException;
 import org.junit.jupiter.api.Test;

@@ -100,6 +100,12 @@ class PaymentServiceTest {
     /** The invoice service asked for an automatic document at closing time. */
     private com.intermarche.pos.ui.invoice.InvoiceService invoiceService;
 
+    /** The administered tender rules opposed to every settlement (BO-03-02). */
+    private TenderRulesService tenderRulesService;
+
+    /** The supervisor credential asked for when an administered bound is passed. */
+    private com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
+
     @BeforeEach
     void setUp() {
         service = new PaymentService();
@@ -130,6 +136,26 @@ class PaymentServiceTest {
         posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(posSettingsService.drawerOpenOnPayment()).thenReturn(true);
         service.posSettingsService = posSettingsService;
+        // The administered tender rules (BO-03-02): the stand-in answers as a
+        // shop that administered NO tender — no bound is opposed, change is
+        // given, and the drawer follows the register's own rule. That is the
+        // behaviour every case below was written against.
+        tenderRulesService = mock(TenderRulesService.class);
+        when(tenderRulesService.check(any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(TenderRulesService.Verdict.silent());
+        when(tenderRulesService.checkChange(any(), any()))
+                .thenReturn(TenderRulesService.Verdict.silent());
+        when(tenderRulesService.changeAllowed(any(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenAnswer(call -> call.getArgument(1));
+        when(tenderRulesService.opensDrawer(any(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenAnswer(call -> call.getArgument(3));
+        service.tenderRulesService = tenderRulesService;
+        // The supervisor credential (BO-03-02-10): the stand-in refuses by
+        // default, so a case that wants an authorization grants it explicitly.
+        endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        service.endorsementService = endorsementService;
         chequeReadingService =
                 mock(com.intermarche.pos.ui.hardware.ChequeReadingService.class);
         service.chequeReadingService = chequeReadingService;
@@ -1509,8 +1535,8 @@ class PaymentServiceTest {
     void finalizeTransactionConfirmsTheLeaseThenEnqueuesTheClosedEvent() {
         state.payment.ticketDbId = 9L;
         state.fidelity.assignCard("2990000000019");
-        com.intermarche.pos.domain.ticket.Ticket closed =
-                new com.intermarche.pos.domain.ticket.Ticket();
+        com.intermarche.pos.domain.sale.Ticket closed =
+                new com.intermarche.pos.domain.sale.Ticket();
         closed.ticketNumber = "C04-000001";
         when(fidelityService.confirmLease(eq(state), any())).thenReturn(77L);
         when(fidelityService.buildTicketClosedPayload(eq(state), any(), any(), any(), any()))
@@ -1519,7 +1545,7 @@ class PaymentServiceTest {
                      org.mockito.Mockito.mockStatic(
                              io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             stubNoGiftCards(panache, 9L);
-            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L))
                     .thenReturn(closed);
             service.finalizeTransaction(state);
         }
@@ -1529,7 +1555,7 @@ class PaymentServiceTest {
                 eq(state), eq(java.time.LocalDate.now().getYear() + "-C04-000001"),
                 eq("2990000000019"), any(), eq(77L));
         order.verify(fidEventOutboxService).enqueue(
-                eq(com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED),
+                eq(com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_CLOSED),
                 eq("{\"ticketRef\":\"2026-C04-000001\"}"));
     }
 
@@ -1541,8 +1567,8 @@ class PaymentServiceTest {
     void finalizeTransactionEnqueuesTheEventWithoutALease() {
         state.payment.ticketDbId = 9L;
         state.fidelity.assignCard("2990000000019");
-        com.intermarche.pos.domain.ticket.Ticket closed =
-                new com.intermarche.pos.domain.ticket.Ticket();
+        com.intermarche.pos.domain.sale.Ticket closed =
+                new com.intermarche.pos.domain.sale.Ticket();
         closed.ticketNumber = "C04-000002";
         when(fidelityService.confirmLease(eq(state), any())).thenReturn(null);
         when(fidelityService.buildTicketClosedPayload(eq(state), any(), any(), any(), any()))
@@ -1551,14 +1577,14 @@ class PaymentServiceTest {
                      org.mockito.Mockito.mockStatic(
                              io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             stubNoGiftCards(panache, 9L);
-            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L))
                     .thenReturn(closed);
             service.finalizeTransaction(state);
         }
         verify(fidelityService).buildTicketClosedPayload(
                 eq(state), any(), eq("2990000000019"), any(), org.mockito.ArgumentMatchers.isNull());
         verify(fidEventOutboxService).enqueue(
-                com.intermarche.pos.domain.FidEvent.EventType.TICKET_CLOSED, "{\"earn\":1}");
+                com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_CLOSED, "{\"earn\":1}");
     }
 
     /**
@@ -1571,8 +1597,8 @@ class PaymentServiceTest {
     void finalizeTransactionEnqueuesNothingWhenThePayloadIsNull() {
         state.payment.ticketDbId = 9L;
         state.fidelity.assignCard("2990000000019");
-        com.intermarche.pos.domain.ticket.Ticket closed =
-                new com.intermarche.pos.domain.ticket.Ticket();
+        com.intermarche.pos.domain.sale.Ticket closed =
+                new com.intermarche.pos.domain.sale.Ticket();
         closed.ticketNumber = "C04-000003";
         when(fidelityService.buildTicketClosedPayload(any(), any(), any(), any(), any()))
                 .thenReturn(null);
@@ -1580,7 +1606,7 @@ class PaymentServiceTest {
                      org.mockito.Mockito.mockStatic(
                              io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             stubNoGiftCards(panache, 9L);
-            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L))
                     .thenReturn(closed);
             service.finalizeTransaction(state);
         }
@@ -1601,7 +1627,7 @@ class PaymentServiceTest {
                      org.mockito.Mockito.mockStatic(
                              io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             stubNoGiftCards(panache, 9L);
-            panache.when(() -> com.intermarche.pos.domain.ticket.Ticket.findById(9L))
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L))
                     .thenReturn(null);
             service.finalizeTransaction(state);
         }
@@ -1617,8 +1643,8 @@ class PaymentServiceTest {
      * @param amount the loaded face value
      * @return the instrument
      */
-    private com.intermarche.pos.domain.StoredValue issuedCard(String number, String amount) {
-        com.intermarche.pos.domain.StoredValue card = new com.intermarche.pos.domain.StoredValue();
+    private com.intermarche.pos.domain.payment.StoredValue issuedCard(String number, String amount) {
+        com.intermarche.pos.domain.payment.StoredValue card = new com.intermarche.pos.domain.payment.StoredValue();
         card.number = number;
         card.initialAmount = new BigDecimal(amount);
         return card;
@@ -1634,11 +1660,11 @@ class PaymentServiceTest {
     @SuppressWarnings("unchecked")
     private void stubIssuedGiftCards(
             org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache,
-            long ticketId, java.util.List<com.intermarche.pos.domain.StoredValue> issued) {
-        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.StoredValue> query =
+            long ticketId, java.util.List<com.intermarche.pos.domain.payment.StoredValue> issued) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.payment.StoredValue> query =
                 mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
         when(query.list()).thenReturn(issued);
-        panache.when(() -> com.intermarche.pos.domain.StoredValue
+        panache.when(() -> com.intermarche.pos.domain.payment.StoredValue
                 .find("issuingTicketId", ticketId)).thenReturn(query);
     }
 
@@ -1709,10 +1735,10 @@ class PaymentServiceTest {
     private void stubNoGiftCards(
             org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache,
             long ticketId) {
-        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.StoredValue> empty =
+        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.payment.StoredValue> empty =
                 mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
         when(empty.list()).thenReturn(java.util.List.of());
-        panache.when(() -> com.intermarche.pos.domain.StoredValue
+        panache.when(() -> com.intermarche.pos.domain.payment.StoredValue
                 .find("issuingTicketId", ticketId)).thenReturn(empty);
     }
 
@@ -1817,8 +1843,8 @@ class PaymentServiceTest {
      * @param euroPerUnit how many euros one unit is worth
      * @return the currency
      */
-    private com.intermarche.pos.domain.Currency currency(String code, String symbol, String euroPerUnit) {
-        com.intermarche.pos.domain.Currency c = new com.intermarche.pos.domain.Currency();
+    private com.intermarche.pos.domain.payment.Currency currency(String code, String symbol, String euroPerUnit) {
+        com.intermarche.pos.domain.payment.Currency c = new com.intermarche.pos.domain.payment.Currency();
         c.code = code;
         c.symbol = symbol;
         c.euroPerUnit = new BigDecimal(euroPerUnit);
@@ -1964,8 +1990,8 @@ class PaymentServiceTest {
      * @param company the business name
      * @return the account customer
      */
-    private com.intermarche.pos.domain.AccountCustomer customer(String number, String company) {
-        com.intermarche.pos.domain.AccountCustomer c = new com.intermarche.pos.domain.AccountCustomer();
+    private com.intermarche.pos.domain.payment.AccountCustomer customer(String number, String company) {
+        com.intermarche.pos.domain.payment.AccountCustomer c = new com.intermarche.pos.domain.payment.AccountCustomer();
         c.accountNumber = number;
         c.companyName = company;
         return c;
@@ -2166,5 +2192,474 @@ class PaymentServiceTest {
         verifyNoInteractions(hardwareService);
         verifyNoInteractions(ticketPersistenceService);
         assertTrue(state.payment.payments.isEmpty());
+    }
+
+    // --- Assiette TR locale, portée par les attributs article (BO-02-03-06) ---
+
+    /**
+     * Adds a line to the cart with the given total and eligibility.
+     *
+     * @param total the line total
+     * @param eligible whether the article is meal-voucher eligible
+     */
+    private void cartLine(String total, boolean eligible) {
+        com.intermarche.pos.ui.ticket.TicketState.TicketItem item =
+                new com.intermarche.pos.ui.ticket.TicketState.TicketItem(
+                        "EAN" + state.ticket.items.size(), null, "ART",
+                        new java.math.BigDecimal(total), java.math.BigDecimal.ONE,
+                        new java.math.BigDecimal("0.055"));
+        item.mealVoucherEligible = eligible;
+        state.ticket.items.add(item);
+    }
+
+    /**
+     * WITHOUT an engine answer, the meal-ticket settlement is capped by what the
+     * ELIGIBLE lines are worth: a 20 € ticket carrying 8 € of eligible articles
+     * settles 8 €, not 20 €.
+     */
+    @Test
+    void processTicketRestoIsCappedByTheEligibleLines() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "LOCAL";
+        cartLine("8.00", true);
+        cartLine("12.00", false);
+        service.processTicketResto(state, new BigDecimal("20.00"));
+        assertEquals(0, new BigDecimal("8.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService).displayMessage("TR PLAFONNE  8,00 E");
+    }
+
+    /**
+     * A SECOND eligible base caps at another figure, which is what proves the
+     * cap is read from the lines and not hard-coded.
+     */
+    @Test
+    void aSecondEligibleBaseCapsElsewhere() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "LOCAL";
+        cartLine("5.50", true);
+        cartLine("14.50", false);
+        service.processTicketResto(state, new BigDecimal("20.00"));
+        assertEquals(0, new BigDecimal("5.50").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * A request that FITS the eligible base is registered as it stands, without
+     * a capping message (the {@code amount > allowed} false arm).
+     */
+    @Test
+    void aRequestFittingTheEligibleBaseIsRegisteredAsIs() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "LOCAL";
+        cartLine("8.00", true);
+        cartLine("12.00", false);
+        service.processTicketResto(state, new BigDecimal("3.00"));
+        assertEquals(0, new BigDecimal("3.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService, never()).displayMessage("TR PLAFONNE  8,00 E");
+    }
+
+    /**
+     * A cart carrying NO eligible line keeps the former behaviour — no cap at
+     * all — because an attribute nobody declared cannot state a base. The
+     * register is not made stricter by an empty referential.
+     */
+    @Test
+    void aCartWithoutAnEligibleLineIsNotCapped() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "LOCAL";
+        cartLine("20.00", false);
+        service.processTicketResto(state, new BigDecimal("20.00"));
+        assertEquals(0, new BigDecimal("20.00").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * The ENGINE still wins when it answered: it knows the offers, the
+     * attributes do not. A 10 € engine base caps above the 4 € the lines
+     * declare.
+     */
+    @Test
+    void theEngineBaseWinsOverTheLines() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("10.00");
+        cartLine("4.00", true);
+        cartLine("16.00", false);
+        service.processTicketResto(state, new BigDecimal("20.00"));
+        assertEquals(0, new BigDecimal("10.00").compareTo(state.payment.paidAmount));
+    }
+
+    // --------------------------------------------------
+    // Administered tender rules (BO-03-02-10 to -23)
+    // --------------------------------------------------
+
+    /**
+     * A blocking rule leaves the sale EXACTLY as it was: nothing registered,
+     * nothing persisted, nothing displayed, and the refusal on the screen
+     * (BO-03-02-10/12/13/14).
+     */
+    @Test
+    void aBlockingTenderRuleRegistersNothing() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.check(eq("CASH"), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                        "MONTANT SUPERIEUR AU PLAFOND (25,00 E)"));
+        service.processCash(state, new BigDecimal("40.00"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.paidAmount));
+        assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", state.ticket.transientError);
+        verify(ticketPersistenceService, never()).addPaymentToTicket(any(Long.class), any());
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * A rule that only informs lets the settlement through and tells the cashier
+     * afterwards — the other arm of the same guard.
+     */
+    @Test
+    void anInformativeTenderRuleRegistersAndSpeaks() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.check(eq("CASH"), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.INFO,
+                        "MONTANT SUPERIEUR AU PLAFOND (25,00 E)"));
+        service.processCash(state, new BigDecimal("40.00"));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", state.ticket.transientError);
+    }
+
+    /**
+     * The count opposed to a settlement is the number of settlements of THAT
+     * tender the sale already carries, not the number of settlements it carries
+     * (BO-03-02-12).
+     */
+    @Test
+    void theCountOpposedIsTheCountOfThatTender() {
+        state.ticket.totalAmount = new BigDecimal("60.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.addCashPayment(new BigDecimal("10.00"), new BigDecimal("10.00"));
+        state.payment.addPayment("TR", new BigDecimal("10.00"));
+        service.processCash(state, new BigDecimal("10.00"));
+        verify(tenderRulesService).check(eq("CASH"), any(), eq(1));
+    }
+
+    /**
+     * A tender the back office forbids change on settles what it settles and
+     * gives nothing back (BO-03-02-16).
+     */
+    @Test
+    void aTenderForbiddenChangeGivesNoneBack() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.changeAllowed(eq("CASH"), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(false);
+        service.processCash(state, new BigDecimal("50.00"));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.lastChangeAmount));
+        verify(hardwareService).displayMessage("ESPECES   20,00 E");
+    }
+
+    /**
+     * A change ceiling that blocks refuses the settlement rather than capping
+     * the change, the drawer staying shut (BO-03-02-11).
+     */
+    @Test
+    void aBlockingChangeCeilingRefusesTheSettlement() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.checkChange(eq("CASH"), any()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                        "RENDU SUPERIEUR AU PLAFOND (8,00 E)"));
+        service.processCash(state, new BigDecimal("50.00"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals("RENDU SUPERIEUR AU PLAFOND (8,00 E)", state.ticket.transientError);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * The drawer follows the ADMINISTERED moment: a tender administered to open
+     * only on change keeps it shut on an exact settlement and opens it when
+     * change is owed (BO-03-02-19).
+     */
+    @Test
+    void theDrawerFollowsTheAdministeredMoment() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.opensDrawer(eq("CASH"), eq(false), eq(false),
+                org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(false);
+        service.processCash(state, new BigDecimal("20.00"));
+        verify(hardwareService, never()).openDrawer();
+
+        state.payment.reset();
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.opensDrawer(eq("CASH"), eq(true), eq(false),
+                org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(true);
+        service.processCash(state, new BigDecimal("50.00"));
+        verify(hardwareService).openDrawer();
+    }
+
+    /**
+     * The moment is asked with the change the settlement actually produced, so a
+     * tender administered on the change can tell the two cases apart.
+     */
+    @Test
+    void theDrawerMomentIsAskedWithTheChangeThatWasGiven() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processCash(state, new BigDecimal("50.00"));
+        verify(tenderRulesService).opensDrawer(eq("CASH"), eq(true), eq(false),
+                org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    // --------------------------------------------------
+    // Supervisor override of an administered bound (BO-03-02-10/12/13/14)
+    // --------------------------------------------------
+
+    /**
+     * Stubs the bound check of one tender to the given verdict.
+     *
+     * @param methodKey the settlement key
+     * @param level the control level the rule carries
+     * @param message what the cashier is told
+     */
+    private void ruleOn(String methodKey,
+            com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel level,
+            String message) {
+        when(tenderRulesService.check(eq(methodKey), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(level, message));
+    }
+
+    /**
+     * A rule at the supervisor level HOLDS the settlement instead of losing it:
+     * nothing is registered, and the sale carries what the supervisor must
+     * decide on — the tender, its label, the amount and the rule broken.
+     */
+    @Test
+    void aSupervisorRuleHoldsTheSettlement() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "MONTANT SUPERIEUR AU PLAFOND (25,00 E)");
+        service.processCash(state, new BigDecimal("40.00"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertTrue(state.payment.isTenderAuthorizationPending());
+        assertEquals("CASH", state.payment.tenderHeldMethod);
+        assertEquals("ESPECES", state.payment.tenderHeldLabel);
+        assertEquals(0, new BigDecimal("40.00").compareTo(state.payment.tenderHeldAmount));
+        assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", state.payment.tenderHeldMessage);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * A rule at the blocking level is never held: nobody passes it, so no
+     * authorization is asked for — the other arm of the same guard.
+     */
+    @Test
+    void aBlockingRuleIsNeverHeld() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                "MONTANT SUPERIEUR AU PLAFOND (25,00 E)");
+        service.processCash(state, new BigDecimal("40.00"));
+        assertFalse(state.payment.isTenderAuthorizationPending());
+        assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", state.ticket.transientError);
+    }
+
+    /**
+     * A supervisor authorizing the hold registers the settlement THAT WAS HELD,
+     * opens the drawer for it and clears the hold.
+     */
+    @Test
+    void anAuthorizedHoldRegistersTheHeldSettlement() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "MONTANT SUPERIEUR AU PLAFOND (25,00 E)");
+        service.processCash(state, new BigDecimal("40.00"));
+        when(endorsementService.authorize(eq("chef"), eq("secret"), any())).thenReturn(true);
+
+        assertTrue(service.authorizeHeldTender(state, "chef", "secret"));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals(0, new BigDecimal("40.00").compareTo(state.payment.paidAmount));
+        assertFalse(state.payment.isTenderAuthorizationPending());
+        assertNull(state.payment.tenderOverride);
+        verify(hardwareService).openDrawer();
+    }
+
+    /**
+     * A logged operator who IS a supervisor authorizes without typing anything —
+     * the other leg of the credential disjunction.
+     */
+    @Test
+    void aSupervisorAtTheTillAuthorizesWithoutCredentials() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "PLAFOND");
+        service.processCash(state, new BigDecimal("40.00"));
+        when(endorsementService.operatorIsSupervisor(state)).thenReturn(true);
+
+        assertTrue(service.authorizeHeldTender(state, null, null));
+        assertEquals(1, state.payment.payments.size());
+    }
+
+    /**
+     * A refused credential registers nothing, keeps the hold and says so.
+     */
+    @Test
+    void aRefusedCredentialKeepsTheHold() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "PLAFOND");
+        service.processCash(state, new BigDecimal("40.00"));
+
+        assertFalse(service.authorizeHeldTender(state, "quidam", "faux"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertTrue(state.payment.isTenderAuthorizationPending());
+        assertEquals("AUTORISATION REFUSEE", state.payment.tenderHeldMessage);
+    }
+
+    /**
+     * Authorizing when nothing is held does nothing at all, and never asks for a
+     * credential — the two legs of the guard.
+     */
+    @Test
+    void authorizingNothingDoesNothing() {
+        assertFalse(service.authorizeHeldTender(state, "chef", "secret"));
+        state.payment.tenderHeldMethod = "CASH";
+        assertFalse(service.authorizeHeldTender(state, "chef", "secret"));
+        verifyNoInteractions(endorsementService);
+    }
+
+    /**
+     * An authorization covers ONE tender: a hold released on cash does not let a
+     * meal voucher past its own supervisor rule.
+     */
+    @Test
+    void anAuthorizationCoversOnlyItsOwnTender() {
+        state.ticket.totalAmount = new BigDecimal("60.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "LOCAL";
+        state.payment.tenderOverride = "CASH";
+        ruleOn("TR", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "PLAFOND TR");
+        service.processTicketResto(state, new BigDecimal("30.00"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals("TR", state.payment.tenderHeldMethod);
+    }
+
+    /**
+     * Abandoning the hold forgets the settlement and the authorization alike.
+     */
+    @Test
+    void abandoningTheHoldForgetsEverything() {
+        state.payment.tenderHeldMethod = "CASH";
+        state.payment.tenderHeldAmount = new BigDecimal("40.00");
+        state.payment.tenderOverride = "CASH";
+        service.cancelHeldTender(state);
+        assertFalse(state.payment.isTenderAuthorizationPending());
+        assertNull(state.payment.tenderOverride);
+        assertNull(state.payment.tenderHeldAmount);
+    }
+
+    // --------------------------------------------------
+    // Change given as a credit note (BO-03-02-16)
+    // --------------------------------------------------
+
+    /**
+     * A tender administered to give its change back in vouchers books the change
+     * instead of handing cash over, and says so on the customer display.
+     */
+    @Test
+    void changeAdministeredAsAVoucherIsBookedNotHandedOver() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.changeTender("CASH")).thenReturn("VOUCHER");
+        service.processCash(state, new BigDecimal("50.00"));
+        assertEquals(0, new BigDecimal("30.00").compareTo(state.payment.changeAsCreditNote));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.lastChangeAmount));
+        verify(hardwareService).displayMessage("RENDU EN AVOIR 30,00 E");
+    }
+
+    /**
+     * A tender whose change stays in its own tender books nothing — the other
+     * arm of the same guard.
+     */
+    @Test
+    void changeInTheTenderItselfBooksNoNote() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.changeTender("CASH")).thenReturn("CASH");
+        service.processCash(state, new BigDecimal("50.00"));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.changeAsCreditNote));
+        assertEquals(0, new BigDecimal("30.00").compareTo(state.payment.lastChangeAmount));
+    }
+
+    /**
+     * An exact settlement books no note whatever the administered change tender
+     * — the amount leg of the same guard.
+     */
+    @Test
+    void anExactSettlementBooksNoNote() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.changeTender("CASH")).thenReturn("VOUCHER");
+        service.processCash(state, new BigDecimal("20.00"));
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.payment.changeAsCreditNote));
+    }
+
+    /**
+     * The booked change becomes a NUMBERED credit note at the fiscal moment, is
+     * printed with its number, and stops being owed.
+     */
+    @Test
+    void theBookedChangeBecomesACreditNoteAtTheFiscalMoment() {
+        state.payment.ticketDbId = 9L;
+        state.payment.changeAsCreditNote = new BigDecimal("30.00");
+        when(ticketPersistenceService.issueChangeCreditNote(eq(9L), any()))
+                .thenReturn("297000000000042");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPersistenceService).issueChangeCreditNote(9L, new BigDecimal("30.00"));
+        verify(ticketPrinterService).printChangeVoucher("297000000000042", new BigDecimal("30.00"));
+    }
+
+    /**
+     * A sale owing no change as a note issues none, and a registry that answers
+     * no number prints nothing — the two legs of the issuance guard.
+     */
+    @Test
+    void aSaleOwingNoNoteIssuesNone() {
+        state.payment.ticketDbId = 9L;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPersistenceService, never()).issueChangeCreditNote(any(), any());
+
+        state.payment.ticketDbId = 11L;
+        state.payment.changeAsCreditNote = new BigDecimal("5.00");
+        when(ticketPersistenceService.issueChangeCreditNote(eq(11L), any())).thenReturn(null);
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 11L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPrinterService, never()).printChangeVoucher(any(), any());
     }
 }

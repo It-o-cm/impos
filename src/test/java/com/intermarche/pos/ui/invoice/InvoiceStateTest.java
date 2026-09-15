@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.sale.Ticket;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.reprintticket;
 
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
@@ -14,6 +14,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the reprint screen, under its own {@code /reprint}
@@ -25,6 +26,10 @@ import java.net.URI;
 @Path("/reprint")
 @DrawerMustBeClosed
 public class ReprintResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ReprintResource.class);
+
     @Inject
     PosState state;
     @Inject ReprintService reprintService;
@@ -43,7 +48,9 @@ public class ReprintResource {
      * @return the reprint page
      */
     public TemplateInstance showReprintPage() {
+        LOGGER.info("Entering method showReprintPage");
         reprintService.loadHistory();
+        LOGGER.info("Exiting method showReprintPage");
         return reprintTicketPage.data("state", state);
     }
 
@@ -55,8 +62,10 @@ public class ReprintResource {
      * @return the reprint page
      */
     public TemplateInstance reprintPrevPage() {
+        LOGGER.info("Entering method reprintPrevPage");
         if (state.reprint.isHasListPrev()) state.reprint.listPage--;
         state.touch();
+        LOGGER.info("Exiting method reprintPrevPage");
         return reprintTicketPage.data("state", state);
     }
 
@@ -68,8 +77,10 @@ public class ReprintResource {
      * @return the reprint page
      */
     public TemplateInstance reprintNextPage() {
+        LOGGER.info("Entering method reprintNextPage");
         if (state.reprint.isHasListNext()) state.reprint.listPage++;
         state.touch();
+        LOGGER.info("Exiting method reprintNextPage");
         return reprintTicketPage.data("state", state);
     }
 
@@ -82,11 +93,13 @@ public class ReprintResource {
      * @return the reprint page on its detail view
      */
     public TemplateInstance showReprintDetail(@PathParam("id") Long id) {
+        LOGGER.info("Entering method showReprintDetail with id: " + id);
         Ticket t = Ticket.findById(id);
         if (t != null) {
             state.reprint.setViewedTicket(t);
         }
         state.touch();
+        LOGGER.info("Exiting method showReprintDetail");
         return reprintDetailPage.data("state", state);
     }
 
@@ -99,11 +112,14 @@ public class ReprintResource {
      * @return the reprint page on its detail view
      */
     public TemplateInstance detailPrevPage(@PathParam("id") Long id) {
+        LOGGER.info("Entering method detailPrevPage with id: " + id);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            LOGGER.info("Exiting method detailPrevPage");
             return showReprintDetail(id);
         }
         if (state.reprint.isHasDetailPrev()) state.reprint.detailPage--;
         state.touch();
+        LOGGER.info("Exiting method detailPrevPage");
         return reprintDetailPage.data("state", state);
     }
 
@@ -116,11 +132,14 @@ public class ReprintResource {
      * @return the reprint page on its detail view
      */
     public TemplateInstance detailNextPage(@PathParam("id") Long id) {
+        LOGGER.info("Entering method detailNextPage with id: " + id);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            LOGGER.info("Exiting method detailNextPage");
             return showReprintDetail(id);
         }
         if (state.reprint.isHasDetailNext()) state.reprint.detailPage++;
         state.touch();
+        LOGGER.info("Exiting method detailNextPage");
         return reprintDetailPage.data("state", state);
     }
 
@@ -134,7 +153,9 @@ public class ReprintResource {
      */
     @Path("/print/{id}")
     public Response doReprint(@PathParam("id") Long id) {
+        LOGGER.info("Entering method doReprint with id: " + id);
         reprintService.print(id);
+        LOGGER.info("Exiting method doReprint");
         return Response.seeOther(URI.create("/reprint/view/" + id)).build();
     }
 
@@ -148,10 +169,13 @@ public class ReprintResource {
     @Path("/view/{id}/exchange")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance startExchange(@PathParam("id") Long id) {
+        LOGGER.info("Entering method startExchange with id: " + id);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            LOGGER.info("Exiting method startExchange");
             return showReprintDetail(id);
         }
         reprintService.startExchange();
+        LOGGER.info("Exiting method startExchange");
         return reprintDetailPage.data("state", state);
     }
 
@@ -165,7 +189,9 @@ public class ReprintResource {
     @Path("/view/{id}/exchange/cancel")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance cancelExchange(@PathParam("id") Long id) {
+        LOGGER.info("Entering method cancelExchange with id: " + id);
         reprintService.cancelExchange();
+        LOGGER.info("Exiting method cancelExchange");
         return showReprintDetail(id);
     }
 
@@ -181,10 +207,13 @@ public class ReprintResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance toggleExchangeLine(@PathParam("id") Long id,
             @PathParam("lineId") Long lineId) {
+        LOGGER.info("Entering method toggleExchangeLine with id: " + id + ", lineId: " + lineId);
         if (state.reprint.viewedTicket == null || !state.reprint.viewedTicket.id.equals(id)) {
+            LOGGER.info("Exiting method toggleExchangeLine");
             return showReprintDetail(id);
         }
         reprintService.toggleExchangeLine(lineId);
+        LOGGER.info("Exiting method toggleExchangeLine");
         return reprintDetailPage.data("state", state);
     }
 
@@ -198,7 +227,9 @@ public class ReprintResource {
     @GET
     @Path("/view/{id}/exchange/print")
     public Response printExchange(@PathParam("id") Long id) {
+        LOGGER.info("Entering method printExchange with id: " + id);
         reprintService.printExchange(id);
+        LOGGER.info("Exiting method printExchange");
         return Response.seeOther(URI.create("/reprint/view/" + id)).build();
     }
 
@@ -211,7 +242,9 @@ public class ReprintResource {
     @Path("/foreign")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance showForeign() {
+        LOGGER.info("Entering method showForeign");
         reprintService.startForeign();
+        LOGGER.info("Exiting method showForeign");
         return reprintForeignPage.data("state", state);
     }
 
@@ -227,7 +260,9 @@ public class ReprintResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance printForeign(
             @jakarta.ws.rs.FormParam("ticketNumber") String ticketNumber) {
+        LOGGER.info("Entering method printForeign with ticketNumber: " + ticketNumber);
         reprintService.printForeign(ticketNumber);
+        LOGGER.info("Exiting method printForeign");
         return reprintForeignPage.data("state", state);
     }
 }

@@ -1,10 +1,11 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * Feeds the FRUITS &amp; LÉGUMES weighing screen: the grid of PLU products
@@ -14,6 +15,9 @@ import java.util.List;
  */
 @ApplicationScoped
 public class FruitService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(FruitService.class);
 
     /**
      * Family flag marking the Fruits &amp; Légumes aisle. Resolved through the
@@ -33,6 +37,7 @@ public class FruitService {
      * @return the weighable Fruits &amp; Légumes catalog
      */
     public List<Product> getPluProducts() {
+        LOGGER.info("Entering method getPluProducts");
         List<Product> weighable =
                 Product.list("variableWeight = true and plu is not null and active = true");
         List<Product> result = new ArrayList<>();
@@ -41,6 +46,7 @@ public class FruitService {
                 result.add(product);
             }
         }
+        LOGGER.info("Exiting method getPluProducts");
         return result;
     }
 }

@@ -1,7 +1,7 @@
 package com.intermarche.pos.imports;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.annotation.security.RolesAllowed;
@@ -83,6 +83,8 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
     @Produces(MediaType.APPLICATION_JSON)
     @RolesAllowed("ADMIN")
     public Response importProductFamilies(InputStream inputStream) {
+        LOGGER.info("Entering method importProductFamilies with inputStream: " + inputStream);
+        LOGGER.info("Exiting method importProductFamilies");
         return this.importCsvStream(inputStream, COL_CODE, REQUIRED_COLUMNS);
     }
 

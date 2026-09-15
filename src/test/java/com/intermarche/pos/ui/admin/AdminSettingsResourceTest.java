@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -123,6 +123,7 @@ class AdminSettingsResourceTest {
             {"balance.counter-price",               "TICKET COMPTOIR",            "b", ""},
             {"cash.rounding-step-cents",            "ARRONDI ESPECES",            "",  "i"},
             {"credit.allowed-in-degraded",          "CREDIT CLIENT",              "b", ""},
+            {"customer.account-pattern",            "CREDIT CLIENT",              "",  ""},
             {"credit.degraded-after-minutes",       "CREDIT CLIENT",              "",  "i"},
             {"scan.ean13-check-digit",              "SCAN",                       "b", ""},
             {"dashboard.alerts-enabled",            "SUPERVISION",                "b", ""},
@@ -157,6 +158,14 @@ class AdminSettingsResourceTest {
             {"ticket.vat-breakdown-enabled",        "TICKETS",                    "b", ""},
             {"fidelity.external-enabled",           "FIDÉLITÉ",                   "b", ""},
             {"cash.movement-tenders",               "MOUVEMENTS DE CAISSE",       "",  ""},
+            {"discount.line-max-amount",            "GESTES DE PRIX",             "",  ""},
+            {"discount.global-max-amount",          "GESTES DE PRIX",             "",  ""},
+            {"fidelity.show-holder-name",           "FIDÉLITÉ",                   "b", ""},
+            {"fidelity.card-pattern",               "FIDÉLITÉ",                   "",  ""},
+            {"fidelity.jv-promotion-enabled",       "FIDÉLITÉ",                   "b", ""},
+            {"fidelity.url",                        "FIDÉLITÉ",                   "",  ""},
+            {"fidelity.user",                       "FIDÉLITÉ",                   "",  ""},
+            {"training.theme",                      "MODE ÉCOLE",                 "",  ""},
         };
         assertEquals(expected.length, entries.size());
         String previousSection = null;

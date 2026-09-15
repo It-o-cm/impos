@@ -1,9 +1,9 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Country;
-import com.intermarche.pos.domain.EchelonLevel;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
 import com.intermarche.pos.service.EchelonSettingService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;

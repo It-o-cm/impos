@@ -71,7 +71,40 @@ public class ImfidClient {
      * @return true when a base URL is present and the external loyalty is active
      */
     public boolean isConfigured() {
-        return url.isPresent() && posSettingsService.fidelityExternalEnabled();
+        return baseUrl() != null && posSettingsService.fidelityExternalEnabled();
+    }
+
+    /**
+     * Resolves the loyalty service base URL (BO-11-04-04): the ADMINISTERED
+     * value wins, so an echelon can point its registers at another endpoint
+     * without a redeployment, and the {@code pos.fid.url} deployment property
+     * remains the fallback for a node that administers none.
+     *
+     * @return the base URL, or null when none is configured
+     */
+    String baseUrl() {
+        String administered = posSettingsService != null ? posSettingsService.fidelityUrl() : null;
+        if (administered != null && !administered.isBlank()) {
+            return administered.trim();
+        }
+        return url.orElse(null);
+    }
+
+    /**
+     * Resolves the Basic-auth user of the POS machine account (BO-11-04-04):
+     * the ADMINISTERED value wins, the {@code pos.fid.user} deployment property
+     * is the fallback. The PASSWORD is deliberately NOT administrable — it
+     * would travel in clear in the referential snapshot and show on the admin
+     * page — and stays a deployment secret.
+     *
+     * @return the Basic-auth user, or null when none is configured
+     */
+    String authUser() {
+        String administered = posSettingsService != null ? posSettingsService.fidelityUser() : null;
+        if (administered != null && !administered.isBlank()) {
+            return administered.trim();
+        }
+        return user.orElse(null);
     }
 
     /**
@@ -80,7 +113,7 @@ public class ImfidClient {
      * @return the base URL, or null when fidelity is disabled
      */
     public String targetUrl() {
-        return url.orElse(null);
+        return baseUrl();
     }
 
     /**
@@ -90,12 +123,13 @@ public class ImfidClient {
      * @return true when imfid answers 200 within the timeout
      */
     public boolean health() {
-        if (url.isEmpty()) {
+        String base = baseUrl();
+        if (base == null) {
             return false;
         }
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url.get() + "/q/health"))
+                    .uri(URI.create(base + "/q/health"))
                     .timeout(Duration.ofMillis(1500))
                     .GET()
                     .build();
@@ -356,11 +390,16 @@ public class ImfidClient {
      * @return the builder, Basic header set when credentials are configured
      */
     private HttpRequest.Builder authenticated(String path) {
+        String base = baseUrl();
+        if (base == null) {
+            throw new java.util.NoSuchElementException("No value present");
+        }
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url.orElseThrow() + path));
-        if (user.isPresent() && password.isPresent()) {
+                .uri(URI.create(base + path));
+        String authUser = authUser();
+        if (authUser != null && password.isPresent()) {
             builder.header("Authorization", "Basic " + Base64.getEncoder()
-                    .encodeToString((user.get() + ":" + password.get()).getBytes()));
+                    .encodeToString((authUser + ":" + password.get()).getBytes()));
         }
         return builder;
     }

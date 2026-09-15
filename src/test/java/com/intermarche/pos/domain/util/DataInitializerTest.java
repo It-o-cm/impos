@@ -1,11 +1,11 @@
 package com.intermarche.pos.domain.util;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import java.util.HashSet;

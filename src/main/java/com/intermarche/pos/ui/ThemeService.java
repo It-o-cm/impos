@@ -1,13 +1,14 @@
 package com.intermarche.pos.ui;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InstanceHandle;
 import io.quarkus.arc.Unremovable;
 import io.quarkus.qute.TemplateGlobal;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 /**
  * Resolves the display theme of the register's screens (phase: multi-theme).
@@ -32,6 +33,9 @@ import jakarta.inject.Inject;
              // first themed rendering dies on an empty instance handle.
 public class ThemeService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ThemeService.class);
+
     /** The built-in default theme name (the historical dark look). */
     public static final String DEFAULT_THEME = "sombre";
 
@@ -44,22 +48,43 @@ public class ThemeService {
     @Inject
     PosState state;
 
+    /** Administered settings — carries the training-mode theme (BO-10-07-08). */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /**
      * Resolves the current theme name for this register's screens.
+     * <p>
+     * BO-10-07-08: in TRAINING mode the administered training theme, when the
+     * store names one, wins over the whole chain below — the school screen is
+     * then visibly another screen than the sale one, and which one it is comes
+     * from the back office rather than from the code. Left blank, training
+     * keeps the ordinary resolution and the banner alone marks it.
      *
      * @return the data-theme value to render (never null)
      */
     public String currentTheme() {
+        LOGGER.info("Entering method currentTheme");
+        if (state.trainingMode) {
+            String trainingTheme = posSettingsService.trainingTheme();
+            if (trainingTheme != null && !trainingTheme.isBlank()) {
+                LOGGER.info("Exiting method currentTheme");
+                return trainingTheme.trim();
+            }
+        }
         if (state.auth != null && state.auth.operatorId != null) {
             Employee operator = Employee.findById(state.auth.operatorId);
             if (operator != null && operator.theme != null && !operator.theme.isBlank()) {
+                LOGGER.info("Exiting method currentTheme");
                 return operator.theme;
             }
         }
         Store store = Store.findAll().firstResult();
         if (store != null && store.theme != null && !store.theme.isBlank()) {
+            LOGGER.info("Exiting method currentTheme");
             return store.theme;
         }
+        LOGGER.info("Exiting method currentTheme");
         return DEFAULT_THEME;
     }
 
@@ -72,15 +97,19 @@ public class ThemeService {
      */
     @jakarta.transaction.Transactional
     public void setThemeForOperator(String themeName) {
+        LOGGER.info("Entering method setThemeForOperator with themeName: " + themeName);
         if (state.auth == null || state.auth.operatorId == null) {
+            LOGGER.info("Exiting method setThemeForOperator");
             return;
         }
         Employee operator = Employee.findById(state.auth.operatorId);
         if (operator == null) {
+            LOGGER.info("Exiting method setThemeForOperator");
             return;
         }
         operator.theme = (themeName != null && AVAILABLE_THEMES.contains(themeName)) ? themeName : null;
         state.touch();
+        LOGGER.info("Exiting method setThemeForOperator");
     }
 
     /**

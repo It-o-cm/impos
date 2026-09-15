@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui;
 
-import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.service.CashSessionService;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Response;

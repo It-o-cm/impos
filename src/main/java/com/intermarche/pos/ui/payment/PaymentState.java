@@ -187,6 +187,71 @@ public class PaymentState implements Serializable {
     /** The current voucher entry error, or null. */
     public String voucherError = null;
 
+    // --------------------------------------------------
+    // Administered tender rules (BO-03-02-10/12/13/14/16)
+    // --------------------------------------------------
+
+    /**
+     * The settlement key held back for a supervisor's authorization, or null
+     * while none is (BO-03-02-10/12/13/14, control level "bloquant superviseur").
+     *
+     * <p>Held rather than refused, and held HERE rather than replayed from the
+     * screen: the supervisor authorizes the settlement the cashier actually
+     * asked for, not whatever the pad happens to show when they arrive.
+     */
+    public String tenderHeldMethod = null;
+
+    /** The label the held settlement shows on the customer display, or null. */
+    public String tenderHeldLabel = null;
+
+    /** The amount handed over for the held settlement, or null when none is held. */
+    public BigDecimal tenderHeldAmount = null;
+
+    /** The rule the held settlement broke, shown in the authorization panel. */
+    public String tenderHeldMessage = null;
+
+    /**
+     * The settlement key a supervisor has just authorized, or null.
+     *
+     * <p>Consumed by the very next registration of that tender and cleared at
+     * once: an authorization that survived its settlement would apply to
+     * whatever the cashier typed next.
+     */
+    public String tenderOverride = null;
+
+    /**
+     * The change this sale owes as a CREDIT NOTE rather than in cash
+     * (BO-03-02-16), accumulated over the sale.
+     *
+     * <p>Accumulated and issued at the fiscal moment only, exactly like the gift
+     * cards sold on the ticket: an abandoned sale never creates value.
+     */
+    public BigDecimal changeAsCreditNote = BigDecimal.ZERO;
+
+    /**
+     * Tells whether a settlement is waiting for a supervisor to allow an
+     * administered bound to be passed.
+     *
+     * @return true while a settlement is held back
+     */
+    public boolean isTenderAuthorizationPending() {
+        return tenderHeldMethod != null;
+    }
+
+    /**
+     * Abandons the settlement held back for a supervisor's authorization.
+     *
+     * <p>The granted override goes with it, deliberately: an authorization kept
+     * past the settlement it was given for is an authorization for the next one.
+     */
+    public void clearTenderHold() {
+        tenderHeldMethod = null;
+        tenderHeldLabel = null;
+        tenderHeldAmount = null;
+        tenderHeldMessage = null;
+        tenderOverride = null;
+    }
+
     /**
      * Registers a plain payment (card, cheque, meal ticket, fidelity...).
      *
@@ -335,7 +400,7 @@ public class PaymentState implements Serializable {
     public boolean currencyPanelOpen = false;
 
     /** The currency the operator selected, or null while none is. */
-    public com.intermarche.pos.domain.Currency selectedCurrency = null;
+    public com.intermarche.pos.domain.payment.Currency selectedCurrency = null;
 
     /** The refusal shown inside the currency panel, or null. */
     public String currencyError = null;
@@ -404,13 +469,13 @@ public class PaymentState implements Serializable {
     public String creditSearch = "";
 
     /** The accounts matching the last search, empty before any. */
-    public List<com.intermarche.pos.domain.AccountCustomer> creditCustomers = new ArrayList<>();
+    public List<com.intermarche.pos.domain.payment.AccountCustomer> creditCustomers = new ArrayList<>();
 
     /** True once a search ran, so an empty list can be told from "not searched yet". */
     public boolean creditSearched = false;
 
     /** The account the operator confirmed, or null while none is named. */
-    public com.intermarche.pos.domain.AccountCustomer creditCustomer = null;
+    public com.intermarche.pos.domain.payment.AccountCustomer creditCustomer = null;
 
     /** The refusal or warning shown inside the credit panel, or null. */
     public String creditError = null;
@@ -426,7 +491,7 @@ public class PaymentState implements Serializable {
      *
      * @return at most {@link #CREDIT_ROWS} accounts
      */
-    public List<com.intermarche.pos.domain.AccountCustomer> getVisibleCreditCustomers() {
+    public List<com.intermarche.pos.domain.payment.AccountCustomer> getVisibleCreditCustomers() {
         return creditCustomers.size() <= CREDIT_ROWS
                 ? creditCustomers
                 : creditCustomers.subList(0, CREDIT_ROWS);
@@ -511,6 +576,8 @@ public class PaymentState implements Serializable {
         valuationMealThreshold = null;
         valuationUpsells = new java.util.ArrayList<>();
         lastChangeAmount = null; // Cleared only here (full new transaction)
+        changeAsCreditNote = BigDecimal.ZERO;
+        clearTenderHold();
         clearPendingVoucher();
     }
 

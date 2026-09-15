@@ -1,12 +1,12 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.CrudOption;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.EmployeeProfile;
-import com.intermarche.pos.domain.Feature;
-import com.intermarche.pos.domain.Profile;
-import com.intermarche.pos.domain.ProfileGrant;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.people.CrudOption;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.people.EmployeeProfile;
+import com.intermarche.pos.domain.setting.Feature;
+import com.intermarche.pos.domain.people.Profile;
+import com.intermarche.pos.domain.people.ProfileGrant;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.narayana.jta.QuarkusTransaction;

@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.hardware;
 
-import com.intermarche.pos.domain.attribute.ProductAttributes;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

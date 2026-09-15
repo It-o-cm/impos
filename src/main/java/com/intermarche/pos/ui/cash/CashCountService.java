@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.cash;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * Provides the denomination lists of the drawer-count page (Z closing).
@@ -16,17 +17,22 @@ import java.util.List;
 @ApplicationScoped
 public class CashCountService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(CashCountService.class);
+
     /**
      * Returns the banknote denominations, largest first.
      *
      * @return the banknote entries
      */
     public List<CashItem> getBills() {
+        LOGGER.info("Entering method getBills");
         List<CashItem> items = new ArrayList<>();
         items.add(new CashItem("b50", "Billet 50 €", 50.0));
         items.add(new CashItem("b20", "Billet 20 €", 20.0));
         items.add(new CashItem("b10", "Billet 10 €", 10.0));
         items.add(new CashItem("b5",  "Billet 5 €",  5.0));
+        LOGGER.info("Exiting method getBills");
         return items;
     }
 
@@ -36,6 +42,7 @@ public class CashCountService {
      * @return the coin entries
      */
     public List<CashItem> getCoins() {
+        LOGGER.info("Entering method getCoins");
         List<CashItem> items = new ArrayList<>();
         items.add(new CashItem("c2",   "Pièce 2 €",    2.0));
         items.add(new CashItem("c1",   "Pièce 1 €",    1.0));
@@ -45,6 +52,7 @@ public class CashCountService {
         items.add(new CashItem("c005", "Pièce 0,05 €", 0.05));
         items.add(new CashItem("c002", "Pièce 0,02 €", 0.02));
         items.add(new CashItem("c001", "Pièce 0,01 €", 0.01));
+        LOGGER.info("Exiting method getCoins");
         return items;
     }
 
@@ -54,6 +62,7 @@ public class CashCountService {
      * @return the roll entries
      */
     public List<CashItem> getRolls() {
+        LOGGER.info("Entering method getRolls");
         List<CashItem> items = new ArrayList<>();
         items.add(new CashItem("r2",   "Rouleau 2€ (50€)",  50.0));
         items.add(new CashItem("r1",   "Rouleau 1€ (25€)",  25.0));
@@ -61,6 +70,7 @@ public class CashCountService {
         items.add(new CashItem("r020", "Rouleau 0.20€ (8€)",  8.0));
         items.add(new CashItem("r010", "Rouleau 0.10€ (4€)",  4.0));
         items.add(new CashItem("r005", "Rouleau 0.05€ (2€)",  2.0));
+        LOGGER.info("Exiting method getRolls");
         return items;
     }
 }

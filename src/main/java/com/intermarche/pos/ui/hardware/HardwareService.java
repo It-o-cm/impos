@@ -144,6 +144,7 @@ public class HardwareService {
      * @return the four device statuses, in display order
      */
     public java.util.List<DeviceStatus> probeDevices() {
+        LOGGER.info("Entering method probeDevices");
         Availability scale = probe(() -> hardwareClient.getWeight());
         Availability drawer = probe(() -> hardwareClient.getDrawerStatus());
         Availability display = customerScreenPresent()
@@ -152,6 +153,7 @@ public class HardwareService {
         boolean bridgeAnswered = scale != Availability.FAILED
                 || drawer != Availability.FAILED
                 || display != Availability.FAILED;
+        LOGGER.info("Exiting method probeDevices");
         return java.util.List.of(
                 new DeviceStatus("BALANCE", scale),
                 new DeviceStatus("TIROIR-CAISSE", drawer),
@@ -250,11 +252,14 @@ public class HardwareService {
      * @return the weight in kilograms, or 0.0 on any failure
      */
     public double requestWeighing() {
+        LOGGER.info("Entering method requestWeighing");
         try {
             String weightStr = hardwareClient.getWeight();
+            LOGGER.info("Exiting method requestWeighing");
             return Double.parseDouble(weightStr.replace(',', '.'));
         } catch (Exception e) {
             LOGGER.error("Erreur de communication avec la balance", e);
+            LOGGER.info("Exiting method requestWeighing");
             return 0.0;
         }
     }
@@ -275,6 +280,7 @@ public class HardwareService {
      * @param message the message to display
      */
     public void displayMessage(String message) {
+        LOGGER.info("Entering method displayMessage with message: " + message);
         state.customerMessage = message == null ? "" : message;
         state.touch();
         try {
@@ -286,18 +292,21 @@ public class HardwareService {
         } catch (Exception e) {
             LOGGER.error("Erreur d'affichage", e);
         }
+        LOGGER.info("Exiting method displayMessage");
     }
 
     /**
      * Fires the drawer-opening pulse.
      */
     public void openDrawer() {
+        LOGGER.info("Entering method openDrawer");
         try {
             hardwareClient.openDrawer();
             LOGGER.info("Ordre d'ouverture du tiroir envoyé.");
         } catch (Exception e) {
             LOGGER.error("Erreur lors de l'ouverture du tiroir", e);
         }
+        LOGGER.info("Exiting method openDrawer");
     }
 
     /**
@@ -307,11 +316,14 @@ public class HardwareService {
      *         on failure — a dead sensor never locks the register
      */
     public boolean isDrawerOpen() {
+        LOGGER.info("Entering method isDrawerOpen");
         try {
             String status = hardwareClient.getDrawerStatus();
+            LOGGER.info("Exiting method isDrawerOpen");
             return "OPEN".equalsIgnoreCase(status);
         } catch (Exception e) {
             LOGGER.error("Erreur de communication avec le tiroir", e);
+            LOGGER.info("Exiting method isDrawerOpen");
             return false; // Sécurité : en cas d'erreur, on ne bloque pas la caisse
         }
     }
@@ -322,23 +334,27 @@ public class HardwareService {
      * @param content the 42-column formatted text
      */
     public void printReceipt(String content) {
+        LOGGER.info("Entering method printReceipt with content: " + content);
         try {
             hardwareClient.printTicket(content);
             LOGGER.info("Ticket envoyé à l'imprimante.");
         } catch (Exception e) {
             LOGGER.error("Erreur d'impression", e);
         }
+        LOGGER.info("Exiting method printReceipt");
     }
 
     /**
      * Cuts the printer paper.
      */
     public void cutPaper() {
+        LOGGER.info("Entering method cutPaper");
         try {
             hardwareClient.cutPaper();
             LOGGER.info("Coupe papier envoyée.");
         } catch (Exception e) {
             LOGGER.error("Erreur coupe papier", e);
         }
+        LOGGER.info("Exiting method cutPaper");
     }
 }

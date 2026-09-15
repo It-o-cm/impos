@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * Feeds the SAISIE DIRECTE screen: a drill-down of the family tree showing
@@ -34,6 +35,9 @@ import java.util.Set;
  */
 @ApplicationScoped
 public class ManualService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ManualService.class);
 
     /** The page size used when no settings service is wired (unit context). */
     static final int DEFAULT_PER_PAGE = 12;
@@ -131,6 +135,7 @@ public class ManualService {
      * @return the root level
      */
     public ManualViewData getManualRootData(int page) {
+        LOGGER.info("Entering method getManualRootData with page: " + page);
         List<ProductFamily> allFamilies = ProductFamily.listAll();
         Tree tree = readTree();
         Comparator<ProductFamily> order = orderComparator(mode());
@@ -162,6 +167,7 @@ public class ManualService {
         }
         String prevUrl = current > 1 ? "/manual?page=" + (current - 1) : null;
         String nextUrl = current < totalPages ? "/manual?page=" + (current + 1) : null;
+        LOGGER.info("Exiting method getManualRootData");
         return new ManualViewData(items, "Accueil", true, null, current, totalPages, prevUrl, nextUrl);
     }
 
@@ -183,6 +189,7 @@ public class ManualService {
      * @return the category level
      */
     public ManualViewData getManualCategoryData(String code, int page) {
+        LOGGER.info("Entering method getManualCategoryData with code: " + code + ", page: " + page);
         List<ManualItem> items = new ArrayList<>();
         String breadcrumb = "Accueil";
         String parentUrl = "/manual";
@@ -195,6 +202,7 @@ public class ManualService {
         }
         ProductFamily family = ProductFamily.findByCode(code);
         if (family == null) {
+            LOGGER.info("Exiting method getManualCategoryData");
             return new ManualViewData(items, breadcrumb, false, parentUrl, 1, 1, null, null);
         }
         breadcrumb = "Accueil > " + family.description;
@@ -227,6 +235,7 @@ public class ManualService {
         String base = "/manual/cat/" + code + "?page=";
         String prevUrl = current > 1 ? base + (current - 1) : null;
         String nextUrl = current < totalPages ? base + (current + 1) : null;
+        LOGGER.info("Exiting method getManualCategoryData");
         return new ManualViewData(items, breadcrumb, false, parentUrl, current, totalPages, prevUrl, nextUrl);
     }
 

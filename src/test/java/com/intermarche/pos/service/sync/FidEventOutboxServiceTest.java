@@ -1,6 +1,6 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.FidEvent;
+import com.intermarche.pos.domain.sync.FidEvent;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;

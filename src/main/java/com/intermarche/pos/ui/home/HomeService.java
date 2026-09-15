@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.home;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.attribute.RestrictedTender;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.catalog.attribute.RestrictedTender;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncOutboxService;
@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * Home screen service: navigation, line selection, ticket-level actions and
@@ -37,6 +38,9 @@ import java.util.List;
  */
 @ApplicationScoped
 public class HomeService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(HomeService.class);
 
     @Inject
     PosState state;
@@ -84,8 +88,10 @@ public class HomeService {
      * @param menu the menu to show, never null
      */
     public void selectMenu(com.intermarche.pos.ui.PosMenu menu) {
+        LOGGER.info("Entering method selectMenu with menu: " + menu);
         state.menu = menu;
         state.touch();
+        LOGGER.info("Exiting method selectMenu");
     }
 
     /**
@@ -94,12 +100,14 @@ public class HomeService {
      * @param index the index of the line in the full ticket
      */
     public void selectLine(int index) {
+        LOGGER.info("Entering method selectLine with index: " + index);
         if (state.selectedTicketIndex == index) {
             state.selectedTicketIndex = -1;
         } else {
             state.selectedTicketIndex = index;
         }
         state.touch();
+        LOGGER.info("Exiting method selectLine");
     }
 
     /**
@@ -129,6 +137,7 @@ public class HomeService {
      * @return the tenders with an eligible amount, in administered order, possibly empty
      */
     public List<RestrictedTenderRow> restrictedTenderRows() {
+        LOGGER.info("Entering method restrictedTenderRows");
         List<RestrictedTenderRow> rows = new ArrayList<>();
         for (RestrictedTender tender
                 : RestrictedTender.administered(posSettingsService.restrictedTenders())) {
@@ -144,6 +153,7 @@ public class HomeService {
                                 .replace('.', ',')));
             }
         }
+        LOGGER.info("Exiting method restrictedTenderRows");
         return rows;
     }
 
@@ -158,10 +168,12 @@ public class HomeService {
      * @param quantity the quantity to arm
      */
     public void armQuantity(BigDecimal quantity) {
+        LOGGER.info("Entering method armQuantity with quantity: " + quantity);
         if (quantity == null || quantity.signum() <= 0) {
             state.ticket.setError("QUANTITÉ INVALIDE");
             state.priceModState.clear();
             state.touch();
+            LOGGER.info("Exiting method armQuantity");
             return;
         }
         state.armedQuantity = quantity;
@@ -169,6 +181,7 @@ public class HomeService {
         state.ticket.setNotice("QUANTITÉ " + quantity.stripTrailingZeros().toPlainString()
                 + " — SAISISSEZ L'ARTICLE");
         state.touch();
+        LOGGER.info("Exiting method armQuantity");
     }
 
     /**
@@ -186,26 +199,31 @@ public class HomeService {
      * on the scale.
      */
     public void repeatLastItem() {
+        LOGGER.info("Entering method repeatLastItem");
         TicketState.TicketItem last = lastEnteredItem();
         if (last == null) {
             state.ticket.setError("AUCUN ARTICLE À RÉPÉTER");
             state.touch();
+            LOGGER.info("Exiting method repeatLastItem");
             return;
         }
         if (last.plu != null && !last.plu.isEmpty()) {
             state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE EN PESÉE");
             state.touch();
+            LOGGER.info("Exiting method repeatLastItem");
             return;
         }
         if (last.priceEmbedded) {
             state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX EMBARQUÉ");
             state.touch();
+            LOGGER.info("Exiting method repeatLastItem");
             return;
         }
         last.quantity = last.quantity.add(BigDecimal.ONE);
         ticketService.recalculateTotal(state);
         state.ticket.setNotice("ARTICLE RÉPÉTÉ : " + last.label);
         state.touch();
+        LOGGER.info("Exiting method repeatLastItem");
     }
 
     /**
@@ -239,6 +257,7 @@ public class HomeService {
      * soon as the ticket had a line, which is every moment but the first.
      */
     public void toggleCollect() {
+        LOGGER.info("Entering method toggleCollect");
         TicketState.TicketItem selected = state.getSelectedItem();
         if (selected != null) {
             selected.toCollect = !selected.toCollect;
@@ -246,12 +265,14 @@ public class HomeService {
             state.ticket.setNotice(selected.toCollect
                     ? "ARTICLE MARQUÉ À ENLEVER" : "MARQUAGE À ENLEVER RETIRÉ");
             state.touch();
+            LOGGER.info("Exiting method toggleCollect");
             return;
         }
         state.collectArmed = !state.collectArmed;
         state.ticket.setNotice(state.collectArmed
                 ? "PROCHAIN ARTICLE À ENLEVER" : "MARQUAGE À ENLEVER ANNULÉ");
         state.touch();
+        LOGGER.info("Exiting method toggleCollect");
     }
 
     // --- Ticket actions ---
@@ -261,6 +282,7 @@ public class HomeService {
      * otherwise through a manager endorsement.
      */
     public void cancelLine() {
+        LOGGER.info("Entering method cancelLine");
         String targetUid = null;
         if (state.selectedTicketIndex >= 0 && state.selectedTicketIndex < state.ticket.items.size()) {
             targetUid = state.ticket.items.get(state.selectedTicketIndex).uid;
@@ -268,7 +290,7 @@ public class HomeService {
             targetUid = state.ticket.items.get(state.ticket.items.size() - 1).uid;
         }
 
-        if (targetUid == null) return;
+        if (targetUid == null) { LOGGER.info("Exiting method cancelLine"); return; }
 
         if (targetUid.equals(state.lastEnteredItemId)) {
             ticketService.cancelItemById(state, targetUid);
@@ -279,13 +301,16 @@ public class HomeService {
 
         state.selectedTicketIndex = -1;
         state.touch();
+        LOGGER.info("Exiting method cancelLine");
     }
 
     /**
      * Requests a manager endorsement to cancel the whole ticket.
      */
     public void cancelTicket() {
+        LOGGER.info("Entering method cancelTicket");
         endorsementService.requestAuthorization(state, "CANCEL_TICKET");
+        LOGGER.info("Exiting method cancelTicket");
     }
 
     /**
@@ -297,12 +322,14 @@ public class HomeService {
      * button.
      */
     public void printLastTicket() {
+        LOGGER.info("Entering method printLastTicket");
         // RECOVER FIRST. The DERNIER keys work on the last sale THIS REGISTER
         // closed, not on the last sale this PROCESS closed: a restart emptied
         // PosState and the four keys answered "AUCUN TICKET" over a ticket that
         // was still in the database and still on the customer's hands.
         ticketService.resolveLastClosedTicketId(state);
         if (!state.requireLastClosedTicket()) {
+            LOGGER.info("Exiting method printLastTicket");
             return;
         }
         ticketService.reprintTicket(state.lastClosedTicketId);
@@ -311,6 +338,7 @@ public class HomeService {
         // said nothing, which on a till whose printer is a remote bridge is
         // indistinguishable from a dead button.
         state.ticket.setNotice("TICKET RÉIMPRIMÉ");
+        LOGGER.info("Exiting method printLastTicket");
     }
 
     /**
@@ -322,12 +350,15 @@ public class HomeService {
      * leaves the register must name a sale that happened.
      */
     public void printLastTicketBarcode() {
+        LOGGER.info("Entering method printLastTicketBarcode");
         ticketService.resolveLastClosedTicketId(state);
         if (!state.requireLastClosedTicket()) {
+            LOGGER.info("Exiting method printLastTicketBarcode");
             return;
         }
         ticketService.printTicketIdentityBarcode(state.lastClosedTicketId);
         state.ticket.setNotice("CODE-BARRES IMPRIMÉ");
+        LOGGER.info("Exiting method printLastTicketBarcode");
     }
 
     /**
@@ -340,8 +371,10 @@ public class HomeService {
      * a ticket settled without a card prints nothing, which is not a refusal.
      */
     public void printLastCardReceiptDuplicate() {
+        LOGGER.info("Entering method printLastCardReceiptDuplicate");
         ticketService.resolveLastClosedTicketId(state);
         if (!state.requireLastClosedTicket()) {
+            LOGGER.info("Exiting method printLastCardReceiptDuplicate");
             return;
         }
         // A sale settled without a card prints nothing. That is not a failure,
@@ -352,6 +385,7 @@ public class HomeService {
         } else {
             state.ticket.setError("AUCUN PAIEMENT CARTE SUR CE TICKET");
         }
+        LOGGER.info("Exiting method printLastCardReceiptDuplicate");
     }
 
     // --- Price modifications ---
@@ -366,10 +400,12 @@ public class HomeService {
      * @param type the mode's name, as the key's URL spells it
      */
     public void openPriceMod(String type) {
+        LOGGER.info("Entering method openPriceMod with type: " + type);
         PriceModType mode = PriceModType.of(type == null ? null : type.toUpperCase());
         if (mode == null) {
             state.ticket.setError("MODIFICATION INCONNUE");
             state.touch();
+            LOGGER.info("Exiting method openPriceMod");
             return;
         }
         // Ticket-level gestures target the whole sale: no line selection
@@ -377,6 +413,7 @@ public class HomeService {
         if (mode.isTicketLevel()) {
             state.priceModState.set(mode, null, "TICKET COMPLET");
             state.touch();
+            LOGGER.info("Exiting method openPriceMod");
             return;
         }
         TicketState.TicketItem target = state.getTargetItem();
@@ -390,14 +427,17 @@ public class HomeService {
                     target.getPriceFormatted(), target.getModifierLabel());
         }
         state.touch();
+        LOGGER.info("Exiting method openPriceMod");
     }
 
     /**
      * Closes the price-modification modal without applying anything.
      */
     public void cancelPriceMod() {
+        LOGGER.info("Entering method cancelPriceMod");
         state.priceModState.clear();
         state.touch();
+        LOGGER.info("Exiting method cancelPriceMod");
     }
 
     /**
@@ -413,13 +453,16 @@ public class HomeService {
      * real transactions).
      */
     public void requestTrainingToggle() {
+        LOGGER.info("Entering method requestTrainingToggle");
         if (!state.ticket.items.isEmpty() || state.payment.paymentInProgress) {
             state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
             state.touch();
+            LOGGER.info("Exiting method requestTrainingToggle");
             return;
         }
         endorsementService.requestAuthorization(state, "TRAINING_TOGGLE");
         state.touch();
+        LOGGER.info("Exiting method requestTrainingToggle");
     }
 
     /**
@@ -427,8 +470,10 @@ public class HomeService {
      * empty-cart guard and journals the transition.
      */
     public void performTrainingToggle() {
+        LOGGER.info("Entering method performTrainingToggle");
         if (!state.ticket.items.isEmpty() || state.payment.paymentInProgress) {
             state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+            LOGGER.info("Exiting method performTrainingToggle");
             return;
         }
         state.trainingMode = !state.trainingMode;
@@ -436,13 +481,16 @@ public class HomeService {
                 ? TechnicalEvent.EventType.TRAINING_STARTED
                 : TechnicalEvent.EventType.TRAINING_ENDED, null);
         state.ticket.setError(state.trainingMode ? "MODE FORMATION ACTIVÉ" : "MODE FORMATION TERMINÉ");
+        LOGGER.info("Exiting method performTrainingToggle");
     }
 
     public void callSupervisor(String reason) {
+        LOGGER.info("Entering method callSupervisor with reason: " + reason);
         technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED, reason);
         if (!syncOutboxService.isEnabled()) {
             state.ticket.setError("SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE");
             state.touch();
+            LOGGER.info("Exiting method callSupervisor");
             return;
         }
         try {
@@ -473,6 +521,7 @@ public class HomeService {
             state.ticket.setError("APPEL SUPERVISEUR IMPOSSIBLE");
         }
         state.touch();
+        LOGGER.info("Exiting method callSupervisor");
     }
 
     /**
@@ -483,6 +532,7 @@ public class HomeService {
      * @param value the modification value (euros or percent depending on the type)
      */
     public void submitPriceMod(PriceModType type, String uid, BigDecimal value) {
+        LOGGER.info("Entering method submitPriceMod with type: " + type + ", uid: " + uid + ", value: " + value);
         if (type == PriceModType.QUANTITY) {
             // Multiplying a scanned line is a normal sale action: no endorsement
             applyLineQuantity(uid, value);
@@ -500,6 +550,7 @@ public class HomeService {
         }
         state.priceModState.clear();
         state.touch();
+        LOGGER.info("Exiting method submitPriceMod");
     }
 
     /**
@@ -600,17 +651,20 @@ public class HomeService {
      * @param operatorNumber the typed badge id or login name
      */
     public void printOperatorBadge(String operatorNumber) {
-        com.intermarche.pos.domain.Employee employee = com.intermarche.pos.domain.Employee
-                .<com.intermarche.pos.domain.Employee>find("badgeId", operatorNumber).firstResult();
+        LOGGER.info("Entering method printOperatorBadge with operatorNumber: " + operatorNumber);
+        com.intermarche.pos.domain.people.Employee employee = com.intermarche.pos.domain.people.Employee
+                .<com.intermarche.pos.domain.people.Employee>find("badgeId", operatorNumber).firstResult();
         if (employee == null) {
-            employee = com.intermarche.pos.domain.Employee
-                    .<com.intermarche.pos.domain.Employee>find("loginName", operatorNumber).firstResult();
+            employee = com.intermarche.pos.domain.people.Employee
+                    .<com.intermarche.pos.domain.people.Employee>find("loginName", operatorNumber).firstResult();
         }
         if (employee == null || !employee.active) {
             state.ticket.setError("OPÉRATEUR INTROUVABLE (" + operatorNumber + ")");
+            LOGGER.info("Exiting method printOperatorBadge");
             return;
         }
         ticketPrinterService.printOperatorBadge(employee);
         state.ticket.setError("BADGE OPÉRATEUR IMPRIMÉ");
+        LOGGER.info("Exiting method printOperatorBadge");
     }
 }

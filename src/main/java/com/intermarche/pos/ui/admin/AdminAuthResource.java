@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -23,6 +23,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * Sign-in and sign-out screens of the back office.
@@ -47,6 +48,9 @@ import java.net.URI;
  */
 @Path("/")
 public class AdminAuthResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminAuthResource.class);
 
     /**
      * Name of the cookie holding the form authentication session.
@@ -93,9 +97,11 @@ public class AdminAuthResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance loginPage(@QueryParam("error") String error,
                                       @QueryParam("notice") String notice) {
+        LOGGER.info("Entering method loginPage with error: " + error + ", notice: " + notice);
         String message = error == null
                 ? null
                 : "Identifiant ou code incorrect, ou compte désactivé ou verrouillé.";
+        LOGGER.info("Exiting method loginPage");
         return adminLogin.data("error", message).data("notice", notice);
     }
 
@@ -109,6 +115,7 @@ public class AdminAuthResource {
     @Authenticated
     @Produces(MediaType.TEXT_HTML)
     public Response logout() {
+        LOGGER.info("Entering method logout");
         NewCookie cleared = new NewCookie.Builder(SESSION_COOKIE)
                 .value("")
                 .path("/")
@@ -118,6 +125,7 @@ public class AdminAuthResource {
         URI target = UriBuilder.fromPath("/admin/login")
                 .queryParam("notice", "Vous êtes déconnecté.")
                 .build();
+        LOGGER.info("Exiting method logout");
         return Response.seeOther(target).cookie(cleared).build();
     }
 
@@ -132,7 +140,9 @@ public class AdminAuthResource {
     @Authenticated
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance passwordPage(@QueryParam("error") String error) {
+        LOGGER.info("Entering method passwordPage with error: " + error);
         Boolean imposed = identity.getAttribute("mustChangePassword");
+        LOGGER.info("Exiting method passwordPage");
         return adminPassword.data("error", error)
                 .data("imposed", imposed != null && imposed);
     }
@@ -162,14 +172,18 @@ public class AdminAuthResource {
     public Response changePassword(@FormParam("current") String current,
                                    @FormParam("renewed") String renewed,
                                    @FormParam("confirmation") String confirmation) {
+        LOGGER.info("Entering method changePassword with current: " + current + ", renewed: " + renewed + ", confirmation: " + confirmation);
         if (renewed == null || renewed.length() < MIN_PASSWORD_LENGTH) {
+            LOGGER.info("Exiting method changePassword");
             return refuse("Le nouveau mot de passe doit compter au moins "
                     + MIN_PASSWORD_LENGTH + " caractères.");
         }
         if (!renewed.equals(confirmation)) {
+            LOGGER.info("Exiting method changePassword");
             return refuse("Les deux saisies du nouveau mot de passe diffèrent.");
         }
         if (renewed.equals(current)) {
+            LOGGER.info("Exiting method changePassword");
             return refuse("Le nouveau mot de passe doit être différent de l'actuel.");
         }
         String loginName = identity.getPrincipal().getName();
@@ -185,6 +199,7 @@ public class AdminAuthResource {
             return true;
         });
         if (!applied) {
+            LOGGER.info("Exiting method changePassword");
             return refuse("Mot de passe actuel incorrect.");
         }
         NewCookie cleared = new NewCookie.Builder(SESSION_COOKIE)
@@ -196,6 +211,7 @@ public class AdminAuthResource {
         URI target = UriBuilder.fromPath("/admin/login")
                 .queryParam("notice", "Mot de passe modifié. Reconnectez-vous.")
                 .build();
+        LOGGER.info("Exiting method changePassword");
         return Response.seeOther(target).cookie(cleared).build();
     }
 

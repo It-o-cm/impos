@@ -16,6 +16,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * The abandon screen ({@code LC-04-04-06} to {@code -12}): the last thing an operator
@@ -33,6 +34,9 @@ import java.net.URI;
 @Path("/abandon")
 @DrawerMustBeClosed
 public class TicketAbandonResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(TicketAbandonResource.class);
 
     /** The register state the screen reads. */
     @Inject
@@ -59,6 +63,8 @@ public class TicketAbandonResource {
     @GET
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance showAbandonScreen() {
+        LOGGER.info("Entering method showAbandonScreen");
+        LOGGER.info("Exiting method showAbandonScreen");
         return page(null);
     }
 
@@ -75,13 +81,16 @@ public class TicketAbandonResource {
     @Produces(MediaType.TEXT_HTML)
     public Object confirmAbandon(@FormParam("reason") String reason,
             @FormParam("print") String print) {
+        LOGGER.info("Entering method confirmAbandon with reason: " + reason + ", print: " + print);
         String refusal = ticketAbandonService.prepare(reason, print != null);
         if (refusal != null) {
+            LOGGER.info("Exiting method confirmAbandon");
             return page(refusal);
         }
         // The abandon is a guarded gesture like the others: the request parks it and
         // the manager credential dispatches it (CANCEL_TICKET).
         homeService.cancelTicket();
+        LOGGER.info("Exiting method confirmAbandon");
         return Response.seeOther(URI.create("/")).build();
     }
 

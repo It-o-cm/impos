@@ -119,6 +119,7 @@ public abstract class ImporterCsvResource {
      * @return A Response containing a JSON summary of created/updated counts and errors.
      */
     public Response importCsvStream(InputStream inputStream, String keyColumn, List<String> requiredColumns) {
+        LOGGER.info("Entering method importCsvStream with inputStream: " + inputStream + ", keyColumn: " + keyColumn + ", requiredColumns: " + requiredColumns);
         LOGGER.info("Starting Bulk Import from InputStream");
         int[] counters = new int[]{0, 0};
         List<String> errors = new ArrayList<>();
@@ -130,6 +131,7 @@ public abstract class ImporterCsvResource {
             rawContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             LOGGER.error("Error reading input stream", e);
+            LOGGER.info("Exiting method importCsvStream");
             return Response.serverError().entity("Error reading file: " + e.getMessage()).build();
         }
         try (BufferedReader reader = new BufferedReader(new java.io.StringReader(rawContent))) {
@@ -181,14 +183,17 @@ public abstract class ImporterCsvResource {
             }
         } catch (IOException e) {
             LOGGER.error("Error reading input stream", e);
+            LOGGER.info("Exiting method importCsvStream");
             return Response.serverError().entity("Error reading file: " + e.getMessage()).build();
         } catch (Throwable e) {
             LOGGER.error("Unexpected error", e);
+            LOGGER.info("Exiting method importCsvStream");
             return Response.serverError().entity("Unexcepted error: " + e.getMessage()).build();
         }
         LOGGER.info("Import finished. Created: " + counters[0] + ", Updated: " + counters[1]);
         captureFeed(rawContent);
         StringBuilder sb = buildAnswer(counters, errors);
+        LOGGER.info("Exiting method importCsvStream");
         return Response.ok(sb.toString()).build();
     }
 
@@ -474,6 +479,7 @@ public abstract class ImporterCsvResource {
      * @return An {@link Executor} containing the result or the exception.
      */
     public <R> Executor<R> withTransaction(Supplier<R> processing) {
+        LOGGER.info("Entering method withTransaction with processing: " + processing);
         Executor<R> executor = new Executor<>();
         R result;
         try {
@@ -493,6 +499,7 @@ public abstract class ImporterCsvResource {
         } finally {
             Panache.getEntityManager().clear();
         }
+        LOGGER.info("Exiting method withTransaction");
         return executor;
     }
 

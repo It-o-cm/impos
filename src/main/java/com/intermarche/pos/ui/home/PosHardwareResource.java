@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.Response;
 import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * Inbound endpoints of the simulated hardware: scanner, scale and, since
@@ -28,6 +29,9 @@ import java.util.Map;
  */
 @Path("/")
 public class PosHardwareResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(PosHardwareResource.class);
 
     @Inject
     TicketService ticketService;
@@ -49,10 +53,13 @@ public class PosHardwareResource {
     @Path("/api/pos/scan")
     @Consumes("text/plain")
     public Response handleScan(String code) {
+        LOGGER.info("Entering method handleScan with code: " + code);
         if (code == null || code.isEmpty()) {
+            LOGGER.info("Exiting method handleScan");
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
         ticketService.processScan(code);
+        LOGGER.info("Exiting method handleScan");
         return Response.ok().build();
     }
 
@@ -66,10 +73,13 @@ public class PosHardwareResource {
     @Path("/weight")
     @Consumes("text/plain")
     public Response handleWeight(String weightStr) {
+        LOGGER.info("Entering method handleWeight with weightStr: " + weightStr);
         if (weightStr == null || weightStr.isEmpty()) {
+            LOGGER.info("Exiting method handleWeight");
             return Response.status(Response.Status.BAD_REQUEST).build();
         }
         ticketService.processWeight(weightStr);
+        LOGGER.info("Exiting method handleWeight");
         return Response.ok().build();
     }
 
@@ -83,12 +93,14 @@ public class PosHardwareResource {
     @Path("/api/hardware/tpe")
     @Produces(MediaType.APPLICATION_JSON)
     public Map<String, Object> tpeStatus() {
+        LOGGER.info("Entering method tpeStatus");
         Map<String, Object> result = new HashMap<>();
         boolean pending = state.payment.pendingCardAmount != null;
         result.put("pending", pending);
         result.put("amount", pending
                 ? state.payment.pendingCardAmount.setScale(2, RoundingMode.HALF_UP).toPlainString().replace(".", ",")
                 : "");
+        LOGGER.info("Exiting method tpeStatus");
         return result;
     }
 
@@ -102,9 +114,12 @@ public class PosHardwareResource {
     @POST
     @Path("/api/hardware/tpe/accept")
     public Response tpeAccept() {
+        LOGGER.info("Entering method tpeAccept");
         if (!virtualTerminalClient.accept()) {
+            LOGGER.info("Exiting method tpeAccept");
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }
+        LOGGER.info("Exiting method tpeAccept");
         return Response.ok().build();
     }
 
@@ -118,9 +133,12 @@ public class PosHardwareResource {
     @POST
     @Path("/api/hardware/tpe/refuse")
     public Response tpeRefuse() {
+        LOGGER.info("Entering method tpeRefuse");
         if (!virtualTerminalClient.refuse()) {
+            LOGGER.info("Exiting method tpeRefuse");
             return Response.status(Response.Status.CONFLICT).entity("Aucune demande en attente").build();
         }
+        LOGGER.info("Exiting method tpeRefuse");
         return Response.ok().build();
     }
 }

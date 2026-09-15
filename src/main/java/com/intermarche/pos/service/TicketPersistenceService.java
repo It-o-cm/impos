@@ -1,17 +1,17 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketCounter;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VatBreakdown;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.TicketCounter;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.sale.VatBreakdown;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import com.intermarche.pos.ui.payment.PaymentState;
@@ -72,7 +72,7 @@ import java.util.Set;
 @ApplicationScoped
 public class TicketPersistenceService {
 
-    private static final Logger LOG = Logger.getLogger(TicketPersistenceService.class);
+    private static final Logger LOGGER = Logger.getLogger(TicketPersistenceService.class);
 
     @Inject
     Instance<TicketPayment.Factory> factoryInstances;
@@ -97,9 +97,11 @@ public class TicketPersistenceService {
      */
     @PostConstruct
     public void init() {
+        LOGGER.info("Entering method init");
         for (TicketPayment.Factory factory : factoryInstances) {
             paymentFactories.put(factory.getKey(), factory);
         }
+        LOGGER.info("Exiting method init");
     }
 
     // --------------------------------------------------
@@ -124,8 +126,9 @@ public class TicketPersistenceService {
      */
     @Transactional
     public Long syncDraft(PosState state) {
+        LOGGER.info("Entering method syncDraft with state: " + state);
         // Training mode: nothing fiscal ever reaches the database
-        if (state.trainingMode) return null;
+        if (state.trainingMode) { LOGGER.info("Exiting method syncDraft"); return null; }
 
         Long ticketId = state.payment.ticketDbId;
 
@@ -135,26 +138,30 @@ public class TicketPersistenceService {
                 doCancelDraft(ticketId);
                 state.payment.ticketDbId = null;
             }
+            LOGGER.info("Exiting method syncDraft");
             return null;
         }
 
         if (ticketId == null) {
             Long newId = createDraft(state);
             state.payment.ticketDbId = newId;
+            LOGGER.info("Exiting method syncDraft");
             return newId;
         }
 
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null || ticket.status != Ticket.TicketStatus.OPEN) {
-            LOG.warnf("Draft %d introuvable ou non OPEN, resynchronisation par création", ticketId);
+            LOGGER.warnf("Draft %d introuvable ou non OPEN, resynchronisation par création", ticketId);
             Long newId = createDraft(state);
             state.payment.ticketDbId = newId;
+            LOGGER.info("Exiting method syncDraft");
             return newId;
         }
 
         reconcileLines(ticket, state);
         applyHeaderAndTotals(ticket, state);
         ticket.persist();
+        LOGGER.info("Exiting method syncDraft");
         return ticket.id;
     }
 
@@ -170,12 +177,12 @@ public class TicketPersistenceService {
         Store store = Store.findAll().firstResult();
         Employee cashier = (state.auth.operatorId != null) ? Employee.findById(state.auth.operatorId) : null;
         if (store == null || cashier == null) {
-            LOG.error("Impossible de créer le ticket (Store ou Cashier manquant)");
+            LOGGER.error("Impossible de créer le ticket (Store ou Cashier manquant)");
             return null;
         }
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
-            LOG.error("Impossible de créer le ticket : aucune session de caisse ouverte");
+            LOGGER.error("Impossible de créer le ticket : aucune session de caisse ouverte");
             return null;
         }
 
@@ -194,7 +201,7 @@ public class TicketPersistenceService {
         }
         applyHeaderAndTotals(ticket, state);
         ticket.persist();
-        LOG.infof("Ticket créé en BDD (Draft) ID: %d (%s)", ticket.id, ticket.ticketNumber);
+        LOGGER.infof("Ticket créé en BDD (Draft) ID: %d (%s)", ticket.id, ticket.ticketNumber);
         return ticket.id;
     }
 
@@ -300,6 +307,7 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void addPaymentToTicket(Long ticketId, PaymentState.PaymentEntry entry) {
+        LOGGER.info("Entering method addPaymentToTicket with ticketId: " + ticketId + ", entry: " + entry);
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null) throw new IllegalArgumentException("Ticket introuvable : " + ticketId);
         BigDecimal amount = entry.amount;
@@ -312,24 +320,24 @@ public class TicketPersistenceService {
             voucherPayment.voucherLabel = entry.method;
             voucherPayment.voucherNumber = entry.voucherNumber;
         }
-        if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment cardPayment) {
+        if (payment instanceof com.intermarche.pos.domain.payment.CardPayment cardPayment) {
             cardPayment.authorizationNumber = entry.authorizationNumber;
             cardPayment.degradedMode = entry.degradedMode;
         }
-        if (payment instanceof com.intermarche.pos.domain.ticket.ChequePayment chequePayment) {
+        if (payment instanceof com.intermarche.pos.domain.payment.ChequePayment chequePayment) {
             chequePayment.magneticLine = entry.magneticLine;
         }
-        if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment backupPayment) {
+        if (payment instanceof com.intermarche.pos.domain.payment.BackupPayment backupPayment) {
             backupPayment.methodLabel = entry.backupMethodLabel;
             backupPayment.transactionNumber = entry.backupTransaction;
             backupPayment.manual = entry.backupManual;
         }
-        if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment currencyPayment) {
+        if (payment instanceof com.intermarche.pos.domain.payment.ForeignCurrencyPayment currencyPayment) {
             currencyPayment.currencyCode = entry.currencyCode;
             currencyPayment.foreignAmount = entry.currencyAmount;
             currencyPayment.exchangeRate = entry.currencyRate;
         }
-        if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment creditPayment) {
+        if (payment instanceof com.intermarche.pos.domain.payment.CreditPayment creditPayment) {
             creditPayment.accountNumber = entry.creditAccountNumber;
             creditPayment.accountName = entry.creditAccountName;
             creditPayment.overLimit = entry.creditOverLimit;
@@ -337,6 +345,7 @@ public class TicketPersistenceService {
         payment.paymentIndex = ticket.payments.size() + 1;
         ticket.addPayment(payment);
         ticket.persist();
+        LOGGER.info("Exiting method addPaymentToTicket");
     }
 
     /**
@@ -348,8 +357,9 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void removePaymentsFromTicket(Long ticketId) {
+        LOGGER.info("Entering method removePaymentsFromTicket with ticketId: " + ticketId);
         Ticket ticket = Ticket.findById(ticketId);
-        if (ticket == null) return;
+        if (ticket == null) { LOGGER.info("Exiting method removePaymentsFromTicket"); return; }
         int removed = ticket.payments.size();
         ticket.payments.clear();
         ticket.persist();
@@ -357,6 +367,7 @@ public class TicketPersistenceService {
             technicalEventService.log(TechnicalEvent.EventType.PAYMENTS_CLEARED,
                     ticket.ticketNumber + " (" + removed + ")");
         }
+        LOGGER.info("Exiting method removePaymentsFromTicket");
     }
 
     /**
@@ -376,18 +387,21 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void markLineCancelled(Long ticketId, String lineUid, String operatorBadgeId) {
-        if (ticketId == null || lineUid == null) return;
+        LOGGER.info("Entering method markLineCancelled with ticketId: " + ticketId + ", lineUid: " + lineUid + ", operatorBadgeId: " + operatorBadgeId);
+        if (ticketId == null || lineUid == null) { LOGGER.info("Exiting method markLineCancelled"); return; }
         Ticket ticket = Ticket.findById(ticketId);
-        if (ticket == null) return;
+        if (ticket == null) { LOGGER.info("Exiting method markLineCancelled"); return; }
         for (TicketLine line : ticket.lines) {
             if (lineUid.equals(line.lineUid) && !line.cancelled) {
                 line.cancelled = true;
                 line.cancellationDate = LocalDateTime.now();
                 line.cancelledBy = operatorBadgeId;
                 ticket.persist();
+                LOGGER.info("Exiting method markLineCancelled");
                 return;
             }
         }
+        LOGGER.info("Exiting method markLineCancelled");
     }
 
     // --------------------------------------------------
@@ -406,15 +420,58 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void storeFormattedContent(Long ticketId, String content) {
+        LOGGER.info("Entering method storeFormattedContent with ticketId: " + ticketId + ", content: " + content);
         if (ticketId == null || content == null || content.isBlank()) {
+            LOGGER.info("Exiting method storeFormattedContent");
             return;
         }
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null) {
+            LOGGER.info("Exiting method storeFormattedContent");
             return;
         }
         ticket.formattedContent = content;
         ticket.persist();
+        LOGGER.info("Exiting method storeFormattedContent");
+    }
+
+    /**
+     * Issues the CREDIT NOTE a sale owes as change, when the tender that
+     * overpaid is administered to give its change back in vouchers
+     * (BO-03-02-16).
+     *
+     * <p>Called after the fiscal moment and not before, exactly like the gift
+     * cards sold on the ticket: a sale that never closed owes no change, and an
+     * abandoned sale must not leave a numbered balance behind it.
+     *
+     * @param ticketId the database id of the closed ticket
+     * @param amount the change to hand over as a credit note
+     * @return the registry number of the issued note, or null when nothing was owed
+     */
+    @Transactional
+    public String issueChangeCreditNote(Long ticketId, java.math.BigDecimal amount) {
+        LOGGER.info("Entering method issueChangeCreditNote with ticketId: " + ticketId + ", amount: " + amount);
+        if (ticketId == null || amount == null || amount.signum() <= 0) {
+            LOGGER.info("Exiting method issueChangeCreditNote");
+            return null;
+        }
+        com.intermarche.pos.domain.payment.StoredValue note =
+                new com.intermarche.pos.domain.payment.StoredValue();
+        note.kind = com.intermarche.pos.domain.payment.StoredValue.Kind.CREDIT_NOTE;
+        note.initialAmount = amount;
+        note.balance = amount;
+        note.issuedAt = LocalDateTime.now();
+        note.issuingTicketId = ticketId;
+        // Same NOT NULL, 20-character column as every other instrument: a SHORT
+        // unique placeholder carries the INSERT, the definitive number is derived
+        // from the generated id right after.
+        note.number = "T" + Long.toUnsignedString(
+                java.util.UUID.randomUUID().getMostSignificantBits(), 36);
+        note.persistAndFlush();
+        note.number = com.intermarche.pos.domain.payment.StoredValue.CREDIT_NOTE_PREFIX
+                + String.format("%012d", note.id);
+        LOGGER.info("Exiting method issueChangeCreditNote");
+        return note.number;
     }
 
     /**
@@ -429,8 +486,10 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void validateTicket(Long ticketId) {
+        LOGGER.info("Entering method validateTicket with ticketId: " + ticketId);
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null) {
+            LOGGER.info("Exiting method validateTicket");
             return;
         }
         TicketCounter counter = ticketNumberService.lockCounter(ticket.terminalId);
@@ -454,16 +513,16 @@ public class TicketPersistenceService {
         // (1) Debit the redeemed registry instruments: the balance only
         //     moves HERE — a cancelled payment or a crash before this point
         //     never burns stored value.
-        for (com.intermarche.pos.domain.ticket.TicketPayment payment : ticket.payments) {
-            if (payment instanceof com.intermarche.pos.domain.ticket.VoucherPayment voucher
-                    && com.intermarche.pos.domain.StoredValue.isRegistryNumber(voucher.voucherNumber)) {
-                com.intermarche.pos.domain.StoredValue instrument =
-                        com.intermarche.pos.domain.StoredValue.findByNumber(voucher.voucherNumber);
+        for (com.intermarche.pos.domain.payment.TicketPayment payment : ticket.payments) {
+            if (payment instanceof com.intermarche.pos.domain.payment.VoucherPayment voucher
+                    && com.intermarche.pos.domain.payment.StoredValue.isRegistryNumber(voucher.voucherNumber)) {
+                com.intermarche.pos.domain.payment.StoredValue instrument =
+                        com.intermarche.pos.domain.payment.StoredValue.findByNumber(voucher.voucherNumber);
                 if (instrument != null) {
                     instrument.balance = instrument.balance.subtract(payment.amount).max(java.math.BigDecimal.ZERO);
                     instrument.lastRedeemedTicketId = ticket.id;
                     if (instrument.balance.signum() == 0) {
-                        instrument.status = com.intermarche.pos.domain.StoredValue.Status.EXHAUSTED;
+                        instrument.status = com.intermarche.pos.domain.payment.StoredValue.Status.EXHAUSTED;
                         instrument.exhaustedAt = LocalDateTime.now();
                     }
                 }
@@ -472,18 +531,18 @@ public class TicketPersistenceService {
         // (2) Issue the gift cards sold on this ticket: one ACTIVE registry
         //     instrument per unit, numbered from its own row id. Issued at
         //     the fiscal moment only — an abandoned cart never creates value.
-        for (com.intermarche.pos.domain.ticket.TicketLine line : ticket.lines) {
+        for (com.intermarche.pos.domain.sale.TicketLine line : ticket.lines) {
             // A cancelled line (lot C4) never sold anything: it must not issue a
             // gift card, exactly as it contributes nothing to the totals.
             if (line.cancelled) continue;
             if (line.ean == null) continue;
-            com.intermarche.pos.domain.Product product =
-                    com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();
+            com.intermarche.pos.domain.catalog.Product product =
+                    com.intermarche.pos.domain.catalog.Product.find("ean", line.ean).firstResult();
             if (product == null || product.giftCardAmount == null) continue;
             int units = line.quantity.intValue();
             for (int i = 0; i < units; i++) {
-                com.intermarche.pos.domain.StoredValue card = new com.intermarche.pos.domain.StoredValue();
-                card.kind = com.intermarche.pos.domain.StoredValue.Kind.GIFT_CARD;
+                com.intermarche.pos.domain.payment.StoredValue card = new com.intermarche.pos.domain.payment.StoredValue();
+                card.kind = com.intermarche.pos.domain.payment.StoredValue.Kind.GIFT_CARD;
                 card.initialAmount = product.giftCardAmount;
                 card.balance = product.giftCardAmount;
                 card.issuedAt = LocalDateTime.now();
@@ -494,7 +553,7 @@ public class TicketPersistenceService {
                 card.number = "T" + Long.toUnsignedString(
                         java.util.UUID.randomUUID().getMostSignificantBits(), 36);
                 card.persistAndFlush();
-                card.number = com.intermarche.pos.domain.StoredValue.GIFT_CARD_PREFIX
+                card.number = com.intermarche.pos.domain.payment.StoredValue.GIFT_CARD_PREFIX
                         + String.format("%012d", card.id);
             }
         }
@@ -503,6 +562,7 @@ public class TicketPersistenceService {
         ticket.persist();
         technicalEventService.log(TechnicalEvent.EventType.TICKET_CLOSED, ticket.ticketNumber);
         syncOutboxService.enqueue(SyncOutbox.EntityType.TICKET, ticket.id);
+        LOGGER.info("Exiting method validateTicket");
     }
 
     /**
@@ -513,7 +573,9 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void cancelDraft(Long ticketId) {
+        LOGGER.info("Entering method cancelDraft with ticketId: " + ticketId);
         doCancelDraft(ticketId);
+        LOGGER.info("Exiting method cancelDraft");
     }
 
     /**
@@ -529,7 +591,7 @@ public class TicketPersistenceService {
             ticket.persist();
             technicalEventService.log(TechnicalEvent.EventType.TICKET_CANCELLED, ticket.ticketNumber);
             syncOutboxService.enqueue(SyncOutbox.EntityType.TICKET, ticket.id);
-            LOG.infof("Draft annulé ID: %d (%s)", ticket.id, ticket.ticketNumber);
+            LOGGER.infof("Draft annulé ID: %d (%s)", ticket.id, ticket.ticketNumber);
         }
     }
 
@@ -561,8 +623,8 @@ public class TicketPersistenceService {
         // never re-resolved on later reconciliations — a referential
         // re-parenting after the sale must not move a consolidated line.
         if (line.product != null) {
-            com.intermarche.pos.domain.ProductFamily family =
-                    com.intermarche.pos.domain.ProductFamily.findDirectFamily(line.product);
+            com.intermarche.pos.domain.catalog.ProductFamily family =
+                    com.intermarche.pos.domain.catalog.ProductFamily.findDirectFamily(line.product);
             if (family != null) {
                 line.familyCode = family.code;
                 line.familyLabel = family.description;

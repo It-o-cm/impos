@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.AccountCustomer;
+import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.sync.RefPullService;
 import com.intermarche.pos.service.sync.SyncOutboxService;
@@ -37,7 +37,7 @@ import java.util.List;
 @ApplicationScoped
 public class CreditClientService {
 
-    private static final Logger LOG = Logger.getLogger(CreditClientService.class);
+    private static final Logger LOGGER = Logger.getLogger(CreditClientService.class);
 
     /** How many matching accounts a name search brings back at most. */
     private static final int SEARCH_LIMIT = 20;
@@ -83,12 +83,14 @@ public class CreditClientService {
      * @param state the current POS state
      */
     public void openPanel(PosState state) {
+        LOGGER.info("Entering method openPanel with state: " + state);
         // One popup at a time: both panels bind the shared on-screen keypad, and
         // two bindings would leave the second stealing the first one's buffer.
         state.payment.clearCurrencyPanel();
         state.payment.clearCreditPanel();
         state.payment.creditPanelOpen = true;
         state.touch();
+        LOGGER.info("Exiting method openPanel");
     }
 
     /**
@@ -97,8 +99,10 @@ public class CreditClientService {
      * @param state the current POS state
      */
     public void closePanel(PosState state) {
+        LOGGER.info("Entering method closePanel with state: " + state);
         state.payment.clearCreditPanel();
         state.touch();
+        LOGGER.info("Exiting method closePanel");
     }
 
     /**
@@ -109,21 +113,51 @@ public class CreditClientService {
      * @param accountNumber the account number as typed
      */
     public void selectByNumber(PosState state, String accountNumber) {
+        LOGGER.info("Entering method selectByNumber with state: " + state + ", accountNumber: " + accountNumber);
         state.payment.creditError = null;
         state.payment.creditPendingAmount = null;
         String typed = accountNumber == null ? "" : accountNumber.trim();
         if (typed.isEmpty()) {
             state.payment.creditError = "NUMERO DE COMPTE REQUIS";
             state.touch();
+            LOGGER.info("Exiting method selectByNumber");
+            return;
+        }
+        // BO-03-06-52: the store states which numbers are account numbers at
+        // all. One outside the administered range is refused HERE, before the
+        // database is asked: an operator mistyping a loyalty card into the
+        // account box gets told what is wrong, not "compte introuvable".
+        if (!matchesAccountRange(typed)) {
+            state.payment.creditError = "NUMERO DE COMPTE HORS PLAGE : " + typed;
+            state.touch();
+            LOGGER.info("Exiting method selectByNumber");
             return;
         }
         AccountCustomer found = AccountCustomer.find("accountNumber", typed).firstResult();
         if (found == null) {
             state.payment.creditError = "COMPTE INTROUVABLE : " + typed;
             state.touch();
+            LOGGER.info("Exiting method selectByNumber");
             return;
         }
         confirm(state, found);
+        LOGGER.info("Exiting method selectByNumber");
+    }
+
+    /**
+     * Tells whether a number belongs to the administered range of account
+     * numbers (BO-03-06-52). A store administering no range accepts every
+     * number, which is what every existing deployment does today.
+     *
+     * @param number the number as typed or scanned, never null
+     * @return true when the number is acceptable as an account number
+     */
+    public boolean matchesAccountRange(String number) {
+        String pattern = posSettingsService.customerAccountPattern();
+        if (pattern == null || pattern.isBlank()) {
+            return true;
+        }
+        return number.matches(pattern.trim());
     }
 
     /**
@@ -138,6 +172,7 @@ public class CreditClientService {
      * @param search the name fragment typed by the operator
      */
     public void searchByName(PosState state, String search) {
+        LOGGER.info("Entering method searchByName with state: " + state + ", search: " + search);
         state.payment.creditError = null;
         state.payment.creditPendingAmount = null;
         state.payment.creditSearch = search == null ? "" : search.trim();
@@ -146,6 +181,7 @@ public class CreditClientService {
             state.payment.creditSearched = false;
             state.payment.creditError = "SAISIR AU MOINS " + MIN_SEARCH_LENGTH + " CARACTERES";
             state.touch();
+            LOGGER.info("Exiting method searchByName");
             return;
         }
         List<AccountCustomer> matches = AccountCustomer
@@ -156,9 +192,11 @@ public class CreditClientService {
         state.payment.creditSearched = true;
         if (matches.size() == 1) {
             confirm(state, matches.get(0));
+            LOGGER.info("Exiting method searchByName");
             return;
         }
         state.touch();
+        LOGGER.info("Exiting method searchByName");
     }
 
     /**
@@ -168,15 +206,18 @@ public class CreditClientService {
      * @param customerId the database id of the picked account
      */
     public void selectById(PosState state, Long customerId) {
+        LOGGER.info("Entering method selectById with state: " + state + ", customerId: " + customerId);
         state.payment.creditError = null;
         state.payment.creditPendingAmount = null;
         AccountCustomer found = customerId == null ? null : AccountCustomer.findById(customerId);
         if (found == null) {
             state.payment.creditError = "COMPTE INTROUVABLE";
             state.touch();
+            LOGGER.info("Exiting method selectById");
             return;
         }
         confirm(state, found);
+        LOGGER.info("Exiting method selectById");
     }
 
     /**
@@ -210,25 +251,30 @@ public class CreditClientService {
      * @return true when the settlement was registered
      */
     public boolean processCredit(PosState state, BigDecimal amount) {
+        LOGGER.info("Entering method processCredit with state: " + state + ", amount: " + amount);
         AccountCustomer customer = state.payment.creditCustomer;
         if (customer == null) {
             state.payment.creditError = NO_ACCOUNT;
             state.touch();
+            LOGGER.info("Exiting method processCredit");
             return false;
         }
         if (!customer.isCreditAllowed()) {
             state.payment.creditError = NO_CREDIT_GRANTED;
             state.touch();
+            LOGGER.info("Exiting method processCredit");
             return false;
         }
         if (isDegraded()) {
             state.payment.creditError = DEGRADED;
             state.touch();
+            LOGGER.info("Exiting method processCredit");
             return false;
         }
         BigDecimal asked = amountToCharge(state, amount);
         if (asked.signum() <= 0) {
             state.touch();
+            LOGGER.info("Exiting method processCredit");
             return false;
         }
         if (exceedsCeiling(customer, asked)) {
@@ -239,9 +285,11 @@ public class CreditClientService {
                     "PLAFOND DEPASSE - ENCOURS %s / PLAFOND %s - AUTORISATION REQUISE",
                     plain(customer.creditBalance), plain(customer.creditLimit));
             state.touch();
+            LOGGER.info("Exiting method processCredit");
             return false;
         }
         register(state, customer, asked, false);
+        LOGGER.info("Exiting method processCredit");
         return true;
     }
 
@@ -259,11 +307,13 @@ public class CreditClientService {
      * @return true when the settlement was registered
      */
     public boolean authorizeOverLimit(PosState state, String login, String password) {
+        LOGGER.info("Entering method authorizeOverLimit with state: " + state + ", login: " + login + ", password: ***");
         BigDecimal held = state.payment.creditPendingAmount;
         AccountCustomer customer = state.payment.creditCustomer;
         if (held == null || customer == null) {
             state.payment.creditError = NO_ACCOUNT;
             state.touch();
+            LOGGER.info("Exiting method authorizeOverLimit");
             return false;
         }
         boolean granted = endorsementService.operatorIsSupervisor(state)
@@ -271,10 +321,12 @@ public class CreditClientService {
         if (!granted) {
             state.payment.creditError = "AUTORISATION REFUSEE";
             state.touch();
+            LOGGER.info("Exiting method authorizeOverLimit");
             return false;
         }
         state.payment.creditPendingAmount = null;
         register(state, customer, held, true);
+        LOGGER.info("Exiting method authorizeOverLimit");
         return true;
     }
 
@@ -285,9 +337,11 @@ public class CreditClientService {
      * @param state the current POS state
      */
     public void cancelOverLimit(PosState state) {
+        LOGGER.info("Entering method cancelOverLimit with state: " + state);
         state.payment.creditPendingAmount = null;
         state.payment.creditError = null;
         state.touch();
+        LOGGER.info("Exiting method cancelOverLimit");
     }
 
     /**
@@ -302,7 +356,7 @@ public class CreditClientService {
             boolean overLimit) {
         paymentService.processCredit(state, customer, amount, overLimit);
         chargeAccount(customer.id, amount);
-        LOG.infof("Crédit client %s : %s E chargés%s", customer.accountNumber, amount,
+        LOGGER.infof("Crédit client %s : %s E chargés%s", customer.accountNumber, amount,
                 overLimit ? " (autorisation superviseur, plafond dépassé)" : "");
         state.payment.clearCreditPanel();
         state.touch();

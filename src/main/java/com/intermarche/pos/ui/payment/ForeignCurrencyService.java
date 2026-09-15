@@ -1,12 +1,13 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.Currency;
+import com.intermarche.pos.domain.payment.Currency;
 import com.intermarche.pos.ui.PosState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * Takes a settlement in a foreign currency at the till ({@code LC-07-14}).
@@ -29,6 +30,9 @@ import java.util.List;
 @ApplicationScoped
 public class ForeignCurrencyService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ForeignCurrencyService.class);
+
     /** Refusal shown when the till offers no currency at all. */
     static final String NO_CURRENCY = "AUCUNE DEVISE PARAMETREE";
 
@@ -48,6 +52,7 @@ public class ForeignCurrencyService {
      * @param state the current POS state
      */
     public void openPanel(PosState state) {
+        LOGGER.info("Entering method openPanel with state: " + state);
         // One popup at a time: both panels bind the shared on-screen keypad, and
         // two bindings would leave the second stealing the first one's buffer.
         state.payment.clearCreditPanel();
@@ -57,6 +62,7 @@ public class ForeignCurrencyService {
             state.payment.currencyError = NO_CURRENCY;
         }
         state.touch();
+        LOGGER.info("Exiting method openPanel");
     }
 
     /**
@@ -65,8 +71,10 @@ public class ForeignCurrencyService {
      * @param state the current POS state
      */
     public void closePanel(PosState state) {
+        LOGGER.info("Entering method closePanel with state: " + state);
         state.payment.clearCurrencyPanel();
         state.touch();
+        LOGGER.info("Exiting method closePanel");
     }
 
     /**
@@ -75,6 +83,8 @@ public class ForeignCurrencyService {
      * @return the active currencies, empty when the shop takes none
      */
     public List<Currency> listCurrencies() {
+        LOGGER.info("Entering method listCurrencies");
+        LOGGER.info("Exiting method listCurrencies");
         return Currency.listActive();
     }
 
@@ -86,6 +96,7 @@ public class ForeignCurrencyService {
      * @param code the ISO code posted by the screen
      */
     public void selectCurrency(PosState state, String code) {
+        LOGGER.info("Entering method selectCurrency with state: " + state + ", code: " + code);
         state.payment.currencyError = null;
         Currency currency = code == null || code.isBlank()
                 ? null : Currency.findActiveByCode(code.trim().toUpperCase());
@@ -93,10 +104,12 @@ public class ForeignCurrencyService {
             state.payment.selectedCurrency = null;
             state.payment.currencyError = NO_SELECTION;
             state.touch();
+            LOGGER.info("Exiting method selectCurrency");
             return;
         }
         state.payment.selectedCurrency = currency;
         state.touch();
+        LOGGER.info("Exiting method selectCurrency");
     }
 
     /**
@@ -108,15 +121,18 @@ public class ForeignCurrencyService {
      * @return true when the settlement was registered
      */
     public boolean processCurrency(PosState state, BigDecimal foreignAmount) {
+        LOGGER.info("Entering method processCurrency with state: " + state + ", foreignAmount: " + foreignAmount);
         Currency currency = state.payment.selectedCurrency;
         if (currency == null) {
             state.payment.currencyError = NO_SELECTION;
             state.touch();
+            LOGGER.info("Exiting method processCurrency");
             return false;
         }
         if (foreignAmount == null || foreignAmount.signum() <= 0) {
             state.payment.currencyError = BAD_AMOUNT;
             state.touch();
+            LOGGER.info("Exiting method processCurrency");
             return false;
         }
         BigDecimal euroValue = currency.toEuro(foreignAmount);
@@ -126,11 +142,13 @@ public class ForeignCurrencyService {
             // registering a zero would silently swallow the customer's money.
             state.payment.currencyError = BAD_AMOUNT;
             state.touch();
+            LOGGER.info("Exiting method processCurrency");
             return false;
         }
         paymentService.processForeignCurrency(state, currency, foreignAmount, euroValue);
         state.payment.clearCurrencyPanel();
         state.touch();
+        LOGGER.info("Exiting method processCurrency");
         return true;
     }
 }

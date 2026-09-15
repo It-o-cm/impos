@@ -1,8 +1,8 @@
 package com.intermarche.e2e;
 
 import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentService;
 import com.intermarche.pos.ui.ticket.TicketState;

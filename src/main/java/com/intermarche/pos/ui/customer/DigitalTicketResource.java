@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.VatBreakdown;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.sale.VatBreakdown;
 import com.intermarche.pos.ui.customer.QrCodeService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * Public digital receipt (phase 4): the customer opens the short link printed
@@ -47,6 +48,9 @@ import java.net.URI;
 @Path("/t")
 public class DigitalTicketResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(DigitalTicketResource.class);
+
     @Inject @Location("digital-ticket") Template digitalTicket;
 
     @Inject
@@ -74,7 +78,9 @@ public class DigitalTicketResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance view(@PathParam("id") Long id, @PathParam("key") String key,
                                  @QueryParam("sent") boolean sent) {
+        LOGGER.info("Entering method view with id: " + id + ", key: " + key + ", sent: " + sent);
         Ticket ticket = load(id, key);
+        LOGGER.info("Exiting method view");
         return render(ticket, id, key, sent);
     }
 
@@ -95,6 +101,7 @@ public class DigitalTicketResource {
     @Transactional
     public Response sendByEmail(@PathParam("id") Long id, @PathParam("key") String key,
                                 @FormParam("email") String email) {
+        LOGGER.info("Entering method sendByEmail with id: " + id + ", key: " + key + ", email: " + email);
         Ticket ticket = load(id, key);
         boolean sent = false;
         if (ticket != null && email != null && email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
@@ -106,6 +113,7 @@ public class DigitalTicketResource {
             ticketMailService.send(ticket, ticket.customerEmail);
             sent = true;
         }
+        LOGGER.info("Exiting method sendByEmail");
         return Response.seeOther(URI.create("/t/" + id + "/" + key + (sent ? "?sent=true" : ""))).build();
     }
 
@@ -127,11 +135,14 @@ public class DigitalTicketResource {
     @Path("/{id}/{key}/qr.svg")
     @Produces("image/svg+xml")
     public jakarta.ws.rs.core.Response qr(@PathParam("id") Long id, @PathParam("key") String key) {
+        LOGGER.info("Entering method qr with id: " + id + ", key: " + key);
         Ticket ticket = loadByKey(id, key);
         if (ticket == null || ticket.status == Ticket.TicketStatus.CANCELLED) {
+            LOGGER.info("Exiting method qr");
             return jakarta.ws.rs.core.Response.status(jakarta.ws.rs.core.Response.Status.NOT_FOUND).build();
         }
         String target = baseUrl.orElse("") + "/t/" + id + "/" + key;
+        LOGGER.info("Exiting method qr");
         return jakarta.ws.rs.core.Response.ok(qrCodeService.toSvg(target)).build();
     }
 

@@ -1,7 +1,8 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -33,6 +34,16 @@ import java.util.List;
  * </ul>
  * The VAT rate comes from the current catalog price, defaulting to
  * {@code pos.vat.default-rate}.
+ * <p>
+ * ADMINISTERED RANGES (BO-03-06-02/03/04/05/10): the layout above is the
+ * FALLBACK, not the rule. When the back office administers an
+ * {@link ArticleBarcodeRange} recognizing the code, that range says everything —
+ * the literal prefix, the total length, the character kind, where the article
+ * segment and the value segment sit, how many decimals the value carries, and
+ * the currency a price is expressed in. A store whose scales print another plan
+ * administers rows; it does not wait for a release. The two prefix properties
+ * keep working for a node that administers no range at all, which is what lets
+ * the two generations coexist exactly as they do on the voucher side.
  */
 @ApplicationScoped
 @Priority(1)
@@ -60,17 +71,52 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
     public void handle(ScanContext ctx) {
         if (ctx.handled) return;
         String code = ctx.code;
-        if (code == null || !code.matches("2\\d{12}")) return;
+        if (code == null || code.isBlank()) return;
+        // The administered ranges are consulted FIRST and only once: a store
+        // that administers its scale plan is not bound to the 2x EAN13 shape.
+        ArticleBarcodeRange range = ArticleBarcodeRange.findMatching(code);
+        if (range == null && !code.matches("2\\d{12}")) return;
 
-        String prefix = code.substring(0, 2);
-        boolean priceEmbedded = pricePrefixes.contains(prefix);
-        boolean weightEmbedded = weightPrefixes.contains(prefix);
-        if (!priceEmbedded && !weightEmbedded) return;
+        boolean priceEmbedded;
+        boolean weightEmbedded;
+        String articleCode;
+        BigDecimal embeddedAmount;
+        BigDecimal embeddedWeight;
+        if (range != null) {
+            priceEmbedded = range.isPriceEmbedded();
+            weightEmbedded = !priceEmbedded;
+            if (range.checkDigit && !hasValidChecksum(code)) return;
+            articleCode = range.articleCode(code);
+            BigDecimal value = range.rawValue(code);
+            if (articleCode == null || value == null) return;
+            if (priceEmbedded) {
+                // BO-03-06-05: a range administered in another currency carries
+                // its price in that currency; the referential rate converts it,
+                // and a rate nobody administered refuses the code rather than
+                // charging francs as euros.
+                embeddedAmount = toEuros(ctx, range, value);
+                if (embeddedAmount == null) {
+                    ctx.handled = true;
+                    return;
+                }
+                embeddedWeight = null;
+            } else {
+                embeddedAmount = null;
+                embeddedWeight = value;
+            }
+        } else {
+            String prefix = code.substring(0, 2);
+            priceEmbedded = pricePrefixes.contains(prefix);
+            weightEmbedded = weightPrefixes.contains(prefix);
+            if (!priceEmbedded && !weightEmbedded) return;
 
-        if (!hasValidChecksum(code)) return; // let the generic EAN handler try
+            if (!hasValidChecksum(code)) return; // let the generic EAN handler try
 
-        String articleCode = stripLeadingZeros(code.substring(2, 7));
-        long embeddedValue = Long.parseLong(code.substring(7, 12));
+            articleCode = stripLeadingZeros(code.substring(2, 7));
+            long embeddedValue = Long.parseLong(code.substring(7, 12));
+            embeddedAmount = priceEmbedded ? BigDecimal.valueOf(embeddedValue, 2) : null;
+            embeddedWeight = priceEmbedded ? null : BigDecimal.valueOf(embeddedValue, 3);
+        }
 
         Product product = Product.findActiveByPlu(articleCode);
         if (product == null) {
@@ -84,7 +130,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             return;
         }
         // BO-02-03-11: a recalled article is refused at scan, no line.
-        if (com.intermarche.pos.domain.attribute.ProductAttributes.recall(product)) {
+        if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.recall(product)) {
             ctx.state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
             ctx.handled = true;
             return;
@@ -93,7 +139,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         Price price = Price.findCurrentPrice(product.id);
         BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
         // BO-02-03-26/27: VAT-exempt article ventilated at rate 0.
-        if (com.intermarche.pos.domain.attribute.ProductAttributes.vatExempt(product)) {
+        if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.vatExempt(product)) {
             vatRate = BigDecimal.ZERO;
         }
 
@@ -110,9 +156,8 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // — must see this one too. Non-merging is guaranteed by the
             // sticker-code guard above (one physical sticker = one scan), not
             // by stripping the identity.
-            BigDecimal total = BigDecimal.valueOf(embeddedValue, 2);
             ctx.state.ticket.addItem(product.ean, articleCode, product.saleLabel().toUpperCase(),
-                    total, BigDecimal.ONE, vatRate);
+                    embeddedAmount, BigDecimal.ONE, vatRate);
             // The sticker price is the line's own truth: flag it so the
             // valuation request carries the surcharge trio and the engine
             // does not re-price this EAN from its catalog.
@@ -122,7 +167,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // carries the product EAN: its price IS the catalog price, so the
             // valuation engine resolves the same base and the line is
             // eligible (unlike price-embedded stickers, which stay local).
-            BigDecimal quantityKg = BigDecimal.valueOf(embeddedValue, 3).setScale(3, RoundingMode.HALF_UP);
+            BigDecimal quantityKg = embeddedWeight.setScale(3, RoundingMode.HALF_UP);
             if (quantityKg.signum() <= 0) {
                 ctx.state.ticket.setError("POIDS INVALIDE");
                 ctx.handled = true;
@@ -135,20 +180,44 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         com.intermarche.pos.ui.ticket.TicketState.TicketItem added =
                 ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);
         // BO-02-03-09: snapshot the discount ban onto the freshly added line.
-        if (com.intermarche.pos.domain.attribute.ProductAttributes.discountForbidden(product)) {
+        if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.discountForbidden(product)) {
             added.discountForbidden = true;
         }
         // LC-09-01-11 to -18: and what the article may be paid with.
         added.restrictedTenders =
-                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
+                com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(product);
         // LC-02-03-13: an in-store weighed label names no lot, so the recalled lots are
         // listed and the cashier reads the one printed on the pack.
-        String recalledLots = com.intermarche.pos.domain.attribute.ProductAttributes
+        String recalledLots = com.intermarche.pos.domain.catalog.attribute.ProductAttributes
                 .recalledLotsMessage(product);
         if (recalledLots != null) {
             ctx.state.ticket.setNotice(recalledLots);
         }
         ctx.handled = true;
+    }
+
+    /**
+     * Converts an administered price into euros: a euro range is returned as
+     * is, any other goes through the {@code Currency} referential at the rate
+     * the store administers (BO-03-06-05).
+     *
+     * @param ctx the scan context, whose ticket carries the refusal message
+     * @param range the administered range the code belongs to
+     * @param value the price as the code carries it, in the range's currency
+     * @return the price in euros, or null when no rate is administered
+     */
+    private BigDecimal toEuros(ScanContext ctx, ArticleBarcodeRange range, BigDecimal value) {
+        if (range.isEuro()) {
+            return value;
+        }
+        String iso = range.currency.name();
+        com.intermarche.pos.domain.payment.Currency currency =
+                com.intermarche.pos.domain.payment.Currency.findActiveByCode(iso);
+        if (currency == null) {
+            ctx.state.ticket.setError("DEVISE " + iso + " NON PARAMÉTRÉE");
+            return null;
+        }
+        return currency.toEuro(value);
     }
 
     /**

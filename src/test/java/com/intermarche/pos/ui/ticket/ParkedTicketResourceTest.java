@@ -106,7 +106,7 @@ class ParkedTicketResourceTest {
     void parkedPageRendersParkedWhenUnlocked() {
         ParkedTicketResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
-        List<com.intermarche.pos.domain.ticket.Ticket> tickets = List.of();
+        List<com.intermarche.pos.domain.sale.Ticket> tickets = List.of();
         when(resource.ticketParkingService.listParked()).thenReturn(tickets);
         TemplateInstance instance = wireParkedTemplate(resource);
         assertSame(instance, resource.parkedPage(null));
@@ -200,10 +200,10 @@ class ParkedTicketResourceTest {
      * @param count how many tickets to build
      * @return the list, never null
      */
-    private List<com.intermarche.pos.domain.ticket.Ticket> parkedTickets(int count) {
-        List<com.intermarche.pos.domain.ticket.Ticket> tickets = new java.util.ArrayList<>();
+    private List<com.intermarche.pos.domain.sale.Ticket> parkedTickets(int count) {
+        List<com.intermarche.pos.domain.sale.Ticket> tickets = new java.util.ArrayList<>();
         for (int i = 0; i < count; i++) {
-            tickets.add(new com.intermarche.pos.domain.ticket.Ticket());
+            tickets.add(new com.intermarche.pos.domain.sale.Ticket());
         }
         return tickets;
     }

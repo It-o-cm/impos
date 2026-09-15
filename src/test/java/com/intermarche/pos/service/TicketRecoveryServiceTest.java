@@ -1,16 +1,16 @@
 package com.intermarche.pos.service;
 
 import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.ticket.BackupPayment;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.CreditPayment;
-import com.intermarche.pos.domain.ticket.ForeignCurrencyPayment;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.payment.BackupPayment;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.CreditPayment;
+import com.intermarche.pos.domain.payment.ForeignCurrencyPayment;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;

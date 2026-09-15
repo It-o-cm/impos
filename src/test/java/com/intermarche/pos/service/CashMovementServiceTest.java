@@ -1,9 +1,9 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.SyncOutbox;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;

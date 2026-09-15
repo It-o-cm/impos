@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -40,6 +40,22 @@ import static org.mockito.Mockito.when;
  */
 class DepositVoucherScanHandlerTest {
 
+    /**
+     * Builds a handler whose control engine finds nothing, which is the state
+     * of a range carrying no administered control (BO-03-06).
+     *
+     * @return the wired handler
+     */
+    private DepositVoucherScanHandler newHandler() {
+        DepositVoucherScanHandler handler = new DepositVoucherScanHandler();
+        handler.couponCheckService =
+                org.mockito.Mockito.mock(com.intermarche.pos.service.CouponCheckService.class);
+        org.mockito.Mockito.when(handler.couponCheckService
+                        .worst(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(com.intermarche.pos.domain.barcode.AlertLevel.NONE);
+        return handler;
+    }
+
     /** A deposit-return voucher code fed to the handler. */
     private static final String CODE = "298000250";
 
@@ -55,6 +71,9 @@ class DepositVoucherScanHandlerTest {
         PosState state = mock(PosState.class);
         state.ticket = ticket;
         state.payment = payment;
+        // BO-03-06-40: the controls read the card attached to the sale, so a
+        // mocked state carries a real, empty loyalty sub-state — no card.
+        state.fidelity = new com.intermarche.pos.ui.fidelity.FidelityState();
         return state;
     }
 
@@ -83,7 +102,7 @@ class DepositVoucherScanHandlerTest {
         PosState state = newState(ticket, payment);
         ScanContext ctx = new ScanContext(CODE, state);
         ctx.handled = true;
-        new DepositVoucherScanHandler().handle(ctx);
+        newHandler().handle(ctx);
         assertTrue(ctx.handled);
         verifyNoInteractions(state);
         verifyNoInteractions(ticket);
@@ -101,7 +120,7 @@ class DepositVoucherScanHandlerTest {
         PosState state = newState(ticket, payment);
         when(state.isLocked()).thenReturn(true);
         ScanContext ctx = new ScanContext(CODE, state);
-        new DepositVoucherScanHandler().handle(ctx);
+        newHandler().handle(ctx);
         assertFalse(ctx.handled);
         verifyNoInteractions(ticket);
     }
@@ -118,7 +137,7 @@ class DepositVoucherScanHandlerTest {
         PosState state = newState(ticket, payment);
         when(state.isLocked()).thenReturn(false);
         ScanContext ctx = new ScanContext(CODE, state);
-        new DepositVoucherScanHandler().handle(ctx);
+        newHandler().handle(ctx);
         assertFalse(ctx.handled);
         verifyNoInteractions(ticket);
     }
@@ -135,7 +154,7 @@ class DepositVoucherScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
             couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of());
-            new DepositVoucherScanHandler().handle(ctx);
+            newHandler().handle(ctx);
         }
         assertFalse(ctx.handled);
         verifyNoInteractions(ticket);
@@ -154,7 +173,7 @@ class DepositVoucherScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
             couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
-            new DepositVoucherScanHandler().handle(ctx);
+            newHandler().handle(ctx);
         }
         assertFalse(ctx.handled);
         verify(type, never()).extractAmount(CODE);
@@ -175,7 +194,7 @@ class DepositVoucherScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
             couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
-            new DepositVoucherScanHandler().handle(ctx);
+            newHandler().handle(ctx);
         }
         assertTrue(ctx.handled);
         verify(ticket).setError("BON DE CONSIGNE ILLISIBLE");
@@ -197,7 +216,7 @@ class DepositVoucherScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
             couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
-            new DepositVoucherScanHandler().handle(ctx);
+            newHandler().handle(ctx);
         }
         assertTrue(ctx.handled);
         verify(ticket).setError("BON DE CONSIGNE ILLISIBLE");
@@ -220,11 +239,64 @@ class DepositVoucherScanHandlerTest {
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
             couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
-            new DepositVoucherScanHandler().handle(ctx);
+            newHandler().handle(ctx);
         }
         assertTrue(ctx.handled);
         verify(ticket).addItem(eq(CODE), isNull(), eq("CONSIGNE"),
                 eq(new BigDecimal("-2.50")), eq(BigDecimal.ONE), eq(BigDecimal.ZERO));
         verify(ticket, never()).setError("BON DE CONSIGNE ILLISIBLE");
+    }
+    /**
+     * A BLOCKING administered control refuses the voucher: the wording reaches
+     * the cashier, the context is consumed and no line is added — the register
+     * CONSUMES the administered positions (BO-03-06-47).
+     */
+    @Test
+    void aBlockingControlRefusesTheVoucher() {
+        TicketState ticket = mock(TicketState.class);
+        PaymentState payment = mock(PaymentState.class);
+        PosState state = newState(ticket, payment);
+        CouponType type = newType(true);
+        ScanContext ctx = new ScanContext(CODE, state);
+        DepositVoucherScanHandler handler = newHandler();
+        when(handler.couponCheckService.worst(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(com.intermarche.pos.domain.barcode.AlertLevel.BLOCK);
+        when(handler.couponCheckService.message(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("BON EXPIRE");
+        try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
+            couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("BON EXPIRE");
+        verify(type, never()).extractAmount(CODE);
+        verify(handler.couponCheckService, never()).record(type, CODE);
+    }
+
+    /**
+     * An INFORMATIVE administered control speaks and lets the voucher through:
+     * the wording reaches the cashier, the line is added and the code is
+     * recorded against the duplicate control (BO-03-06-39/49).
+     */
+    @Test
+    void anInformativeControlSpeaksAndLetsTheVoucherThrough() {
+        TicketState ticket = mock(TicketState.class);
+        PaymentState payment = mock(PaymentState.class);
+        PosState state = newState(ticket, payment);
+        CouponType type = newType(true);
+        when(type.extractAmount(CODE)).thenReturn(new BigDecimal("1.50"));
+        ScanContext ctx = new ScanContext(CODE, state);
+        DepositVoucherScanHandler handler = newHandler();
+        when(handler.couponCheckService.worst(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(com.intermarche.pos.domain.barcode.AlertLevel.INFO);
+        when(handler.couponCheckService.message(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("BON BIENTOT PERIME");
+        try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
+            couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("BON BIENTOT PERIME");
+        verify(handler.couponCheckService).record(type, CODE);
     }
 }

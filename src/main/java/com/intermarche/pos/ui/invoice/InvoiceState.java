@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.sale.Ticket;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -86,7 +86,7 @@ public class InvoiceState implements Serializable {
      * follows: the title on the paper, the sequence the number is drawn from, and — the
      * day the slip path lands — the printer the document comes out of.
      */
-    public com.intermarche.pos.domain.ticket.DocumentType documentType;
+    public com.intermarche.pos.domain.sale.DocumentType documentType;
 
     /**
      * The kinds offered on the document step, empty until a ticket is named.
@@ -95,7 +95,7 @@ public class InvoiceState implements Serializable {
      * touches is exactly what the flow resolved: a list rebuilt at render time could
      * drift from the one the eligibility ran on.
      */
-    public List<com.intermarche.pos.domain.ticket.DocumentType> documentTypes =
+    public List<com.intermarche.pos.domain.sale.DocumentType> documentTypes =
             Collections.emptyList();
 
     /** What the operator typed to look a customer up. */

@@ -1,16 +1,16 @@
 package com.intermarche.pos.ui.hardware;
 
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketLineValuation;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.sale.TicketLineValuation;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.payment.PaymentState;
@@ -27,9 +27,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -240,6 +242,22 @@ class TicketPrinterServiceTest {
         return refund;
     }
 
+    /**
+     * Builds the refund the administered-layout cases run on: one line of
+     * butter, settled in cash, against the sale the {@code ticket} fixture
+     * builds.
+     *
+     * @return the refund
+     */
+    private Refund refund() {
+        Refund refund = refund(1L, Refund.RefundMethod.CASH,
+                refundLine("BEURRE", "2", "2.00"));
+        refund.refundNumber = "C04-R000012";
+        refund.terminalId = "C04";
+        refund.totalAmount = new BigDecimal("4.00");
+        return refund;
+    }
+
     // --------------------------------------------------
     // printTicket
     // --------------------------------------------------
@@ -384,8 +402,8 @@ class TicketPrinterServiceTest {
     void printCardReceiptCountsTheSlipItPrinted() {
         TicketPrinterService service = newService();
         Ticket ticket = ticket(0, null);
-        com.intermarche.pos.domain.ticket.CardPayment card =
-                new com.intermarche.pos.domain.ticket.CardPayment(new BigDecimal("12.00"));
+        com.intermarche.pos.domain.payment.CardPayment card =
+                new com.intermarche.pos.domain.payment.CardPayment(new BigDecimal("12.00"));
         card.authorizationNumber = "A1234";
         ticket.payments.add(card);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
@@ -403,8 +421,8 @@ class TicketPrinterServiceTest {
     void printCardReceiptCountsNothingWithoutACardPayment() {
         TicketPrinterService service = newService();
         Ticket ticket = ticket(0, null);
-        com.intermarche.pos.domain.ticket.CashPayment cash =
-                new com.intermarche.pos.domain.ticket.CashPayment(
+        com.intermarche.pos.domain.payment.CashPayment cash =
+                new com.intermarche.pos.domain.payment.CashPayment(
                         new BigDecimal("12.00"), new BigDecimal("12.00"));
         ticket.payments.add(cash);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
@@ -532,6 +550,35 @@ class TicketPrinterServiceTest {
     }
 
     /**
+     * BO-03-03-19: with the article-code display OFF, the very same line prints
+     * its label and its total but NOT its EAN — the false arm of
+     * {@code display.show-ean}.
+     *
+     * <p>Without this case the setting is only ever read as true, and hard-wiring
+     * the guard to a literal {@code true} would leave the suite green. It is the
+     * pair with the case above that proves the key is administered rather than
+     * decorative.
+     */
+    @Test
+    void printTicketOmitsArticleEanWhenDisabled() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.showEan()).thenReturn(false);
+        Ticket ticket = ticket(0, null);
+        TicketLine withEan = line("U1", "PAIN", "1", "2.00", "2.00");
+        withEan.ean = "3017620422003";
+        ticket.lines.add(withEan);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("3017620422003"));
+            assertTrue(out.contains("PAIN"));
+        }
+    }
+
+    /**
      * Covers the offer-label fallback arm of {@code printTicket}: the valuation
      * has a non-zero delta, a null advantage label and a non-null offer label
      * shorter than 26 characters, so the offer label is printed untruncated.
@@ -632,6 +679,9 @@ class TicketPrinterServiceTest {
         report.totalIncludingTax = new BigDecimal("300.00");
         report.totalsByMethod = new LinkedHashMap<>();
         report.totalsByMethod.put("CASH", new BigDecimal("200.00"));
+        // BO-03-02-25: the report says which tenders it details; a hand-built
+        // fixture must say it too, or the print has nothing to state.
+        report.detailedMethods.add("CASH");
         report.theoreticalCash = new BigDecimal("300.00");
         report.totalRefunds = BigDecimal.ZERO;
         service.printSessionReport(report);
@@ -659,6 +709,7 @@ class TicketPrinterServiceTest {
         report.totalIncludingTax = new BigDecimal("500.00");
         report.totalsByMethod = new LinkedHashMap<>();
         report.totalsByMethod.put("CARD", new BigDecimal("400.00"));
+        report.detailedMethods.add("CARD");
         report.theoreticalCash = new BigDecimal("250.00");
         report.totalRefunds = new BigDecimal("5.00");
         service.printSessionReport(report);
@@ -1277,6 +1328,658 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("(scannable en caisse - solde au registre)"));
     }
 
+    // --------------------------------------------------
+    // printChangeVoucher (BO-03-02-16)
+    // --------------------------------------------------
+
+    /**
+     * The X/Z report states line by line only the tenders the back office puts
+     * in detail, sums the others, and names the bank deposit and the fidelity
+     * share when the store administered tenders for them
+     * (BO-03-02-21/25/30).
+     */
+    @Test
+    void printSessionReportFollowsTheAdministeredReportingRules() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(null);
+        report.closing = false;
+        report.ticketCount = 3;
+        report.totalIncludingTax = new BigDecimal("300.00");
+        report.totalsByMethod = new LinkedHashMap<>();
+        report.totalsByMethod.put("CASH", new BigDecimal("200.00"));
+        report.totalsByMethod.put("CARD", new BigDecimal("100.00"));
+        report.detailedMethods.add("CASH");
+        report.otherMethodsTotal = new BigDecimal("100.00");
+        report.bankDepositTotal = new BigDecimal("100.00");
+        report.fidelityReportedTotal = new BigDecimal("200.00");
+        report.theoreticalCash = new BigDecimal("300.00");
+        report.totalRefunds = BigDecimal.ZERO;
+        service.printSessionReport(report);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("CASH"));
+        assertFalse(out.contains("CARD"));
+        assertTrue(out.contains("Autres reglements"));
+        assertTrue(out.contains("Remise en banque"));
+        assertTrue(out.contains("Dont remontee fidelite"));
+    }
+
+    /**
+     * A report with nothing to say about the bank or fidelity says nothing: a
+     * nil line would state something the store never administered — the other
+     * arm of both guards (BO-03-02-21/30).
+     */
+    @Test
+    void printSessionReportStaysSilentOnWhatIsNotAdministered() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(null);
+        report.closing = false;
+        report.totalsByMethod = new LinkedHashMap<>();
+        report.totalsByMethod.put("CASH", new BigDecimal("200.00"));
+        report.detailedMethods.add("CASH");
+        report.theoreticalCash = new BigDecimal("300.00");
+        report.totalRefunds = BigDecimal.ZERO;
+        service.printSessionReport(report);
+        String out = captureReceipt(service);
+        assertFalse(out.contains("Autres reglements"));
+        assertFalse(out.contains("Remise en banque"));
+        assertFalse(out.contains("Dont remontee fidelite"));
+    }
+
+    // --------------------------------------------------
+    // Administered document layouts (BO-03-03)
+    // --------------------------------------------------
+
+    /**
+     * Wires the service to a REAL renderer over a real Qute engine, so a case
+     * about an administered layout asserts the layout and not a stand-in.
+     *
+     * @param service the service to wire
+     * @return the renderer, for the case to stub its referential lookup
+     */
+    private com.intermarche.pos.service.DocumentTemplateService wireRenderer(
+            TicketPrinterService service) {
+        com.intermarche.pos.service.DocumentTemplateService renderer =
+                new com.intermarche.pos.service.DocumentTemplateService(
+                        io.quarkus.qute.Engine.builder().addDefaults().build());
+        service.documentTemplateService = renderer;
+        return renderer;
+    }
+
+    /**
+     * Builds an administered layout of one document.
+     *
+     * @param type the document it lays out
+     * @param source the Qute source
+     * @return the administered template
+     */
+    private com.intermarche.pos.domain.setting.DocumentTemplate layout(
+            com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type,
+            String source) {
+        com.intermarche.pos.domain.setting.DocumentTemplate template =
+                new com.intermarche.pos.domain.setting.DocumentTemplate();
+        template.code = type.name();
+        template.label = type.getLabel();
+        template.documentType = type;
+        template.active = true;
+        template.width = 42;
+        template.source = source;
+        return template;
+    }
+
+    /**
+     * Stubs the referential so one document type is administered and the others
+     * are not.
+     *
+     * @param panache the active Panache static mock
+     * @param template the administered layout
+     */
+    private void stubAdministeredLayout(
+            org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache,
+            com.intermarche.pos.domain.setting.DocumentTemplate template) {
+        panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                        "active = true and documentType = ?1 order by priority, code",
+                        template.documentType))
+                .thenReturn(List.of(template));
+    }
+
+    /**
+     * An administered layout REPLACES the built-in receipt, and reads the sale
+     * through the very keys the back office's preview advertises.
+     */
+    @Test
+    void anAdministeredLayoutReplacesTheBuiltInReceipt() {
+        TicketPrinterService service = newService();
+        wireRenderer(service);
+        Ticket ticket = ticket(0, null);
+        ticket.terminalId = "C04";
+        ticket.lines.add(line("u1", "LAIT", "2", "3.00", "6.00"));
+        ticket.payments.add(new CashPayment(new BigDecimal("12.00"), new BigDecimal("12.00")));
+        com.intermarche.pos.domain.setting.DocumentTemplate template = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.SALE_RECEIPT,
+                "{store.name}|{document.number}|{terminal}|{operator}"
+                        + "{#for l in lines}|{l.label} {l.quantity}x{l.unitPrice}={l.total}{/for}"
+                        + "|TTC {totals.includingTax}|HT {totals.excludingTax}"
+                        + "{#for p in payments}|{p.key} {p.amount}{/for}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, template);
+            String rendered = service.renderTicket(ticket, false, 0);
+            assertEquals("MAGASIN LYON|C04-00000001|C04|Jean Dupont"
+                    + "|LAIT 2,00x3,00=6,00|TTC 12,00|HT 10,00|CASH 12,00", rendered);
+        }
+    }
+
+    /**
+     * A SECOND administered layout states the very same sale differently, which
+     * is what proves the receipt is read from the referential.
+     */
+    @Test
+    void aSecondAdministeredLayoutStatesTheSameSaleDifferently() {
+        TicketPrinterService service = newService();
+        wireRenderer(service);
+        Ticket ticket = ticket(0, null);
+        com.intermarche.pos.domain.setting.DocumentTemplate template = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.SALE_RECEIPT,
+                "TOTAL {totals.includingTax}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, template);
+            assertEquals("TOTAL 12,00", service.renderTicket(ticket, false, 0));
+        }
+    }
+
+    /**
+     * A shop that administers NO layout gets the built-in receipt, character
+     * for character — the fallback the whole design rests on.
+     */
+    @Test
+    void anUnadministeredDocumentKeepsTheBuiltInReceipt() {
+        TicketPrinterService service = newService();
+        wireRenderer(service);
+        Ticket ticket = ticket(0, null);
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                            "active = true and documentType = ?1 order by priority, code",
+                            com.intermarche.pos.domain.setting.DocumentTemplate
+                                    .DocumentType.SALE_RECEIPT))
+                    .thenReturn(List.of());
+            String rendered = service.renderTicket(ticket, false, 0);
+            assertTrue(rendered.contains("MERCI DE VOTRE VISITE"));
+        }
+    }
+
+    /**
+     * A layout that blows up at render time costs the built-in receipt and not
+     * the sale: the paramétreur's mistake never stops a till printing.
+     */
+    @Test
+    void aBrokenLayoutFallsBackToTheBuiltInReceipt() {
+        TicketPrinterService service = newService();
+        wireRenderer(service);
+        Ticket ticket = ticket(0, null);
+        com.intermarche.pos.domain.setting.DocumentTemplate template = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.SALE_RECEIPT,
+                "{#for c in document.number}{c}{/for}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, template);
+            assertTrue(service.renderTicket(ticket, false, 0).contains("MERCI DE VOTRE VISITE"));
+        }
+    }
+
+    /**
+     * A printer built by hand — no renderer wired at all — prints its own
+     * receipt, which is the null leg of the layout guard.
+     */
+    @Test
+    void aPrinterWithoutARendererPrintsItsOwnReceipt() {
+        TicketPrinterService service = newService();
+        assertNull(service.documentTemplateService);
+        Ticket ticket = ticket(0, null);
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            assertTrue(service.renderTicket(ticket, false, 0).contains("MERCI DE VOTRE VISITE"));
+        }
+    }
+
+    /**
+     * The sale a layout reads carries the duplicate banner, the VAT ventilation
+     * and the digital-receipt path — the keys the built-in receipt prints and a
+     * layout must be able to print too.
+     */
+    @Test
+    void theSaleDocumentCarriesWhatTheReceiptStates() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(1, "ABCD1234EF567890");
+        ticket.terminalId = "C04";
+        ticket.lines.add(line("u1", "LAIT", "2", "3.00", "6.00"));
+        ticket.globalDiscountApplied = new BigDecimal("1.50");
+        Map<String, Object> data = service.saleDocumentData(ticket, true, 2);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> document = (Map<String, Object>) data.get("document");
+        assertEquals(Boolean.TRUE, document.get("duplicate"));
+        assertEquals("2", document.get("duplicateNumber"));
+        assertEquals("/t/1/ABCD1234EF567890", document.get("digitalPath"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> totals = (Map<String, Object>) data.get("totals");
+        assertEquals("12,00", totals.get("includingTax"));
+        assertEquals("10,00", totals.get("excludingTax"));
+        assertEquals("1,50", totals.get("discount"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> vatRows = (List<Map<String, Object>>) data.get("vatRows");
+        assertEquals(1, vatRows.size());
+        assertEquals("20,00%", vatRows.get(0).get("rate"));
+    }
+
+    /**
+     * A cancelled article is outside the sale for a layout exactly as it is for
+     * the built-in receipt (BO-04-01-16).
+     */
+    @Test
+    void aCancelledArticleIsOutsideTheDocument() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        TicketLine cancelled = line("u1", "ANNULE", "1", "5.00", "5.00");
+        cancelled.cancelled = true;
+        ticket.lines.add(cancelled);
+        ticket.lines.add(line("u2", "LAIT", "1", "3.00", "3.00"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> lines =
+                (List<Map<String, Object>>) service.saleDocumentData(ticket, false, 0).get("lines");
+        assertEquals(1, lines.size());
+        assertEquals("LAIT", lines.get(0).get("label"));
+    }
+
+    /**
+     * A sale carrying no store, no cashier, no date, no lines and no payments
+     * still describes itself: a layout must not be the thing that fails a print
+     * — every null leg of the builder, in one case.
+     */
+    @Test
+    void aBareSaleStillDescribesItself() {
+        TicketPrinterService service = newService();
+        Ticket ticket = mock(Ticket.class);
+        ticket.id = 7L;
+        Map<String, Object> data = service.saleDocumentData(ticket, false, 0);
+        assertEquals("", data.get("terminal"));
+        assertEquals("", data.get("operator"));
+        assertEquals("", data.get("date"));
+        assertEquals("", data.get("time"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> store = (Map<String, Object>) data.get("store");
+        assertEquals("", store.get("name"));
+        assertEquals("", store.get("city"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> totals = (Map<String, Object>) data.get("totals");
+        assertEquals("0,00", totals.get("includingTax"));
+        assertTrue(((List<?>) data.get("lines")).isEmpty());
+        assertTrue(((List<?>) data.get("payments")).isEmpty());
+    }
+
+    /**
+     * A store without an address describes itself with empty parts rather than
+     * refusing — the second leg of the store guard.
+     */
+    @Test
+    void aStoreWithoutAnAddressDescribesItself() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.store.address = null;
+        @SuppressWarnings("unchecked")
+        Map<String, Object> store =
+                (Map<String, Object>) service.saleDocumentData(ticket, false, 0).get("store");
+        assertEquals("MAGASIN LYON", store.get("name"));
+        assertEquals("", store.get("city"));
+        assertEquals("", store.get("postalCode"));
+    }
+
+    /**
+     * The rounding is handed to a layout with the sign the PAPER reads, not the
+     * one the ledger stores (LC-07-03-06).
+     */
+    @Test
+    void theRoundingIsHandedOverWithTheSignThePaperReads() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.payments.add(new com.intermarche.pos.domain.payment.RoundingPayment(
+                new BigDecimal("0.02")));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> payments = (List<Map<String, Object>>)
+                service.saleDocumentData(ticket, false, 0).get("payments");
+        assertEquals("-0,02", payments.get(0).get("amount"));
+    }
+
+    /**
+     * The X and the Z are two documents: a layout administered for the closing
+     * does not lay out the reading, and the other way round.
+     */
+    @Test
+    void theReadingAndTheClosingAreTwoDocuments() {
+        TicketPrinterService service = newService();
+        wireRenderer(service);
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(null);
+        report.closing = false;
+        report.totalsByMethod = new LinkedHashMap<>();
+        report.totalsByMethod.put("CASH", new BigDecimal("200.00"));
+        report.detailedMethods.add("CASH");
+        report.theoreticalCash = new BigDecimal("300.00");
+        report.totalRefunds = BigDecimal.ZERO;
+        com.intermarche.pos.domain.setting.DocumentTemplate closing = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.Z_REPORT,
+                "Z {session.number}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, closing);
+            panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                            "active = true and documentType = ?1 order by priority, code",
+                            com.intermarche.pos.domain.setting.DocumentTemplate
+                                    .DocumentType.X_REPORT))
+                    .thenReturn(List.of());
+            service.printSessionReport(report);
+            assertTrue(captureReceipt(service).contains("RAPPORT X - LECTURE"));
+        }
+
+        TicketPrinterService closingService = newService();
+        wireRenderer(closingService);
+        report.closing = true;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, closing);
+            closingService.printSessionReport(report);
+            assertEquals("Z S-001", captureReceipt(closingService));
+        }
+    }
+
+    /**
+     * The session a layout reads carries the tenders the report DETAILS and the
+     * lump total of the rest (BO-03-02-25, BO-03-03).
+     */
+    @Test
+    void theSessionDocumentCarriesWhatTheReportDetails() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(NOW);
+        report.closing = true;
+        report.ticketCount = 12;
+        report.totalsByMethod = new LinkedHashMap<>();
+        report.totalsByMethod.put("CASH", new BigDecimal("200.00"));
+        report.totalsByMethod.put("CARD", new BigDecimal("100.00"));
+        report.detailedMethods.add("CASH");
+        report.otherMethodsTotal = new BigDecimal("100.00");
+        report.bankDepositTotal = new BigDecimal("100.00");
+        report.theoreticalCash = new BigDecimal("300.00");
+        report.totalRefunds = BigDecimal.ZERO;
+        Map<String, Object> data = service.sessionDocumentData(report);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> tenders = (List<Map<String, Object>>) data.get("tenders");
+        assertEquals(1, tenders.size());
+        assertEquals("CASH", tenders.get(0).get("label"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> totals = (Map<String, Object>) data.get("totals");
+        assertEquals("12", totals.get("ticketCount"));
+        assertEquals("100,00", totals.get("otherTenders"));
+        assertEquals("100,00", totals.get("bankDeposit"));
+        assertEquals("100,00", totals.get("openingFloat"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> session = (Map<String, Object>) data.get("session");
+        assertEquals("S-001", session.get("number"));
+        assertEquals(Boolean.TRUE, session.get("closing"));
+    }
+
+    /**
+     * A report whose session carries nothing still describes itself — the null
+     * legs of the session builder.
+     */
+    @Test
+    void aBareReportStillDescribesItself() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        Map<String, Object> data = service.sessionDocumentData(report);
+        assertEquals("", data.get("terminal"));
+        assertEquals("", data.get("operator"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> session = (Map<String, Object>) data.get("session");
+        assertEquals("", session.get("number"));
+        assertEquals("", session.get("openedAt"));
+        assertEquals("", session.get("closedAt"));
+    }
+
+    /**
+     * An administered layout replaces the gift-card voucher and the credit-note
+     * voucher alike, each reading its own instrument.
+     */
+    @Test
+    void anAdministeredLayoutReplacesTheVouchers() {
+        TicketPrinterService giftService = newService();
+        wireRenderer(giftService);
+        com.intermarche.pos.domain.setting.DocumentTemplate gift = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.GIFT_CARD_VOUCHER,
+                "CADEAU {instrument.number} {instrument.amount}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, gift);
+            giftService.printGiftCardVoucher("296000000000042", new BigDecimal("50.00"));
+            assertEquals("CADEAU 296000000000042 50,00", captureReceipt(giftService));
+        }
+
+        TicketPrinterService changeService = newService();
+        wireRenderer(changeService);
+        com.intermarche.pos.domain.setting.DocumentTemplate note = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate
+                        .DocumentType.CREDIT_NOTE_VOUCHER,
+                "AVOIR {instrument.number} {instrument.amount}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, note);
+            changeService.printChangeVoucher("297000000000042", new BigDecimal("30.00"));
+            assertEquals("AVOIR 297000000000042 30,00", captureReceipt(changeService));
+        }
+    }
+
+    /**
+     * An administered layout replaces the refund receipt, and reads the return
+     * through its own keys.
+     */
+    @Test
+    void anAdministeredLayoutReplacesTheRefundReceipt() {
+        TicketPrinterService service = newService();
+        wireRenderer(service);
+        Refund refund = refund();
+        Ticket original = ticket(0, null);
+        com.intermarche.pos.domain.setting.DocumentTemplate template = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.REFUND_RECEIPT,
+                "{store.name}|RETOUR {document.number} SUR {document.originalNumber}"
+                        + " PAR {document.method}"
+                        + "{#for l in lines}|{l.label} {l.total}{/for}"
+                        + "|TOTAL {totals.includingTax}");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Refund.findById(9L)).thenReturn(refund);
+            panache.when(() -> Ticket.findById(refund.originalTicketId)).thenReturn(original);
+            stubAdministeredLayout(panache, template);
+            service.printRefund(9L);
+            assertEquals("MAGASIN LYON|RETOUR C04-R000012 SUR C04-00000001 PAR ESPECES"
+                    + "|BEURRE 4,00|TOTAL 4,00", captureReceipt(service));
+        }
+    }
+
+    /**
+     * A refund whose original sale could not be loaded still describes itself —
+     * the null leg of the original guard.
+     */
+    @Test
+    void aRefundWithoutItsOriginalStillDescribesItself() {
+        TicketPrinterService service = newService();
+        Map<String, Object> data = service.refundDocumentData(refund(), null);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> document = (Map<String, Object>) data.get("document");
+        assertEquals("", document.get("originalNumber"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> store = (Map<String, Object>) data.get("store");
+        assertEquals("", store.get("name"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> vatRows = (List<Map<String, Object>>) data.get("vatRows");
+        assertEquals(1, vatRows.size());
+    }
+
+    /**
+     * A refund carrying no method, no date and no line describes itself all the
+     * same — the remaining null legs of the refund builder.
+     */
+    @Test
+    void aBareRefundStillDescribesItself() {
+        TicketPrinterService service = newService();
+        Refund bare = mock(Refund.class);
+        bare.lines = new ArrayList<>();
+        Map<String, Object> data = service.refundDocumentData(bare, null);
+        assertEquals("", data.get("date"));
+        assertEquals("", data.get("time"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> document = (Map<String, Object>) data.get("document");
+        assertEquals("", document.get("method"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> totals = (Map<String, Object>) data.get("totals");
+        assertEquals("", totals.get("includingTax"));
+        assertTrue(((List<?>) data.get("lines")).isEmpty());
+    }
+
+    /**
+     * An administered layout replaces the withdrawal ticket, counts included,
+     * and the transfer ticket, which names its two ends instead.
+     */
+    @Test
+    void anAdministeredLayoutReplacesTheMovementTickets() {
+        TicketPrinterService withdrawal = newService();
+        wireRenderer(withdrawal);
+        com.intermarche.pos.domain.setting.DocumentTemplate taken = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.WITHDRAWAL_TICKET,
+                "{movement.label} {movement.tender} {movement.amount} PAR {operator} SUR {terminal}"
+                        + "{#for c in counts}|{c.label} {c.amount}{/for}");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, taken);
+            withdrawal.printWithdrawalTicket("CASH", new BigDecimal("500.00"),
+                    List.<String[]>of(new String[] {"Billets 50", "8"}), "MARIE", "C04");
+            assertEquals("PRELEVEMENT CASH 500,00 PAR MARIE SUR C04|Billets 50 8",
+                    captureReceipt(withdrawal));
+        }
+
+        TicketPrinterService transfer = newService();
+        wireRenderer(transfer);
+        com.intermarche.pos.domain.setting.DocumentTemplate moved = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.TRANSFER_TICKET,
+                "{movement.label} {movement.from}>{movement.to} {movement.amount}");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, moved);
+            transfer.printTransferTicket("CASH", "CHEQUE", new BigDecimal("120.00"),
+                    "MARIE", "C04");
+            assertEquals("TRANSFERT REGLEMENT CASH>CHEQUE 120,00", captureReceipt(transfer));
+        }
+    }
+
+    /**
+     * A movement carrying no tender, no ends, no amount, no counts, no operator
+     * and no register still describes itself — the null legs of the movement
+     * builder.
+     */
+    @Test
+    void aBareMovementStillDescribesItself() {
+        TicketPrinterService service = newService();
+        Map<String, Object> data = service.movementDocumentData(
+                null, null, null, null, null, null, null, null);
+        assertEquals("", data.get("terminal"));
+        assertEquals("", data.get("operator"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> movement = (Map<String, Object>) data.get("movement");
+        assertEquals("", movement.get("label"));
+        assertEquals("", movement.get("tender"));
+        assertEquals("", movement.get("from"));
+        assertEquals("", movement.get("to"));
+        assertEquals("", movement.get("amount"));
+        assertTrue(((List<?>) data.get("counts")).isEmpty());
+    }
+
+    /**
+     * An administered layout replaces both card slips, each stating its own
+     * kind — the credit and the abandoned debit are one document type with two
+     * things to say.
+     */
+    @Test
+    void anAdministeredLayoutReplacesTheCardSlips() {
+        TicketPrinterService credit = newService();
+        wireRenderer(credit);
+        com.intermarche.pos.domain.setting.DocumentTemplate slip = layout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.CARD_RECEIPT,
+                "{card.kind} {card.amount} {terminal}");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, slip);
+            credit.printCardCreditReceipt(refund());
+            assertEquals("CREDIT 4,00 C04", captureReceipt(credit));
+        }
+
+        TicketPrinterService abandoned = newService();
+        wireRenderer(abandoned);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubAdministeredLayout(panache, slip);
+            abandoned.printCardTnaReceipt(new BigDecimal("4.60"), null);
+            assertEquals("ABANDON DEBIT 4,60 ", captureReceipt(abandoned));
+        }
+    }
+
+    /**
+     * A card slip carrying no amount, no frame, no register and no moment still
+     * describes itself — the null legs of the card builder.
+     */
+    @Test
+    void aBareCardSlipStillDescribesItself() {
+        TicketPrinterService service = newService();
+        Map<String, Object> data = service.cardDocumentData(null, null, null, null, null);
+        assertEquals("", data.get("terminal"));
+        assertEquals("", data.get("date"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> card = (Map<String, Object>) data.get("card");
+        assertEquals("", card.get("kind"));
+        assertEquals("", card.get("amount"));
+        assertEquals("", card.get("frame"));
+    }
+
+    /**
+     * An instrument carrying no number and no amount still describes itself —
+     * the null legs of the instrument builder.
+     */
+    @Test
+    void aBareInstrumentStillDescribesItself() {
+        TicketPrinterService service = newService();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> instrument = (Map<String, Object>)
+                service.instrumentDocumentData(null, null).get("instrument");
+        assertEquals("", instrument.get("number"));
+        assertEquals("", instrument.get("amount"));
+    }
+
+    /**
+     * {@code printChangeVoucher} says on its face that the note is CHANGE and
+     * not a refund, and carries the registry number and the amount.
+     */
+    @Test
+    void printChangeVoucherSaysItIsChange() {
+        TicketPrinterService service = newService();
+        service.printChangeVoucher("297000000000042", new BigDecimal("30.00"));
+        String out = captureReceipt(service);
+        assertTrue(out.contains("AVOIR - RENDU DE MONNAIE"));
+        assertTrue(out.contains("30,00 E"));
+        assertTrue(out.contains("N° 297000000000042"));
+        assertTrue(out.contains("(scannable en caisse - solde au registre)"));
+    }
+
     // --- printParkedTicket ---
 
     /**
@@ -1469,13 +2172,13 @@ class TicketPrinterServiceTest {
         TicketPrinterService service = newService();
         Ticket ticket = ticket(0, null);
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
-        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment chf =
-                new com.intermarche.pos.domain.ticket.ForeignCurrencyPayment(new BigDecimal("10.00"));
+        com.intermarche.pos.domain.payment.ForeignCurrencyPayment chf =
+                new com.intermarche.pos.domain.payment.ForeignCurrencyPayment(new BigDecimal("10.00"));
         chf.currencyCode = "CHF";
         chf.foreignAmount = new BigDecimal("9.50");
         chf.exchangeRate = new BigDecimal("1.0531");
-        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment noRate =
-                new com.intermarche.pos.domain.ticket.ForeignCurrencyPayment(new BigDecimal("2.00"));
+        com.intermarche.pos.domain.payment.ForeignCurrencyPayment noRate =
+                new com.intermarche.pos.domain.payment.ForeignCurrencyPayment(new BigDecimal("2.00"));
         noRate.currencyCode = null;
         noRate.foreignAmount = new BigDecimal("2.00");
         noRate.exchangeRate = null;
@@ -1504,7 +2207,7 @@ class TicketPrinterServiceTest {
         Ticket ticket = ticket(0, null);
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         ticket.payments.add(
-                new com.intermarche.pos.domain.ticket.RoundingPayment(new BigDecimal("0.02")));
+                new com.intermarche.pos.domain.payment.RoundingPayment(new BigDecimal("0.02")));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
             mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
@@ -1530,12 +2233,12 @@ class TicketPrinterServiceTest {
         TicketPrinterService service = newService();
         Ticket ticket = ticket(0, null);
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
-        com.intermarche.pos.domain.ticket.CreditPayment full =
-                new com.intermarche.pos.domain.ticket.CreditPayment(new BigDecimal("10.00"));
+        com.intermarche.pos.domain.payment.CreditPayment full =
+                new com.intermarche.pos.domain.payment.CreditPayment(new BigDecimal("10.00"));
         full.accountNumber = "CPT-42";
         full.accountName = "MAIRIE DE LYON";
-        com.intermarche.pos.domain.ticket.CreditPayment blank =
-                new com.intermarche.pos.domain.ticket.CreditPayment(new BigDecimal("2.00"));
+        com.intermarche.pos.domain.payment.CreditPayment blank =
+                new com.intermarche.pos.domain.payment.CreditPayment(new BigDecimal("2.00"));
         blank.accountNumber = null;
         blank.accountName = null;
         ticket.payments.add(full);
@@ -1647,12 +2350,12 @@ class TicketPrinterServiceTest {
         TicketPrinterService service = newService();
         Ticket ticket = ticket(0, null);
         ticket.store = null;
-        com.intermarche.pos.domain.ticket.CardPayment nullAuth =
-                new com.intermarche.pos.domain.ticket.CardPayment(new BigDecimal("12.00"));
+        com.intermarche.pos.domain.payment.CardPayment nullAuth =
+                new com.intermarche.pos.domain.payment.CardPayment(new BigDecimal("12.00"));
         nullAuth.authorizationNumber = null;
         nullAuth.degradedMode = true;
-        com.intermarche.pos.domain.ticket.CardPayment blankAuth =
-                new com.intermarche.pos.domain.ticket.CardPayment(new BigDecimal("3.00"));
+        com.intermarche.pos.domain.payment.CardPayment blankAuth =
+                new com.intermarche.pos.domain.payment.CardPayment(new BigDecimal("3.00"));
         blankAuth.authorizationNumber = "   ";
         blankAuth.degradedMode = false;
         ticket.payments.add(nullAuth);

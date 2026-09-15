@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.ArticleSelection;
-import com.intermarche.pos.domain.ProductType;
-import com.intermarche.pos.domain.attribute.ProductAttributeCatalog;
+import com.intermarche.pos.domain.catalog.ArticleSelection;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -22,6 +22,7 @@ import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import org.jboss.logging.Logger;
 
 /**
  * The ARTICLE SELECTIONS administration screen
@@ -37,6 +38,9 @@ import java.nio.charset.StandardCharsets;
  */
 @Path("/admin/article-selections")
 public class AdminArticleSelectionResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminArticleSelectionResource.class);
 
     /** The selections list template. */
     @Inject
@@ -55,6 +59,8 @@ public class AdminArticleSelectionResource {
     @RolesAllowed("ADMIN")
     public TemplateInstance list(@QueryParam("notice") String notice,
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method list with notice: " + notice + ", noticeOk: " + noticeOk);
+        LOGGER.info("Exiting method list");
         return adminArticleSelections.data("selections", ArticleSelection.listAllOrdered())
                 .data("attributeDefs", ProductAttributeCatalog.CATALOG)
                 .data("types", ProductType.values())
@@ -75,18 +81,22 @@ public class AdminArticleSelectionResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         String name = trimmed(form.getFirst("name"));
         if (name.isEmpty()) {
+            LOGGER.info("Exiting method save");
             return redirect("Le nom de la sélection est obligatoire.", false);
         }
         Long id = parseId(form.getFirst("id"));
         ArticleSelection selection = id != null
                 ? ArticleSelection.<ArticleSelection>findById(id) : null;
         if (id != null && selection == null) {
+            LOGGER.info("Exiting method save");
             return redirect("Sélection introuvable.", false);
         }
         ArticleSelection clash = ArticleSelection.findByName(name);
         if (clash != null && !clash.equals(selection)) {
+            LOGGER.info("Exiting method save");
             return redirect("Une sélection porte déjà le nom « " + name + " ».", false);
         }
         String criteria = ArticleSearchCriteria.fromParams(form).toQueryString();
@@ -99,6 +109,7 @@ public class AdminArticleSelectionResource {
             selection.name = name;
             selection.criteria = criteria;
         }
+        LOGGER.info("Exiting method save");
         return redirect("Sélection « " + name + " » enregistrée.", true);
     }
 
@@ -114,14 +125,17 @@ public class AdminArticleSelectionResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Transactional
     public Response delete(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method delete with form: " + form);
         Long id = parseId(form.getFirst("id"));
         ArticleSelection selection = id != null
                 ? ArticleSelection.<ArticleSelection>findById(id) : null;
         if (selection == null) {
+            LOGGER.info("Exiting method delete");
             return redirect("Sélection introuvable.", false);
         }
         String name = selection.name;
         selection.delete();
+        LOGGER.info("Exiting method delete");
         return redirect("Sélection « " + name + " » supprimée.", true);
     }
 

@@ -1,14 +1,15 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.CrudOption;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.EmployeeProfile;
-import com.intermarche.pos.domain.Feature;
-import com.intermarche.pos.domain.Profile;
-import com.intermarche.pos.domain.ProfileGrant;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.people.CrudOption;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.people.EmployeeProfile;
+import com.intermarche.pos.domain.setting.Feature;
+import com.intermarche.pos.domain.people.Profile;
+import com.intermarche.pos.domain.people.ProfileGrant;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.jboss.logging.Logger;
 
 /**
  * Answers the one question the administered profiles exist to answer: may
@@ -44,6 +45,9 @@ import jakarta.enterprise.context.ApplicationScoped;
  */
 @ApplicationScoped
 public class PermissionService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(PermissionService.class);
 
     /**
      * The outcome of an authorization question: whether it is allowed and,
@@ -121,6 +125,8 @@ public class PermissionService {
      * @return the decision
      */
     public Decision decide(String loginName, Feature feature, CrudOption option) {
+        LOGGER.info("Entering method decide with loginName: " + loginName + ", feature: " + feature + ", option: " + option);
+        LOGGER.info("Exiting method decide");
         return QuarkusTransaction.requiringNew().call(() -> decideInTransaction(loginName, feature, option));
     }
 
@@ -133,6 +139,8 @@ public class PermissionService {
      * @return true when the request is authorized
      */
     public boolean isAllowed(String loginName, Feature feature, CrudOption option) {
+        LOGGER.info("Entering method isAllowed with loginName: " + loginName + ", feature: " + feature + ", option: " + option);
+        LOGGER.info("Exiting method isAllowed");
         return decide(loginName, feature, option).isAllowed();
     }
 

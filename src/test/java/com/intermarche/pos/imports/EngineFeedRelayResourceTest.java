@@ -138,14 +138,14 @@ class EngineFeedRelayResourceTest {
      */
     @Test
     void statusListsStoredFeedsInCatalogOrder() {
-        com.intermarche.pos.domain.EngineFeed products =
-            org.mockito.Mockito.mock(com.intermarche.pos.domain.EngineFeed.class);
+        com.intermarche.pos.domain.sync.EngineFeed products =
+            org.mockito.Mockito.mock(com.intermarche.pos.domain.sync.EngineFeed.class);
         products.code = "PRODUCTS";
         products.version = "v2";
         products.appliedVersion = "v1";
         products.lastError = "HTTP 503 \"boom\"";
-        com.intermarche.pos.domain.EngineFeed offers =
-            org.mockito.Mockito.mock(com.intermarche.pos.domain.EngineFeed.class);
+        com.intermarche.pos.domain.sync.EngineFeed offers =
+            org.mockito.Mockito.mock(com.intermarche.pos.domain.sync.EngineFeed.class);
         offers.code = "OFFERS";
         offers.version = "v7";
         offers.appliedVersion = "v7";
@@ -153,14 +153,14 @@ class EngineFeedRelayResourceTest {
                  org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             for (com.intermarche.pos.service.sync.EngineFeedService.FeedDef def :
                      com.intermarche.pos.service.sync.EngineFeedService.CATALOG) {
-                com.intermarche.pos.domain.EngineFeed match =
+                com.intermarche.pos.domain.sync.EngineFeed match =
                         def.code().equals("PRODUCTS") ? products
                                 : def.code().equals("OFFERS") ? offers : null;
                 // Hoisted out of the stubbing: Mockito forbids creating and
                 // stubbing another mock while a stubbing is in progress.
-                io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.EngineFeed>
+                io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed>
                         matchQuery = queryOf(match);
-                mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("code", def.code()))
+                mocked.when(() -> com.intermarche.pos.domain.sync.EngineFeed.find("code", def.code()))
                         .thenReturn(matchQuery);
             }
             Response response = resource.status();
@@ -180,8 +180,8 @@ class EngineFeedRelayResourceTest {
      */
     @Test
     void statusRendersNullAppliedVersionForNeverAcknowledgedFeed() {
-        com.intermarche.pos.domain.EngineFeed products =
-            org.mockito.Mockito.mock(com.intermarche.pos.domain.EngineFeed.class);
+        com.intermarche.pos.domain.sync.EngineFeed products =
+            org.mockito.Mockito.mock(com.intermarche.pos.domain.sync.EngineFeed.class);
         products.code = "PRODUCTS";
         products.version = "v5";
         products.appliedVersion = null;
@@ -190,11 +190,11 @@ class EngineFeedRelayResourceTest {
                  org.mockito.Mockito.mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
             for (com.intermarche.pos.service.sync.EngineFeedService.FeedDef def :
                      com.intermarche.pos.service.sync.EngineFeedService.CATALOG) {
-                com.intermarche.pos.domain.EngineFeed match =
+                com.intermarche.pos.domain.sync.EngineFeed match =
                         def.code().equals("PRODUCTS") ? products : null;
-                io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.EngineFeed>
+                io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed>
                         matchQuery = queryOf(match);
-                mocked.when(() -> com.intermarche.pos.domain.EngineFeed.find("code", def.code()))
+                mocked.when(() -> com.intermarche.pos.domain.sync.EngineFeed.find("code", def.code()))
                         .thenReturn(matchQuery);
             }
             Response response = resource.status();
@@ -212,9 +212,9 @@ class EngineFeedRelayResourceTest {
      * @return the mocked query
      */
     @SuppressWarnings("unchecked")
-    private static io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.EngineFeed> queryOf(
-            com.intermarche.pos.domain.EngineFeed result) {
-        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.EngineFeed> query =
+    private static io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> queryOf(
+            com.intermarche.pos.domain.sync.EngineFeed result) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> query =
                 org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
         when(query.firstResult()).thenReturn(result);
         return query;

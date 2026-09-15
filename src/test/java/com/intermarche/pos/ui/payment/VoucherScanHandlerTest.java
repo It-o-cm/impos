@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.CouponType;
+import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.scanner.ScanContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,16 +33,24 @@ class VoucherScanHandlerTest {
     @Mock
     VoucherService voucherService;
 
+    /** The mocked control engine, silent unless a test administers otherwise. */
+    @Mock
+    com.intermarche.pos.service.CouponCheckService couponCheckService;
+
     /** The handler under test, wired with the mocked service. */
     VoucherScanHandler handler;
 
     /**
-     * Builds a fresh handler and injects the mocked service before each test.
+     * Builds a fresh handler and injects the mocked collaborators before each
+     * test, the control engine finding nothing by default.
      */
     @BeforeEach
     void setUp() {
         handler = new VoucherScanHandler();
         handler.voucherService = voucherService;
+        handler.couponCheckService = couponCheckService;
+        org.mockito.Mockito.lenient().when(couponCheckService.worst(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(com.intermarche.pos.domain.barcode.AlertLevel.NONE);
     }
 
     /**

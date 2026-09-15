@@ -70,6 +70,7 @@ public class AuthResource {
     @Path("/lock")
     @DrawerMayBeOpen
     public TemplateInstance lockPage(@QueryParam("error") String error) {
+        LOGGER.info("Entering method lockPage with error: " + error);
         authService.logout(state);
         String message = null;
         if ("locked".equals(error)) {
@@ -77,6 +78,7 @@ public class AuthResource {
         } else if (error != null) {
             message = "IDENTIFIANTS INCORRECTS";
         }
+        LOGGER.info("Exiting method lockPage");
         return lock.data("state", state).data("error", message);
     }
 
@@ -90,8 +92,10 @@ public class AuthResource {
     @Produces(MediaType.APPLICATION_JSON)
     @DrawerMayBeOpen
     public Map<String, Object> getLockData() {
+        LOGGER.info("Entering method getLockData");
         String badge = state.auth.scannedBadgeId;
         if (badge != null) state.auth.clearScannedBadge();
+        LOGGER.info("Exiting method getLockData");
         return Map.of("scannedBadge", badge != null ? badge : "");
     }
 
@@ -112,6 +116,7 @@ public class AuthResource {
         @FormParam("login") String login,
         @FormParam("password") String password
     ) {
+        LOGGER.info("Entering method unlock with login: " + login + ", password: ***");
         AuthService.LoginResult result = authService.login(state, login, password);
         if (result == AuthService.LoginResult.SUCCESS) {
             // Hardware gate: EVERY entry stops on the status page, whatever
@@ -129,10 +134,12 @@ public class AuthResource {
             // TEXT_HTML explicitly: the method returns a Response, so no
             // @Produces drives the negotiation and the page would leave
             // typeless — which the browser downloads instead of showing.
+            LOGGER.info("Exiting method unlock");
             return Response.ok(hardwareUnavailable.data("devices", devices)
                     .data("allAvailable", allAvailable), MediaType.TEXT_HTML).build();
         }
         String error = (result == AuthService.LoginResult.LOCKED) ? "locked" : "true";
+        LOGGER.info("Exiting method unlock");
         return Response.seeOther(URI.create("/lock?error=" + error)).build();
     }
 
@@ -156,11 +163,14 @@ public class AuthResource {
     @Path("/action/hardware-override")
     @DrawerMayBeOpen
     public Response hardwareOverride() {
+        LOGGER.info("Entering method hardwareOverride");
         if (state.auth.isLocked) {
+            LOGGER.info("Exiting method hardwareOverride");
             return Response.seeOther(URI.create("/lock")).build();
         }
         LOGGER.warnf("Hardware gate bypassed by '%s': the lane opens with a peripheral down.",
                 state.auth.operatorName);
+        LOGGER.info("Exiting method hardwareOverride");
         return openLane();
     }
 

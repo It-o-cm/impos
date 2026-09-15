@@ -1,6 +1,6 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.FidEvent;
+import com.intermarche.pos.domain.sync.FidEvent;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
@@ -36,7 +36,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class FidEventOutboxService {
 
-    private static final Logger LOG = Logger.getLogger(FidEventOutboxService.class);
+    private static final Logger LOGGER = Logger.getLogger(FidEventOutboxService.class);
 
     /** Base URL of imfid; absent = loyalty disabled, the drain is a no-op. */
     @ConfigProperty(name = "pos.fid.url")
@@ -76,7 +76,7 @@ public class FidEventOutboxService {
         });
         executor.scheduleWithFixedDelay(this::drainSafely, 10, 10,
                 java.util.concurrent.TimeUnit.SECONDS);
-        LOG.infof("Outbox fidélité active vers %s (toutes les 10s)", url.get());
+        LOGGER.infof("Outbox fidélité active vers %s (toutes les 10s)", url.get());
     }
 
     /**
@@ -96,7 +96,7 @@ public class FidEventOutboxService {
         try {
             drain();
         } catch (Exception e) {
-            LOG.errorf("Cycle d'outbox fidélité en erreur: %s", e.getMessage());
+            LOGGER.errorf("Cycle d'outbox fidélité en erreur: %s", e.getMessage());
         }
     }
 
@@ -110,11 +110,13 @@ public class FidEventOutboxService {
      */
     @Transactional(Transactional.TxType.REQUIRED)
     public void enqueue(FidEvent.EventType type, String payloadJson) {
+        LOGGER.info("Entering method enqueue with type: " + type + ", payloadJson: " + payloadJson);
         FidEvent event = new FidEvent();
         event.eventType = type;
         event.payloadJson = payloadJson;
         event.createdAt = LocalDateTime.now();
         event.persist();
+        LOGGER.info("Exiting method enqueue");
     }
 
     /**
@@ -127,10 +129,13 @@ public class FidEventOutboxService {
      * bypass the {@code @Transactional} interceptor.
      */
     public void drain() {
+        LOGGER.info("Entering method drain");
         if (url.isEmpty()) {
+            LOGGER.info("Exiting method drain");
             return;
         }
         QuarkusTransaction.requiringNew().run(this::drainInTransaction);
+        LOGGER.info("Exiting method drain");
     }
 
     /**
@@ -149,12 +154,12 @@ public class FidEventOutboxService {
                     event.lastError = null;
                 } else {
                     event.lastError = "HTTP " + status;
-                    LOG.warnf("Événement fidélité %d refusé (%s): nouvel essai au prochain cycle",
+                    LOGGER.warnf("Événement fidélité %d refusé (%s): nouvel essai au prochain cycle",
                             event.id, event.lastError);
                 }
             } catch (Exception e) {
                 event.lastError = e.getMessage();
-                LOG.debugf("imfid injoignable pour l'événement %d: rejoué au prochain cycle", event.id);
+                LOGGER.debugf("imfid injoignable pour l'événement %d: rejoué au prochain cycle", event.id);
                 return; // Down: no point hammering the rest of the queue now.
             }
         }

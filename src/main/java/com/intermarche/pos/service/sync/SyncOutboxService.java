@@ -1,17 +1,17 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -40,7 +40,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class SyncOutboxService {
 
-    private static final Logger LOG = Logger.getLogger(SyncOutboxService.class);
+    private static final Logger LOGGER = Logger.getLogger(SyncOutboxService.class);
 
     /** URL of the store node; absent = synchronization disabled. */
     @ConfigProperty(name = "pos.sync.store-url")
@@ -76,6 +76,8 @@ public class SyncOutboxService {
      * @return true when a store URL is configured
      */
     public boolean isEnabled() {
+        LOGGER.info("Entering method isEnabled");
+        LOGGER.info("Exiting method isEnabled");
         return storeUrl.isPresent() && !storeUrl.get().isBlank();
     }
 
@@ -85,8 +87,10 @@ public class SyncOutboxService {
      * @return the store URL, or an empty string when disabled
      */
     public String getStoreUrl() {
-        if (!isEnabled()) return "";
+        LOGGER.info("Entering method getStoreUrl");
+        if (!isEnabled()) { LOGGER.info("Exiting method getStoreUrl"); return ""; }
         String url = storeUrl.get().trim();
+        LOGGER.info("Exiting method getStoreUrl");
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
@@ -99,12 +103,14 @@ public class SyncOutboxService {
      */
     @Transactional
     public void enqueue(SyncOutbox.EntityType type, Long entityId) {
-        if (!isEnabled() || entityId == null) return;
+        LOGGER.info("Entering method enqueue with type: " + type + ", entityId: " + entityId);
+        if (!isEnabled() || entityId == null) { LOGGER.info("Exiting method enqueue"); return; }
         SyncOutbox row = new SyncOutbox();
         row.entityType = type;
         row.entityId = entityId;
         row.createdAt = LocalDateTime.now();
         row.persist();
+        LOGGER.info("Exiting method enqueue");
     }
 
     /**
@@ -116,6 +122,8 @@ public class SyncOutboxService {
      */
     @Transactional
     public List<Long> nextBatchIds(int batchSize) {
+        LOGGER.info("Entering method nextBatchIds with batchSize: " + batchSize);
+        LOGGER.info("Exiting method nextBatchIds");
         return SyncOutbox.<SyncOutbox>find("order by entityType, id")
                 .page(0, batchSize)
                 .list()
@@ -131,9 +139,11 @@ public class SyncOutboxService {
      */
     @Transactional
     public PreparedItem prepare(Long outboxId) {
+        LOGGER.info("Entering method prepare with outboxId: " + outboxId);
         SyncOutbox row = SyncOutbox.findById(outboxId);
-        if (row == null) return null;
+        if (row == null) { LOGGER.info("Exiting method prepare"); return null; }
         try {
+            LOGGER.info("Exiting method prepare");
             return switch (row.entityType) {
                 case SESSION -> {
                     CashSession session = CashSession.findById(row.entityId);
@@ -161,14 +171,15 @@ public class SyncOutboxService {
                             : new PreparedItem("event", objectMapper.writeValueAsString(toDto(event)));
                 }
                 case CUSTOMER -> {
-                    com.intermarche.pos.domain.AccountCustomer customer =
-                            com.intermarche.pos.domain.AccountCustomer.findById(row.entityId);
+                    com.intermarche.pos.domain.payment.AccountCustomer customer =
+                            com.intermarche.pos.domain.payment.AccountCustomer.findById(row.entityId);
                     yield customer == null ? null
                             : new PreparedItem("customer", objectMapper.writeValueAsString(toDto(customer)));
                 }
             };
         } catch (Exception e) {
-            LOG.errorf("Préparation sync impossible (outbox %d): %s", outboxId, e.getMessage());
+            LOGGER.errorf("Préparation sync impossible (outbox %d): %s", outboxId, e.getMessage());
+            LOGGER.info("Exiting method prepare");
             return null;
         }
     }
@@ -180,7 +191,9 @@ public class SyncOutboxService {
      */
     @Transactional
     public void markSuccess(Long outboxId) {
+        LOGGER.info("Entering method markSuccess with outboxId: " + outboxId);
         SyncOutbox.deleteById(outboxId);
+        LOGGER.info("Exiting method markSuccess");
     }
 
     /**
@@ -191,11 +204,13 @@ public class SyncOutboxService {
      */
     @Transactional
     public void markFailure(Long outboxId, String error) {
+        LOGGER.info("Entering method markFailure with outboxId: " + outboxId + ", error: " + error);
         SyncOutbox row = SyncOutbox.findById(outboxId);
-        if (row == null) return;
+        if (row == null) { LOGGER.info("Exiting method markFailure"); return; }
         row.attempts++;
         row.lastError = error != null && error.length() > 255 ? error.substring(0, 255) : error;
         row.persist();
+        LOGGER.info("Exiting method markFailure");
     }
 
     /**
@@ -205,7 +220,9 @@ public class SyncOutboxService {
      */
     @Transactional
     public void markGone(Long outboxId) {
+        LOGGER.info("Entering method markGone with outboxId: " + outboxId);
         SyncOutbox.deleteById(outboxId);
+        LOGGER.info("Exiting method markGone");
     }
 
     /**
@@ -235,6 +252,7 @@ public class SyncOutboxService {
      */
     @Transactional
     public List<BacklogRow> backlog() {
+        LOGGER.info("Entering method backlog");
         List<BacklogRow> rows = new java.util.ArrayList<>();
         for (SyncOutbox.EntityType type : SyncOutbox.EntityType.values()) {
             List<SyncOutbox> items = SyncOutbox.list("entityType", type);
@@ -253,6 +271,7 @@ public class SyncOutboxService {
             }
             rows.add(new BacklogRow(type.name(), items.size(), maxAttempts, lastError));
         }
+        LOGGER.info("Exiting method backlog");
         return rows;
     }
 
@@ -373,24 +392,24 @@ public class SyncOutboxService {
                 paymentDto.voucherLabel = voucher.voucherLabel;
                 paymentDto.voucherNumber = voucher.voucherNumber;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.CardPayment card) {
+            if (payment instanceof com.intermarche.pos.domain.payment.CardPayment card) {
                 paymentDto.authorizationNumber = card.authorizationNumber;
                 paymentDto.degradedMode = card.degradedMode;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.ChequePayment cheque) {
+            if (payment instanceof com.intermarche.pos.domain.payment.ChequePayment cheque) {
                 paymentDto.magneticLine = cheque.magneticLine;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.BackupPayment secours) {
+            if (payment instanceof com.intermarche.pos.domain.payment.BackupPayment secours) {
                 paymentDto.backupMethodLabel = secours.methodLabel;
                 paymentDto.backupTransaction = secours.transactionNumber;
                 paymentDto.backupManual = secours.manual;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devise) {
+            if (payment instanceof com.intermarche.pos.domain.payment.ForeignCurrencyPayment devise) {
                 paymentDto.currencyCode = devise.currencyCode;
                 paymentDto.currencyAmount = devise.foreignAmount;
                 paymentDto.currencyRate = devise.exchangeRate;
             }
-            if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+            if (payment instanceof com.intermarche.pos.domain.payment.CreditPayment credit) {
                 paymentDto.creditAccountNumber = credit.accountNumber;
                 paymentDto.creditAccountName = credit.accountName;
                 paymentDto.creditOverLimit = credit.overLimit;
@@ -440,7 +459,7 @@ public class SyncOutboxService {
      * @param customer the customer to declare
      * @return the payload
      */
-    private SyncPayloads.CustomerDto toDto(com.intermarche.pos.domain.AccountCustomer customer) {
+    private SyncPayloads.CustomerDto toDto(com.intermarche.pos.domain.payment.AccountCustomer customer) {
         SyncPayloads.CustomerDto dto = new SyncPayloads.CustomerDto();
         dto.accountNumber = customer.accountNumber;
         dto.companyName = customer.companyName;

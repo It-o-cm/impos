@@ -6,6 +6,7 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the SAISIE DIRECTE drill-down: root level and category
@@ -14,6 +15,9 @@ import jakarta.ws.rs.*;
 @Path("/")
 @DrawerMustBeClosed
 public class ManualResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ManualResource.class);
 
     @Inject Template manual;
     @Inject ManualService manualService;
@@ -31,7 +35,9 @@ public class ManualResource {
      */
     public TemplateInstance manualPage(@jakarta.ws.rs.QueryParam("page")
                                        @jakarta.ws.rs.DefaultValue("1") int page) {
+        LOGGER.info("Entering method manualPage with page: " + page);
         ManualService.ManualViewData viewData = manualService.getManualRootData(page);
+        LOGGER.info("Exiting method manualPage");
         return manual.data("state", state)
                 .data("items", viewData.items)
                 .data("breadcrumb", viewData.breadcrumb)
@@ -55,7 +61,9 @@ public class ManualResource {
     public TemplateInstance manualCategoryPage(@PathParam("code") String code,
                                                @jakarta.ws.rs.QueryParam("page")
                                                @jakarta.ws.rs.DefaultValue("1") int page) {
+        LOGGER.info("Entering method manualCategoryPage with code: " + code + ", page: " + page);
         ManualService.ManualViewData viewData = manualService.getManualCategoryData(code, page);
+        LOGGER.info("Exiting method manualCategoryPage");
         return manual.data("state", state)
                 .data("items", viewData.items)
                 .data("breadcrumb", viewData.breadcrumb)

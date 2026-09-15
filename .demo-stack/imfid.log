@@ -46,3 +46,20 @@ Debugger failed to attach: handshake failed - connection prematurally closed
 Debugger failed to attach: handshake failed - connection prematurally closed
 04:00:00 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
 05:00:00 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided
+Debugger failed to attach: handshake failed - connection prematurally closed
+Debugger failed to attach: handshake failed - connection prematurally closed
+04:04:39 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
+05:03:07 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided
+04:10:55 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
+05:04:39 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided
+Debugger failed to attach: handshake failed - connection prematurally closed
+Debugger failed to attach: handshake failed - connection prematurally closed
+Debugger failed to attach: handshake failed - connection prematurally closed
+04:11:14 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
+05:01:12 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided
+Debugger failed to attach: handshake failed - connection prematurally closed
+Debugger failed to attach: handshake failed - connection prematurally closed
+Debugger failed to attach: handshake failed - connection prematurally closed
+Debugger failed to attach: handshake failed - connection prematurally closed
+04:05:39 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled PURGE: 0 accounts, 0.00 € purged
+05:12:28 INFO  [co.in.fi.ba.BatchScheduler] (vert.x-worker-thread-3) Scheduled ACTIVATION_VOID: 0 accounts, 0.00 € voided

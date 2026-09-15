@@ -1,9 +1,9 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductType;
-import com.intermarche.pos.domain.attribute.ProductAttributeCatalog;
-import com.intermarche.pos.domain.attribute.ProductAttributes;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 

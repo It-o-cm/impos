@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.hardware;
 
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.sale.TicketLine;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

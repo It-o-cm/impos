@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.CashMovement;
+import com.intermarche.pos.domain.session.CashMovement;
 import jakarta.ws.rs.core.MultivaluedMap;
 
 import java.math.BigDecimal;

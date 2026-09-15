@@ -1,19 +1,19 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.BalanceTicket;
-import com.intermarche.pos.domain.BalanceTicketLine;
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.barcode.BalanceTicket;
+import com.intermarche.pos.domain.barcode.BalanceTicketLine;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.enterprise.inject.Instance;
@@ -358,8 +358,8 @@ class SyncIngestServiceTest {
     void ingestTicketSetsCardPaymentTraces() {
         TicketPayment.Factory cardFactory = mock(TicketPayment.Factory.class);
         when(cardFactory.getKey()).thenReturn("CARD");
-        com.intermarche.pos.domain.ticket.CardPayment cardPayment =
-                mock(com.intermarche.pos.domain.ticket.CardPayment.class);
+        com.intermarche.pos.domain.payment.CardPayment cardPayment =
+                mock(com.intermarche.pos.domain.payment.CardPayment.class);
         when(cardFactory.create(any(), any())).thenReturn(cardPayment);
         SyncIngestService service = serviceWith(cardFactory);
         SyncPayloads.TicketDto dto = new SyncPayloads.TicketDto();
@@ -1165,14 +1165,14 @@ class SyncIngestServiceTest {
         when(backupFactory.getKey()).thenReturn("SECOURS");
         when(deviseFactory.getKey()).thenReturn("DEVISE");
         when(creditFactory.getKey()).thenReturn("CREDIT");
-        com.intermarche.pos.domain.ticket.ChequePayment chequePayment =
-                mock(com.intermarche.pos.domain.ticket.ChequePayment.class);
-        com.intermarche.pos.domain.ticket.BackupPayment backupPayment =
-                mock(com.intermarche.pos.domain.ticket.BackupPayment.class);
-        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment devisePayment =
-                mock(com.intermarche.pos.domain.ticket.ForeignCurrencyPayment.class);
-        com.intermarche.pos.domain.ticket.CreditPayment creditPayment =
-                mock(com.intermarche.pos.domain.ticket.CreditPayment.class);
+        com.intermarche.pos.domain.payment.ChequePayment chequePayment =
+                mock(com.intermarche.pos.domain.payment.ChequePayment.class);
+        com.intermarche.pos.domain.payment.BackupPayment backupPayment =
+                mock(com.intermarche.pos.domain.payment.BackupPayment.class);
+        com.intermarche.pos.domain.payment.ForeignCurrencyPayment devisePayment =
+                mock(com.intermarche.pos.domain.payment.ForeignCurrencyPayment.class);
+        com.intermarche.pos.domain.payment.CreditPayment creditPayment =
+                mock(com.intermarche.pos.domain.payment.CreditPayment.class);
         when(chequeFactory.create(any(), any())).thenReturn(chequePayment);
         when(backupFactory.create(any(), any())).thenReturn(backupPayment);
         when(deviseFactory.create(any(), any())).thenReturn(devisePayment);
@@ -1341,22 +1341,22 @@ class SyncIngestServiceTest {
         dto.vatNumber = "FR00123456789";
         dto.phone = "0102030405";
         dto.email = "paul@acme.fr";
-        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> query = queryReturning(null);
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> query = queryReturning(null);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<com.intermarche.pos.domain.AccountCustomer> created =
-                        mockConstruction(com.intermarche.pos.domain.AccountCustomer.class);
-                MockedConstruction<com.intermarche.pos.domain.Address> addresses =
-                        mockConstruction(com.intermarche.pos.domain.Address.class)) {
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer
+                MockedConstruction<com.intermarche.pos.domain.payment.AccountCustomer> created =
+                        mockConstruction(com.intermarche.pos.domain.payment.AccountCustomer.class);
+                MockedConstruction<com.intermarche.pos.domain.store.Address> addresses =
+                        mockConstruction(com.intermarche.pos.domain.store.Address.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
                     .find("accountNumber", "AC1")).thenReturn(query);
             service.ingestCustomer(dto);
-            com.intermarche.pos.domain.AccountCustomer customer = created.constructed().get(0);
+            com.intermarche.pos.domain.payment.AccountCustomer customer = created.constructed().get(0);
             assertEquals("AC1", customer.accountNumber);
             assertEquals("ACME", customer.companyName);
             assertEquals("Durand", customer.lastName);
             assertEquals("Paul", customer.firstName);
             assertEquals(1, addresses.constructed().size());
-            com.intermarche.pos.domain.Address address = addresses.constructed().get(0);
+            com.intermarche.pos.domain.store.Address address = addresses.constructed().get(0);
             assertSame(address, customer.address);
             assertEquals("1 rue des Lilas", address.streetLine1);
             assertEquals("75001", address.postalCode);
@@ -1387,16 +1387,16 @@ class SyncIngestServiceTest {
         dto.city = "Lyon";
         dto.siret = "98765432100022";
         dto.email = "marie@globex.fr";
-        com.intermarche.pos.domain.AccountCustomer existing =
-                mock(com.intermarche.pos.domain.AccountCustomer.class);
-        com.intermarche.pos.domain.Address address =
-                mock(com.intermarche.pos.domain.Address.class);
+        com.intermarche.pos.domain.payment.AccountCustomer existing =
+                mock(com.intermarche.pos.domain.payment.AccountCustomer.class);
+        com.intermarche.pos.domain.store.Address address =
+                mock(com.intermarche.pos.domain.store.Address.class);
         existing.address = address;
-        PanacheQuery<com.intermarche.pos.domain.AccountCustomer> query = queryReturning(existing);
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> query = queryReturning(existing);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<com.intermarche.pos.domain.Address> addresses =
-                        mockConstruction(com.intermarche.pos.domain.Address.class)) {
-            mocked.when(() -> com.intermarche.pos.domain.AccountCustomer
+                MockedConstruction<com.intermarche.pos.domain.store.Address> addresses =
+                        mockConstruction(com.intermarche.pos.domain.store.Address.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
                     .find("accountNumber", "AC2")).thenReturn(query);
             service.ingestCustomer(dto);
             assertTrue(addresses.constructed().isEmpty());

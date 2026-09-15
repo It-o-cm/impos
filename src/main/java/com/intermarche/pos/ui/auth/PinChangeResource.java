@@ -13,6 +13,7 @@ import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the PIN change page for the logged-in operator: same
@@ -22,6 +23,9 @@ import java.nio.charset.StandardCharsets;
  */
 @Path("/")
 public class PinChangeResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(PinChangeResource.class);
 
     @Inject
     @Location("pin-change")
@@ -43,6 +47,8 @@ public class PinChangeResource {
     @DrawerMayBeOpen
     public TemplateInstance pinChangePage(@QueryParam("error") String error,
                                           @QueryParam("success") String success) {
+        LOGGER.info("Entering method pinChangePage with error: " + error + ", success: " + success);
+        LOGGER.info("Exiting method pinChangePage");
         return pinChange.data("state", state)
                 .data("error", error)
                 .data("success", success);
@@ -69,10 +75,13 @@ public class PinChangeResource {
             @FormParam("currentPin") String currentPin,
             @FormParam("newPin") String newPin,
             @FormParam("confirmPin") String confirmPin) {
+        LOGGER.info("Entering method changePin with currentPin: ***" + ", newPin: ***" + ", confirmPin: ***");
         String error = authService.changePin(state, currentPin, newPin, confirmPin);
         if (error != null) {
+            LOGGER.info("Exiting method changePin");
             return Response.seeOther(URI.create("/pin-change?error=" + encode(error))).build();
         }
+        LOGGER.info("Exiting method changePin");
         return Response.seeOther(URI.create("/pin-change?success=" + encode("Code PIN modifié"))).build();
     }
 

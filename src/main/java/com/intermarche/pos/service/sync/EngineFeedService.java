@@ -1,6 +1,6 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.EngineFeed;
+import com.intermarche.pos.domain.sync.EngineFeed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
@@ -28,7 +28,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class EngineFeedService {
 
-    private static final Logger LOG = Logger.getLogger(EngineFeedService.class);
+    private static final Logger LOGGER = Logger.getLogger(EngineFeedService.class);
 
     /**
      * One catalog entry: a feed code and the import path of the local
@@ -60,6 +60,8 @@ public class EngineFeedService {
      * @return the catalog entry, or empty for an unknown code
      */
     public static Optional<FeedDef> catalogEntry(String code) {
+        LOGGER.info("Entering method catalogEntry with code: " + code);
+        LOGGER.info("Exiting method catalogEntry");
         return CATALOG.stream().filter(def -> def.code().equals(code)).findFirst();
     }
 
@@ -109,6 +111,7 @@ public class EngineFeedService {
      */
     @Transactional
     public List<FeedState> feedStates() {
+        LOGGER.info("Entering method feedStates");
         List<FeedState> states = new java.util.ArrayList<>();
         for (FeedDef def : CATALOG) {
             EngineFeed feed = EngineFeed.findByCode(def.code());
@@ -119,6 +122,7 @@ public class EngineFeedService {
                     feed.version.equals(feed.appliedVersion), feed.lastError,
                     feed.receivedAt, feed.appliedAt));
         }
+        LOGGER.info("Exiting method feedStates");
         return states;
     }
 
@@ -132,6 +136,7 @@ public class EngineFeedService {
      */
     @Transactional
     public List<PendingFeed> pendingFeeds() {
+        LOGGER.info("Entering method pendingFeeds");
         List<PendingFeed> pending = new java.util.ArrayList<>();
         for (FeedDef def : CATALOG) {
             EngineFeed feed = EngineFeed.findByCode(def.code());
@@ -139,6 +144,7 @@ public class EngineFeedService {
             pending.add(new PendingFeed(feed.code, def.enginePath(),
                     feed.content, feed.version, feed.lastError));
         }
+        LOGGER.info("Exiting method pendingFeeds");
         return pending;
     }
 
@@ -155,19 +161,22 @@ public class EngineFeedService {
      */
     @Transactional
     public String store(String code, String content) {
+        LOGGER.info("Entering method store with code: " + code + ", content: " + content);
         String version = sha256(content);
         EngineFeed feed = EngineFeed.findByCode(code);
         if (feed == null) {
             feed = new EngineFeed();
             feed.code = code;
         } else if (version.equals(feed.version)) {
+            LOGGER.info("Exiting method store");
             return version;
         }
         feed.content = content;
         feed.version = version;
         feed.receivedAt = LocalDateTime.now();
         feed.persist();
-        LOG.infof("Flux moteur %s enregistré (version %s)", code, version.substring(0, 12));
+        LOGGER.infof("Flux moteur %s enregistré (version %s)", code, version.substring(0, 12));
+        LOGGER.info("Exiting method store");
         return version;
     }
 
@@ -180,12 +189,14 @@ public class EngineFeedService {
      */
     @Transactional
     public void markApplied(String code, String version) {
+        LOGGER.info("Entering method markApplied with code: " + code + ", version: " + version);
         EngineFeed feed = EngineFeed.findByCode(code);
-        if (feed == null) return;
+        if (feed == null) { LOGGER.info("Exiting method markApplied"); return; }
         feed.appliedVersion = version;
         feed.appliedAt = LocalDateTime.now();
         feed.lastError = null;
         feed.persist();
+        LOGGER.info("Exiting method markApplied");
     }
 
     /**
@@ -197,10 +208,12 @@ public class EngineFeedService {
      */
     @Transactional
     public void markError(String code, String error) {
+        LOGGER.info("Entering method markError with code: " + code + ", error: " + error);
         EngineFeed feed = EngineFeed.findByCode(code);
-        if (feed == null) return;
+        if (feed == null) { LOGGER.info("Exiting method markError"); return; }
         feed.lastError = error != null && error.length() > 500 ? error.substring(0, 500) : error;
         feed.persist();
+        LOGGER.info("Exiting method markError");
     }
 
     /**

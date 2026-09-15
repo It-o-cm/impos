@@ -1,17 +1,20 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.Country;
-import com.intermarche.pos.domain.EchelonLevel;
-import com.intermarche.pos.domain.EchelonSetting;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductType;
-import com.intermarche.pos.domain.ProductFamily;
-import com.intermarche.pos.domain.RefState;
+import com.intermarche.pos.domain.barcode.AlertLevel;
+import com.intermarche.pos.domain.barcode.CouponControl;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.setting.EchelonSetting;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.sync.RefState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
@@ -45,7 +48,14 @@ import java.util.Set;
 @ApplicationScoped
 public class RefApplyService {
 
-    private static final Logger LOG = Logger.getLogger(RefApplyService.class);
+    private static final Logger LOGGER = Logger.getLogger(RefApplyService.class);
+
+    /**
+     * The document renderer, told to forget its parsed templates when the pull
+     * rewrites them underneath (BO-03-03).
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.DocumentTemplateService documentTemplateService;
 
     /**
      * Applies a family snapshot: upsert by code (families carry no active
@@ -65,6 +75,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyFamilies(List<RefPayloads.FamilyDto> dtos) {
+        LOGGER.info("Entering method applyFamilies with dtos: " + dtos);
         // FIRST PASS: the rows themselves. The edges cannot be wired here —
         // a parent may appear after its child in a snapshot ordered by code.
         Map<String, ProductFamily> byCode = new HashMap<>();
@@ -111,7 +122,8 @@ public class RefApplyService {
             }
             family.persist();
         }
-        LOG.infof("Référentiel familles appliqué: %d ligne(s)", dtos.size());
+        LOGGER.infof("Référentiel familles appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyFamilies");
     }
 
     /**
@@ -121,6 +133,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyProducts(List<RefPayloads.ProductDto> dtos) {
+        LOGGER.info("Entering method applyProducts with dtos: " + dtos);
         Set<String> seen = new HashSet<>();
         for (RefPayloads.ProductDto dto : dtos) {
             Product product = Product.find("ean", dto.ean).firstResult();
@@ -150,7 +163,8 @@ public class RefApplyService {
             seen.add(dto.ean);
         }
         int deactivated = deactivateAbsentProducts(seen);
-        LOG.infof("Référentiel produits appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+        LOGGER.infof("Référentiel produits appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyProducts");
     }
 
     /**
@@ -162,6 +176,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyPrices(List<RefPayloads.PriceDto> dtos) {
+        LOGGER.info("Entering method applyPrices with dtos: " + dtos);
         Price.deleteAll();
         int skipped = 0;
         for (RefPayloads.PriceDto dto : dtos) {
@@ -182,8 +197,9 @@ public class RefApplyService {
             price.endDateTime = parse(dto.endDateTime);
             price.persist();
         }
-        LOG.infof("Référentiel prix remplacé: %d ligne(s), %d orpheline(s) ignorée(s)",
+        LOGGER.infof("Référentiel prix remplacé: %d ligne(s), %d orpheline(s) ignorée(s)",
                 dtos.size() - skipped, skipped);
+        LOGGER.info("Exiting method applyPrices");
     }
 
     /**
@@ -194,6 +210,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyEmployees(List<RefPayloads.EmployeeDto> dtos) {
+        LOGGER.info("Entering method applyEmployees with dtos: " + dtos);
         Set<String> seen = new HashSet<>();
         for (RefPayloads.EmployeeDto dto : dtos) {
             Employee employee = Employee.find("loginName", dto.loginName).firstResult();
@@ -227,7 +244,8 @@ public class RefApplyService {
                 deactivated++;
             }
         }
-        LOG.infof("Référentiel employés appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+        LOGGER.infof("Référentiel employés appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyEmployees");
     }
 
     /**
@@ -237,6 +255,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyCouponTypes(List<RefPayloads.CouponTypeDto> dtos) {
+        LOGGER.info("Entering method applyCouponTypes with dtos: " + dtos);
         Set<String> seen = new HashSet<>();
         for (RefPayloads.CouponTypeDto dto : dtos) {
             CouponType type = CouponType.find("code", dto.code).firstResult();
@@ -251,6 +270,15 @@ public class RefApplyService {
             type.priority = dto.priority;
             type.active = dto.active;
             type.depositLine = dto.depositLine;
+            type.prefix = dto.prefix;
+            type.codeLength = dto.codeLength;
+            type.codeKind = dto.codeKind == null
+                    ? CouponField.Kind.NUMERIC
+                    : CouponField.Kind.valueOf(dto.codeKind);
+            type.manualAmountOnAllNines = dto.manualAmountOnAllNines;
+            type.islandCodes = dto.islandCodes;
+            applyCouponFields(type, dto);
+            applyCouponControls(type, dto);
             type.persist();
             seen.add(dto.code);
         }
@@ -262,7 +290,364 @@ public class RefApplyService {
                 deactivated++;
             }
         }
-        LOG.infof("Référentiel types de bons appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+        LOGGER.infof("Référentiel types de bons appliqué: %d ligne(s), %d désactivé(s)", dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyCouponTypes");
+    }
+
+    /**
+     * Applies a DOCUMENT TEMPLATE snapshot: upsert by code, absents deactivated
+     * (BO-03-03).
+     *
+     * <p>Same contract as every other domain — the snapshot is the truth, a row
+     * it no longer names stops laying out its document rather than lingering,
+     * and the register then prints that document its own way again.
+     *
+     * <p>The parsed-template cache is cleared at the end: the rows changed
+     * underneath the renderer, which has no other way of knowing.
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyDocumentTemplates(List<RefPayloads.DocumentTemplateDto> dtos) {
+        LOGGER.info("Entering method applyDocumentTemplates with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.DocumentTemplateDto dto : dtos) {
+            com.intermarche.pos.domain.setting.DocumentTemplate template =
+                    com.intermarche.pos.domain.setting.DocumentTemplate
+                            .find("code", dto.code).firstResult();
+            if (template == null) {
+                template = new com.intermarche.pos.domain.setting.DocumentTemplate();
+                template.code = dto.code;
+            }
+            template.label = dto.label;
+            template.documentType = documentType(dto.documentType);
+            template.active = dto.active;
+            template.priority = dto.priority;
+            template.width = dto.width;
+            template.copies = dto.copies;
+            template.source = dto.source;
+            template.persist();
+            seen.add(dto.code);
+        }
+        long deactivated = 0;
+        for (com.intermarche.pos.domain.setting.DocumentTemplate template
+                : com.intermarche.pos.domain.setting.DocumentTemplate
+                        .<com.intermarche.pos.domain.setting.DocumentTemplate>listAll()) {
+            if (!seen.contains(template.code) && template.active) {
+                template.active = false;
+                template.persist();
+                deactivated++;
+            }
+        }
+        documentTemplateService.clearCache();
+        LOGGER.infof("Référentiel gabarits appliqué: %d ligne(s), %d désactivé(s)",
+                dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyDocumentTemplates");
+    }
+
+    /**
+     * Reads a document type off a snapshot row, an absent or unknown one leaving
+     * the template attached to no document.
+     *
+     * @param raw the type name as it travelled, or null
+     * @return the type, or null when unrecognised
+     */
+    private com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType documentType(
+            String raw) {
+        for (com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type
+                : com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.values()) {
+            if (type.name().equals(raw)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Applies a TENDER snapshot: upsert by settlement key, absents deactivated
+     * (BO-03-02-03/04/10 to 30).
+     *
+     * <p>Same contract as every other domain — the snapshot is the truth, a row
+     * it no longer names stops being offered rather than lingering. Deactivating
+     * rather than deleting matters here more than elsewhere: the settlements
+     * already registered on a sale name their tender by this key, and a key the
+     * referential forgot would leave those lines unexplained.
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyTenders(List<RefPayloads.TenderDefinitionDto> dtos) {
+        LOGGER.info("Entering method applyTenders with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.TenderDefinitionDto dto : dtos) {
+            com.intermarche.pos.domain.payment.TenderDefinition tender =
+                    com.intermarche.pos.domain.payment.TenderDefinition
+                            .find("code", dto.code).firstResult();
+            if (tender == null) {
+                tender = new com.intermarche.pos.domain.payment.TenderDefinition();
+                tender.code = dto.code;
+            }
+            tender.functionalId = dto.functionalId;
+            tender.label = dto.label;
+            tender.active = dto.active;
+            tender.displayOrder = dto.displayOrder;
+            tender.maxAmount = decimal(dto.maxAmount);
+            tender.maxAmountControl = control(dto.maxAmountControl);
+            tender.secondMaxAmount = decimal(dto.secondMaxAmount);
+            tender.secondMaxAmountControl = control(dto.secondMaxAmountControl);
+            tender.minAmount = decimal(dto.minAmount);
+            tender.minAmountControl = control(dto.minAmountControl);
+            tender.maxCount = dto.maxCount;
+            tender.maxCountControl = control(dto.maxCountControl);
+            tender.maxChangeAmount = decimal(dto.maxChangeAmount);
+            tender.maxChangeControl = control(dto.maxChangeControl);
+            tender.refundAllowed = dto.refundAllowed;
+            tender.changeAllowed = dto.changeAllowed;
+            tender.changeTenderCode = dto.changeTenderCode;
+            tender.cashierDeclaration = dto.cashierDeclaration;
+            tender.automaticWithdrawal = dto.automaticWithdrawal;
+            tender.drawerOpening = drawer(dto.drawerOpening);
+            tender.movementAllowed = dto.movementAllowed;
+            tender.bankDeposit = dto.bankDeposit;
+            tender.floatAllowed = dto.floatAllowed;
+            tender.defaultsToTotal = dto.defaultsToTotal;
+            tender.withdrawalReportDetail = dto.withdrawalReportDetail;
+            tender.fidelityReported = dto.fidelityReported;
+            tender.persist();
+            seen.add(dto.code);
+        }
+        long deactivated = 0;
+        for (com.intermarche.pos.domain.payment.TenderDefinition tender
+                : com.intermarche.pos.domain.payment.TenderDefinition
+                        .<com.intermarche.pos.domain.payment.TenderDefinition>listAll()) {
+            if (!seen.contains(tender.code) && tender.active) {
+                tender.active = false;
+                tender.persist();
+                deactivated++;
+            }
+        }
+        LOGGER.infof("Référentiel modes de règlement appliqué: %d ligne(s), %d désactivé(s)",
+                dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyTenders");
+    }
+
+    /**
+     * Reads a bound off a snapshot row, an absent or malformed one meaning
+     * unbounded.
+     *
+     * @param raw the bound as it travelled, or null
+     * @return the bound, or null when unbounded
+     */
+    private java.math.BigDecimal decimal(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(raw.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Reads a control level off a snapshot row, an absent or unknown one meaning
+     * no control.
+     *
+     * @param raw the level name as it travelled, or null
+     * @return the level, never null
+     */
+    private com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel control(String raw) {
+        for (com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel level
+                : com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.values()) {
+            if (level.name().equals(raw)) {
+                return level;
+            }
+        }
+        return com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.NONE;
+    }
+
+    /**
+     * Reads a drawer-opening moment off a snapshot row, an absent or unknown one
+     * meaning that the drawer never opens.
+     *
+     * @param raw the moment name as it travelled, or null
+     * @return the moment, never null
+     */
+    private com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening drawer(String raw) {
+        for (com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening moment
+                : com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening.values()) {
+            if (moment.name().equals(raw)) {
+                return moment;
+            }
+        }
+        return com.intermarche.pos.domain.payment.TenderDefinition.DrawerOpening.NEVER;
+    }
+
+    /**
+     * Applies a checkout-island snapshot: upsert by code, absents deactivated
+     * (BO-03-06-07, BO-03-06-50).
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyCheckoutIslands(List<RefPayloads.CheckoutIslandDto> dtos) {
+        LOGGER.info("Entering method applyCheckoutIslands with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.CheckoutIslandDto dto : dtos) {
+            com.intermarche.pos.domain.store.CheckoutIsland island =
+                    com.intermarche.pos.domain.store.CheckoutIsland
+                            .find("code", dto.code).firstResult();
+            if (island == null) {
+                island = new com.intermarche.pos.domain.store.CheckoutIsland();
+                island.code = dto.code;
+            }
+            island.label = dto.label;
+            island.active = dto.active;
+            island.terminalIds = dto.terminalIds;
+            island.persist();
+            seen.add(dto.code);
+        }
+        long deactivated = 0;
+        for (com.intermarche.pos.domain.store.CheckoutIsland island
+                : com.intermarche.pos.domain.store.CheckoutIsland
+                        .<com.intermarche.pos.domain.store.CheckoutIsland>listAll()) {
+            if (!seen.contains(island.code) && island.active) {
+                island.active = false;
+                island.persist();
+                deactivated++;
+            }
+        }
+        LOGGER.infof("Référentiel îlots appliqué: %d ligne(s), %d désactivé(s)",
+                dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyCheckoutIslands");
+    }
+
+    /**
+     * Applies an ARTICLE barcode-range snapshot: upsert by code, absents
+     * deactivated (BO-03-06-02/03/04/05/10).
+     *
+     * <p>Same contract as every other domain — the snapshot is the truth, a row
+     * it no longer names stops recognizing codes rather than lingering. The
+     * pattern travels ALREADY GENERATED: the register applies what the back
+     * office produced, it does not regenerate anything of its own.
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyArticleBarcodeRanges(List<RefPayloads.ArticleBarcodeRangeDto> dtos) {
+        LOGGER.info("Entering method applyArticleBarcodeRanges with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.ArticleBarcodeRangeDto dto : dtos) {
+            com.intermarche.pos.domain.barcode.ArticleBarcodeRange range =
+                    com.intermarche.pos.domain.barcode.ArticleBarcodeRange
+                            .find("code", dto.code).firstResult();
+            if (range == null) {
+                range = new com.intermarche.pos.domain.barcode.ArticleBarcodeRange();
+                range.code = dto.code;
+            }
+            range.label = dto.label;
+            range.active = dto.active;
+            range.priority = dto.priority;
+            range.prefix = dto.prefix;
+            range.codeLength = dto.codeLength;
+            range.codeKind = dto.codeKind == null
+                    ? CouponField.Kind.NUMERIC
+                    : CouponField.Kind.valueOf(dto.codeKind);
+            range.articlePosition = dto.articlePosition;
+            range.articleLength = dto.articleLength;
+            range.valueSource = dto.valueSource == null
+                    ? com.intermarche.pos.domain.barcode.ArticleBarcodeRange.ValueSource.PRICE
+                    : com.intermarche.pos.domain.barcode.ArticleBarcodeRange.ValueSource
+                            .valueOf(dto.valueSource);
+            range.valuePosition = dto.valuePosition;
+            range.valueLength = dto.valueLength;
+            range.valueDecimals = dto.valueDecimals;
+            range.currency = dto.currency == null
+                    ? CouponField.PriceCurrency.EUR
+                    : CouponField.PriceCurrency.valueOf(dto.currency);
+            range.checkDigit = dto.checkDigit;
+            range.matchPattern = dto.matchPattern;
+            range.persist();
+            seen.add(dto.code);
+        }
+        long deactivated = 0;
+        for (com.intermarche.pos.domain.barcode.ArticleBarcodeRange range
+                : com.intermarche.pos.domain.barcode.ArticleBarcodeRange
+                        .<com.intermarche.pos.domain.barcode.ArticleBarcodeRange>listAll()) {
+            if (!seen.contains(range.code) && range.active) {
+                range.active = false;
+                range.persist();
+                deactivated++;
+            }
+        }
+        LOGGER.infof("Référentiel plages article appliqué: %d ligne(s), %d désactivé(s)",
+                dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyArticleBarcodeRanges");
+    }
+
+    /**
+     * Replaces the administered controls of a range with those of the snapshot.
+     *
+     * <p>Wholesale replacement, like the positions: a control dropped upstream
+     * must stop firing here, and the kind is the only key it has.
+     *
+     * @param type the range being upserted
+     * @param dto the snapshot row
+     */
+    private void applyCouponControls(CouponType type, RefPayloads.CouponTypeDto dto) {
+        if (type.controls == null) {
+            type.controls = new java.util.ArrayList<>();
+        }
+        type.controls.clear();
+        if (dto.controls == null) {
+            return;
+        }
+        for (RefPayloads.CouponControlDto row : dto.controls) {
+            if (row == null || row.kind == null) {
+                continue;
+            }
+            CouponControl control = new CouponControl();
+            control.couponType = type;
+            control.kind = CouponControl.Kind.valueOf(row.kind);
+            control.level = AlertLevel.of(row.level);
+            control.message = row.message;
+            type.controls.add(control);
+        }
+    }
+
+    /**
+     * Replaces the administered positions of a range with those of the snapshot.
+     *
+     * <p>Wholesale replacement, not an upsert: a position removed upstream must
+     * disappear here, and the fields carry no identity of their own — the role
+     * is their only key, and the snapshot is authoritative on the whole set.
+     *
+     * @param type the range being upserted
+     * @param dto the snapshot row
+     */
+    private void applyCouponFields(CouponType type, RefPayloads.CouponTypeDto dto) {
+        if (type.fields == null) {
+            type.fields = new java.util.ArrayList<>();
+        }
+        type.fields.clear();
+        if (dto.fields == null) {
+            return;
+        }
+        for (RefPayloads.CouponFieldDto row : dto.fields) {
+            if (row == null || row.role == null) {
+                continue;
+            }
+            CouponField field = new CouponField();
+            field.couponType = type;
+            field.role = CouponField.Role.valueOf(row.role);
+            field.offsetPosition = row.offsetPosition;
+            field.fieldLength = row.fieldLength;
+            field.kind = row.kind == null ? CouponField.Kind.NUMERIC : CouponField.Kind.valueOf(row.kind);
+            field.decimals = row.decimals;
+            field.dateFormat = row.dateFormat == null ? null : CouponField.DateFormat.valueOf(row.dateFormat);
+            field.currency = row.currency == null ? null : CouponField.PriceCurrency.valueOf(row.currency);
+            type.fields.add(field);
+        }
     }
 
     /**
@@ -275,12 +660,13 @@ public class RefApplyService {
      */
     @Transactional
     public void applyCurrencies(List<RefPayloads.CurrencyDto> dtos) {
+        LOGGER.info("Entering method applyCurrencies with dtos: " + dtos);
         Set<String> seen = new HashSet<>();
         for (RefPayloads.CurrencyDto dto : dtos) {
-            com.intermarche.pos.domain.Currency currency =
-                    com.intermarche.pos.domain.Currency.find("code", dto.code).firstResult();
+            com.intermarche.pos.domain.payment.Currency currency =
+                    com.intermarche.pos.domain.payment.Currency.find("code", dto.code).firstResult();
             if (currency == null) {
-                currency = new com.intermarche.pos.domain.Currency();
+                currency = new com.intermarche.pos.domain.payment.Currency();
                 currency.code = dto.code;
             }
             currency.label = dto.label;
@@ -293,16 +679,17 @@ public class RefApplyService {
             seen.add(dto.code);
         }
         long deactivated = 0;
-        for (com.intermarche.pos.domain.Currency currency
-                : com.intermarche.pos.domain.Currency.<com.intermarche.pos.domain.Currency>listAll()) {
+        for (com.intermarche.pos.domain.payment.Currency currency
+                : com.intermarche.pos.domain.payment.Currency.<com.intermarche.pos.domain.payment.Currency>listAll()) {
             if (!seen.contains(currency.code) && currency.active) {
                 currency.active = false;
                 currency.persist();
                 deactivated++;
             }
         }
-        LOG.infof("Référentiel devises appliqué: %d ligne(s), %d désactivée(s)",
+        LOGGER.infof("Référentiel devises appliqué: %d ligne(s), %d désactivée(s)",
                 dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyCurrencies");
     }
 
     /**
@@ -321,19 +708,20 @@ public class RefApplyService {
      */
     @Transactional
     public void applyCustomers(List<RefPayloads.CustomerDto> dtos) {
+        LOGGER.info("Entering method applyCustomers with dtos: " + dtos);
         for (RefPayloads.CustomerDto dto : dtos) {
-            com.intermarche.pos.domain.AccountCustomer customer =
-                    com.intermarche.pos.domain.AccountCustomer
+            com.intermarche.pos.domain.payment.AccountCustomer customer =
+                    com.intermarche.pos.domain.payment.AccountCustomer
                             .find("accountNumber", dto.accountNumber).firstResult();
             if (customer == null) {
-                customer = new com.intermarche.pos.domain.AccountCustomer();
+                customer = new com.intermarche.pos.domain.payment.AccountCustomer();
                 customer.accountNumber = dto.accountNumber;
             }
             customer.companyName = dto.companyName;
             customer.lastName = dto.lastName;
             customer.firstName = dto.firstName;
             if (customer.address == null) {
-                customer.address = new com.intermarche.pos.domain.Address();
+                customer.address = new com.intermarche.pos.domain.store.Address();
             }
             customer.address.streetLine1 = dto.street;
             customer.address.postalCode = dto.postalCode;
@@ -347,7 +735,8 @@ public class RefApplyService {
             customer.creditBalance = balance == null ? java.math.BigDecimal.ZERO : balance;
             customer.persist();
         }
-        LOG.infof("Référentiel clients en compte appliqué: %d ligne(s)", dtos.size());
+        LOGGER.infof("Référentiel clients en compte appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyCustomers");
     }
 
     /**
@@ -381,22 +770,24 @@ public class RefApplyService {
      */
     @jakarta.transaction.Transactional
     public void applySettings(List<RefPayloads.SettingDto> dtos) {
+        LOGGER.info("Entering method applySettings with dtos: " + dtos);
         Set<String> seen = new HashSet<>();
         for (RefPayloads.SettingDto dto : dtos) {
-            com.intermarche.pos.domain.PosSetting row =
-                    com.intermarche.pos.domain.PosSetting.findByKey(dto.key);
+            com.intermarche.pos.domain.setting.PosSetting row =
+                    com.intermarche.pos.domain.setting.PosSetting.findByKey(dto.key);
             if (row == null) {
-                row = new com.intermarche.pos.domain.PosSetting();
+                row = new com.intermarche.pos.domain.setting.PosSetting();
                 row.settingKey = dto.key;
             }
             row.settingValue = dto.value;
             row.persist();
             seen.add(dto.key);
         }
-        long removed = com.intermarche.pos.domain.PosSetting.delete(
+        long removed = com.intermarche.pos.domain.setting.PosSetting.delete(
                 "settingKey not in ?1", seen.isEmpty() ? java.util.List.of("") : seen);
         posSettingsService.invalidate();
-        LOG.infof("Paramètres appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
+        LOGGER.infof("Paramètres appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
+        LOGGER.info("Exiting method applySettings");
     }
 
     /**
@@ -409,12 +800,13 @@ public class RefApplyService {
      */
     @Transactional
     public void applyEngineFeeds(List<RefPayloads.EngineFeedDto> dtos) {
+        LOGGER.info("Entering method applyEngineFeeds with dtos: " + dtos);
         Set<String> seen = new HashSet<>();
         for (RefPayloads.EngineFeedDto dto : dtos) {
-            com.intermarche.pos.domain.EngineFeed row =
-                    com.intermarche.pos.domain.EngineFeed.findByCode(dto.code);
+            com.intermarche.pos.domain.sync.EngineFeed row =
+                    com.intermarche.pos.domain.sync.EngineFeed.findByCode(dto.code);
             if (row == null) {
-                row = new com.intermarche.pos.domain.EngineFeed();
+                row = new com.intermarche.pos.domain.sync.EngineFeed();
                 row.code = dto.code;
             } else if (dto.version != null && dto.version.equals(row.version)) {
                 seen.add(dto.code);
@@ -426,9 +818,10 @@ public class RefApplyService {
             row.persist();
             seen.add(dto.code);
         }
-        long removed = com.intermarche.pos.domain.EngineFeed.delete(
+        long removed = com.intermarche.pos.domain.sync.EngineFeed.delete(
                 "code not in ?1", seen.isEmpty() ? java.util.List.of("") : seen);
-        LOG.infof("Flux moteur appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
+        LOGGER.infof("Flux moteur appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
+        LOGGER.info("Exiting method applyEngineFeeds");
     }
 
     /**
@@ -441,6 +834,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyCountries(List<RefPayloads.CountryDto> dtos) {
+        LOGGER.info("Entering method applyCountries with dtos: " + dtos);
         Country.deleteAll();
         for (RefPayloads.CountryDto dto : dtos) {
             Country row = new Country();
@@ -449,7 +843,8 @@ public class RefApplyService {
             row.defaultLanguage = dto.defaultLanguage;
             row.persist();
         }
-        LOG.infof("Référentiel pays appliqué: %d ligne(s)", dtos.size());
+        LOGGER.infof("Référentiel pays appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyCountries");
     }
 
     /**
@@ -460,6 +855,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyEnseignes(List<RefPayloads.EnseigneDto> dtos) {
+        LOGGER.info("Entering method applyEnseignes with dtos: " + dtos);
         Enseigne.deleteAll();
         for (RefPayloads.EnseigneDto dto : dtos) {
             Enseigne row = new Enseigne();
@@ -469,7 +865,8 @@ public class RefApplyService {
             row.defaultLanguage = dto.defaultLanguage;
             row.persist();
         }
-        LOG.infof("Référentiel enseignes appliqué: %d ligne(s)", dtos.size());
+        LOGGER.infof("Référentiel enseignes appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyEnseignes");
     }
 
     /**
@@ -481,6 +878,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyPdvs(List<RefPayloads.PdvDto> dtos) {
+        LOGGER.info("Entering method applyPdvs with dtos: " + dtos);
         Pdv.deleteAll();
         for (RefPayloads.PdvDto dto : dtos) {
             Pdv row = new Pdv();
@@ -491,7 +889,8 @@ public class RefApplyService {
             row.active = dto.active;
             row.persist();
         }
-        LOG.infof("Référentiel PDV appliqué: %d ligne(s)", dtos.size());
+        LOGGER.infof("Référentiel PDV appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyPdvs");
     }
 
     /**
@@ -507,6 +906,7 @@ public class RefApplyService {
      */
     @Transactional
     public void applyEchelonSettings(List<RefPayloads.EchelonSettingDto> dtos) {
+        LOGGER.info("Entering method applyEchelonSettings with dtos: " + dtos);
         EchelonSetting.deleteAll();
         for (RefPayloads.EchelonSettingDto dto : dtos) {
             EchelonSetting row = new EchelonSetting();
@@ -518,7 +918,8 @@ public class RefApplyService {
             row.persist();
         }
         posSettingsService.invalidate();
-        LOG.infof("Paramètres d'échelon appliqués: %d ligne(s)", dtos.size());
+        LOGGER.infof("Paramètres d'échelon appliqués: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyEchelonSettings");
     }
 
     /**
@@ -529,6 +930,7 @@ public class RefApplyService {
      */
     @Transactional
     public void recordApplied(String domain, String fingerprint) {
+        LOGGER.info("Entering method recordApplied with domain: " + domain + ", fingerprint: " + fingerprint);
         RefState state = RefState.find("domain", domain).firstResult();
         if (state == null) {
             state = new RefState();
@@ -537,6 +939,7 @@ public class RefApplyService {
         state.fingerprint = fingerprint;
         state.appliedAt = LocalDateTime.now();
         state.persist();
+        LOGGER.info("Exiting method recordApplied");
     }
 
     /**
@@ -554,7 +957,9 @@ public class RefApplyService {
      */
     @Transactional
     public String lastApplied(String domain) {
+        LOGGER.info("Entering method lastApplied with domain: " + domain);
         RefState state = RefState.find("domain", domain).firstResult();
+        LOGGER.info("Exiting method lastApplied");
         return state != null ? state.fingerprint : null;
     }
 

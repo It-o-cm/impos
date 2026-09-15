@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.Optional;
+import org.jboss.logging.Logger;
 
 /**
  * Store-node referential endpoints pulled by the registers (phase 6 lot 3):
@@ -27,6 +28,9 @@ import java.util.Optional;
  */
 @Path("/api/referential")
 public class RefExportResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(RefExportResource.class);
 
     /** The role of this node: "register" (default), "store" or "central". */
     @ConfigProperty(name = "pos.role", defaultValue = "register")
@@ -49,11 +53,13 @@ public class RefExportResource {
     @Path("/versions")
     @Produces(MediaType.APPLICATION_JSON)
     public Response versions(@HeaderParam("X-Sync-Token") String presentedToken) {
+        LOGGER.info("Entering method versions with presentedToken: ***");
         Response gate = gate(presentedToken);
-        if (gate != null) return gate;
+        if (gate != null) { LOGGER.info("Exiting method versions"); return gate; }
         List<String> domains = "central".equalsIgnoreCase(role)
                 ? RefExportService.ECHELON_DOMAINS
                 : RefExportService.DOMAINS;
+        LOGGER.info("Exiting method versions");
         return Response.ok(refExportService.getFingerprints(domains)).build();
     }
 
@@ -73,12 +79,15 @@ public class RefExportResource {
                          @PathParam("domain") String domain,
                          @QueryParam("page") int page,
                          @QueryParam("size") int size) {
+        LOGGER.info("Entering method page with presentedToken: ***" + ", domain: " + domain + ", page: " + page + ", size: " + size);
         Response gate = gate(presentedToken);
-        if (gate != null) return gate;
+        if (gate != null) { LOGGER.info("Exiting method page"); return gate; }
         int boundedSize = (size <= 0 || size > 5000) ? 1000 : size;
         try {
+            LOGGER.info("Exiting method page");
             return Response.ok(refExportService.getPage(domain.toUpperCase(), Math.max(0, page), boundedSize)).build();
         } catch (IllegalArgumentException e) {
+            LOGGER.info("Exiting method page");
             return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
         }
     }

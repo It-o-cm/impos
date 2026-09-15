@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.catalog.Product;
 
 import io.quarkus.hibernate.orm.panache.Panache;
 import jakarta.persistence.EntityManager;

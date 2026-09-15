@@ -1,11 +1,11 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.ArticleAttributeDefinition;
-import com.intermarche.pos.domain.ArticleSelection;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductType;
-import com.intermarche.pos.domain.attribute.ProductAttributeCatalog;
+import com.intermarche.pos.domain.catalog.ArticleAttributeDefinition;
+import com.intermarche.pos.domain.catalog.ArticleSelection;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -432,6 +432,10 @@ class AdminArticleResourceTest {
         assertEquals(new java.math.BigDecimal("2.000"), product.referenceVolume);
         assertEquals(new java.math.BigDecimal("10.00"), product.giftCardAmount);
         assertTrue(product.variableWeight);
+        // BO-02-03-45: the internal code is posted by this form and was the one
+        // field the fiche wrote without any test noticing — deleting the write
+        // used to leave the suite green.
+        assertEquals("INT-1", product.internalCode);
     }
 
     /**

@@ -15,6 +15,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the drawer-count page, the middle step of the Z
@@ -30,6 +31,9 @@ import java.util.List;
 @Path("/")
 public class CashCountResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(CashCountResource.class);
+
     @Inject @Location("cash-count") Template cashCount;
     @Inject HardwareService hardwareService;
     @Inject CashCountService cashCountService;
@@ -44,7 +48,9 @@ public class CashCountResource {
     @GET
     @Path("/action/start-cash-count")
     public Object startCashCount() {
+        LOGGER.info("Entering method startCashCount");
         hardwareService.openDrawer();
+        LOGGER.info("Exiting method startCashCount");
         return Response.seeOther(URI.create("/cash-count")).build();
     }
 
@@ -58,7 +64,9 @@ public class CashCountResource {
     @Produces(MediaType.TEXT_HTML)
     @DrawerMayBeOpen
     public TemplateInstance cashCountPage() {
+        LOGGER.info("Entering method cashCountPage");
         // Affichage complet de la page (Billets par défaut)
+        LOGGER.info("Exiting method cashCountPage");
         return cashCount
             .data("state", state)
             .data("items", cashCountService.getBills())
@@ -76,12 +84,14 @@ public class CashCountResource {
     @Produces(MediaType.TEXT_HTML)
     @DrawerMayBeOpen
     public TemplateInstance getFragment(@PathParam("type") String type) {
+        LOGGER.info("Entering method getFragment with type: " + type);
         // Retourne juste le fragment HTML de la liste pour l'AJAX
         List<CashItem> items = switch (type) {
             case "coins" -> cashCountService.getCoins();
             case "rolls" -> cashCountService.getRolls();
             default -> cashCountService.getBills();
         };
+        LOGGER.info("Exiting method getFragment");
         return cashCount.data("items", items).data("fragment", true);
     }
 

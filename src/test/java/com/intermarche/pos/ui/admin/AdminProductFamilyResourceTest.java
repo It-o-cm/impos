@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.qute.Template;
@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
@@ -18,9 +19,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
@@ -176,6 +179,51 @@ class AdminProductFamilyResourceTest {
         verify(instance).data("members", List.of());
         verify(instance).data("notice", "hello");
         verify(instance).data("noticeOk", true);
+    }
+
+    /**
+     * BO-03-01-01: the READ half of the CRUD — the rows handed to the template
+     * really describe the tree.
+     *
+     * <p>The other {@code list} cases only assert the edit panel, so a
+     * {@code list} that handed over an empty list, or rows without their parent
+     * or member count, would leave them green. This one captures the
+     * {@code groups} payload itself: three rows in code order, the child naming
+     * its parent and counting its single member, the root naming none.
+     */
+    @Test
+    void listHandsTheTemplateTheWholeTree() {
+        AdminProductFamilyResource resource = newResource();
+        TemplateInstance instance = wire(resource.adminArticleGroups);
+        ProductFamily root = family(1L, "RACINE");
+        ProductFamily child = family(2L, "ENFANT");
+        child.products.add(product(9L, "1", "x"));
+        ProductFamily unsaved = family(null, "SANS-ID");
+        PanacheQuery<ProductFamily> all = listQuery(List.of(root, child, unsaved));
+        PanacheQuery<ProductFamily> noParent = firstQuery(null);
+        PanacheQuery<ProductFamily> childParent = firstQuery(root);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> ProductFamily.find("order by code")).thenReturn(all);
+            panache.when(() -> ProductFamily.find(
+                    "select p from ProductFamily p join p.productFamilies c where c.id = ?1", 1L))
+                    .thenReturn(noParent);
+            panache.when(() -> ProductFamily.find(
+                    "select p from ProductFamily p join p.productFamilies c where c.id = ?1", 2L))
+                    .thenReturn(childParent);
+            resource.list(null, true, null);
+        }
+        ArgumentCaptor<List<AdminProductFamilyResource.GroupRow>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resource.adminArticleGroups).data(eq("groups"), captor.capture());
+        List<AdminProductFamilyResource.GroupRow> rows = captor.getValue();
+        assertEquals(3, rows.size());
+        assertEquals("RACINE", rows.get(0).code);
+        assertNull(rows.get(0).parentCode);
+        assertEquals(0, rows.get(0).memberCount);
+        assertEquals("ENFANT", rows.get(1).code);
+        assertEquals("RACINE", rows.get(1).parentCode);
+        assertEquals(1, rows.get(1).memberCount);
+        assertEquals("SANS-ID", rows.get(2).code);
     }
 
     /**

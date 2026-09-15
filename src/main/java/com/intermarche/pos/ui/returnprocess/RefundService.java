@@ -1,13 +1,13 @@
 package com.intermarche.pos.ui.returnprocess;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.RefundLine;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.VatBreakdown;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.sale.VatBreakdown;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
@@ -49,7 +49,7 @@ import java.util.List;
 public class RefundService {
 
     private static final int EXPIRATION_DAYS = 30;
-    private static final Logger LOG = Logger.getLogger(RefundService.class);
+    private static final Logger LOGGER = Logger.getLogger(RefundService.class);
 
     /** Maximum amount encodable on a printed store voucher (4 cent digits). */
     private static final BigDecimal MAX_ENCODED_VOUCHER = new BigDecimal("99.99");
@@ -90,11 +90,13 @@ public class RefundService {
      * @param state the current POS state
      */
     public void searchTickets(PosState state) {
+        LOGGER.info("Entering method searchTickets with state: " + state);
         String pattern = state.refund.searchPattern;
 
         if (pattern == null || pattern.trim().length() < 3) {
             state.refund.foundTickets.clear();
             state.touch();
+            LOGGER.info("Exiting method searchTickets");
             return;
         }
 
@@ -107,10 +109,11 @@ public class RefundService {
                 limit
         ).list();
 
-        LOG.info("Recherche Retour: Pattern=" + pattern + ", Résultats=" + results.size());
+        LOGGER.info("Recherche Retour: Pattern=" + pattern + ", Résultats=" + results.size());
 
         state.refund.foundTickets = results;
         state.touch();
+        LOGGER.info("Exiting method searchTickets");
     }
 
     /**
@@ -120,6 +123,7 @@ public class RefundService {
      * @param ticketId the database id of the ticket to refund
      */
     public void selectTicket(PosState state, Long ticketId) {
+        LOGGER.info("Entering method selectTicket with state: " + state + ", ticketId: " + ticketId);
         Ticket t = Ticket.findById(ticketId);
         if (t != null) {
             state.refund.selectedTicket = t;
@@ -130,6 +134,7 @@ public class RefundService {
             state.refund.manualTotalAmount = null;
         }
         state.touch();
+        LOGGER.info("Exiting method selectTicket");
     }
 
     /**
@@ -139,6 +144,7 @@ public class RefundService {
      * @param lineId the database id of the line
      */
     public void selectLine(PosState state, Long lineId) {
+        LOGGER.info("Entering method selectLine with state: " + state + ", lineId: " + lineId);
         if (lineId != null && lineId.equals(state.refund.selectedLineId)) {
             state.refund.selectedLineId = null;
         } else {
@@ -146,6 +152,7 @@ public class RefundService {
         }
         state.refund.isEditingAmount = false;
         state.touch();
+        LOGGER.info("Exiting method selectLine");
     }
 
     /**
@@ -154,9 +161,11 @@ public class RefundService {
      * @param state the current POS state
      */
     public void startAmountEdit(PosState state) {
+        LOGGER.info("Entering method startAmountEdit with state: " + state);
         state.refund.selectedLineId = null;
         state.refund.isEditingAmount = true;
         state.touch();
+        LOGGER.info("Exiting method startAmountEdit");
     }
 
     /**
@@ -167,12 +176,14 @@ public class RefundService {
      * @param rawValue the typed quantity
      */
     public void submitLineQuantity(PosState state, Long lineId, String rawValue) {
+        LOGGER.info("Entering method submitLineQuantity with state: " + state + ", lineId: " + lineId + ", rawValue: " + rawValue);
         try {
             BigDecimal qty = new BigDecimal(rawValue.replace(",", "."));
             setReturnQuantity(state, lineId, qty);
         } catch (Exception e) { }
         state.refund.selectedLineId = null;
         state.touch();
+        LOGGER.info("Exiting method submitLineQuantity");
     }
 
     /**
@@ -182,6 +193,7 @@ public class RefundService {
      * @param rawValue the typed amount
      */
     public void submitManualAmount(PosState state, String rawValue) {
+        LOGGER.info("Entering method submitManualAmount with state: " + state + ", rawValue: " + rawValue);
         try {
             BigDecimal amount = new BigDecimal(rawValue.replace(",", "."));
             state.refund.manualTotalAmount = amount;
@@ -190,6 +202,7 @@ public class RefundService {
         }
         state.refund.isEditingAmount = false;
         state.touch();
+        LOGGER.info("Exiting method submitManualAmount");
     }
 
     /**
@@ -202,7 +215,8 @@ public class RefundService {
      * @param quantity the requested refund quantity
      */
     public void setReturnQuantity(PosState state, Long lineId, BigDecimal quantity) {
-        if (state.refund.selectedTicket == null) return;
+        LOGGER.info("Entering method setReturnQuantity with state: " + state + ", lineId: " + lineId + ", quantity: " + quantity);
+        if (state.refund.selectedTicket == null) { LOGGER.info("Exiting method setReturnQuantity"); return; }
 
         TicketLine line = state.refund.selectedTicket.lines.stream()
                 .filter(l -> l.id.equals(lineId) && !l.cancelled).findFirst().orElse(null);
@@ -212,11 +226,12 @@ public class RefundService {
             // registry instrument stays ACTIVE would double the value
             // (phase: credit notes & gift cards).
             if (line.ean != null) {
-                com.intermarche.pos.domain.Product product =
-                        com.intermarche.pos.domain.Product.find("ean", line.ean).firstResult();
+                com.intermarche.pos.domain.catalog.Product product =
+                        com.intermarche.pos.domain.catalog.Product.find("ean", line.ean).firstResult();
                 if (product != null && product.giftCardAmount != null) {
                     state.refund.errorMessage = "RETOUR INTERDIT SUR CARTE CADEAU";
                     state.touch();
+                    LOGGER.info("Exiting method setReturnQuantity");
                     return;
                 }
             }
@@ -229,6 +244,7 @@ public class RefundService {
             state.refund.manualTotalAmount = null;
         }
         state.touch();
+        LOGGER.info("Exiting method setReturnQuantity");
     }
 
     /**
@@ -238,9 +254,11 @@ public class RefundService {
      * @param lineId the database id of the line
      */
     public void incrementQty(PosState state, Long lineId) {
+        LOGGER.info("Entering method incrementQty with state: " + state + ", lineId: " + lineId);
         BigDecimal current = state.refund.returnQuantities.getOrDefault(lineId, BigDecimal.ZERO);
         setReturnQuantity(state, lineId, current.add(BigDecimal.ONE));
         state.touch();
+        LOGGER.info("Exiting method incrementQty");
     }
 
     /**
@@ -250,9 +268,11 @@ public class RefundService {
      * @param lineId the database id of the line
      */
     public void decrementQty(PosState state, Long lineId) {
+        LOGGER.info("Entering method decrementQty with state: " + state + ", lineId: " + lineId);
         BigDecimal current = state.refund.returnQuantities.getOrDefault(lineId, BigDecimal.ZERO);
         setReturnQuantity(state, lineId, current.subtract(BigDecimal.ONE));
         state.touch();
+        LOGGER.info("Exiting method decrementQty");
     }
 
     /**
@@ -263,21 +283,70 @@ public class RefundService {
      * @param method the refund method chosen by the cashier
      */
     public void requestRefund(PosState state, Refund.RefundMethod method) {
+        LOGGER.info("Entering method requestRefund with state: " + state + ", method: " + method);
         if (state.trainingMode) {
             state.refund.errorMessage = "RETOURS INDISPONIBLES EN FORMATION";
             state.touch();
+            LOGGER.info("Exiting method requestRefund");
             return;
         }
-        if (state.refund.selectedTicket == null) return;
+        if (state.refund.selectedTicket == null) { LOGGER.info("Exiting method requestRefund"); return; }
         if (state.refund.getTotalRefundAmount().signum() <= 0) {
             state.refund.errorMessage = "RIEN À REMBOURSER";
             state.touch();
+            LOGGER.info("Exiting method requestRefund");
+            return;
+        }
+        // BO-03-02-15: a tender the back office does not allow for refunds is
+        // refused here, before the endorsement is even asked for — a manager
+        // must not be made to authorize something the store forbids outright.
+        if (!isRefundAllowed(method)) {
+            state.refund.errorMessage = "MOYEN NON AUTORISE AU REMBOURSEMENT";
+            state.touch();
+            LOGGER.info("Exiting method requestRefund");
             return;
         }
         state.refund.errorMessage = null;
         endorsementService.requestAuthorization(state,
                 "REFUND_" + method.name() + "_" + state.refund.selectedTicket.id);
         state.touch();
+        LOGGER.info("Exiting method requestRefund");
+    }
+
+    /**
+     * Tells whether the back office allows a refund on the tender behind a
+     * refund method (BO-03-02-15).
+     *
+     * <p>A method whose tender no row administers stays allowed: the register's
+     * four refund methods are what a store gets before it administers anything.
+     *
+     * @param method the refund method the cashier chose
+     * @return true unless an administered row forbids that tender for refunds
+     */
+    public boolean isRefundAllowed(Refund.RefundMethod method) {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                com.intermarche.pos.domain.payment.TenderDefinition
+                        .findByCode(refundTenderKey(method));
+        return tender == null || tender.refundAllowed;
+    }
+
+    /**
+     * Returns the settlement key a refund method hands the money back on
+     * (BO-03-02-15).
+     *
+     * @param method the refund method, or null
+     * @return the settlement key, or null when the method is unknown
+     */
+    private String refundTenderKey(Refund.RefundMethod method) {
+        if (method == null) {
+            return null;
+        }
+        return switch (method) {
+            case CASH -> "CASH";
+            case CARD -> "CARD";
+            case VOUCHER -> "VOUCHER";
+            case LOYALTY -> "FIDELITY";
+        };
     }
 
     /**
@@ -292,8 +361,9 @@ public class RefundService {
      */
     @Transactional
     public void performRefund(PosState state, Refund.RefundMethod method) {
+        LOGGER.info("Entering method performRefund with state: " + state + ", method: " + method);
         Ticket original = state.refund.selectedTicket;
-        if (original == null) return;
+        if (original == null) { LOGGER.info("Exiting method performRefund"); return; }
 
         // Loyalty refund guard (imfid spec §28): crediting a loyalty balance
         // requires the ORIGIN ticket's card. Checked HERE, before the refund
@@ -302,6 +372,7 @@ public class RefundService {
         if (method == Refund.RefundMethod.LOYALTY && original.fidelityCard == null) {
             state.refund.errorMessage = "AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE";
             state.touch();
+            LOGGER.info("Exiting method performRefund");
             return;
         }
 
@@ -375,8 +446,8 @@ public class RefundService {
             StringBuilder fidLines = new StringBuilder("[");
             boolean firstFidLine = true;
             for (RefundLine refundLine : refund.lines) {
-                com.intermarche.pos.domain.ticket.TicketLine originLine =
-                        com.intermarche.pos.domain.ticket.TicketLine.findById(refundLine.originalLineId);
+                com.intermarche.pos.domain.sale.TicketLine originLine =
+                        com.intermarche.pos.domain.sale.TicketLine.findById(refundLine.originalLineId);
                 if (originLine == null || originLine.lineUid == null) continue;
                 if (!firstFidLine) fidLines.append(',');
                 firstFidLine = false;
@@ -400,7 +471,7 @@ public class RefundService {
                     + "\"lines\":" + fidLines
                     + refundToCard + "}";
             fidEventOutboxService.enqueue(
-                    com.intermarche.pos.domain.FidEvent.EventType.TICKET_RETURN, fidPayload);
+                    com.intermarche.pos.domain.sync.FidEvent.EventType.TICKET_RETURN, fidPayload);
         }
 
         applyMethodSideEffects(refund);
@@ -408,6 +479,7 @@ public class RefundService {
 
         state.refund.clear();
         state.touch();
+        LOGGER.info("Exiting method performRefund");
     }
 
     /**
@@ -428,9 +500,9 @@ public class RefundService {
                 // printed with its scannable number (phase: credit notes &
                 // gift cards). Any amount is now supported: the historical
                 // 99,99 € encoded-number cap no longer applies.
-                com.intermarche.pos.domain.StoredValue note =
-                        new com.intermarche.pos.domain.StoredValue();
-                note.kind = com.intermarche.pos.domain.StoredValue.Kind.CREDIT_NOTE;
+                com.intermarche.pos.domain.payment.StoredValue note =
+                        new com.intermarche.pos.domain.payment.StoredValue();
+                note.kind = com.intermarche.pos.domain.payment.StoredValue.Kind.CREDIT_NOTE;
                 note.initialAmount = refund.totalAmount;
                 note.balance = refund.totalAmount;
                 note.issuedAt = java.time.LocalDateTime.now();
@@ -443,7 +515,7 @@ public class RefundService {
                 note.number = "T" + Long.toUnsignedString(
                         java.util.UUID.randomUUID().getMostSignificantBits(), 36);
                 note.persistAndFlush();
-                note.number = com.intermarche.pos.domain.StoredValue.CREDIT_NOTE_PREFIX
+                note.number = com.intermarche.pos.domain.payment.StoredValue.CREDIT_NOTE_PREFIX
                         + String.format("%012d", note.id);
                 ticketPrinterService.printRefundVoucher(refund, note.number);
             }
@@ -456,7 +528,7 @@ public class RefundService {
                 ticketPrinterService.printLoyaltyCredit(refund.totalAmount);
             }
             case CARD -> {
-                LOG.info("Remboursement carte à traiter sur le TPE (monétique hors périmètre)");
+                LOGGER.info("Remboursement carte à traiter sur le TPE (monétique hors périmètre)");
                 // LC-08-03-10: a card refund is a "credit" card transaction —
                 // its slip is printed on its own when the back office forces it.
                 if (printPolicy.isCreditCardReceiptForced()) {

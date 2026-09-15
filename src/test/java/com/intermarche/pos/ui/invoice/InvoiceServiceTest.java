@@ -1,13 +1,13 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.DocumentOutput;
-import com.intermarche.pos.domain.ticket.DocumentType;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sale.DocumentOutput;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
@@ -277,7 +277,7 @@ class InvoiceServiceTest {
     private static class FakeOutbox extends com.intermarche.pos.service.sync.SyncOutboxService {
 
         /** The entity types it was asked to declare, in order. */
-        private final List<com.intermarche.pos.domain.SyncOutbox.EntityType> types =
+        private final List<com.intermarche.pos.domain.sync.SyncOutbox.EntityType> types =
                 new ArrayList<>();
 
         /** The entity ids it was asked to declare, in order. */
@@ -285,7 +285,7 @@ class InvoiceServiceTest {
 
         /** {@inheritDoc} */
         @Override
-        public void enqueue(com.intermarche.pos.domain.SyncOutbox.EntityType type, Long entityId) {
+        public void enqueue(com.intermarche.pos.domain.sync.SyncOutbox.EntityType type, Long entityId) {
             types.add(type);
             ids.add(entityId);
         }
@@ -1268,8 +1268,8 @@ class InvoiceServiceTest {
      */
     private Ticket creditTicket(String accountNumber) {
         Ticket ticket = ticket(1L, "C04-00000417");
-        com.intermarche.pos.domain.ticket.CreditPayment credit =
-                new com.intermarche.pos.domain.ticket.CreditPayment(new BigDecimal("12.00"));
+        com.intermarche.pos.domain.payment.CreditPayment credit =
+                new com.intermarche.pos.domain.payment.CreditPayment(new BigDecimal("12.00"));
         credit.accountNumber = accountNumber;
         ticket.payments.add(credit);
         repository.tickets.add(ticket);
@@ -1340,7 +1340,7 @@ class InvoiceServiceTest {
     void aSettlementNamingNoAccountEmitsNothing() {
         settings.autoPrint = "CASH:FACTURE";
         Ticket ticket = ticket(1L, "C04-00000417");
-        ticket.payments.add(new com.intermarche.pos.domain.ticket.CashPayment(
+        ticket.payments.add(new com.intermarche.pos.domain.payment.CashPayment(
                 new BigDecimal("12.00"), new BigDecimal("12.00")));
         repository.tickets.add(ticket);
         assertNull(service.autoPrint(1L));
@@ -1764,7 +1764,7 @@ class InvoiceServiceTest {
     void createCustomerDeclaresItToTheBackOffice() {
         service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "");
         assertEquals(1, outbox.types.size());
-        assertEquals(com.intermarche.pos.domain.SyncOutbox.EntityType.CUSTOMER,
+        assertEquals(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.CUSTOMER,
                 outbox.types.get(0));
     }
 
@@ -1789,5 +1789,98 @@ class InvoiceServiceTest {
     void refusedCreationDeclaresNothing() {
         service.createCustomer("   ", "", "", "", "", "", "", "", "");
         assertTrue(outbox.types.isEmpty());
+    }
+
+    // --------------------------------------------------
+    // Administered invoice layout (BO-03-03)
+    // --------------------------------------------------
+
+    /**
+     * Wires a REAL renderer over a real Qute engine and administers one layout,
+     * so the case asserts a layout and not a stand-in.
+     *
+     * @param type the document the layout lays out
+     * @param source the Qute source
+     * @return the administered template, for the case to stub the referential on
+     */
+    private com.intermarche.pos.domain.setting.DocumentTemplate administer(
+            com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType type,
+            String source) {
+        service.documentTemplateService = new com.intermarche.pos.service.DocumentTemplateService(
+                io.quarkus.qute.Engine.builder().addDefaults().build());
+        com.intermarche.pos.domain.setting.DocumentTemplate template =
+                new com.intermarche.pos.domain.setting.DocumentTemplate();
+        template.code = type.name();
+        template.label = type.getLabel();
+        template.documentType = type;
+        template.active = true;
+        template.width = 42;
+        template.source = source;
+        return template;
+    }
+
+    /**
+     * Builds a laid-out invoice to render.
+     *
+     * @return the document
+     */
+    private InvoiceDocument laidOut() {
+        onPreviewStep();
+        return service.preview();
+    }
+
+    /**
+     * An administered layout REPLACES the forty-two-column rendering, and is cut
+     * on its own newlines so the roll and the slip station both take it.
+     */
+    @Test
+    void anAdministeredLayoutReplacesTheRollRendering() {
+        com.intermarche.pos.domain.setting.DocumentTemplate template = administer(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE,
+                "{document.title} {document.number}\nCLIENT {customer.name}");
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                            "active = true and documentType = ?1 order by priority, code",
+                            com.intermarche.pos.domain.setting.DocumentTemplate
+                                    .DocumentType.INVOICE))
+                    .thenReturn(List.of(template));
+            List<String> lines = service.renderLines(laidOut());
+            assertEquals(2, lines.size());
+            assertEquals("FACTURE ", lines.get(0));
+            assertEquals("CLIENT " + laidOut().customer.name(), lines.get(1));
+        }
+    }
+
+    /**
+     * A shop that administers no invoice layout keeps the built-in
+     * forty-two-column rendering, unchanged.
+     */
+    @Test
+    void anUnadministeredInvoiceKeepsTheBuiltInRendering() {
+        administer(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.INVOICE, "x");
+        InvoiceDocument document = laidOut();
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            panache.when(() -> com.intermarche.pos.domain.setting.DocumentTemplate.list(
+                            "active = true and documentType = ?1 order by priority, code",
+                            com.intermarche.pos.domain.setting.DocumentTemplate
+                                    .DocumentType.INVOICE))
+                    .thenReturn(List.of());
+            assertEquals(InvoiceRenderer.render(document), service.renderLines(document));
+        }
+    }
+
+    /**
+     * A service built with no renderer at all keeps the built-in rendering —
+     * the null leg of the layout guard.
+     */
+    @Test
+    void anInvoiceServiceWithoutARendererKeepsTheBuiltInRendering() {
+        assertNull(service.documentTemplateService);
+        InvoiceDocument document = laidOut();
+        assertEquals(InvoiceRenderer.render(document), service.renderLines(document));
     }
 }

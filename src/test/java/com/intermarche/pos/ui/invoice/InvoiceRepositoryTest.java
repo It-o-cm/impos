@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -259,12 +259,12 @@ class InvoiceRepositoryTest {
         PanacheQuery<Invoice> query = queryReturning(null);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             panache.when(() -> Invoice.find("ticketNumber = ?1 and documentType = ?2",
-                    NUMBER, com.intermarche.pos.domain.ticket.DocumentType.FACTURE))
+                    NUMBER, com.intermarche.pos.domain.sale.DocumentType.FACTURE))
                     .thenReturn(query);
             assertNull(repository.findInvoiceOfTicket(NUMBER,
-                    com.intermarche.pos.domain.ticket.DocumentType.FACTURE));
+                    com.intermarche.pos.domain.sale.DocumentType.FACTURE));
             panache.verify(() -> Invoice.find("ticketNumber = ?1 and documentType = ?2",
-                    NUMBER, com.intermarche.pos.domain.ticket.DocumentType.FACTURE));
+                    NUMBER, com.intermarche.pos.domain.sale.DocumentType.FACTURE));
         }
     }
 

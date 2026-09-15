@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.reprintticket;
 
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 
 import java.io.Serializable;
 import java.util.Collections;

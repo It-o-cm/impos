@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -111,6 +111,69 @@ class CashMovementResourceTest {
     private void assertRedirect(Response response, String location) {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals(location, response.getLocation().toString());
+    }
+
+    /**
+     * Builds the template chain with the given administered lists, asserting
+     * nothing, so a caller can check WHICH values reach the page.
+     *
+     * @param resource the resource whose template is stubbed
+     * @param reasons the administered movement reasons
+     * @param tenders the administered movement tenders
+     * @return the two links carrying the reasons and the tenders
+     */
+    private TemplateInstance[] stubChainWith(CashMovementResource resource,
+                                             List<String> reasons, List<String> tenders) {
+        when(resource.posSettingsService.cashMovementReasons()).thenReturn(reasons);
+        when(resource.posSettingsService.cashMovementTenders()).thenReturn(tenders);
+        when(resource.posSettingsService.cashMovementEndorsementThreshold())
+                .thenReturn(new BigDecimal("100.00"));
+        TemplateInstance ti1 = mock(TemplateInstance.class);
+        TemplateInstance tiReasons = mock(TemplateInstance.class);
+        TemplateInstance tiTenders = mock(TemplateInstance.class);
+        TemplateInstance ti3 = mock(TemplateInstance.class);
+        TemplateInstance ti4 = mock(TemplateInstance.class);
+        TemplateInstance ti5 = mock(TemplateInstance.class);
+        when(resource.cashMovement.data("state", resource.state)).thenReturn(ti1);
+        when(ti1.data(eq("reasons"), any())).thenReturn(tiReasons);
+        when(tiReasons.data(eq("tenders"), any())).thenReturn(tiTenders);
+        when(tiTenders.data(eq("threshold"), any())).thenReturn(ti3);
+        when(ti3.data(eq("saved"), any())).thenReturn(ti4);
+        when(ti4.data(eq("error"), any())).thenReturn(ti5);
+        return new TemplateInstance[]{ti1, tiReasons};
+    }
+
+    /**
+     * The page hands the template the ADMINISTERED movement reasons, whatever
+     * they are (BO-04-03-10): two distinct administered lists reach the page
+     * as themselves, which no hard-coded list could satisfy.
+     */
+    @Test
+    void pageHandsTheTemplateTheAdministeredReasons() {
+        CashMovementResource first = newResource();
+        TemplateInstance[] a = stubChainWith(first, List.of("Coffre", "Erreur"), List.of());
+        first.cashMovementPage(null, null);
+        verify(a[0]).data("reasons", List.of("Coffre", "Erreur"));
+        CashMovementResource second = newResource();
+        TemplateInstance[] b = stubChainWith(second, List.of("Banque"), List.of());
+        second.cashMovementPage(null, null);
+        verify(b[0]).data("reasons", List.of("Banque"));
+    }
+
+    /**
+     * The page hands the template the ADMINISTERED movement tenders, whatever
+     * they are (BO-03-02-20), on two distinct administered lists.
+     */
+    @Test
+    void pageHandsTheTemplateTheAdministeredTenders() {
+        CashMovementResource first = newResource();
+        TemplateInstance[] a = stubChainWith(first, List.of(), List.of("ESPECES", "CHEQUE"));
+        first.cashMovementPage(null, null);
+        verify(a[1]).data("tenders", List.of("ESPECES", "CHEQUE"));
+        CashMovementResource second = newResource();
+        TemplateInstance[] b = stubChainWith(second, List.of(), List.of("CB"));
+        second.cashMovementPage(null, null);
+        verify(b[1]).data("tenders", List.of("CB"));
     }
 
     // --- cashMovementPage ---

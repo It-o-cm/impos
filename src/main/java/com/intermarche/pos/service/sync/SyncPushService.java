@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit;
 @ApplicationScoped
 public class SyncPushService {
 
-    private static final Logger LOG = Logger.getLogger(SyncPushService.class);
+    private static final Logger LOGGER = Logger.getLogger(SyncPushService.class);
 
     /** Maximum outbox rows processed per cycle. */
     private static final int BATCH_SIZE = 50;
@@ -70,7 +70,7 @@ public class SyncPushService {
      */
     void onStart(@Observes StartupEvent event) {
         if (!syncOutboxService.isEnabled()) {
-            LOG.info("Synchronisation magasin désactivée (pos.sync.store-url absent)");
+            LOGGER.info("Synchronisation magasin désactivée (pos.sync.store-url absent)");
             return;
         }
         executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -79,7 +79,7 @@ public class SyncPushService {
             return thread;
         });
         executor.scheduleWithFixedDelay(this::drainSafely, intervalSeconds, intervalSeconds, TimeUnit.SECONDS);
-        LOG.infof("Synchronisation magasin active vers %s (toutes les %ds)",
+        LOGGER.infof("Synchronisation magasin active vers %s (toutes les %ds)",
                 syncOutboxService.getStoreUrl(), intervalSeconds);
     }
 
@@ -100,7 +100,7 @@ public class SyncPushService {
         try {
             drainOnce();
         } catch (Exception e) {
-            LOG.errorf("Cycle de synchronisation en erreur: %s", e.getMessage());
+            LOGGER.errorf("Cycle de synchronisation en erreur: %s", e.getMessage());
         }
     }
 

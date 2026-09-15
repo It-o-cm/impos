@@ -2,8 +2,8 @@ package com.intermarche.pos.ui.endorsement;
 
 import com.intermarche.pos.ui.PriceModType;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.auth.AuthService;
@@ -11,6 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.math.BigDecimal;
+import org.jboss.logging.Logger;
 
 /**
  * Manager endorsement service: credential check and endorsement request
@@ -32,6 +33,9 @@ import java.math.BigDecimal;
 @ApplicationScoped
 public class EndorsementService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(EndorsementService.class);
+
     @Inject
     AuthService authService;
 
@@ -47,7 +51,9 @@ public class EndorsementService {
      * @return true if the credentials are valid and the role is sufficient
      */
     public boolean isManager(String login, String password) {
+        LOGGER.info("Entering method isManager with login: " + login + ", password: ***");
         AuthService.CredentialStatus status = authService.checkCredentials(login, password);
+        LOGGER.info("Exiting method isManager");
         return status.isSuccess()
                 && (status.employee.role == Employee.EmployeeRole.MANAGER
                     || status.employee.role == Employee.EmployeeRole.ADMIN);
@@ -63,6 +69,7 @@ public class EndorsementService {
      * @return true if the endorsement is granted
      */
     public boolean authorize(String login, String password, String actionCode) {
+        LOGGER.info("Entering method authorize with login: " + login + ", password: ***" + ", actionCode: " + actionCode);
         boolean granted = isManager(login, password);
         // BO-04-01-39: name the endorsing operator in the first-class badge
         // column, not only inside the free-text detail — otherwise the journal's
@@ -74,6 +81,7 @@ public class EndorsementService {
                         : TechnicalEvent.EventType.ENDORSEMENT_DENIED,
                 actionCode + " par " + (login != null ? login : "?"),
                 login);
+        LOGGER.info("Exiting method authorize");
         return granted;
     }
 
@@ -84,8 +92,10 @@ public class EndorsementService {
      * @param actionCode the action code requiring authorization
      */
     public void requestAuthorization(PosState state, String actionCode) {
+        LOGGER.info("Entering method requestAuthorization with state: " + state + ", actionCode: " + actionCode);
         state.endorsement.request(actionCode);
         state.touch();
+        LOGGER.info("Exiting method requestAuthorization");
     }
 
     /**
@@ -98,15 +108,18 @@ public class EndorsementService {
      * @return true when the logged operator can approve without a credential
      */
     public boolean operatorIsSupervisor(PosState state) {
+        LOGGER.info("Entering method operatorIsSupervisor with state: " + state);
         Long operatorId = state.auth.getOperatorId();
         if (operatorId == null) {
+            LOGGER.info("Exiting method operatorIsSupervisor");
             return false;
         }
-        com.intermarche.pos.domain.Employee operator =
-                com.intermarche.pos.domain.Employee.findById(operatorId);
+        com.intermarche.pos.domain.people.Employee operator =
+                com.intermarche.pos.domain.people.Employee.findById(operatorId);
+        LOGGER.info("Exiting method operatorIsSupervisor");
         return operator != null && operator.active
-                && (operator.role == com.intermarche.pos.domain.Employee.EmployeeRole.MANAGER
-                    || operator.role == com.intermarche.pos.domain.Employee.EmployeeRole.ADMIN);
+                && (operator.role == com.intermarche.pos.domain.people.Employee.EmployeeRole.MANAGER
+                    || operator.role == com.intermarche.pos.domain.people.Employee.EmployeeRole.ADMIN);
     }
 
     /**
@@ -118,8 +131,10 @@ public class EndorsementService {
      * @param value the modification value (euros or percent depending on the type)
      */
     public void requestPriceModification(PosState state, PriceModType type, String uid, BigDecimal value) {
+        LOGGER.info("Entering method requestPriceModification with state: " + state + ", type: " + type + ", uid: " + uid + ", value: " + value);
         state.endorsement.requestPriceModification(type, uid, value);
         state.touch();
+        LOGGER.info("Exiting method requestPriceModification");
     }
 
     /**
@@ -128,7 +143,9 @@ public class EndorsementService {
      * @param state the current POS state
      */
     public void clearRequest(PosState state) {
+        LOGGER.info("Entering method clearRequest with state: " + state);
         state.endorsement.clear();
         state.touch();
+        LOGGER.info("Exiting method clearRequest");
     }
 }

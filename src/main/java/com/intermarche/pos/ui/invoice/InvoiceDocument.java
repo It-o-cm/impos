@@ -1,12 +1,12 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VatBreakdown;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.sale.VatBreakdown;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -331,6 +331,113 @@ public final class InvoiceDocument {
      */
     public boolean isDuplicate() {
         return duplicateNumber >= 1;
+    }
+
+    /**
+     * Restates this document as MAPS, LISTS AND STRINGS, for an administered
+     * layout to read (BO-03-03).
+     *
+     * <p>A translation and nothing else: every field of this object is already
+     * written, so nothing is computed, rounded or formatted here. What the
+     * method exists for is the RULE the layouts live under — a template sees
+     * plain values and never an object, so it cannot call a method on a sale,
+     * cannot reach the database, and cannot be broken by a refactoring of this
+     * class.
+     *
+     * <p>Both invoice layouts read this same map, the forty-two-column one and
+     * the A4 one: two papers that state one document must state it from one
+     * description.
+     *
+     * @return the document values
+     */
+    public Map<String, Object> asDocumentData() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("store", partyData(seller));
+        data.put("seller", partyData(seller));
+        data.put("customer", partyData(customer));
+        data.put("terminal", nullToEmpty(terminal));
+        data.put("operator", "");
+        data.put("date", nullToEmpty(issueDate));
+        data.put("time", "");
+        data.put("document", Map.of(
+                "title", nullToEmpty(title),
+                "number", nullToEmpty(number),
+                "issueDate", nullToEmpty(issueDate),
+                "saleDate", nullToEmpty(saleDate),
+                "ticketNumber", nullToEmpty(ticketNumber),
+                "duplicate", isDuplicate(),
+                "duplicateNumber", String.valueOf(duplicateNumber),
+                "legalFooter", nullToEmpty(legalFooter),
+                "legalMentions", nullToEmpty(getLegalMentions()),
+                "logo", nullToEmpty(getLogo())));
+        List<Map<String, Object>> articleRows = new ArrayList<>();
+        for (Line line : lines) {
+            articleRows.add(Map.of(
+                    "label", nullToEmpty(line.label()),
+                    "attributes", nullToEmpty(line.attributes()),
+                    "ean", nullToEmpty(line.ean()),
+                    "quantity", nullToEmpty(line.quantity()),
+                    "vatRate", nullToEmpty(line.vatRate()),
+                    "unitExcludingTax", nullToEmpty(line.unitExcludingTax()),
+                    "unitIncludingTax", nullToEmpty(line.unitIncludingTax()),
+                    "total", nullToEmpty(line.totalIncludingTax())));
+        }
+        data.put("lines", articleRows);
+        List<Map<String, Object>> vatTable = new ArrayList<>();
+        for (VatRow row : vatRows) {
+            vatTable.add(Map.of(
+                    "rate", nullToEmpty(row.rate()),
+                    "base", nullToEmpty(row.excludingTax()),
+                    "vat", nullToEmpty(row.vat()),
+                    "includingTax", nullToEmpty(row.includingTax())));
+        }
+        data.put("vatRows", vatTable);
+        List<Map<String, Object>> settlements = new ArrayList<>();
+        for (Tender tender : tenders) {
+            settlements.add(Map.of(
+                    "label", nullToEmpty(tender.label()),
+                    "amount", nullToEmpty(tender.amount())));
+        }
+        data.put("payments", settlements);
+        data.put("totals", Map.of(
+                "excludingTax", nullToEmpty(totalExcludingTax),
+                "vat", nullToEmpty(totalVat),
+                "includingTax", nullToEmpty(totalIncludingTax),
+                "methods", nullToEmpty(paymentMethods)));
+        return data;
+    }
+
+    /**
+     * Restates one party — the seller or the addressee — as plain values.
+     *
+     * <p>No null guard: {@link #of} builds both parties and raises on a document
+     * that names no addressee, so a party is never null by the time it reaches
+     * here — a guard would be a line no behaviour could tell apart.
+     *
+     * @param party the party to restate
+     * @return the party's values
+     */
+    private static Map<String, Object> partyData(Party party) {
+        return Map.of(
+                "name", nullToEmpty(party.name()),
+                "legalName", nullToEmpty(party.legalName()),
+                "contact", nullToEmpty(party.contact()),
+                "addressLines", party.addressLines() == null ? List.of() : party.addressLines(),
+                "phone", nullToEmpty(party.phone()),
+                "fax", nullToEmpty(party.fax()),
+                "siret", nullToEmpty(party.siret()),
+                "vatNumber", nullToEmpty(party.vatNumber()),
+                "accountNumber", nullToEmpty(party.accountNumber()));
+    }
+
+    /**
+     * Maps a missing value to the empty string, so a layout never reads a null.
+     *
+     * @param value the value, possibly null
+     * @return the value, or the empty string
+     */
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     /**

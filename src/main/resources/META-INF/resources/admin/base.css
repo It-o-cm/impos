@@ -597,3 +597,17 @@ body {
     gap: 8px;
     flex-wrap: wrap;
 }
+
+/* ---------- Document template preview (BO-03-03) ---------- */
+
+.preview-pane {
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--im-bg);
+    border: 1px solid var(--im-line);
+    border-radius: var(--radius);
+    font: 13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--im-ink);
+    white-space: pre;
+    overflow-x: auto;
+}

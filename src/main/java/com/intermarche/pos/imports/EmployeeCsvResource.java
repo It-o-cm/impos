@@ -1,6 +1,6 @@
 package com.intermarche.pos.imports;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.annotation.security.RolesAllowed;
@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * REST endpoint for bulk importing or updating Employees from a CSV stream —
@@ -57,6 +58,9 @@ import java.util.Set;
 @RunOnVirtualThread
 public class EmployeeCsvResource extends ImporterCsvResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(EmployeeCsvResource.class);
+
     /** Header name of the natural key: the 8-digit badge. */
     static final String COL_BADGE_ID = "BADGE_ID";
     /** Header name of the register/back-office login. */
@@ -92,6 +96,8 @@ public class EmployeeCsvResource extends ImporterCsvResource {
     @Produces(MediaType.APPLICATION_JSON)
     @RolesAllowed("ADMIN")
     public Response importEmployees(InputStream inputStream) {
+        LOGGER.info("Entering method importEmployees with inputStream: " + inputStream);
+        LOGGER.info("Exiting method importEmployees");
         return this.importCsvStream(inputStream, COL_BADGE_ID, REQUIRED_COLUMNS);
     }
 

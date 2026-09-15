@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 public class HidrawScannerSource implements ScannerSource {
 
     /** The class logger. */
-    private static final Logger LOG = Logger.getLogger(HidrawScannerSource.class);
+    private static final Logger LOGGER = Logger.getLogger(HidrawScannerSource.class);
 
     /** The hidraw device node path. */
     private final String path;
@@ -53,7 +53,7 @@ public class HidrawScannerSource implements ScannerSource {
     public int open() {
         int fd = LinuxInput.C.open(path, LinuxInput.O_RDONLY);
         if (fd < 0) {
-            LOG.errorf("Ouverture douchette (hidraw) impossible: %s", path);
+            LOGGER.errorf("Ouverture douchette (hidraw) impossible: %s", path);
         }
         return fd;
     }

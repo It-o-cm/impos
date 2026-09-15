@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.Address;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.sync.RefPullService;
 import com.intermarche.pos.service.sync.SyncOutboxService;
@@ -71,6 +71,9 @@ class CreditClientServiceTest {
         when(service.syncOutboxService.isEnabled()).thenReturn(true);
         when(service.posSettingsService.creditAllowedInDegraded()).thenReturn(false);
         when(service.posSettingsService.creditDegradedAfterMinutes()).thenReturn(60);
+        // BO-03-06-52: no account range administered by default, so every case
+        // below keeps accepting the numbers it always did.
+        when(service.posSettingsService.customerAccountPattern()).thenReturn("");
         when(service.refPullService.getLastSuccessfulPull())
                 .thenReturn(LocalDateTime.now().minusMinutes(1));
         return service;
@@ -752,5 +755,60 @@ class CreditClientServiceTest {
             assertTrue(service.processCredit(state, new BigDecimal("10.00")));
         }
         verify(service.paymentService).processCredit(any(), any(), any(), eq(false));
+    }
+
+    // --- Plage des numéros de compte client (BO-03-06-52) ---
+
+    /**
+     * A number OUTSIDE the administered range is refused before the database is
+     * even asked, with a message naming the real problem.
+     */
+    @Test
+    void aNumberOutsideTheAdministeredRangeIsRefused() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.customerAccountPattern()).thenReturn("^CC\\d{4}$");
+        PosState state = newState("10.00");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            service.selectByNumber(state, "2990000000019");
+            panache.verifyNoInteractions();
+        }
+        assertEquals("NUMERO DE COMPTE HORS PLAGE : 2990000000019", state.payment.creditError);
+    }
+
+    /**
+     * A number INSIDE the administered range reaches the database as before.
+     */
+    @Test
+    void aNumberInsideTheAdministeredRangeIsLookedUp() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.customerAccountPattern()).thenReturn("^CC\\d{4}$");
+        assertTrue(service.matchesAccountRange("CC1234"));
+        assertFalse(service.matchesAccountRange("CC12345"));
+    }
+
+    /**
+     * A SECOND administered range accepts another shape, which is what proves
+     * the setting is read rather than a literal returned; padding is trimmed.
+     */
+    @Test
+    void aSecondAdministeredRangeAcceptsAnotherShape() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.customerAccountPattern()).thenReturn("  ^\\d{8}$  ");
+        assertTrue(service.matchesAccountRange("12345678"));
+        assertFalse(service.matchesAccountRange("CC1234"));
+    }
+
+    /**
+     * A BLANK administered range accepts every number — the leg a null check
+     * alone would miss — and a NULL one behaves the same.
+     */
+    @Test
+    void anEmptyAdministeredRangeAcceptsEveryNumber() {
+        CreditClientService blank = newService();
+        when(blank.posSettingsService.customerAccountPattern()).thenReturn("   ");
+        assertTrue(blank.matchesAccountRange("n'importe quoi"));
+        CreditClientService missing = newService();
+        when(missing.posSettingsService.customerAccountPattern()).thenReturn(null);
+        assertTrue(missing.matchesAccountRange("n'importe quoi"));
     }
 }

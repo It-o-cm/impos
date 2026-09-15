@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the manual fidelity-card entry page — the fallback
@@ -20,6 +21,9 @@ import java.net.URI;
 @Path("/")
 @DrawerMustBeClosed
 public class FidelityResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(FidelityResource.class);
 
     @Inject Template fidelity;
     @Inject FidelityService fidelityService;
@@ -36,11 +40,13 @@ public class FidelityResource {
     @GET
     @Path("/fidelity") // Chemin complet
     public TemplateInstance fidelityPage() {
+        LOGGER.info("Entering method fidelityPage");
         // In-store consultation (imfid spec §4): balance and history of the
         // attached card, assembled server-side; degraded = a message.
         // The lookup outcome is read from the state (stored by the POST
         // before its 303 hop here), so refreshing the page re-renders the
         // same result list instead of replaying a POST.
+        LOGGER.info("Exiting method fidelityPage");
         return fidelity.data("state", state)
                 .data("lookup", state.fidelity.lastLookup)
                 .data("searchMode", state.fidelity.lastLookupMode)
@@ -61,7 +67,9 @@ public class FidelityResource {
     @Path("/action/fidelity") // Chemin complet
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response validateFidelity(@FormParam("card") String card) {
+        LOGGER.info("Entering method validateFidelity with card: " + card);
         fidelityService.validateCard(state, card);
+        LOGGER.info("Exiting method validateFidelity");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -85,6 +93,7 @@ public class FidelityResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response lookupFidelity(@FormParam("mode") String mode,
                                            @FormParam("value") String value) {
+        LOGGER.info("Entering method lookupFidelity with mode: " + mode + ", value: " + value);
         String phone = null, email = null, name = null, firstName = null;
         String input = value != null ? value.trim() : "";
         if ("tel".equals(mode)) {
@@ -106,6 +115,7 @@ public class FidelityResource {
         state.fidelity.lastLookupMode = mode != null ? mode : "name";
         state.fidelity.lastLookupValue = input;
         state.fidelity.lastLookupPage = 0;
+        LOGGER.info("Exiting method lookupFidelity");
         return Response.seeOther(URI.create("/fidelity")).build();
     }
 
@@ -120,7 +130,9 @@ public class FidelityResource {
     @GET
     @Path("/fidelity/page/{p}")
     public TemplateInstance changeLookupPage(@PathParam("p") int page) {
+        LOGGER.info("Entering method changeLookupPage with page: " + page);
         state.fidelity.lastLookupPage = Math.max(0, page);
+        LOGGER.info("Exiting method changeLookupPage");
         return fidelityPage();
     }
 
@@ -147,6 +159,7 @@ public class FidelityResource {
                                            @FormParam("firstName") String firstName,
                                            @FormParam("status") String status,
                                            @FormParam("email") String email) {
+        LOGGER.info("Entering method selectFidelity with card: " + card + ", lastName: " + lastName + ", firstName: " + firstName + ", status: " + status + ", email: " + email);
         String refusal = fidelityService.attachLookedUpCard(state, card, lastName, firstName,
                 status, email);
         if (refusal != null) {
@@ -155,8 +168,10 @@ public class FidelityResource {
             FidelityService.LookupView lookup = new FidelityService.LookupView();
             lookup.message = refusal;
             state.fidelity.lastLookup = lookup;
+            LOGGER.info("Exiting method selectFidelity");
             return Response.seeOther(URI.create("/fidelity")).build();
         }
+        LOGGER.info("Exiting method selectFidelity");
         return Response.seeOther(URI.create("/")).build();
     }
 }

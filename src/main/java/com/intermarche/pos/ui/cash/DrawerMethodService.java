@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * The tenders the drawer holds, what the register believes it holds of each, and
@@ -31,6 +32,9 @@ import java.util.Set;
  */
 @ApplicationScoped
 public class DrawerMethodService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(DrawerMethodService.class);
 
     /** How a tender is described to the operator. */
     @Inject
@@ -95,6 +99,8 @@ public class DrawerMethodService {
      * @return the tenders, in administered order, empty when the shop offers none
      */
     public List<DrawerMethod> withdrawable() {
+        LOGGER.info("Entering method withdrawable");
+        LOGGER.info("Exiting method withdrawable");
         return describe(parse(posSettingsService.drawerWithdrawalMethods()));
     }
 
@@ -107,7 +113,9 @@ public class DrawerMethodService {
      * @return the tenders, in administered order
      */
     public List<DrawerMethod> transferable() {
+        LOGGER.info("Entering method transferable");
         List<String[]> pairs = parse(posSettingsService.drawerTransferMethods());
+        LOGGER.info("Exiting method transferable");
         return describe(pairs.isEmpty()
                 ? parse(posSettingsService.drawerWithdrawalMethods()) : pairs);
     }
@@ -136,10 +144,13 @@ public class DrawerMethodService {
      * @return the amounts by tender key, empty when no session is open
      */
     public Map<String, BigDecimal> theoreticalByMethod() {
+        LOGGER.info("Entering method theoreticalByMethod");
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
+            LOGGER.info("Exiting method theoreticalByMethod");
             return Map.of();
         }
+        LOGGER.info("Exiting method theoreticalByMethod");
         return cashSessionService.buildReport(session).totalsByMethod;
     }
 
@@ -150,16 +161,19 @@ public class DrawerMethodService {
      * @return the counts by tender key, empty when no session is open
      */
     public Map<String, Integer> countByMethod() {
+        LOGGER.info("Entering method countByMethod");
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
+            LOGGER.info("Exiting method countByMethod");
             return Map.of();
         }
         Map<String, Integer> counts = new java.util.LinkedHashMap<>();
-        for (com.intermarche.pos.domain.ticket.Ticket ticket : closedTickets(session)) {
-            for (com.intermarche.pos.domain.ticket.TicketPayment payment : ticket.payments) {
+        for (com.intermarche.pos.domain.sale.Ticket ticket : closedTickets(session)) {
+            for (com.intermarche.pos.domain.payment.TicketPayment payment : ticket.payments) {
                 counts.merge(payment.getMethodKey(), 1, Integer::sum);
             }
         }
+        LOGGER.info("Exiting method countByMethod");
         return counts;
     }
 
@@ -169,9 +183,9 @@ public class DrawerMethodService {
      * @param session the open session
      * @return the closed tickets of that session
      */
-    private List<com.intermarche.pos.domain.ticket.Ticket> closedTickets(CashSession session) {
-        return com.intermarche.pos.domain.ticket.Ticket.list("session = ?1 and status = ?2",
-                session, com.intermarche.pos.domain.ticket.Ticket.TicketStatus.CLOSED);
+    private List<com.intermarche.pos.domain.sale.Ticket> closedTickets(CashSession session) {
+        return com.intermarche.pos.domain.sale.Ticket.list("session = ?1 and status = ?2",
+                session, com.intermarche.pos.domain.sale.Ticket.TicketStatus.CLOSED);
     }
 
     /**
@@ -187,19 +201,22 @@ public class DrawerMethodService {
      *         order, empty when no session is open
      */
     public List<String[]> transactionsOf(String key) {
+        LOGGER.info("Entering method transactionsOf with key: " + key);
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
+            LOGGER.info("Exiting method transactionsOf");
             return List.of();
         }
         List<String[]> lines = new ArrayList<>();
-        for (com.intermarche.pos.domain.ticket.Ticket ticket : closedTickets(session)) {
-            for (com.intermarche.pos.domain.ticket.TicketPayment payment : ticket.payments) {
+        for (com.intermarche.pos.domain.sale.Ticket ticket : closedTickets(session)) {
+            for (com.intermarche.pos.domain.payment.TicketPayment payment : ticket.payments) {
                 if (payment.getMethodKey().equals(key)) {
                     lines.add(new String[] {ticket.ticketNumber,
                             String.format("%.2f", payment.amount).replace('.', ',') + " E"});
                 }
             }
         }
+        LOGGER.info("Exiting method transactionsOf");
         return lines;
     }
 
@@ -210,7 +227,9 @@ public class DrawerMethodService {
      * @return the amount, zero when the drawer holds none of it
      */
     public BigDecimal theoreticalOf(String key) {
+        LOGGER.info("Entering method theoreticalOf with key: " + key);
         String wanted = key == null || key.isBlank() ? CashMovement.CASH : key;
+        LOGGER.info("Exiting method theoreticalOf");
         return theoreticalByMethod().getOrDefault(wanted, BigDecimal.ZERO);
     }
 
@@ -221,16 +240,20 @@ public class DrawerMethodService {
      * @return the label, the key itself when the shop named no label for it
      */
     public String labelOf(String key) {
+        LOGGER.info("Entering method labelOf with key: " + key);
         for (DrawerMethod method : transferable()) {
             if (method.key().equals(key)) {
+                LOGGER.info("Exiting method labelOf");
                 return method.label();
             }
         }
         for (DrawerMethod method : withdrawable()) {
             if (method.key().equals(key)) {
+                LOGGER.info("Exiting method labelOf");
                 return method.label();
             }
         }
+        LOGGER.info("Exiting method labelOf");
         return key;
     }
 
@@ -241,11 +264,14 @@ public class DrawerMethodService {
      * @return true when the shop administered it as manually withdrawable
      */
     public boolean isWithdrawable(String key) {
+        LOGGER.info("Entering method isWithdrawable with key: " + key);
         for (DrawerMethod method : withdrawable()) {
             if (method.key().equals(key)) {
+                LOGGER.info("Exiting method isWithdrawable");
                 return true;
             }
         }
+        LOGGER.info("Exiting method isWithdrawable");
         return false;
     }
 
@@ -256,11 +282,14 @@ public class DrawerMethodService {
      * @return true when the shop administered it as transferable
      */
     public boolean isTransferable(String key) {
+        LOGGER.info("Entering method isTransferable with key: " + key);
         for (DrawerMethod method : transferable()) {
             if (method.key().equals(key)) {
+                LOGGER.info("Exiting method isTransferable");
                 return true;
             }
         }
+        LOGGER.info("Exiting method isTransferable");
         return false;
     }
 }

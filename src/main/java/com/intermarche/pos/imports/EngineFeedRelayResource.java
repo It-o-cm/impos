@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import org.jboss.logging.Logger;
 
 /**
  * SINGLE front door of every CSV feed: {@code POST /feeds/import/{code}}
@@ -43,6 +44,9 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 @RunOnVirtualThread
 public class EngineFeedRelayResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(EngineFeedRelayResource.class);
 
     /** The feed keeper storing the sealed parcels. */
     @Inject
@@ -85,9 +89,11 @@ public class EngineFeedRelayResource {
     @Produces(MediaType.APPLICATION_JSON)
     @RolesAllowed("ADMIN")
     public Response importFeed(@PathParam("code") String code, InputStream inputStream) {
+        LOGGER.info("Entering method importFeed with code: " + code + ", inputStream: " + inputStream);
         String normalized = code == null ? "" : code.trim().toUpperCase(Locale.ROOT);
         Function<InputStream, Response> delegate = delegates().get(normalized);
         if (delegate != null) {
+            LOGGER.info("Exiting method importFeed");
             return delegate.apply(inputStream);
         }
         if (EngineFeedService.catalogEntry(normalized).isEmpty()) {
@@ -96,6 +102,7 @@ public class EngineFeedRelayResource {
                     .map(EngineFeedService.FeedDef::code)
                     .filter(c -> !delegates().containsKey(c))
                     .collect(Collectors.joining(", "));
+            LOGGER.info("Exiting method importFeed");
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("{\"error\":\"Unknown feed code '" + normalized
                             + "' - known codes: " + known + "\"}")
@@ -105,14 +112,17 @@ public class EngineFeedRelayResource {
         try {
             content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
+            LOGGER.info("Exiting method importFeed");
             return Response.serverError().entity("Error reading file: " + e.getMessage()).build();
         }
         if (content.isBlank()) {
+            LOGGER.info("Exiting method importFeed");
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity("{\"error\":\"Empty feed body\"}")
                     .build();
         }
         String version = engineFeedService.store(normalized, content);
+        LOGGER.info("Exiting method importFeed");
         return Response.ok("{\"code\":\"" + normalized + "\", \"version\":\"" + version + "\"}").build();
     }
 
@@ -146,11 +156,12 @@ public class EngineFeedRelayResource {
     @Produces(MediaType.APPLICATION_JSON)
     @RolesAllowed("ADMIN")
     public Response status() {
+        LOGGER.info("Entering method status");
         StringBuilder sb = new StringBuilder("[");
         boolean first = true;
         for (EngineFeedService.FeedDef def : EngineFeedService.CATALOG) {
-            com.intermarche.pos.domain.EngineFeed feed =
-                    com.intermarche.pos.domain.EngineFeed.findByCode(def.code());
+            com.intermarche.pos.domain.sync.EngineFeed feed =
+                    com.intermarche.pos.domain.sync.EngineFeed.findByCode(def.code());
             if (feed == null) continue;
             if (!first) sb.append(',');
             first = false;
@@ -164,6 +175,7 @@ public class EngineFeedRelayResource {
                                     : "\"" + feed.lastError.replace("\\", "\\\\").replace("\"", "'") + "\"")
                     .append('}');
         }
+        LOGGER.info("Exiting method status");
         return Response.ok(sb.append(']').toString()).build();
     }
 }

@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.balance;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncPayloads;
 import com.intermarche.pos.ui.PosState;
@@ -604,10 +604,10 @@ class BalanceTicketServiceTest {
         PosState state = newState(ticket);
         BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
-             MockedStatic<com.intermarche.pos.domain.attribute.ProductAttributes> attrs =
-                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.attribute.ProductAttributes.class)) {
+             MockedStatic<com.intermarche.pos.domain.catalog.attribute.ProductAttributes> attrs =
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
-            attrs.when(() -> com.intermarche.pos.domain.attribute.ProductAttributes.recall(any())).thenReturn(true);
+            attrs.when(() -> com.intermarche.pos.domain.catalog.attribute.ProductAttributes.recall(any())).thenReturn(true);
             assertFalse(service.integrate(state, REFERENCE));
         }
         verify(ticket).setError("TICKET COMPTOIR REFUSÉ : ROTI 0.500KG");
@@ -645,10 +645,10 @@ class BalanceTicketServiceTest {
         ticket.items.add(added);
         BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
-             MockedStatic<com.intermarche.pos.domain.attribute.ProductAttributes> attrs =
-                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.attribute.ProductAttributes.class)) {
+             MockedStatic<com.intermarche.pos.domain.catalog.attribute.ProductAttributes> attrs =
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
-            attrs.when(() -> com.intermarche.pos.domain.attribute.ProductAttributes.discountForbidden(any())).thenReturn(true);
+            attrs.when(() -> com.intermarche.pos.domain.catalog.attribute.ProductAttributes.discountForbidden(any())).thenReturn(true);
             assertTrue(service.integrate(state, REFERENCE));
         }
         assertTrue(added.discountForbidden);
@@ -716,10 +716,10 @@ class BalanceTicketServiceTest {
                 BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
         BalanceTicketService service = newService(serving(oneLine("ROTI", null, "5.00", "0.055")));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
-             MockedStatic<com.intermarche.pos.domain.attribute.ProductAttributes> attrs =
-                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.attribute.ProductAttributes.class)) {
+             MockedStatic<com.intermarche.pos.domain.catalog.attribute.ProductAttributes> attrs =
+                     org.mockito.Mockito.mockStatic(com.intermarche.pos.domain.catalog.attribute.ProductAttributes.class)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(newProduct(false));
-            attrs.when(() -> com.intermarche.pos.domain.attribute.ProductAttributes.vatExempt(any())).thenReturn(true);
+            attrs.when(() -> com.intermarche.pos.domain.catalog.attribute.ProductAttributes.vatExempt(any())).thenReturn(true);
             assertTrue(service.integrate(state, REFERENCE));
         }
         verify(ticket).addItem(any(), any(), any(), any(), any(), eq(BigDecimal.ZERO));
@@ -761,7 +761,7 @@ class BalanceTicketServiceTest {
         ticket.items.add(new TicketState.TicketItem(EAN, "1234", "ROTI",
                 new BigDecimal("13.54"), BigDecimal.ONE, new BigDecimal("0.055")));
         Product product = newProduct(false);
-        product.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L123;L456");
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
              MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
@@ -795,12 +795,12 @@ class BalanceTicketServiceTest {
         ticket.items.add(new TicketState.TicketItem(second.ean, null, "JAMBON",
                 new BigDecimal("3.00"), BigDecimal.ONE, second.vatRate));
         Product first = newProduct(false);
-        first.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        first.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L123");
         Product other = newProduct(false);
         other.ean = second.ean;
         other.plu = null;
-        other.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        other.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L789");
         BalanceTicketService service = newService(serving(dto));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
@@ -836,7 +836,7 @@ class BalanceTicketServiceTest {
         Product other = newProduct(false);
         other.ean = second.ean;
         other.plu = null;
-        other.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        other.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L789");
         BalanceTicketService service = newService(serving(dto));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
@@ -860,7 +860,7 @@ class BalanceTicketServiceTest {
         PosState state = newState(ticket);
         BalanceTicketService service = newService(serving(oneLine("ROTI", "0.5", "5.00", "0.055")));
         Product product = newProduct(true);
-        product.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L123");
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class)) {
             products.when(() -> Product.findActiveByEan(EAN)).thenReturn(product);

@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.valuation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.Store;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -48,7 +48,7 @@ import java.util.List;
 @ApplicationScoped
 public class ValuationService {
 
-    private static final Logger LOG = Logger.getLogger(ValuationService.class);
+    private static final Logger LOGGER = Logger.getLogger(ValuationService.class);
 
     @Inject
     ValuationClient valuationClient;
@@ -66,6 +66,10 @@ public class ValuationService {
     @jakarta.inject.Inject
     com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
 
+    /** Administered settings — carries the card-linked promotion flag (BO-10-03-22). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /** Seconds during which the engine is skipped after a failure (circuit breaker). */
     @org.eclipse.microprofile.config.inject.ConfigProperty(
             name = "pos.valuation.retry-seconds", defaultValue = "10")
@@ -82,10 +86,10 @@ public class ValuationService {
      */
     void onStart(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent ev) {
         if (valuationClient.isEnabled()) {
-            LOG.infof("Moteur de valorisation DISTANT actif: %s (repli local en dégradé, disjoncteur %ds)",
+            LOGGER.infof("Moteur de valorisation DISTANT actif: %s (repli local en dégradé, disjoncteur %ds)",
                     valuationClient.targetUrl(), retrySeconds);
         } else {
-            LOG.info("Moteur de valorisation: LOCAL seul (pos.valuation.url absent)");
+            LOGGER.info("Moteur de valorisation: LOCAL seul (pos.valuation.url absent)");
         }
     }
 
@@ -155,8 +159,9 @@ public class ValuationService {
      * @return the hints, empty-but-non-null on any parsing trouble
      */
     public EngineHints extractHints(String responseJson) {
+        LOGGER.info("Entering method extractHints with responseJson: " + responseJson);
         EngineHints hints = new EngineHints();
-        if (responseJson == null) return hints;
+        if (responseJson == null) { LOGGER.info("Exiting method extractHints"); return hints; }
         try {
             ValuationPayloads.ValuationResponseDto response =
                     objectMapper.readValue(responseJson, ValuationPayloads.ValuationResponseDto.class);
@@ -175,8 +180,9 @@ public class ValuationService {
                 }
             }
         } catch (Exception e) {
-            LOG.warnf("Hints de valorisation illisibles (%s)", e.getMessage());
+            LOGGER.warnf("Hints de valorisation illisibles (%s)", e.getMessage());
         }
+        LOGGER.info("Exiting method extractHints");
         return hints;
     }
 
@@ -186,6 +192,8 @@ public class ValuationService {
      * @return true when remote valuation is active
      */
     public boolean isEnabled() {
+        LOGGER.info("Entering method isEnabled");
+        LOGGER.info("Exiting method isEnabled");
         return valuationClient.isEnabled();
     }
 
@@ -203,8 +211,10 @@ public class ValuationService {
      * @param state the current POS state
      */
     public void revalue(PosState state) {
-        if (state.trainingMode || state.payment.paymentInProgress) return;
+        LOGGER.info("Entering method revalue with state: " + state);
+        if (state.trainingMode || state.payment.paymentInProgress) { LOGGER.info("Exiting method revalue"); return; }
         doRevalue(state);
+        LOGGER.info("Exiting method revalue");
     }
 
     /**
@@ -215,8 +225,10 @@ public class ValuationService {
      * @param state the current POS state
      */
     public void revalueForPayment(PosState state) {
-        if (state.trainingMode) return;
+        LOGGER.info("Entering method revalueForPayment with state: " + state);
+        if (state.trainingMode) { LOGGER.info("Exiting method revalueForPayment"); return; }
         doRevalue(state);
+        LOGGER.info("Exiting method revalueForPayment");
     }
 
     /**
@@ -253,7 +265,7 @@ public class ValuationService {
                 state.payment.valuationMealThreshold = hints.mealThreshold;
                 state.payment.valuationUpsells = new java.util.ArrayList<>(hints.upsells);
                 if (outcome.engineTotalInclTax != null) {
-                    LOG.debugf("Revalorisation: caisse=%s moteur=%s",
+                    LOGGER.debugf("Revalorisation: caisse=%s moteur=%s",
                             state.ticket.totalAmount, outcome.engineTotalInclTax);
                 }
                 // Loyalty hook: the verbatim couple feeds the earn projection
@@ -313,7 +325,9 @@ public class ValuationService {
      * @return the outcome: LOCAL, ENGINE (with the raw response) or DEGRADED
      */
     public ValuationOutcome valuate(TicketState ticket, String fidelityCard, LocalDateTime creationDate) {
+        LOGGER.info("Entering method valuate with ticket: " + ticket + ", fidelityCard: " + fidelityCard + ", creationDate: " + creationDate);
         if (!isEnabled()) {
+            LOGGER.info("Exiting method valuate");
             return new ValuationOutcome("LOCAL", null, null);
         }
         try {
@@ -322,6 +336,7 @@ public class ValuationService {
                 // An EMPTY CART, nothing else: there is no basket to price.
                 // This is not a filtering decision — every line of a non-empty
                 // ticket reaches the engine.
+                LOGGER.info("Exiting method valuate");
                 return new ValuationOutcome("LOCAL", null, null);
             }
             // The couple travels VERBATIM to imfid (spec §1): the request is
@@ -330,16 +345,19 @@ public class ValuationService {
             ValuationPayloads.ValuationResponseDto response = valuationClient.valuate(basket);
             BigDecimal engineTotal = response.totalPrice != null ? response.totalPrice.amountIncludingTax : null;
             String json = objectMapper.writeValueAsString(response);
-            LOG.infof("Valorisation moteur: %d offre(s), %d advantage(s), total moteur=%s",
+            LOGGER.infof("Valorisation moteur: %d offre(s), %d advantage(s), total moteur=%s",
                     response.offers.size(), response.advantages.size(), engineTotal);
+            LOGGER.info("Exiting method valuate");
             return new ValuationOutcome("ENGINE", requestJson, json, engineTotal);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOG.warn("Valorisation interrompue: mode dégradé prix catalogue");
+            LOGGER.warn("Valorisation interrompue: mode dégradé prix catalogue");
+            LOGGER.info("Exiting method valuate");
             return new ValuationOutcome("DEGRADED", null, null);
         } catch (Exception e) {
-            LOG.warnf("Valorisation indisponible (%s: %s): mode dégradé prix catalogue",
+            LOGGER.warnf("Valorisation indisponible (%s: %s): mode dégradé prix catalogue",
                     e.getClass().getSimpleName(), e.getMessage());
+            LOGGER.info("Exiting method valuate");
             return new ValuationOutcome("DEGRADED", null, null);
         }
     }
@@ -355,7 +373,13 @@ public class ValuationService {
     private ValuationPayloads.BasketDto buildBasket(TicketState ticket, String fidelityCard,
                                                     LocalDateTime creationDate) {
         ValuationPayloads.BasketDto basket = new ValuationPayloads.BasketDto();
-        basket.customerCode = (fidelityCard != null && !fidelityCard.isBlank()) ? fidelityCard : null;
+        // BO-10-03-22: the card travels to the promotion engine ONLY when the
+        // store administers card-linked promotions. Off, the basket is priced
+        // anonymously — the engine can no longer read the holder's eligible
+        // personal offers, and none can be triggered against the card.
+        boolean jvPromotion = posSettingsService.fidelityJvPromotionEnabled();
+        basket.customerCode = (jvPromotion && fidelityCard != null && !fidelityCard.isBlank())
+                ? fidelityCard : null;
         Store store = Store.findAll().firstResult();
         basket.storeCode = store != null ? store.code : "0000";
         String isoDate = (creationDate != null ? creationDate : LocalDateTime.now())
@@ -412,7 +436,7 @@ public class ValuationService {
                     item.quantity.signum() != 0
                             ? item.modifierValue.divide(item.quantity, 2, RoundingMode.HALF_UP)
                             : item.modifierValue;
-            default -> LOG.warnf("Geste inconnu ignoré sur la ligne %s: %s", item.uid, item.modifierType);
+            default -> LOGGER.warnf("Geste inconnu ignoré sur la ligne %s: %s", item.uid, item.modifierType);
         }
     }
 }

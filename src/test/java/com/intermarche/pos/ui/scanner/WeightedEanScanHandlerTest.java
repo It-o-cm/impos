@@ -1,7 +1,8 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
@@ -171,7 +172,9 @@ class WeightedEanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         ScanContext ctx = new ScanContext("3017620422003", state);
-        newHandler().handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler().handle(ctx);
+        }
         assertFalse(ctx.handled);
         verify(ticket, never()).setError(any());
     }
@@ -185,7 +188,9 @@ class WeightedEanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         ScanContext ctx = new ScanContext(OTHER_PREFIX_CODE, state);
-        newHandler().handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler().handle(ctx);
+        }
         assertFalse(ctx.handled);
         verify(ticket, never()).setError(any());
     }
@@ -199,7 +204,9 @@ class WeightedEanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         ScanContext ctx = new ScanContext("2101234001500", state);
-        newHandler().handle(ctx);
+        try (MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            newHandler().handle(ctx);
+        }
         assertFalse(ctx.handled);
         verify(ticket, never()).setError(any());
     }
@@ -213,7 +220,8 @@ class WeightedEanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         ScanContext ctx = new ScanContext(PRICE_ZERO_ARTICLE_CODE, state);
-        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu("0")).thenReturn(null);
             newHandler().handle(ctx);
         }
@@ -232,7 +240,8 @@ class WeightedEanScanHandlerTest {
         PosState state = newState(ticket);
         Product p = newProduct(true);
         ScanContext ctx = new ScanContext(PRICE_CODE, state);
-        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             newHandler().handle(ctx);
         }
@@ -262,7 +271,8 @@ class WeightedEanScanHandlerTest {
         Price price = newPrice("9.99", "0.055");
         ScanContext ctx = new ScanContext(PRICE_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -289,7 +299,8 @@ class WeightedEanScanHandlerTest {
         Price price = newPrice("9.99", "0.055");
         ScanContext ctx = new ScanContext(PRICE_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -312,7 +323,8 @@ class WeightedEanScanHandlerTest {
         Price price = newPrice("2.99", "0.055");
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -334,7 +346,8 @@ class WeightedEanScanHandlerTest {
         Product p = newProduct(false);
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -356,7 +369,8 @@ class WeightedEanScanHandlerTest {
         Product p = newProduct(false);
         ScanContext ctx = new ScanContext(WEIGHT_ZERO_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -375,10 +389,11 @@ class WeightedEanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.RECALL, "true");
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -396,11 +411,12 @@ class WeightedEanScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket);
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
         Price price = newPrice("2.99", "0.055");
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
             newHandler().handle(ctx);
@@ -420,7 +436,8 @@ class WeightedEanScanHandlerTest {
         p.checkoutLabel = "Banane Bio";
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -443,10 +460,11 @@ class WeightedEanScanHandlerTest {
             return null;
         }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -469,11 +487,12 @@ class WeightedEanScanHandlerTest {
             return null;
         }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
         Product p = newProduct(false);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .RECALL_LOTS, "L123");
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
@@ -496,11 +515,309 @@ class WeightedEanScanHandlerTest {
         }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
         ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
         try (MockedStatic<Product> products = mockStatic(Product.class);
-             MockedStatic<Price> prices = mockStatic(Price.class)) {
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
             products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
             prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
             newHandler().handle(ctx);
         }
         verify(ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * Neutralizes the administered article ranges, so the handler falls back to
+     * the two prefix properties these cases are written against
+     * (BO-03-06-02 — no range administered on this node).
+     *
+     * @return the static mock answering no range for any code
+     */
+    private MockedStatic<ArticleBarcodeRange> noAdministeredRange() {
+        MockedStatic<ArticleBarcodeRange> ranges = mockStatic(ArticleBarcodeRange.class);
+        ranges.when(() -> ArticleBarcodeRange.findMatching(any())).thenReturn(null);
+        return ranges;
+    }
+
+    // --- Plages ARTICLE administrées (BO-03-06-02/03/04/05/10) ---
+
+    /**
+     * Builds an administered range, its pattern generated from its description
+     * exactly as the back office writes it.
+     *
+     * @param prefix the literal head
+     * @param length the total code length
+     * @param source what the value segment carries
+     * @return the range, pattern generated
+     */
+    private ArticleBarcodeRange administered(String prefix, int length,
+                                             ArticleBarcodeRange.ValueSource source) {
+        ArticleBarcodeRange range = new ArticleBarcodeRange();
+        range.code = "PLAN_" + prefix;
+        range.label = "Plan " + prefix;
+        range.prefix = prefix;
+        range.codeLength = length;
+        range.codeKind = com.intermarche.pos.domain.barcode.CouponField.Kind.NUMERIC;
+        range.valueSource = source;
+        range.checkDigit = false;
+        new com.intermarche.pos.service.CouponPatternService().regenerateRange(range);
+        return range;
+    }
+
+    /**
+     * Opens a static mock answering the given range for every code.
+     *
+     * @param range the administered range
+     * @return the static mock
+     */
+    private MockedStatic<ArticleBarcodeRange> administeredRange(ArticleBarcodeRange range) {
+        MockedStatic<ArticleBarcodeRange> ranges = mockStatic(ArticleBarcodeRange.class);
+        ranges.when(() -> ArticleBarcodeRange.findMatching(any())).thenReturn(range);
+        return ranges;
+    }
+
+    /**
+     * Seeds a ticket mock that materializes the added line, as the
+     * price-embedded path reads the last line back.
+     *
+     * @param ticket the ticket mock
+     */
+    private void materializeAdds(TicketState ticket) {
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * An ADMINISTERED price range says where the article and the price sit, and
+     * the register reads them there — a 16-character plan with a 3-character
+     * prefix, which the hard-coded 2x layout could not have read.
+     */
+    @Test
+    void anAdministeredPriceRangeIsReadWhereItSaysItIs() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        materializeAdds(ticket);
+        ArticleBarcodeRange range = administered("297", 16, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 3;
+        range.articleLength = 6;
+        range.valuePosition = 9;
+        range.valueLength = 7;
+        range.valueDecimals = 2;
+        ScanContext ctx = new ScanContext("2970012340000275", state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(new BigDecimal("2.75")), eq(BigDecimal.ONE), eq(new BigDecimal("0.055")));
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A SECOND administered layout reads another segment of the very same code,
+     * which is what proves the positions are read rather than hard-coded.
+     */
+    @Test
+    void aSecondAdministeredLayoutReadsTheSameCodeDifferently() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        materializeAdds(ticket);
+        ArticleBarcodeRange range = administered("297", 16, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 9;
+        range.articleLength = 7;
+        range.valuePosition = 3;
+        range.valueLength = 6;
+        range.valueDecimals = 2;
+        ScanContext ctx = new ScanContext("2970012340000275", state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            products.when(() -> Product.findActiveByPlu("275")).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(EAN), eq("275"), eq("BANANE"),
+                eq(new BigDecimal("12.34")), eq(BigDecimal.ONE), eq(new BigDecimal("0.055")));
+    }
+
+    /**
+     * An ADMINISTERED weight range carries its own decimal count: four decimals
+     * here, where the hard-coded plan only ever read grams (BO-03-06-04).
+     */
+    @Test
+    void anAdministeredWeightRangeCarriesItsOwnDecimals() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ArticleBarcodeRange range = administered("28", 14, ArticleBarcodeRange.ValueSource.WEIGHT);
+        range.articlePosition = 2;
+        range.articleLength = 6;
+        range.valuePosition = 8;
+        range.valueLength = 6;
+        range.valueDecimals = 4;
+        ScanContext ctx = new ScanContext("28001234012500", state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(new BigDecimal("9.99")), eq(new BigDecimal("1.250")), eq(new BigDecimal("0.055")));
+    }
+
+    /**
+     * A range administered in FRANCS converts its price through the currency
+     * referential at the administered rate (BO-03-06-05).
+     */
+    @Test
+    void anAdministeredFrancRangeIsConvertedAtTheAdministeredRate() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        materializeAdds(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        range.valueDecimals = 2;
+        range.currency = com.intermarche.pos.domain.barcode.CouponField.PriceCurrency.FRF;
+        com.intermarche.pos.domain.payment.Currency franc =
+                new com.intermarche.pos.domain.payment.Currency();
+        franc.code = "FRF";
+        franc.euroPerUnit = new BigDecimal("0.152449");
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<com.intermarche.pos.domain.payment.Currency> currencies =
+                     mockStatic(com.intermarche.pos.domain.payment.Currency.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            currencies.when(() -> com.intermarche.pos.domain.payment.Currency.findActiveByCode("FRF"))
+                    .thenReturn(franc);
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        // 1,50 franc at 0,152449 euro the franc, rounded as the referential rounds.
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(franc.toEuro(new BigDecimal("1.50"))), eq(BigDecimal.ONE),
+                eq(new BigDecimal("0.055")));
+    }
+
+    /**
+     * A franc range with NO administered rate refuses the code rather than
+     * charging francs as euros (the currency-missing arm).
+     */
+    @Test
+    void aFrancRangeWithoutARateRefusesTheCode() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        range.currency = com.intermarche.pos.domain.barcode.CouponField.PriceCurrency.FRF;
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<com.intermarche.pos.domain.payment.Currency> currencies =
+                     mockStatic(com.intermarche.pos.domain.payment.Currency.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            currencies.when(() -> com.intermarche.pos.domain.payment.Currency.findActiveByCode("FRF"))
+                    .thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).setError("DEVISE FRF NON PARAMÉTRÉE");
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A range administered WITHOUT a check digit accepts a code whose last
+     * character would fail the EAN13 key — the layout decides, not the code.
+     */
+    @Test
+    void anAdministeredRangeWithoutACheckDigitAcceptsAnyKey() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        materializeAdds(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        ScanContext ctx = new ScanContext("2101234001500", state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A range administered WITH a check digit still refuses a bad key, letting
+     * the code fall through to the next handler (the check-digit arm).
+     */
+    @Test
+    void anAdministeredRangeWithACheckDigitStillRefusesABadKey() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.checkDigit = true;
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        ScanContext ctx = new ScanContext("2101234001500", state);
+        try (MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            newHandler().handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A range whose segments cannot be read in the scanned code lets it fall
+     * through untouched (the unreadable-segment arm).
+     */
+    @Test
+    void anUnreadableSegmentLetsTheCodeFallThrough() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        range.valuePosition = 40;
+        range.valueLength = 5;
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            newHandler().handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A blank code is refused before any range is consulted.
+     */
+    @Test
+    void aBlankCodeConsultsNoRange() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ScanContext ctx = new ScanContext("   ", state);
+        newHandler().handle(ctx);
+        assertFalse(ctx.handled);
+        verify(ticket, never()).setError(any());
     }
 }

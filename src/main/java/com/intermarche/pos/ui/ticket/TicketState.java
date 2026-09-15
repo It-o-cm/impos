@@ -258,7 +258,7 @@ public class TicketState implements Serializable {
 
     /**
      * Allocates the ticket-level discount onto the POSITIVE lines, prorata
-     * of their (valued) totals with the cent residue on the largest share —
+     * of their DISCOUNTABLE (valued) totals with the cent residue on the largest share —
      * the reconciler's allocation doctrine reapplied: the fiscal stays 100%
      * carried by the lines, no floating ticket-level amount ever exists.
      * Runs at EVERY total recomputation, so the allocation always follows
@@ -277,7 +277,12 @@ public class TicketState implements Serializable {
         }
         BigDecimal base = BigDecimal.ZERO;
         for (TicketItem item : items) {
-            if (item.moneyProduct) continue;
+            // BO-02-03-09: a line whose article bans discounts is out of the
+            // BASE as well as out of the allocation. Leaving it in the base
+            // would shrink everyone else's share to pay for a discount this
+            // line never receives — the ticket discount would silently cost
+            // less than it says.
+            if (item.moneyProduct || item.discountForbidden) continue;
             BigDecimal lineTotal = item.getTotalPrice();
             if (lineTotal.signum() > 0) {
                 base = base.add(lineTotal);
@@ -297,7 +302,7 @@ public class TicketState implements Serializable {
         TicketItem largest = null;
         BigDecimal largestTotal = BigDecimal.ZERO;
         for (TicketItem item : items) {
-            if (item.moneyProduct) continue;
+            if (item.moneyProduct || item.discountForbidden) continue;
             // Shares were ALL reset to null at the top of this method, so
             // getTotalPrice() already IS the pre-share (valued) line total —
             // the allocation base per line. Re-adding the share here would be
@@ -324,6 +329,27 @@ public class TicketState implements Serializable {
             largest.globalDiscountShare = largest.globalDiscountShare.add(residue);
         }
         globalDiscountApplied = amount;
+    }
+
+    /**
+     * Returns the total of the lines an article attribute declares eligible to
+     * a meal voucher (BO-02-03-06), which caps a meal-ticket settlement when no
+     * engine advantage states another base.
+     *
+     * @return the eligible total, zero when no line is eligible
+     */
+    public BigDecimal mealVoucherEligibleTotal() {
+        BigDecimal total = BigDecimal.ZERO;
+        for (TicketItem item : items) {
+            if (!item.mealVoucherEligible) {
+                continue;
+            }
+            BigDecimal lineTotal = item.getTotalPrice();
+            if (lineTotal.signum() > 0) {
+                total = total.add(lineTotal);
+            }
+        }
+        return total.setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
@@ -570,6 +596,15 @@ public class TicketState implements Serializable {
          * applied to a banned line for the recovery to have to preserve.
          */
         public boolean discountForbidden = false;
+
+        /**
+         * True when the article sold on this line may be settled with a meal
+         * voucher (BO-02-03-06). Snapshotted from the product at add time, like
+         * {@link #discountForbidden}, so the eligible base is known even when
+         * the valuation engine has not answered — a register in local mode must
+         * not accept meal tickets on a bottle of wine.
+         */
+        public boolean mealVoucherEligible = false;
 
         /**
          * True when the article on this line is NOT carried out of the shop by the

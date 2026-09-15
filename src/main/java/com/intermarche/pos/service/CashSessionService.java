@@ -1,13 +1,14 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.Refund;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.SyncOutbox;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.payment.TenderDefinition;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -45,7 +46,7 @@ import java.util.Map;
 @ApplicationScoped
 public class CashSessionService {
 
-    private static final Logger LOG = Logger.getLogger(CashSessionService.class);
+    private static final Logger LOGGER = Logger.getLogger(CashSessionService.class);
 
     @Inject
     TicketNumberService ticketNumberService;
@@ -77,6 +78,91 @@ public class CashSessionService {
         public BigDecimal totalRefunds = BigDecimal.ZERO;
         /** True when this report closes the session (Z), false for an X snapshot. */
         public boolean closing;
+
+        /**
+         * The tenders the withdrawal report states line by line (BO-03-02-25).
+         *
+         * <p>Computed by the report and not by the renderer, so the printed X and
+         * the displayed X can never disagree about what is detailed.
+         */
+        public java.util.Set<String> detailedMethods = new java.util.LinkedHashSet<>();
+
+        /**
+         * The total of the tenders the report does NOT detail, stated as one
+         * line (BO-03-02-25).
+         */
+        public BigDecimal otherMethodsTotal = BigDecimal.ZERO;
+
+        /** The total of the tenders deposited at the bank (BO-03-02-21). */
+        public BigDecimal bankDepositTotal = BigDecimal.ZERO;
+
+        /** The total of the tenders reported to the fidelity programme (BO-03-02-30). */
+        public BigDecimal fidelityReportedTotal = BigDecimal.ZERO;
+
+        /**
+         * True when the cash is declared by the register rather than counted by
+         * the cashier (BO-03-02-17).
+         */
+        public boolean cashDeclaredAutomatically;
+
+        /**
+         * True when the closing withdrawal of the cash is computed rather than
+         * typed (BO-03-02-18).
+         */
+        public boolean cashWithdrawnAutomatically;
+
+        /**
+         * Returns the settlement lines the report details, in the order the
+         * methods were first seen (BO-03-02-25).
+         *
+         * @return the detailed settlement rows, possibly empty
+         */
+        public List<MethodRow> getDetailedMethodRows() {
+            List<MethodRow> rows = new java.util.ArrayList<>();
+            for (Map.Entry<String, BigDecimal> entry : totalsByMethod.entrySet()) {
+                if (detailedMethods.contains(entry.getKey())) {
+                    rows.add(new MethodRow(entry.getKey(), money(entry.getValue())));
+                }
+            }
+            return rows;
+        }
+
+        /**
+         * Tells whether the report carries tenders it does not detail, which is
+         * what decides whether the lump line is worth printing (BO-03-02-25).
+         *
+         * @return true when at least one tender is left undetailed
+         */
+        public boolean isCarryingUndetailedMethods() {
+            return detailedMethods.size() < totalsByMethod.size();
+        }
+
+        /**
+         * Returns the total of the undetailed tenders, French format.
+         *
+         * @return the formatted lump total
+         */
+        public String getOtherMethodsTotalFormatted() {
+            return money(otherMethodsTotal);
+        }
+
+        /**
+         * Returns the total deposited at the bank, French format.
+         *
+         * @return the formatted bank-deposit total
+         */
+        public String getBankDepositTotalFormatted() {
+            return money(bankDepositTotal);
+        }
+
+        /**
+         * Returns the total reported to the fidelity programme, French format.
+         *
+         * @return the formatted fidelity total
+         */
+        public String getFidelityReportedTotalFormatted() {
+            return money(fidelityReportedTotal);
+        }
 
         /**
          * One settlement line of the report: a payment method and its total.
@@ -161,6 +247,8 @@ public class CashSessionService {
      * @return the open session, or null
      */
     public CashSession getOpenSession() {
+        LOGGER.info("Entering method getOpenSession");
+        LOGGER.info("Exiting method getOpenSession");
         return CashSession.findOpenByTerminal(ticketNumberService.getTerminalId());
     }
 
@@ -174,13 +262,16 @@ public class CashSessionService {
      */
     @Transactional
     public CashSession openSession(Long cashierId, BigDecimal openingFloat) {
+        LOGGER.info("Entering method openSession with cashierId: " + cashierId + ", openingFloat: " + openingFloat);
         if (getOpenSession() != null) {
-            LOG.warn("Ouverture refusée : une session est déjà ouverte sur cette caisse");
+            LOGGER.warn("Ouverture refusée : une session est déjà ouverte sur cette caisse");
+            LOGGER.info("Exiting method openSession");
             return null;
         }
         Employee cashier = (cashierId != null) ? Employee.findById(cashierId) : null;
         if (cashier == null) {
-            LOG.error("Ouverture refusée : caissier introuvable");
+            LOGGER.error("Ouverture refusée : caissier introuvable");
+            LOGGER.info("Exiting method openSession");
             return null;
         }
         CashSession session = new CashSession();
@@ -194,6 +285,7 @@ public class CashSessionService {
         technicalEventService.log(TechnicalEvent.EventType.SESSION_OPENED,
                 session.sessionNumber + " fond " + session.openingFloat.toPlainString());
         syncOutboxService.enqueue(SyncOutbox.EntityType.SESSION, session.id);
+        LOGGER.info("Exiting method openSession");
         return session;
     }
 
@@ -206,6 +298,7 @@ public class CashSessionService {
      */
     @Transactional
     public SessionReport buildReport(CashSession session) {
+        LOGGER.info("Entering method buildReport with session: " + session);
         SessionReport report = new SessionReport();
         report.session = session;
 
@@ -249,9 +342,142 @@ public class CashSessionService {
             applyMethodImpact(report.totalsByMethod, movement);
         }
         report.netCashMovements = netMovements;
-        report.theoreticalCash = session.openingFloat.add(cashTotal).subtract(cashRefunds)
+        // BO-03-02-22: the opening float counts in the cash theoretical only when
+        // the cash is a tender the back office lets make up the float. A store
+        // that administers nothing keeps today's answer — the float is cash.
+        BigDecimal floatPart = tenderAllows(CashMovement.CASH, TenderFlag.FLOAT)
+                ? session.openingFloat : BigDecimal.ZERO;
+        report.theoreticalCash = floatPart.add(cashTotal).subtract(cashRefunds)
                 .add(netMovements).setScale(2, RoundingMode.HALF_UP);
+        applyReportingRules(report);
+        LOGGER.info("Exiting method buildReport");
         return report;
+    }
+
+    /**
+     * Applies the administered REPORTING rules of each tender to a built report
+     * (BO-03-02-17/18/21/25/30).
+     *
+     * <p>Applied once, here, over the totals the report already holds: every
+     * renderer then states the same thing, and the referential is read in one
+     * place rather than at each screen and each roll of paper.
+     *
+     * @param report the report to complete
+     */
+    private void applyReportingRules(SessionReport report) {
+        for (Map.Entry<String, BigDecimal> entry : report.totalsByMethod.entrySet()) {
+            String key = entry.getKey();
+            BigDecimal total = entry.getValue();
+            if (tenderAllows(key, TenderFlag.REPORT_DETAIL)) {
+                report.detailedMethods.add(key);
+            } else {
+                report.otherMethodsTotal = report.otherMethodsTotal.add(total);
+            }
+            if (tenderCarries(key, TenderFlag.BANK_DEPOSIT)) {
+                report.bankDepositTotal = report.bankDepositTotal.add(total);
+            }
+            if (tenderCarries(key, TenderFlag.FIDELITY_REPORT)) {
+                report.fidelityReportedTotal = report.fidelityReportedTotal.add(total);
+            }
+        }
+        report.cashDeclaredAutomatically = tenderCarries(CashMovement.CASH, TenderFlag.DECLARATION);
+        report.cashWithdrawnAutomatically = tenderCarries(CashMovement.CASH, TenderFlag.WITHDRAWAL);
+    }
+
+    /**
+     * Reads an administered flag of a tender, a tender no row administers
+     * answering that the flag is NOT set (BO-03-02-17/18/21/30).
+     *
+     * @param code the settlement key
+     * @param flag the flag to read
+     * @return true when an administered row carries that flag
+     */
+    private boolean tenderCarries(String code, TenderFlag flag) {
+        TenderDefinition tender = TenderDefinition.findByCode(code);
+        return tender != null && flag.of(tender);
+    }
+
+    /**
+     * Reads an administered flag of a tender, a tender no row administers
+     * answering that the flag IS set (BO-03-02-22/25).
+     *
+     * <p>The other default, and deliberately so: these two flags describe what
+     * the register already does — the float is cash, the report details every
+     * tender — so an empty referential must leave that behaviour alone.
+     *
+     * @param code the settlement key
+     * @param flag the flag to read
+     * @return true unless an administered row clears that flag
+     */
+    private boolean tenderAllows(String code, TenderFlag flag) {
+        TenderDefinition tender = TenderDefinition.findByCode(code);
+        return tender == null || flag.of(tender);
+    }
+
+    /**
+     * The administered flags this service reads off a tender.
+     *
+     * <p>An enumeration rather than seven lookups spelled out: the reading is
+     * the same every time and only the field differs, and the two defaults above
+     * then have one place each instead of one per flag.
+     */
+    private enum TenderFlag {
+
+        /** Whether the tender may make up the opening float (BO-03-02-22). */
+        FLOAT {
+            @Override
+            boolean of(TenderDefinition tender) {
+                return tender.floatAllowed;
+            }
+        },
+
+        /** Whether the withdrawal report details the tender (BO-03-02-25). */
+        REPORT_DETAIL {
+            @Override
+            boolean of(TenderDefinition tender) {
+                return tender.withdrawalReportDetail;
+            }
+        },
+
+        /** Whether the takings of the tender are deposited at the bank (BO-03-02-21). */
+        BANK_DEPOSIT {
+            @Override
+            boolean of(TenderDefinition tender) {
+                return tender.bankDeposit;
+            }
+        },
+
+        /** Whether the use of the tender is reported to fidelity (BO-03-02-30). */
+        FIDELITY_REPORT {
+            @Override
+            boolean of(TenderDefinition tender) {
+                return tender.fidelityReported;
+            }
+        },
+
+        /** Whether the tender is declared by the register (BO-03-02-17). */
+        DECLARATION {
+            @Override
+            boolean of(TenderDefinition tender) {
+                return tender.cashierDeclaration;
+            }
+        },
+
+        /** Whether the tender is withdrawn automatically (BO-03-02-18). */
+        WITHDRAWAL {
+            @Override
+            boolean of(TenderDefinition tender) {
+                return tender.automaticWithdrawal;
+            }
+        };
+
+        /**
+         * Reads this flag off an administered tender.
+         *
+         * @param tender the administered row
+         * @return the flag's value
+         */
+        abstract boolean of(TenderDefinition tender);
     }
 
     /**
@@ -349,9 +575,11 @@ public class CashSessionService {
     @Transactional
     public SessionReport closeSession(Long cashierId, BigDecimal countedAmount,
                                       BigDecimal withdrawnAmount, String countDetail) {
+        LOGGER.info("Entering method closeSession with cashierId: " + cashierId + ", countedAmount: " + countedAmount + ", withdrawnAmount: " + withdrawnAmount + ", countDetail: " + countDetail);
         CashSession session = getOpenSession();
         if (session == null) {
-            LOG.warn("Clôture refusée : aucune session ouverte sur cette caisse");
+            LOGGER.warn("Clôture refusée : aucune session ouverte sur cette caisse");
+            LOGGER.info("Exiting method closeSession");
             return null;
         }
 
@@ -373,10 +601,20 @@ public class CashSessionService {
 
         session.closingDate = LocalDateTime.now();
         session.closingCashier = (cashierId != null) ? Employee.findById(cashierId) : null;
-        session.countedAmount = countedAmount != null ? countedAmount : BigDecimal.ZERO;
+        // BO-03-02-17: a tender in automatic declaration is declared BY THE
+        // REGISTER — the cashier counts nothing and the drawer is taken at its
+        // theoretical, which is exactly what "déclaration automatique" asks for.
+        session.countedAmount = report.cashDeclaredAutomatically
+                ? report.theoreticalCash
+                : (countedAmount != null ? countedAmount : BigDecimal.ZERO);
         session.theoreticalAmount = report.theoreticalCash;
         session.variance = session.countedAmount.subtract(session.theoreticalAmount);
-        session.withdrawnAmount = withdrawnAmount != null ? withdrawnAmount : BigDecimal.ZERO;
+        // BO-03-02-18: a tender in automatic withdrawal has its closing
+        // withdrawal COMPUTED — everything above the float leaves the drawer,
+        // and a drawer below its float has nothing to withdraw.
+        session.withdrawnAmount = report.cashWithdrawnAutomatically
+                ? report.theoreticalCash.subtract(session.openingFloat).max(BigDecimal.ZERO)
+                : (withdrawnAmount != null ? withdrawnAmount : BigDecimal.ZERO);
         session.countDetail = countDetail;
         session.status = CashSession.SessionStatus.CLOSED;
         session.persist();
@@ -384,6 +622,7 @@ public class CashSessionService {
         technicalEventService.log(TechnicalEvent.EventType.SESSION_CLOSED,
                 session.sessionNumber + " écart " + session.variance.toPlainString());
         syncOutboxService.enqueue(SyncOutbox.EntityType.SESSION, session.id);
+        LOGGER.info("Exiting method closeSession");
         return report;
     }
 }

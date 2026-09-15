@@ -1416,7 +1416,22 @@ class FidelityServiceTest {
         FidelityService service = new FidelityService();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
+        service.posSettingsService = settings(true);
         return service;
+    }
+
+    /**
+     * Builds an administered-settings mock answering the holder-name display
+     * flag (BO-10-03-04) with the given value.
+     *
+     * @param showHolderName the administered value of {@code fidelity.show-holder-name}
+     * @return the settings mock
+     */
+    private com.intermarche.pos.service.PosSettingsService settings(boolean showHolderName) {
+        com.intermarche.pos.service.PosSettingsService settings =
+                mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(settings.fidelityShowHolderName()).thenReturn(showHolderName);
+        return settings;
     }
 
     /**
@@ -1592,6 +1607,7 @@ class FidelityServiceTest {
         FidelityService service = new FidelityService();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
+        service.posSettingsService = settings(true);
         PosState state = new PosState();
         String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION", null);
         assertNull(message);
@@ -1612,6 +1628,7 @@ class FidelityServiceTest {
         FidelityService service = new FidelityService();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
+        service.posSettingsService = settings(true);
         PosState state = new PosState();
         String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", null, "ACTIVE", null);
         assertNull(message);
@@ -1725,6 +1742,7 @@ class FidelityServiceTest {
         FidelityService service = new FidelityService();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
+        service.posSettingsService = settings(true);
         return service;
     }
 
@@ -1776,5 +1794,53 @@ class FidelityServiceTest {
         service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "RESILIATED",
                 "jean@example.org");
         assertNull(state.fidelity.holderEmail);
+    }
+
+    // --- attachLookedUpCard : affichage du nom du porteur (BO-10-03-04) ---
+
+    /**
+     * The administered flag ON carries the holder's name onto the register, so
+     * the operator sees it beside the card number (true arm).
+     */
+    @Test
+    void theAdministeredFlagCarriesTheHolderName() {
+        FidelityService service = attachService();
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE", null);
+        assertEquals("Dupont", state.fidelity.holderLastName);
+        assertEquals("Jean", state.fidelity.holderFirstName);
+        assertEquals("DUPONT Jean · 2990000000019", state.fidelity.getDisplaySummary());
+    }
+
+    /**
+     * The administered flag OFF keeps the register pseudonymous: neither name is
+     * stored and the summary shows the card number alone (false arm). Asserting a
+     * SECOND administered value is what proves the flag is read rather than a
+     * literal being returned.
+     */
+    @Test
+    void theAdministeredFlagOffKeepsTheRegisterPseudonymous() {
+        FidelityService service = attachService();
+        service.posSettingsService = settings(false);
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE", null);
+        assertNull(state.fidelity.holderLastName);
+        assertNull(state.fidelity.holderFirstName);
+        assertEquals("2990000000019", state.fidelity.getDisplaySummary());
+    }
+
+    /**
+     * The flag governs the NAME only: the holder's e-mail still travels, because
+     * the receipt address is a different requirement (LC-08-02-09).
+     */
+    @Test
+    void theAdministeredFlagDoesNotGovernTheHolderEmail() {
+        FidelityService service = attachService();
+        service.posSettingsService = settings(false);
+        PosState state = new PosState();
+        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE",
+                "jean@example.org");
+        assertNull(state.fidelity.holderLastName);
+        assertEquals("jean@example.org", state.fidelity.holderEmail);
     }
 }

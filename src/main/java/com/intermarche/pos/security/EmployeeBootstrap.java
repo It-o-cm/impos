@@ -1,6 +1,6 @@
 package com.intermarche.pos.security;
 
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Singleton;
@@ -39,7 +39,7 @@ import java.util.Optional;
 public class EmployeeBootstrap {
 
     /** The class logger. */
-    private static final Logger LOG = Logger.getLogger(EmployeeBootstrap.class);
+    private static final Logger LOGGER = Logger.getLogger(EmployeeBootstrap.class);
 
     /** Login name of the account created on an empty database. */
     @ConfigProperty(name = "pos.bootstrap.admin.username", defaultValue = "admin")
@@ -76,7 +76,7 @@ public class EmployeeBootstrap {
     void onStart(@Observes StartupEvent event) {
         if (bootstrapPassword.isEmpty() || bootstrapPassword.get().isBlank()) {
             if (Employee.count() == 0) {
-                LOG.error("No employee in the database and no bootstrap password configured:"
+                LOGGER.error("No employee in the database and no bootstrap password configured:"
                         + " NOBODY can sign in on this node. Set POS_ADMIN_PASSWORD"
                         + " (pos.bootstrap.admin.password) and restart, or feed the"
                         + " employees through the referential pull.");
@@ -101,7 +101,7 @@ public class EmployeeBootstrap {
         // the account: the first sign-in is confined to the password screen.
         admin.mustChangePassword = true;
         admin.persist();
-        LOG.warnf("No employee found: created bootstrap administrator '%s'."
+        LOGGER.warnf("No employee found: created bootstrap administrator '%s'."
                 + " Change its password before exposing this instance.", bootstrapUsername);
     }
 }

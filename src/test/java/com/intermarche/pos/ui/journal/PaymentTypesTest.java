@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.ticket.CardPayment;
+import com.intermarche.pos.domain.payment.CardPayment;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

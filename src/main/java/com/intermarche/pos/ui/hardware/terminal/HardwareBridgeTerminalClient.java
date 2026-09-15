@@ -34,7 +34,7 @@ import com.intermarche.pos.ui.hardware.HardwareClient;
  */
 public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
 
-    private static final Logger LOG = Logger.getLogger(HardwareBridgeTerminalClient.class);
+    private static final Logger LOGGER = Logger.getLogger(HardwareBridgeTerminalClient.class);
 
     /** Cents in one unit of currency. */
     private static final BigDecimal CENTS = new BigDecimal(100);
@@ -100,7 +100,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
         try {
             hardware.startPayment(Long.toString(cents));
         } catch (RuntimeException e) {
-            LOG.errorf(e, "Le pont materiel a refuse le demarrage du paiement de %s cts", cents);
+            LOGGER.errorf(e, "Le pont materiel a refuse le demarrage du paiement de %s cts", cents);
             fail(callback, UNREACHABLE);
             return;
         }
@@ -119,7 +119,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
      */
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
-        LOG.warnf("Remboursement de %s demande: non supporte par le pont materiel", amount);
+        LOGGER.warnf("Remboursement de %s demande: non supporte par le pont materiel", amount);
         fail(callback, "REMBOURSEMENT NON SUPPORTE PAR LE TERMINAL");
     }
 
@@ -164,14 +164,14 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
         long deadline = System.currentTimeMillis() + deadlineMillis;
         while (System.currentTimeMillis() < deadline) {
             if (callback != expected) {
-                LOG.info("Paiement abandonne cote caisse: suivi interrompu");
+                LOGGER.info("Paiement abandonne cote caisse: suivi interrompu");
                 return;
             }
             Map<String, String> status;
             try {
                 status = parse(hardware.getPaymentStatus());
             } catch (RuntimeException e) {
-                LOG.errorf(e, "Lecture de l'etat du paiement impossible");
+                LOGGER.errorf(e, "Lecture de l'etat du paiement impossible");
                 fail(expected, UNREACHABLE);
                 return;
             }
@@ -183,7 +183,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
                 return;
             }
         }
-        LOG.errorf("Aucune decision du terminal apres %d ms", deadlineMillis);
+        LOGGER.errorf("Aucune decision du terminal apres %d ms", deadlineMillis);
         fail(expected, "PAS DE REPONSE DU TERMINAL");
     }
 
@@ -203,16 +203,16 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
         // asked. Registering it as declined would tell the operator to try
         // another mean when the terminal is simply out of service.
         if (failure != null && !failure.isBlank()) {
-            LOG.errorf("Paiement impossible: %s", failure);
+            LOGGER.errorf("Paiement impossible: %s", failure);
             fail(expected, UNREACHABLE);
             return;
         }
         if (Boolean.parseBoolean(status.get(APPROVED_KEY))) {
-            LOG.infof("Paiement accepte (resultat %s)", status.get(RESULT_KEY));
+            LOGGER.infof("Paiement accepte (resultat %s)", status.get(RESULT_KEY));
             expected.onAccepted(outcome);
             return;
         }
-        LOG.infof("Paiement refuse (resultat %s)", status.get(RESULT_KEY));
+        LOGGER.infof("Paiement refuse (resultat %s)", status.get(RESULT_KEY));
         expected.onRefused(outcome);
     }
 

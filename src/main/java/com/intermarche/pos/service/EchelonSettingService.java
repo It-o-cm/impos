@@ -1,9 +1,9 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.EchelonLevel;
-import com.intermarche.pos.domain.EchelonSetting;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
+import com.intermarche.pos.domain.setting.EchelonLevel;
+import com.intermarche.pos.domain.setting.EchelonSetting;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 
@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * The ECHELON INHERITANCE engine (BO-02-05-04, BO-03-12-07): given a point de
@@ -23,7 +24,7 @@ import java.util.Set;
  * enseigne's default, then its country's — the more specific echelon winning.
  * <p>
  * It knows nothing of a node's own local overrides: those live in
- * {@link com.intermarche.pos.domain.PosSetting} and are layered on top by
+ * {@link com.intermarche.pos.domain.setting.PosSetting} and are layered on top by
  * {@link PosSettingsService}, which is exactly why a local override survives a
  * fresh resolution of the echelon defaults (they never share a row). This
  * service is the "central defaults" half; {@code PosSettingsService} is the
@@ -35,6 +36,9 @@ import java.util.Set;
 @ApplicationScoped
 public class EchelonSettingService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(EchelonSettingService.class);
+
     /**
      * Resolves every inherited parameter of a point de vente into a single
      * key-to-value map, the more specific echelon overriding the less specific
@@ -45,6 +49,8 @@ public class EchelonSettingService {
      * @return the inherited values, empty when the PDV is unknown or unattached
      */
     public Map<String, String> resolveForPdv(String pdvNumber) {
+        LOGGER.info("Entering method resolveForPdv with pdvNumber: " + pdvNumber);
+        LOGGER.info("Exiting method resolveForPdv");
         return resolveForPdv(pdvNumber, LocalDate.now());
     }
 
@@ -94,6 +100,8 @@ public class EchelonSettingService {
      * @return the inherited value, empty when no echelon posed it
      */
     public Optional<String> resolve(String pdvNumber, String key) {
+        LOGGER.info("Entering method resolve with pdvNumber: " + pdvNumber + ", key: " + key);
+        LOGGER.info("Exiting method resolve");
         return Optional.ofNullable(resolveForPdv(pdvNumber).get(key));
     }
 
@@ -124,7 +132,9 @@ public class EchelonSettingService {
      */
     @Transactional
     public void set(EchelonLevel level, String echelonCode, String key, String value) {
+        LOGGER.info("Entering method set with level: " + level + ", echelonCode: " + echelonCode + ", key: " + key + ", value: " + value);
         set(level, echelonCode, key, value, null);
+        LOGGER.info("Exiting method set");
     }
 
     /**
@@ -141,6 +151,7 @@ public class EchelonSettingService {
     @Transactional
     public void set(EchelonLevel level, String echelonCode, String key, String value,
                     LocalDate effectiveDate) {
+        LOGGER.info("Entering method set with level: " + level + ", echelonCode: " + echelonCode + ", key: " + key + ", value: " + value + ", effectiveDate: " + effectiveDate);
         EchelonSetting row = EchelonSetting.findValue(level, echelonCode, key);
         if (row == null) {
             row = new EchelonSetting();
@@ -154,6 +165,7 @@ public class EchelonSettingService {
             row.settingValue = value;
             row.effectiveDate = effectiveDate;
         }
+        LOGGER.info("Exiting method set");
     }
 
     /**
@@ -167,11 +179,14 @@ public class EchelonSettingService {
      */
     @Transactional
     public boolean clear(EchelonLevel level, String echelonCode, String key) {
+        LOGGER.info("Entering method clear with level: " + level + ", echelonCode: " + echelonCode + ", key: " + key);
         EchelonSetting row = EchelonSetting.findValue(level, echelonCode, key);
         if (row == null) {
+            LOGGER.info("Exiting method clear");
             return false;
         }
         row.delete();
+        LOGGER.info("Exiting method clear");
         return true;
     }
 
@@ -190,11 +205,13 @@ public class EchelonSettingService {
      */
     @Transactional
     public int migratePdv(String oldNumber, String newNumber) {
+        LOGGER.info("Entering method migratePdv with oldNumber: " + oldNumber + ", newNumber: " + newNumber);
         int migrated = 0;
         for (EchelonSetting row : EchelonSetting.listForEchelon(EchelonLevel.PDV, oldNumber)) {
             row.echelonCode = newNumber;
             migrated++;
         }
+        LOGGER.info("Exiting method migratePdv");
         return migrated;
     }
 
@@ -208,8 +225,10 @@ public class EchelonSettingService {
      * @return the personalised PDVs, ordered by number, never null
      */
     public List<Pdv> personalizedPdvs(String enseigneCode, String key) {
+        LOGGER.info("Entering method personalizedPdvs with enseigneCode: " + enseigneCode + ", key: " + key);
         List<Pdv> pdvs = Pdv.listByEnseigne(enseigneCode);
         if (pdvs.isEmpty()) {
+            LOGGER.info("Exiting method personalizedPdvs");
             return List.of();
         }
         Set<String> overridden = new HashSet<>();
@@ -222,6 +241,7 @@ public class EchelonSettingService {
                 personalised.add(pdv);
             }
         }
+        LOGGER.info("Exiting method personalizedPdvs");
         return personalised;
     }
 }

@@ -1,26 +1,29 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.ChequePayment;
-import com.intermarche.pos.domain.ticket.CreditPayment;
-import com.intermarche.pos.domain.ticket.DocumentType;
-import com.intermarche.pos.domain.ticket.FidelityPayment;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketRestoPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.ChequePayment;
+import com.intermarche.pos.domain.payment.CreditPayment;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.payment.FidelityPayment;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketRestoPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -441,5 +444,110 @@ class InvoiceDocumentTest {
                 ticket, true);
         assertEquals(1, document.seller.addressLines().size());
         assertEquals("12 rue A", document.seller.addressLines().get(0));
+    }
+
+    // --------------------------------------------------
+    // asDocumentData (BO-03-03)
+    // --------------------------------------------------
+
+    /**
+     * The document restates itself as maps, lists and strings — every field
+     * already written, which is what lets an administered layout read it
+     * without reaching a single method of the register.
+     */
+    @Test
+    void theDocumentRestatesItselfAsPlainValues() {
+        Store store = new Store();
+        store.name = "MAGASIN";
+        store.siret = "12345678900012";
+        store.address = new Address();
+        store.address.streetLine1 = "12 rue A";
+        Ticket ticket = new Ticket();
+        ticket.store = store;
+        ticket.ticketNumber = "T-1";
+        ticket.terminalId = "C04";
+        ticket.creationDate = LocalDateTime.of(2026, 9, 15, 11, 24);
+        ticket.lines.add(line("A", "3178530403022", "2", "12.90", "25.80", "0.055", null, "EPICERIE"));
+        ticket.payments.add(new CashPayment(new BigDecimal("25.80"), new BigDecimal("30.00")));
+        InvoiceDocument document = InvoiceDocument.of(
+                invoice(ticket, fullCustomer(), "C04-F000042"), ticket, true);
+
+        Map<String, Object> data = document.asDocumentData();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> head = (Map<String, Object>) data.get("document");
+        assertEquals("C04-F000042", head.get("number"));
+        assertEquals("T-1", head.get("ticketNumber"));
+        assertEquals(Boolean.FALSE, head.get("duplicate"));
+        assertEquals("0", head.get("duplicateNumber"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> seller = (Map<String, Object>) data.get("seller");
+        assertEquals("MAGASIN", seller.get("name"));
+        assertEquals("12345678900012", seller.get("siret"));
+        assertEquals(List.of("12 rue A"), seller.get("addressLines"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> customer = (Map<String, Object>) data.get("customer");
+        assertNotNull(customer.get("name"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> lines = (List<Map<String, Object>>) data.get("lines");
+        assertEquals(1, lines.size());
+        assertEquals("A", lines.get(0).get("label"));
+        assertEquals("25,80", lines.get(0).get("total"));
+        assertEquals("5,50 %", lines.get(0).get("vatRate"));
+        assertEquals("3178530403022", lines.get(0).get("ean"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> vatRows = (List<Map<String, Object>>) data.get("vatRows");
+        assertEquals(1, vatRows.size());
+        assertEquals("5,50 %", vatRows.get(0).get("rate"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> payments = (List<Map<String, Object>>) data.get("payments");
+        assertEquals(1, payments.size());
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> totals = (Map<String, Object>) data.get("totals");
+        assertEquals(document.totalIncludingTax, totals.get("includingTax"));
+        assertEquals(document.totalExcludingTax, totals.get("excludingTax"));
+        assertEquals("C04", data.get("terminal"));
+    }
+
+    /**
+     * The seller's block is also published under {@code store}, so one layout
+     * vocabulary serves the invoice and every other document.
+     */
+    @Test
+    void theSellerIsAlsoPublishedAsTheStore() {
+        Store store = new Store();
+        store.name = "MAGASIN";
+        Ticket ticket = new Ticket();
+        ticket.store = store;
+        ticket.ticketNumber = "T";
+        Map<String, Object> data = InvoiceDocument
+                .of(invoice(ticket, fullCustomer(), "N"), ticket, true).asDocumentData();
+        assertEquals(data.get("seller"), data.get("store"));
+    }
+
+    /**
+     * A duplicate says so in its restated form, with its rank — what a layout
+     * prints the DUPLICATA banner from.
+     */
+    @Test
+    void aDuplicateSaysSoInItsRestatedForm() {
+        Store store = new Store();
+        store.name = "MAGASIN";
+        Ticket ticket = new Ticket();
+        ticket.store = store;
+        ticket.ticketNumber = "T";
+        Invoice invoice = invoice(ticket, fullCustomer(), "N");
+        invoice.printCount = 2;
+        Map<String, Object> data = InvoiceDocument.of(invoice, ticket, true).asDocumentData();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> head = (Map<String, Object>) data.get("document");
+        assertEquals(Boolean.TRUE, head.get("duplicate"));
+        assertEquals("2", head.get("duplicateNumber"));
     }
 }

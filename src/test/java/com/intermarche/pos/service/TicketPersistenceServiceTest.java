@@ -1,19 +1,19 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.StoredValue;
-import com.intermarche.pos.domain.ticket.CashPayment;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketCounter;
-import com.intermarche.pos.domain.ticket.TicketLine;
-import com.intermarche.pos.domain.ticket.TicketPayment;
-import com.intermarche.pos.domain.ticket.VoucherPayment;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.payment.StoredValue;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.TicketCounter;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
@@ -903,7 +903,7 @@ class TicketPersistenceServiceTest {
 
     /**
      * Covers the card arm of {@code addPaymentToTicket}: a card entry resolves
-     * the CARD factory and the created {@link com.intermarche.pos.domain.ticket.CardPayment}
+     * the CARD factory and the created {@link com.intermarche.pos.domain.payment.CardPayment}
      * is enriched with the entry's monetique traces (authorization number and
      * degraded-mode indicator) before being added (BO-04-01-08/47/49).
      */
@@ -912,8 +912,8 @@ class TicketPersistenceServiceTest {
         TicketPayment.Factory cardFactory = mock(TicketPayment.Factory.class);
         TicketPayment.Factory voucherFactory = mock(TicketPayment.Factory.class);
         TicketPersistenceService service = serviceWithFactories(cardFactory, voucherFactory);
-        com.intermarche.pos.domain.ticket.CardPayment payment =
-                mock(com.intermarche.pos.domain.ticket.CardPayment.class);
+        com.intermarche.pos.domain.payment.CardPayment payment =
+                mock(com.intermarche.pos.domain.payment.CardPayment.class);
         when(cardFactory.create(any(BigDecimal.class), any())).thenReturn(payment);
         PaymentState.PaymentEntry entry =
                 new PaymentState.PaymentEntry("CARD", new BigDecimal("10.00"), true, "654321");
@@ -995,13 +995,13 @@ class TicketPersistenceServiceTest {
     /**
      * Covers the cheque arm of {@code addPaymentToTicket} (L319, true leg): a
      * cheque entry resolves the CHEQUE factory and the created
-     * {@link com.intermarche.pos.domain.ticket.ChequePayment} is enriched with
+     * {@link com.intermarche.pos.domain.payment.ChequePayment} is enriched with
      * the entry's magnetic line before being added.
      */
     @Test
     void addPaymentEnrichesChequePaymentMagneticLine() {
-        com.intermarche.pos.domain.ticket.ChequePayment payment =
-                mock(com.intermarche.pos.domain.ticket.ChequePayment.class);
+        com.intermarche.pos.domain.payment.ChequePayment payment =
+                mock(com.intermarche.pos.domain.payment.ChequePayment.class);
         TicketPersistenceService service = serviceWithSingleFactory("CHEQUE", payment);
         PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("CHEQUE", new BigDecimal("30.00"));
         entry.magneticLine = "CMC7-0123456789";
@@ -1019,14 +1019,14 @@ class TicketPersistenceServiceTest {
     /**
      * Covers the backup arm of {@code addPaymentToTicket} (L322, true leg): a
      * backup entry resolves the SECOURS factory and the created
-     * {@link com.intermarche.pos.domain.ticket.BackupPayment} is enriched with
+     * {@link com.intermarche.pos.domain.payment.BackupPayment} is enriched with
      * the entry's method label, transaction number and manual indicator before
      * being added.
      */
     @Test
     void addPaymentEnrichesBackupPaymentTraces() {
-        com.intermarche.pos.domain.ticket.BackupPayment payment =
-                mock(com.intermarche.pos.domain.ticket.BackupPayment.class);
+        com.intermarche.pos.domain.payment.BackupPayment payment =
+                mock(com.intermarche.pos.domain.payment.BackupPayment.class);
         TicketPersistenceService service = serviceWithSingleFactory("SECOURS", payment);
         PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("SECOURS", new BigDecimal("40.00"));
         entry.backupMethodLabel = "CB (secours)";
@@ -1048,14 +1048,14 @@ class TicketPersistenceServiceTest {
     /**
      * Covers the foreign-currency arm of {@code addPaymentToTicket} (L327, true
      * leg): a currency entry resolves the DEVISE factory and the created
-     * {@link com.intermarche.pos.domain.ticket.ForeignCurrencyPayment} is
+     * {@link com.intermarche.pos.domain.payment.ForeignCurrencyPayment} is
      * enriched with the entry's currency code, foreign amount and exchange rate
      * before being added.
      */
     @Test
     void addPaymentEnrichesForeignCurrencyPaymentTraces() {
-        com.intermarche.pos.domain.ticket.ForeignCurrencyPayment payment =
-                mock(com.intermarche.pos.domain.ticket.ForeignCurrencyPayment.class);
+        com.intermarche.pos.domain.payment.ForeignCurrencyPayment payment =
+                mock(com.intermarche.pos.domain.payment.ForeignCurrencyPayment.class);
         TicketPersistenceService service = serviceWithSingleFactory("DEVISE", payment);
         PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("DEVISE", new BigDecimal("10.00"));
         entry.currencyCode = "USD";
@@ -1077,14 +1077,14 @@ class TicketPersistenceServiceTest {
     /**
      * Covers the credit arm of {@code addPaymentToTicket} (L332, true leg): a
      * credit entry resolves the CREDIT factory and the created
-     * {@link com.intermarche.pos.domain.ticket.CreditPayment} is enriched with
+     * {@link com.intermarche.pos.domain.payment.CreditPayment} is enriched with
      * the entry's account number, account name and over-limit indicator before
      * being added.
      */
     @Test
     void addPaymentEnrichesCreditPaymentTraces() {
-        com.intermarche.pos.domain.ticket.CreditPayment payment =
-                mock(com.intermarche.pos.domain.ticket.CreditPayment.class);
+        com.intermarche.pos.domain.payment.CreditPayment payment =
+                mock(com.intermarche.pos.domain.payment.CreditPayment.class);
         TicketPersistenceService service = serviceWithSingleFactory("CREDIT", payment);
         PaymentState.PaymentEntry entry = new PaymentState.PaymentEntry("CREDIT", new BigDecimal("15.00"));
         entry.creditAccountNumber = "CPT-4242";
@@ -1784,6 +1784,46 @@ class TicketPersistenceServiceTest {
             assertEquals(Ticket.TicketStatus.CLOSED, ticket.status);
             verify(ticket, never()).persist();
             verifyNoInteractions(service.technicalEventService);
+        }
+    }
+
+    // --------------------------------------------------
+    // Change given as a credit note (BO-03-02-16)
+    // --------------------------------------------------
+
+    /**
+     * {@code issueChangeCreditNote} creates an ACTIVE credit note carrying the
+     * change, numbered from its own registry row, and answers that number.
+     */
+    @Test
+    void issueChangeCreditNoteNumbersTheNoteFromItsRow() {
+        TicketPersistenceService service = newService();
+        try (MockedConstruction<StoredValue> created =
+                mockConstruction(StoredValue.class, (mock, ctx) -> mock.id = 42L)) {
+            String number = service.issueChangeCreditNote(9L, new java.math.BigDecimal("30.00"));
+            assertEquals("297000000000042", number);
+            StoredValue note = created.constructed().get(0);
+            assertEquals(StoredValue.Kind.CREDIT_NOTE, note.kind);
+            assertEquals(new java.math.BigDecimal("30.00"), note.initialAmount);
+            assertEquals(new java.math.BigDecimal("30.00"), note.balance);
+            assertEquals(Long.valueOf(9L), note.issuingTicketId);
+            assertNotNull(note.issuedAt);
+            verify(note, times(1)).persistAndFlush();
+        }
+    }
+
+    /**
+     * Nothing is created when there is nothing to hand over: no ticket, no
+     * amount, or an amount of zero — the three legs of the guard.
+     */
+    @Test
+    void issueChangeCreditNoteCreatesNothingWhenNothingIsOwed() {
+        TicketPersistenceService service = newService();
+        try (MockedConstruction<StoredValue> created = mockConstruction(StoredValue.class)) {
+            assertNull(service.issueChangeCreditNote(null, new java.math.BigDecimal("30.00")));
+            assertNull(service.issueChangeCreditNote(9L, null));
+            assertNull(service.issueChangeCreditNote(9L, java.math.BigDecimal.ZERO));
+            assertTrue(created.constructed().isEmpty());
         }
     }
 }

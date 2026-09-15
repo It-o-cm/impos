@@ -32,7 +32,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class NetworkDocumentPrinter {
 
-    private static final Logger LOG = Logger.getLogger(NetworkDocumentPrinter.class);
+    private static final Logger LOGGER = Logger.getLogger(NetworkDocumentPrinter.class);
 
     /**
      * The store's print service, absent on a register that has none.
@@ -59,6 +59,31 @@ public class NetworkDocumentPrinter {
     }
 
     /**
+     * The administered layouts (BO-03-03).
+     *
+     * <p>The A4 page below is built by hand in Java, which on a register that
+     * already runs Qute was always a debt. An administered layout replaces it
+     * whole; a shop that administers none keeps it, unchanged.
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.DocumentTemplateService documentTemplateService;
+
+    /**
+     * Lays the A4 page out, through the ADMINISTERED layout when the shop has
+     * one (BO-03-03).
+     *
+     * @param document the laid-out document
+     * @return the page's HTML
+     */
+    String page(InvoiceDocument document) {
+        String administered = documentTemplateService == null ? null
+                : documentTemplateService.render(
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE_A4, document.asDocumentData());
+        return administered != null ? administered : html(document);
+    }
+
+    /**
      * Prints a document on the network printer.
      *
      * @param document the laid-out document
@@ -79,12 +104,12 @@ public class NetworkDocumentPrinter {
                     .header("X-Document-Number", document.number == null ? "" : document.number)
                     .header("X-Document-Text-Length",
                             String.valueOf(fallbackLines == null ? 0 : fallbackLines.size()))
-                    .POST(HttpRequest.BodyPublishers.ofString(html(document), StandardCharsets.UTF_8))
+                    .POST(HttpRequest.BodyPublishers.ofString(page(document), StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                LOG.warnf("Impression réseau refusée pour le document %s (HTTP %d)",
+                LOGGER.warnf("Impression réseau refusée pour le document %s (HTTP %d)",
                         document.number, response.statusCode());
                 return false;
             }
@@ -93,7 +118,7 @@ public class NetworkDocumentPrinter {
             Thread.currentThread().interrupt();
             return false;
         } catch (Exception e) {
-            LOG.warnf("Imprimante réseau injoignable pour le document %s : %s",
+            LOGGER.warnf("Imprimante réseau injoignable pour le document %s : %s",
                     document.number, e.getMessage());
             return false;
         }

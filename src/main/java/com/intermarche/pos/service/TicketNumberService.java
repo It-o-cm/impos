@@ -1,12 +1,13 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.ticket.DocumentCounter;
-import com.intermarche.pos.domain.ticket.DocumentType;
-import com.intermarche.pos.domain.ticket.TicketCounter;
+import com.intermarche.pos.domain.session.DocumentCounter;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.session.TicketCounter;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 /**
  * Issues strictly increasing ticket numbers per register.
@@ -34,6 +35,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 @ApplicationScoped
 public class TicketNumberService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(TicketNumberService.class);
+
     /** The identifier of this register, unique within the store. */
     @ConfigProperty(name = "pos.terminal.id", defaultValue = "POS01")
     String terminalId;
@@ -49,8 +53,10 @@ public class TicketNumberService {
      */
     @Transactional
     public String nextTicketNumber() {
+        LOGGER.info("Entering method nextTicketNumber");
         TicketCounter counter = lockCounter(terminalId);
         counter.lastNumber++;
+        LOGGER.info("Exiting method nextTicketNumber");
         return String.format("%s-%08d", terminalId, counter.lastNumber);
     }
 
@@ -62,8 +68,10 @@ public class TicketNumberService {
      */
     @Transactional
     public String nextSessionNumber() {
+        LOGGER.info("Entering method nextSessionNumber");
         TicketCounter counter = lockCounter(terminalId);
         counter.lastSessionNumber++;
+        LOGGER.info("Exiting method nextSessionNumber");
         return String.format("%s-S%05d", terminalId, counter.lastSessionNumber);
     }
 
@@ -75,8 +83,10 @@ public class TicketNumberService {
      */
     @Transactional
     public String nextRefundNumber() {
+        LOGGER.info("Entering method nextRefundNumber");
         TicketCounter counter = lockCounter(terminalId);
         counter.lastRefundNumber++;
+        LOGGER.info("Exiting method nextRefundNumber");
         return String.format("%s-R%06d", terminalId, counter.lastRefundNumber);
     }
 
@@ -88,8 +98,10 @@ public class TicketNumberService {
      */
     @Transactional
     public String nextCustomerNumber() {
+        LOGGER.info("Entering method nextCustomerNumber");
         TicketCounter counter = lockCounter(terminalId);
         counter.lastCustomerNumber++;
+        LOGGER.info("Exiting method nextCustomerNumber");
         return String.format("%s-CLI%06d", terminalId, counter.lastCustomerNumber);
     }
 
@@ -109,8 +121,10 @@ public class TicketNumberService {
      */
     @Transactional
     public String nextDocumentNumber(DocumentType type) {
+        LOGGER.info("Entering method nextDocumentNumber with type: " + type);
         DocumentCounter counter = lockDocumentCounter(terminalId, type);
         counter.lastNumber++;
+        LOGGER.info("Exiting method nextDocumentNumber");
         return String.format("%s-%s%06d", terminalId, type.getPrefix(), counter.lastNumber);
     }
 
@@ -125,6 +139,7 @@ public class TicketNumberService {
      */
     @Transactional
     public DocumentCounter lockDocumentCounter(String terminal, DocumentType type) {
+        LOGGER.info("Entering method lockDocumentCounter with terminal: " + terminal + ", type: " + type);
         DocumentCounter counter = DocumentCounter
                 .<DocumentCounter>find("terminalId = ?1 and documentType = ?2", terminal, type)
                 .withLock(LockModeType.PESSIMISTIC_WRITE)
@@ -137,6 +152,7 @@ public class TicketNumberService {
             counter.lastNumber = 0;
             counter.persist();
         }
+        LOGGER.info("Exiting method lockDocumentCounter");
         return counter;
     }
 
@@ -153,6 +169,7 @@ public class TicketNumberService {
      */
     @Transactional
     public TicketCounter lockCounter(String terminal) {
+        LOGGER.info("Entering method lockCounter with terminal: " + terminal);
         TicketCounter counter = TicketCounter
                 .<TicketCounter>find("terminalId", terminal)
                 .withLock(LockModeType.PESSIMISTIC_WRITE)
@@ -164,6 +181,7 @@ public class TicketNumberService {
             counter.lastNumber = 0;
             counter.persist();
         }
+        LOGGER.info("Exiting method lockCounter");
         return counter;
     }
 
@@ -173,6 +191,8 @@ public class TicketNumberService {
      * @return the configured terminal id
      */
     public String getTerminalId() {
+        LOGGER.info("Entering method getTerminalId");
+        LOGGER.info("Exiting method getTerminalId");
         return terminalId;
     }
 }

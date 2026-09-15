@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class VerifoneTerminalClient implements PaymentTerminalClient {
 
-    private static final Logger LOG = Logger.getLogger(VerifoneTerminalClient.class);
+    private static final Logger LOGGER = Logger.getLogger(VerifoneTerminalClient.class);
 
     /** Operator-facing message while the protocol is not implemented. */
     static final String MSG_NOT_IMPLEMENTED =
@@ -115,7 +115,7 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     public void onRegisterOpened() {
         // TODO(spec Verifone): send c18, capture {D5Y} into the technical
         // journal, then trigger c2g when the maintenance conditions hold.
-        LOG.info("Verifone session hooks (c18/c2g) pending protocol specification");
+        LOGGER.info("Verifone session hooks (c18/c2g) pending protocol specification");
     }
 
     /**
@@ -124,7 +124,7 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     @Override
     public void onRegisterClosed() {
         // TODO(spec Verifone): send the c2h logoff request.
-        LOG.info("Verifone logoff (c2h) pending protocol specification");
+        LOGGER.info("Verifone logoff (c2h) pending protocol specification");
     }
 
     /**
@@ -161,10 +161,10 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
                 String response = transport.exchange(buildRequest(operation, amount));
                 handleResponse(response, amount, callback);
             } catch (UnsupportedOperationException e) {
-                LOG.warnf("Verifone exchange not implemented: %s", e.getMessage());
+                LOGGER.warnf("Verifone exchange not implemented: %s", e.getMessage());
                 callback.onError(MSG_NOT_IMPLEMENTED);
             } catch (Exception e) {
-                LOG.errorf(e, "Verifone %s exchange failed", operation);
+                LOGGER.errorf(e, "Verifone %s exchange failed", operation);
                 callback.onError(MSG_UNREACHABLE);
             } finally {
                 busy.set(false);

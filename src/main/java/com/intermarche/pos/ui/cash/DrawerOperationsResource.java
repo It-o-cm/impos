@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Employee;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * The two gestures that move money inside the drawer without a customer in front of
@@ -57,6 +58,9 @@ import java.util.List;
  */
 @Path("/")
 public class DrawerOperationsResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(DrawerOperationsResource.class);
 
     /** Action code journaled when a manager endorses a drawer operation. */
     static final String ENDORSEMENT_ACTION = "DRAWER_OPERATION";
@@ -109,8 +113,10 @@ public class DrawerOperationsResource {
     public TemplateInstance withdrawalPage(@QueryParam("method") String method,
                                            @QueryParam("error") String error,
                                            @QueryParam("ok") String ok) {
+        LOGGER.info("Entering method withdrawalPage with method: " + method + ", error: " + error + ", ok: " + ok);
         List<DrawerMethodService.DrawerMethod> methods = drawerMethodService.withdrawable();
         DrawerMethodService.DrawerMethod selected = chosen(methods, method);
+        LOGGER.info("Exiting method withdrawalPage");
         return withdrawal
                 .data("state", state)
                 .data("methods", methods)
@@ -138,6 +144,8 @@ public class DrawerOperationsResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance transferPage(@QueryParam("error") String error,
                                          @QueryParam("ok") String ok) {
+        LOGGER.info("Entering method transferPage with error: " + error + ", ok: " + ok);
+        LOGGER.info("Exiting method transferPage");
         return transfer
                 .data("state", state)
                 .data("methods", drawerMethodService.transferable())
@@ -193,25 +201,31 @@ public class DrawerOperationsResource {
                                      @FormParam("detail") String detail,
                                      @FormParam("managerLogin") String managerLogin,
                                      @FormParam("managerPin") String managerPin) {
+        LOGGER.info("Entering method recordWithdrawal with method: " + method + ", amountStr: " + amountStr + ", detail: " + detail + ", managerLogin: " + managerLogin + ", managerPin: ***");
         if (state.trainingMode) {
+            LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=training");
         }
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
+            LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=no-session");
         }
         if (!drawerMethodService.isWithdrawable(method)) {
+            LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=bad-method");
         }
         boolean cash = CashMovement.CASH.equals(method);
         BigDecimal amount = cash ? parseAmount(amountStr) : drawerMethodService.theoreticalOf(method);
         if (amount.signum() <= 0) {
+            LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=amount&method=" + method);
         }
         String endorsedBy = null;
         if (cashMovementService.requiresEndorsement(amount)) {
             endorsedBy = resolveEndorsement(managerLogin, managerPin);
             if (endorsedBy == null) {
+                LOGGER.info("Exiting method recordWithdrawal");
                 return redirect("/withdrawal?error=endorsement&method=" + method);
             }
         }
@@ -221,6 +235,7 @@ public class DrawerOperationsResource {
                 method, null, cash ? detail : null);
         state.touch();
         if (recorded == null) {
+            LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=endorsement&method=" + method);
         }
         if (posSettingsService.drawerWithdrawalPrint()) {
@@ -228,6 +243,7 @@ public class DrawerOperationsResource {
                     cash ? denominationLines(detail) : drawerMethodService.transactionsOf(method),
                     state.getOperatorName(), ticketNumberService.getTerminalId());
         }
+        LOGGER.info("Exiting method recordWithdrawal");
         return redirect("/withdrawal?ok=1");
     }
 
@@ -250,30 +266,38 @@ public class DrawerOperationsResource {
                                    @FormParam("amount") String amountStr,
                                    @FormParam("managerLogin") String managerLogin,
                                    @FormParam("managerPin") String managerPin) {
+        LOGGER.info("Entering method recordTransfer with from: " + from + ", to: " + to + ", amountStr: " + amountStr + ", managerLogin: " + managerLogin + ", managerPin: ***");
         if (state.trainingMode) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=training");
         }
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=no-session");
         }
         if (!drawerMethodService.isTransferable(from) || !drawerMethodService.isTransferable(to)) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=bad-method");
         }
         if (from.equals(to)) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=same-method");
         }
         BigDecimal amount = parseAmount(amountStr);
         if (amount.signum() <= 0) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=amount");
         }
         if (amount.compareTo(drawerMethodService.theoreticalOf(from)) > 0) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=insufficient");
         }
         String endorsedBy = null;
         if (cashMovementService.requiresEndorsement(amount)) {
             endorsedBy = resolveEndorsement(managerLogin, managerPin);
             if (endorsedBy == null) {
+                LOGGER.info("Exiting method recordTransfer");
                 return redirect("/transfer?error=endorsement");
             }
         }
@@ -284,12 +308,14 @@ public class DrawerOperationsResource {
                 "Transfert " + fromLabel + " vers " + toLabel, endorsedBy, from, to, null);
         state.touch();
         if (recorded == null) {
+            LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=endorsement");
         }
         if (posSettingsService.drawerTransferPrint()) {
             ticketPrinterService.printTransferTicket(fromLabel, toLabel, amount,
                     state.getOperatorName(), ticketNumberService.getTerminalId());
         }
+        LOGGER.info("Exiting method recordTransfer");
         return redirect("/transfer?ok=1");
     }
 

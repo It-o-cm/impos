@@ -33,7 +33,7 @@ import org.jboss.logging.Logger;
 public class RealHardwareResource {
 
     /** The class logger — each stubbed gesture leaves a debug trace. */
-    private static final Logger LOG = Logger.getLogger(RealHardwareResource.class);
+    private static final Logger LOGGER = Logger.getLogger(RealHardwareResource.class);
 
     /**
      * Reads the current weight from the scale.
@@ -48,6 +48,8 @@ public class RealHardwareResource {
     @Path("/weight")
     @Produces(MediaType.TEXT_PLAIN)
     public String getWeight() {
+        LOGGER.info("Entering method getWeight");
+        LOGGER.info("Exiting method getWeight");
         return "0,000";
     }
 
@@ -63,7 +65,9 @@ public class RealHardwareResource {
     @Path("/display")
     @Consumes(MediaType.TEXT_PLAIN)
     public void setDisplay(String text) {
-        LOG.debugf("Afficheur (stub): %s", text);
+        LOGGER.info("Entering method setDisplay with text: " + text);
+        LOGGER.debugf("Afficheur (stub): %s", text);
+        LOGGER.info("Exiting method setDisplay");
     }
 
     /**
@@ -75,7 +79,9 @@ public class RealHardwareResource {
     @POST
     @Path("/drawer/open")
     public void openDrawer() {
-        LOG.debug("Ouverture tiroir (stub)");
+        LOGGER.info("Entering method openDrawer");
+        LOGGER.debug("Ouverture tiroir (stub)");
+        LOGGER.info("Exiting method openDrawer");
     }
 
     /**
@@ -91,6 +97,8 @@ public class RealHardwareResource {
     @Path("/drawer/status")
     @Produces(MediaType.TEXT_PLAIN)
     public String getDrawerStatus() {
+        LOGGER.info("Entering method getDrawerStatus");
+        LOGGER.info("Exiting method getDrawerStatus");
         return "CLOSED";
     }
 
@@ -106,7 +114,9 @@ public class RealHardwareResource {
     @Path("/printer/print")
     @Consumes(MediaType.TEXT_PLAIN)
     public void printTicket(String content) {
-        LOG.debugf("Impression (stub): %d caractere(s)", content == null ? 0 : content.length());
+        LOGGER.info("Entering method printTicket with content: " + content);
+        LOGGER.debugf("Impression (stub): %d caractere(s)", content == null ? 0 : content.length());
+        LOGGER.info("Exiting method printTicket");
     }
 
     /**
@@ -117,6 +127,8 @@ public class RealHardwareResource {
     @POST
     @Path("/printer/cut")
     public void cutPaper() {
-        LOG.debug("Coupe papier (stub)");
+        LOGGER.info("Entering method cutPaper");
+        LOGGER.debug("Coupe papier (stub)");
+        LOGGER.info("Exiting method cutPaper");
     }
 }

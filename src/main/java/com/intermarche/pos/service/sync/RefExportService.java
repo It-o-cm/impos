@@ -1,14 +1,16 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.Country;
-import com.intermarche.pos.domain.EchelonSetting;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Enseigne;
-import com.intermarche.pos.domain.Pdv;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.barcode.CouponControl;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.setting.EchelonSetting;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Enseigne;
+import com.intermarche.pos.domain.store.Pdv;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -23,6 +25,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * Store-side half of the centralized referentials (phase 6 lot 3): maps each
@@ -43,6 +46,9 @@ import java.util.Map;
 @ApplicationScoped
 public class RefExportService {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(RefExportService.class);
+
     /**
      * The referential domains a REGISTER pulls from its store node, in apply
      * order.
@@ -53,8 +59,9 @@ public class RefExportService {
      * association is owned by the family — so the swap is safe.
      */
     public static final List<String> DOMAINS =
-            List.of("PRODUCTS", "FAMILIES", "PRICES", "EMPLOYEES", "COUPON_TYPES", "SETTINGS",
-                    "ENGINE_FEEDS", "CUSTOMERS", "CURRENCIES");
+            List.of("PRODUCTS", "FAMILIES", "PRICES", "EMPLOYEES", "COUPON_TYPES",
+                    "ARTICLE_RANGES", "ISLANDS", "TENDERS", "DOCUMENT_TEMPLATES", "SETTINGS", "ENGINE_FEEDS",
+                    "CUSTOMERS", "CURRENCIES");
 
     /**
      * The echelon domains a STORE node pulls from the CENTRAL node (route A),
@@ -85,6 +92,8 @@ public class RefExportService {
      * @return an ordered map domain to fingerprint
      */
     public synchronized Map<String, String> getFingerprints() {
+        LOGGER.info("Entering method getFingerprints");
+        LOGGER.info("Exiting method getFingerprints");
         return getFingerprints(DOMAINS);
     }
 
@@ -97,6 +106,7 @@ public class RefExportService {
      * @return an ordered map domain to fingerprint
      */
     public synchronized Map<String, String> getFingerprints(List<String> domains) {
+        LOGGER.info("Entering method getFingerprints with domains: " + domains);
         Map<String, String> result = new LinkedHashMap<>();
         long now = System.currentTimeMillis();
         for (String domain : domains) {
@@ -107,6 +117,7 @@ public class RefExportService {
             }
             result.put(domain, fingerprintCache.get(domain));
         }
+        LOGGER.info("Exiting method getFingerprints");
         return result;
     }
 
@@ -125,6 +136,8 @@ public class RefExportService {
      */
     @Transactional
     public List<?> getPage(String domain, int page, int size) {
+        LOGGER.info("Entering method getPage with domain: " + domain + ", page: " + page + ", size: " + size);
+        LOGGER.info("Exiting method getPage");
         return switch (domain) {
             case "FAMILIES" -> ProductFamily.<ProductFamily>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
@@ -136,15 +149,27 @@ public class RefExportService {
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "COUPON_TYPES" -> CouponType.<CouponType>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
-            case "CUSTOMERS" -> com.intermarche.pos.domain.AccountCustomer
-                    .<com.intermarche.pos.domain.AccountCustomer>find("order by accountNumber")
+            case "ISLANDS" -> com.intermarche.pos.domain.store.CheckoutIsland
+                    .<com.intermarche.pos.domain.store.CheckoutIsland>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
-            case "CURRENCIES" -> com.intermarche.pos.domain.Currency
-                    .<com.intermarche.pos.domain.Currency>find("order by code")
+            case "ARTICLE_RANGES" -> com.intermarche.pos.domain.barcode.ArticleBarcodeRange
+                    .<com.intermarche.pos.domain.barcode.ArticleBarcodeRange>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "TENDERS" -> com.intermarche.pos.domain.payment.TenderDefinition
+                    .<com.intermarche.pos.domain.payment.TenderDefinition>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "DOCUMENT_TEMPLATES" -> com.intermarche.pos.domain.setting.DocumentTemplate
+                    .<com.intermarche.pos.domain.setting.DocumentTemplate>find("order by code")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "CUSTOMERS" -> com.intermarche.pos.domain.payment.AccountCustomer
+                    .<com.intermarche.pos.domain.payment.AccountCustomer>find("order by accountNumber")
+                    .page(page, size).list().stream().map(this::toDto).toList();
+            case "CURRENCIES" -> com.intermarche.pos.domain.payment.Currency
+                    .<com.intermarche.pos.domain.payment.Currency>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "SETTINGS" -> settingsPage(page, size);
-            case "ENGINE_FEEDS" -> com.intermarche.pos.domain.EngineFeed
-                    .<com.intermarche.pos.domain.EngineFeed>find("order by code")
+            case "ENGINE_FEEDS" -> com.intermarche.pos.domain.sync.EngineFeed
+                    .<com.intermarche.pos.domain.sync.EngineFeed>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
             case "COUNTRIES" -> Country.<Country>find("order by code")
                     .page(page, size).list().stream().map(this::toDto).toList();
@@ -191,7 +216,7 @@ public class RefExportService {
      * @param currency the currency entity
      * @return the transport DTO
      */
-    private RefPayloads.CurrencyDto toDto(com.intermarche.pos.domain.Currency currency) {
+    private RefPayloads.CurrencyDto toDto(com.intermarche.pos.domain.payment.Currency currency) {
         RefPayloads.CurrencyDto dto = new RefPayloads.CurrencyDto();
         dto.code = currency.code;
         dto.label = currency.label;
@@ -214,7 +239,7 @@ public class RefExportService {
      * @param customer the account customer entity
      * @return the transport DTO
      */
-    private RefPayloads.CustomerDto toDto(com.intermarche.pos.domain.AccountCustomer customer) {
+    private RefPayloads.CustomerDto toDto(com.intermarche.pos.domain.payment.AccountCustomer customer) {
         RefPayloads.CustomerDto dto = new RefPayloads.CustomerDto();
         dto.accountNumber = customer.accountNumber;
         dto.companyName = customer.companyName;
@@ -302,7 +327,7 @@ public class RefExportService {
      * @param feed the stored feed row
      * @return the transport DTO
      */
-    private RefPayloads.EngineFeedDto toDto(com.intermarche.pos.domain.EngineFeed feed) {
+    private RefPayloads.EngineFeedDto toDto(com.intermarche.pos.domain.sync.EngineFeed feed) {
         RefPayloads.EngineFeedDto dto = new RefPayloads.EngineFeedDto();
         dto.code = feed.code;
         dto.version = feed.version;
@@ -393,7 +418,43 @@ public class RefExportService {
         if (row instanceof RefPayloads.CouponTypeDto c) {
             return String.join("|", n(c.code), n(c.label), n(c.matchPattern), n(c.amountSource),
                     n(c.amountPattern), String.valueOf(c.priority), String.valueOf(c.active),
-                    String.valueOf(c.depositLine));
+                    String.valueOf(c.depositLine), n(c.prefix), n(c.codeLength), n(c.codeKind),
+                    String.valueOf(c.manualAmountOnAllNines), n(c.islandCodes),
+                    couponFields(c), couponControls(c));
+        }
+        if (row instanceof RefPayloads.ArticleBarcodeRangeDto r) {
+            return String.join("|", n(r.code), n(r.label), String.valueOf(r.active),
+                    String.valueOf(r.priority), n(r.prefix), String.valueOf(r.codeLength),
+                    n(r.codeKind), String.valueOf(r.articlePosition),
+                    String.valueOf(r.articleLength), n(r.valueSource),
+                    String.valueOf(r.valuePosition), String.valueOf(r.valueLength),
+                    String.valueOf(r.valueDecimals), n(r.currency),
+                    String.valueOf(r.checkDigit), n(r.matchPattern));
+        }
+        if (row instanceof RefPayloads.CheckoutIslandDto i) {
+            return String.join("|", n(i.code), n(i.label), String.valueOf(i.active),
+                    n(i.terminalIds));
+        }
+        if (row instanceof RefPayloads.TenderDefinitionDto t) {
+            return String.join("|", n(t.code), n(t.functionalId), n(t.label),
+                    String.valueOf(t.active), String.valueOf(t.displayOrder),
+                    n(t.maxAmount), n(t.maxAmountControl),
+                    n(t.secondMaxAmount), n(t.secondMaxAmountControl),
+                    n(t.minAmount), n(t.minAmountControl),
+                    t.maxCount == null ? "" : String.valueOf(t.maxCount), n(t.maxCountControl),
+                    n(t.maxChangeAmount), n(t.maxChangeControl),
+                    String.valueOf(t.refundAllowed), String.valueOf(t.changeAllowed),
+                    n(t.changeTenderCode), String.valueOf(t.cashierDeclaration),
+                    String.valueOf(t.automaticWithdrawal), n(t.drawerOpening),
+                    String.valueOf(t.movementAllowed), String.valueOf(t.bankDeposit),
+                    String.valueOf(t.floatAllowed), String.valueOf(t.defaultsToTotal),
+                    String.valueOf(t.withdrawalReportDetail),
+                    String.valueOf(t.fidelityReported));
+        }
+        if (row instanceof RefPayloads.DocumentTemplateDto t) {
+            return String.join("|", n(t.code), n(t.label), n(t.documentType),
+                    String.valueOf(t.active), String.valueOf(t.priority),
+                    String.valueOf(t.width), String.valueOf(t.copies), n(t.source));
         }
         if (row instanceof RefPayloads.CurrencyDto c) {
             return String.join("|", n(c.code), n(c.label), n(c.symbol), n(c.euroPerUnit),
@@ -537,6 +598,144 @@ public class RefExportService {
      * @param type the coupon type entity
      * @return the payload
      */
+    /**
+     * Maps an administered ARTICLE barcode range onto its snapshot row
+     * (BO-03-06-02/03/04/05/10): the register that receives it reads its scale
+     * plan from the referential, exactly as it reads its voucher ranges.
+     *
+     * @param range the stored range
+     * @return the snapshot row
+     */
+    /**
+     * Maps a checkout island onto its snapshot row (BO-03-06-07, BO-03-06-50):
+     * a register cannot know which island it stands on unless the island
+     * travels to it.
+     *
+     * @param island the stored island
+     * @return the snapshot row
+     */
+    private RefPayloads.CheckoutIslandDto toDto(
+            com.intermarche.pos.domain.store.CheckoutIsland island) {
+        RefPayloads.CheckoutIslandDto dto = new RefPayloads.CheckoutIslandDto();
+        dto.code = island.code;
+        dto.label = island.label;
+        dto.active = island.active;
+        dto.terminalIds = island.terminalIds;
+        return dto;
+    }
+
+    /**
+     * Maps an administered TENDER to its snapshot row (BO-03-02-03/04/10 to 30).
+     *
+     * <p>The bounds travel as plain strings rather than as decimals, for the
+     * reason stated on the canonical contract above: a decimal formatted one way
+     * here and another way at the other end would move the fingerprint without
+     * anything having changed.
+     *
+     * @param tender the stored tender
+     * @return the snapshot row
+     */
+    private RefPayloads.TenderDefinitionDto toDto(
+            com.intermarche.pos.domain.payment.TenderDefinition tender) {
+        RefPayloads.TenderDefinitionDto dto = new RefPayloads.TenderDefinitionDto();
+        dto.code = tender.code;
+        dto.functionalId = tender.functionalId;
+        dto.label = tender.label;
+        dto.active = tender.active;
+        dto.displayOrder = tender.displayOrder;
+        dto.maxAmount = plain(tender.maxAmount);
+        dto.maxAmountControl = name(tender.maxAmountControl);
+        dto.secondMaxAmount = plain(tender.secondMaxAmount);
+        dto.secondMaxAmountControl = name(tender.secondMaxAmountControl);
+        dto.minAmount = plain(tender.minAmount);
+        dto.minAmountControl = name(tender.minAmountControl);
+        dto.maxCount = tender.maxCount;
+        dto.maxCountControl = name(tender.maxCountControl);
+        dto.maxChangeAmount = plain(tender.maxChangeAmount);
+        dto.maxChangeControl = name(tender.maxChangeControl);
+        dto.refundAllowed = tender.refundAllowed;
+        dto.changeAllowed = tender.changeAllowed;
+        dto.changeTenderCode = tender.changeTenderCode;
+        dto.cashierDeclaration = tender.cashierDeclaration;
+        dto.automaticWithdrawal = tender.automaticWithdrawal;
+        dto.drawerOpening = name(tender.drawerOpening);
+        dto.movementAllowed = tender.movementAllowed;
+        dto.bankDeposit = tender.bankDeposit;
+        dto.floatAllowed = tender.floatAllowed;
+        dto.defaultsToTotal = tender.defaultsToTotal;
+        dto.withdrawalReportDetail = tender.withdrawalReportDetail;
+        dto.fidelityReported = tender.fidelityReported;
+        return dto;
+    }
+
+    /**
+     * Maps an administered DOCUMENT TEMPLATE to its snapshot row (BO-03-03).
+     *
+     * <p>The source travels verbatim: a layout the central node wrote is the
+     * layout the register prints, character for character. Reformatting it here
+     * would move the fingerprint without anything having changed.
+     *
+     * @param template the stored template
+     * @return the snapshot row
+     */
+    private RefPayloads.DocumentTemplateDto toDto(
+            com.intermarche.pos.domain.setting.DocumentTemplate template) {
+        RefPayloads.DocumentTemplateDto dto = new RefPayloads.DocumentTemplateDto();
+        dto.code = template.code;
+        dto.label = template.label;
+        dto.documentType = name(template.documentType);
+        dto.active = template.active;
+        dto.priority = template.priority;
+        dto.width = template.width;
+        dto.copies = template.copies;
+        dto.source = template.source;
+        return dto;
+    }
+
+    /**
+     * Renders an administered bound for the snapshot, an absent one travelling
+     * as null.
+     *
+     * @param value the bound, or null when unbounded
+     * @return the plain figure, or null
+     */
+    private String plain(java.math.BigDecimal value) {
+        return value == null ? null : value.toPlainString();
+    }
+
+    /**
+     * Renders an administered enumeration for the snapshot, an absent one
+     * travelling as null.
+     *
+     * @param value the enumeration constant, or null
+     * @return the constant name, or null
+     */
+    private String name(Enum<?> value) {
+        return value == null ? null : value.name();
+    }
+
+    private RefPayloads.ArticleBarcodeRangeDto toDto(
+            com.intermarche.pos.domain.barcode.ArticleBarcodeRange range) {
+        RefPayloads.ArticleBarcodeRangeDto dto = new RefPayloads.ArticleBarcodeRangeDto();
+        dto.code = range.code;
+        dto.label = range.label;
+        dto.active = range.active;
+        dto.priority = range.priority;
+        dto.prefix = range.prefix;
+        dto.codeLength = range.codeLength;
+        dto.codeKind = range.codeKind == null ? null : range.codeKind.name();
+        dto.articlePosition = range.articlePosition;
+        dto.articleLength = range.articleLength;
+        dto.valueSource = range.valueSource == null ? null : range.valueSource.name();
+        dto.valuePosition = range.valuePosition;
+        dto.valueLength = range.valueLength;
+        dto.valueDecimals = range.valueDecimals;
+        dto.currency = range.currency == null ? null : range.currency.name();
+        dto.checkDigit = range.checkDigit;
+        dto.matchPattern = range.matchPattern;
+        return dto;
+    }
+
     private RefPayloads.CouponTypeDto toDto(CouponType type) {
         RefPayloads.CouponTypeDto dto = new RefPayloads.CouponTypeDto();
         dto.code = type.code;
@@ -547,7 +746,82 @@ public class RefExportService {
         dto.priority = type.priority;
         dto.active = type.active;
         dto.depositLine = type.depositLine;
+        dto.prefix = type.prefix;
+        dto.codeLength = type.codeLength;
+        dto.codeKind = type.codeKind == null ? null : type.codeKind.name();
+        dto.manualAmountOnAllNines = type.manualAmountOnAllNines;
+        dto.islandCodes = type.islandCodes;
+        dto.fields = new ArrayList<>();
+        if (type.fields != null) {
+            for (CouponField field : type.fields) {
+                if (field == null || field.role == null) {
+                    continue;
+                }
+                RefPayloads.CouponFieldDto row = new RefPayloads.CouponFieldDto();
+                row.role = field.role.name();
+                row.offsetPosition = field.offsetPosition;
+                row.fieldLength = field.fieldLength;
+                row.kind = field.kind == null ? null : field.kind.name();
+                row.decimals = field.decimals;
+                row.dateFormat = field.dateFormat == null ? null : field.dateFormat.name();
+                row.currency = field.currency == null ? null : field.currency.name();
+                dto.fields.add(row);
+            }
+        }
+        dto.controls = new ArrayList<>();
+        if (type.controls != null) {
+            for (CouponControl control : type.controls) {
+                if (control == null || control.kind == null) {
+                    continue;
+                }
+                RefPayloads.CouponControlDto row = new RefPayloads.CouponControlDto();
+                row.kind = control.kind.name();
+                row.level = control.level == null ? null : control.level.name();
+                row.message = control.message;
+                dto.controls.add(row);
+            }
+        }
         return dto;
+    }
+
+    /**
+     * Renders the administered controls of a range as one canonical string, so
+     * that adding, retuning or removing a control changes the fingerprint.
+     *
+     * @param dto the coupon type payload
+     * @return the canonical rendering, empty when the range administers none
+     */
+    private String couponControls(RefPayloads.CouponTypeDto dto) {
+        if (dto.controls == null || dto.controls.isEmpty()) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        for (RefPayloads.CouponControlDto row : dto.controls) {
+            parts.add(String.join(":", n(row.kind), n(row.level), n(row.message)));
+        }
+        parts.sort(null);
+        return String.join(",", parts);
+    }
+
+    /**
+     * Renders the administered positions of a range as one canonical string,
+     * so that adding, moving or removing a position changes the fingerprint.
+     *
+     * @param dto the coupon type payload
+     * @return the canonical rendering, empty when the range administers none
+     */
+    private String couponFields(RefPayloads.CouponTypeDto dto) {
+        if (dto.fields == null || dto.fields.isEmpty()) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        for (RefPayloads.CouponFieldDto row : dto.fields) {
+            parts.add(String.join(":", n(row.role), String.valueOf(row.offsetPosition),
+                    String.valueOf(row.fieldLength), n(row.kind), n(row.decimals),
+                    n(row.dateFormat), n(row.currency)));
+        }
+        parts.sort(null);
+        return String.join(",", parts);
     }
 
     /**

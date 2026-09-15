@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -37,7 +37,7 @@ import com.intermarche.pos.ui.hardware.TicketPrinterService;
 @ApplicationScoped
 public class TicketParkingService {
 
-    private static final Logger LOG = Logger.getLogger(TicketParkingService.class);
+    private static final Logger LOGGER = Logger.getLogger(TicketParkingService.class);
 
     @Inject
     PosState state;
@@ -70,18 +70,23 @@ public class TicketParkingService {
      */
     @Transactional
     public String parkCurrent() {
+        LOGGER.info("Entering method parkCurrent");
         if (state.ticket.items.isEmpty()) {
+            LOGGER.info("Exiting method parkCurrent");
             return "AUCUN TICKET À METTRE EN ATTENTE";
         }
         if (state.payment.paymentInProgress || state.payment.paidAmount.signum() > 0) {
+            LOGGER.info("Exiting method parkCurrent");
             return "PAIEMENT EN COURS - MISE EN ATTENTE IMPOSSIBLE";
         }
         Long ticketId = ticketPersistenceService.syncDraft(state);
         if (ticketId == null) {
+            LOGGER.info("Exiting method parkCurrent");
             return "SYNCHRONISATION IMPOSSIBLE";
         }
         Ticket draft = Ticket.findById(ticketId);
         if (draft == null || draft.status != Ticket.TicketStatus.OPEN) {
+            LOGGER.info("Exiting method parkCurrent");
             return "TICKET INTROUVABLE";
         }
         draft.status = Ticket.TicketStatus.PARKED;
@@ -93,10 +98,11 @@ public class TicketParkingService {
         if (posSettingsService.parkingPrintReceipt()) {
             ticketPrinterService.printParkedTicket(draft);
         }
-        LOG.infof("Ticket mis en attente ID: %d (%s)", draft.id, draft.ticketNumber);
+        LOGGER.infof("Ticket mis en attente ID: %d (%s)", draft.id, draft.ticketNumber);
 
         state.clearTicket();
         state.touch();
+        LOGGER.info("Exiting method parkCurrent");
         return null;
     }
 
@@ -106,6 +112,8 @@ public class TicketParkingService {
      * @return the parked tickets
      */
     public List<Ticket> listParked() {
+        LOGGER.info("Entering method listParked");
+        LOGGER.info("Exiting method listParked");
         return Ticket.list("terminalId = ?1 and status = ?2 order by id",
                 ticketNumberService.getTerminalId(), Ticket.TicketStatus.PARKED);
     }
@@ -120,20 +128,24 @@ public class TicketParkingService {
      */
     @Transactional
     public String resume(Long ticketId) {
+        LOGGER.info("Entering method resume with ticketId: " + ticketId);
         if (!state.ticket.items.isEmpty()) {
+            LOGGER.info("Exiting method resume");
             return "TICKET EN COURS - METTEZ-LE EN ATTENTE D'ABORD";
         }
         Ticket draft = Ticket.findById(ticketId);
         if (draft == null
                 || draft.status != Ticket.TicketStatus.PARKED
                 || !ticketNumberService.getTerminalId().equals(draft.terminalId)) {
+            LOGGER.info("Exiting method resume");
             return "TICKET EN ATTENTE INTROUVABLE";
         }
         draft.status = Ticket.TicketStatus.OPEN;
         draft.persist();
         ticketRecoveryService.restoreDraft(draft);
         technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, draft.ticketNumber);
-        LOG.infof("Ticket repris ID: %d (%s)", draft.id, draft.ticketNumber);
+        LOGGER.infof("Ticket repris ID: %d (%s)", draft.id, draft.ticketNumber);
+        LOGGER.info("Exiting method resume");
         return null;
     }
     /**
@@ -147,13 +159,16 @@ public class TicketParkingService {
      * @return null on success, or an error message shown to the cashier
      */
     public String resumeByNumber(String ticketNumber) {
+        LOGGER.info("Entering method resumeByNumber with ticketNumber: " + ticketNumber);
         Ticket draft = Ticket.<Ticket>find(
                 "ticketNumber = ?1 and terminalId = ?2 and status = ?3",
                 ticketNumber, ticketNumberService.getTerminalId(),
                 Ticket.TicketStatus.PARKED).firstResult();
         if (draft == null) {
+            LOGGER.info("Exiting method resumeByNumber");
             return "TICKET EN ATTENTE INTROUVABLE";
         }
+        LOGGER.info("Exiting method resumeByNumber");
         return resume(draft.id);
     }
 }

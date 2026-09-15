@@ -1,10 +1,10 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.CrudOption;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Feature;
-import com.intermarche.pos.domain.Menu;
-import com.intermarche.pos.domain.UserFavorite;
+import com.intermarche.pos.domain.people.CrudOption;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.setting.Feature;
+import com.intermarche.pos.domain.people.Menu;
+import com.intermarche.pos.domain.people.UserFavorite;
 import com.intermarche.pos.service.PermissionService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /**
  * The FAVORITES self-service screen ({@code /admin/favorites}, BO-01-04-08):
@@ -44,6 +45,9 @@ import java.util.Set;
  */
 @Path("/admin/favorites")
 public class AdminFavoriteResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(AdminFavoriteResource.class);
 
     /** The favorites template. */
     @Inject
@@ -83,8 +87,10 @@ public class AdminFavoriteResource {
     @Authenticated
     public Object favoritesPage(@QueryParam("notice") String notice,
                                 @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method favoritesPage with notice: " + notice + ", noticeOk: " + noticeOk);
         Employee employee = currentEmployee();
         if (employee == null) {
+            LOGGER.info("Exiting method favoritesPage");
             return redirect("Compte introuvable.", false);
         }
         Set<String> hidden = UserFavorite.hiddenKeys(employee.id);
@@ -104,6 +110,7 @@ public class AdminFavoriteResource {
             lastMenu = feature.getMenu();
             rows.add(row);
         }
+        LOGGER.info("Exiting method favoritesPage");
         return adminFavorites.data("rows", rows)
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
@@ -123,8 +130,10 @@ public class AdminFavoriteResource {
     @Authenticated
     @Transactional
     public Response save(MultivaluedMap<String, String> form) {
+        LOGGER.info("Entering method save with form: " + form);
         Employee employee = currentEmployee();
         if (employee == null) {
+            LOGGER.info("Exiting method save");
             return redirect("Compte introuvable.", false);
         }
         UserFavorite.clearFor(employee.id);
@@ -141,6 +150,7 @@ public class AdminFavoriteResource {
                 }
             }
         }
+        LOGGER.info("Exiting method save");
         return redirect("Préférences d'affichage enregistrées.", true);
     }
 

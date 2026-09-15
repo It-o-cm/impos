@@ -1,12 +1,12 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.CashMovement;
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Store;
-import com.intermarche.pos.domain.ticket.CardPayment;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import org.junit.jupiter.api.Test;
@@ -1285,7 +1285,7 @@ class JournalServiceTest {
         JournalQuery query = service.buildTicketQuery(criteria);
         assertTrue(query.whereClause().contains(
                 "type(p) = :cardType or type(p) = :backupType"));
-        assertEquals(com.intermarche.pos.domain.ticket.BackupPayment.class,
+        assertEquals(com.intermarche.pos.domain.payment.BackupPayment.class,
                 query.parameters().get("backupType"));
     }
 

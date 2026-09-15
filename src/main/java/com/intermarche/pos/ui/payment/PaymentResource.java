@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
@@ -16,6 +16,7 @@ import java.net.URI;
 
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the payment screen: payment method actions, voucher
@@ -34,6 +35,9 @@ import jakarta.ws.rs.core.Response;
 @Path("/")
 @DrawerMustBeClosed
 public class PaymentResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(PaymentResource.class);
 
     @Inject Template pay;
     @Inject PaymentService paymentService;
@@ -57,6 +61,9 @@ public class PaymentResource {
     /** The backup-monetics panel of the payment screen (LC-07-07-06/09). */
     @Inject BackupPaymentService backupPaymentService;
 
+    /** The administered tender rules — which tenders the screen offers (BO-03-02). */
+    @Inject TenderRulesService tenderRulesService;
+
     /**
      * Shows the payment page, creating the draft ticket on first entry.
      *
@@ -66,12 +73,16 @@ public class PaymentResource {
     @Path("/pay")
     @DrawerMayBeOpen
     public TemplateInstance showPaymentPage() {
+        LOGGER.info("Entering method showPaymentPage");
         paymentService.initPayment(state);
         // Opportunistic half-life renewal of the fidelity lease (spec §5.1).
         fidelityService.maybeRenewLease(state);
         state.payment.inputMode = null;
         state.payment.temporaryInput = "0,00";
+        LOGGER.info("Exiting method showPaymentPage");
         return pay.data("state", state)
+                .data("offeredTenders", tenderRulesService.offered())
+                .data("tenderDefaults", tenderRulesService.administeredDefaultAmounts())
                 .data("couponTypes", CouponType.listActivePaymentTypes())
                 .data("currencies", foreignCurrencyService.listCurrencies())
                 .data("backupEndorsement", posSettingsService.backupManualEndorsement())
@@ -101,7 +112,9 @@ public class PaymentResource {
     @GET
     @Path("/action/card-cancel")
     public Response cancelPendingCard() {
+        LOGGER.info("Entering method cancelPendingCard");
         paymentService.cancelPendingCard(state);
+        LOGGER.info("Exiting method cancelPendingCard");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -113,7 +126,9 @@ public class PaymentResource {
     @GET
     @Path("/action/cheque-cancel")
     public Response cancelPendingCheque() {
+        LOGGER.info("Entering method cancelPendingCheque");
         paymentService.cancelPendingCheque(state);
+        LOGGER.info("Exiting method cancelPendingCheque");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -125,7 +140,9 @@ public class PaymentResource {
     @GET
     @Path("/action/donation")
     public Response toggleDonation() {
+        LOGGER.info("Entering method toggleDonation");
         paymentService.toggleDonationRoundup(state);
+        LOGGER.info("Exiting method toggleDonation");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -154,7 +171,9 @@ public class PaymentResource {
     @Path("/action/pay-card")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCardPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doCardPayment with amountStr: " + amountStr);
         paymentService.processCard(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doCardPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -168,7 +187,9 @@ public class PaymentResource {
     @Path("/action/pay-cash")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCashPayment(@FormParam("given") String givenStr) {
+        LOGGER.info("Entering method doCashPayment with givenStr: " + givenStr);
         paymentService.processCash(state, parseAmount(givenStr));
+        LOGGER.info("Exiting method doCashPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -182,7 +203,9 @@ public class PaymentResource {
     @Path("/action/pay-tr")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doTrPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doTrPayment with amountStr: " + amountStr);
         paymentService.processTicketResto(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doTrPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -196,7 +219,9 @@ public class PaymentResource {
     @Path("/action/pay-fid")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doFidelityPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doFidelityPayment with amountStr: " + amountStr);
         paymentService.processFidelity(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doFidelityPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -210,7 +235,9 @@ public class PaymentResource {
     @Path("/action/pay-cheque")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doChequePayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doChequePayment with amountStr: " + amountStr);
         paymentService.processCheque(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doChequePayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -222,9 +249,11 @@ public class PaymentResource {
     @POST
     @Path("/action/voucher-open")
     public Response openVoucherPanel() {
+        LOGGER.info("Entering method openVoucherPanel");
         state.payment.clearPendingVoucher();
         state.payment.voucherPanelOpen = true;
         state.touch();
+        LOGGER.info("Exiting method openVoucherPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -241,7 +270,9 @@ public class PaymentResource {
     @POST
     @Path("/action/backup-open")
     public Response openBackupPanel() {
+        LOGGER.info("Entering method openBackupPanel");
         backupPaymentService.openPanel(state);
+        LOGGER.info("Exiting method openBackupPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -253,7 +284,9 @@ public class PaymentResource {
     @POST
     @Path("/action/backup-cancel")
     public Response closeBackupPanel() {
+        LOGGER.info("Entering method closeBackupPanel");
         backupPaymentService.closePanel(state);
+        LOGGER.info("Exiting method closeBackupPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -267,7 +300,9 @@ public class PaymentResource {
     @Path("/action/backup-scan")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response validateBackupScan(@FormParam("payload") String payload) {
+        LOGGER.info("Entering method validateBackupScan with payload: " + payload);
         backupPaymentService.validateScanned(state, payload);
+        LOGGER.info("Exiting method validateBackupScan");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -280,9 +315,11 @@ public class PaymentResource {
     @POST
     @Path("/action/backup-manual")
     public Response openBackupManualEntry() {
+        LOGGER.info("Entering method openBackupManualEntry");
         state.payment.backupManualEntry = true;
         state.payment.backupError = null;
         state.touch();
+        LOGGER.info("Exiting method openBackupManualEntry");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -299,7 +336,9 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doBackupPayment(@FormParam("amount") String amountStr,
             @FormParam("login") String login, @FormParam("password") String password) {
+        LOGGER.info("Entering method doBackupPayment with amountStr: " + amountStr + ", login: " + login + ", password: ***");
         backupPaymentService.validateManually(state, parseAmount(amountStr), login, password);
+        LOGGER.info("Exiting method doBackupPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -315,7 +354,9 @@ public class PaymentResource {
     @POST
     @Path("/action/currency-open")
     public Response openCurrencyPanel() {
+        LOGGER.info("Entering method openCurrencyPanel");
         foreignCurrencyService.openPanel(state);
+        LOGGER.info("Exiting method openCurrencyPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -327,7 +368,9 @@ public class PaymentResource {
     @POST
     @Path("/action/currency-cancel")
     public Response closeCurrencyPanel() {
+        LOGGER.info("Entering method closeCurrencyPanel");
         foreignCurrencyService.closePanel(state);
+        LOGGER.info("Exiting method closeCurrencyPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -342,7 +385,9 @@ public class PaymentResource {
     @Path("/action/currency-select")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response selectCurrency(@FormParam("code") String code) {
+        LOGGER.info("Entering method selectCurrency with code: " + code);
         foreignCurrencyService.selectCurrency(state, code);
+        LOGGER.info("Exiting method selectCurrency");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -356,7 +401,9 @@ public class PaymentResource {
     @Path("/action/pay-currency")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCurrencyPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doCurrencyPayment with amountStr: " + amountStr);
         foreignCurrencyService.processCurrency(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doCurrencyPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -372,7 +419,9 @@ public class PaymentResource {
     @POST
     @Path("/action/credit-open")
     public Response openCreditPanel() {
+        LOGGER.info("Entering method openCreditPanel");
         creditClientService.openPanel(state);
+        LOGGER.info("Exiting method openCreditPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -384,7 +433,9 @@ public class PaymentResource {
     @POST
     @Path("/action/credit-cancel")
     public Response closeCreditPanel() {
+        LOGGER.info("Entering method closeCreditPanel");
         creditClientService.closePanel(state);
+        LOGGER.info("Exiting method closeCreditPanel");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -398,7 +449,9 @@ public class PaymentResource {
     @Path("/action/credit-number")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response selectCreditAccountByNumber(@FormParam("number") String number) {
+        LOGGER.info("Entering method selectCreditAccountByNumber with number: " + number);
         creditClientService.selectByNumber(state, number);
+        LOGGER.info("Exiting method selectCreditAccountByNumber");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -412,7 +465,9 @@ public class PaymentResource {
     @Path("/action/credit-search")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response searchCreditAccounts(@FormParam("search") String search) {
+        LOGGER.info("Entering method searchCreditAccounts with search: " + search);
         creditClientService.searchByName(state, search);
+        LOGGER.info("Exiting method searchCreditAccounts");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -426,6 +481,7 @@ public class PaymentResource {
     @Path("/action/credit-select")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response selectCreditAccount(@FormParam("customerId") String customerId) {
+        LOGGER.info("Entering method selectCreditAccount with customerId: " + customerId);
         Long id = null;
         try {
             id = customerId == null ? null : Long.valueOf(customerId.trim());
@@ -433,6 +489,7 @@ public class PaymentResource {
             id = null;
         }
         creditClientService.selectById(state, id);
+        LOGGER.info("Exiting method selectCreditAccount");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -446,7 +503,9 @@ public class PaymentResource {
     @Path("/action/pay-credit")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response doCreditPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doCreditPayment with amountStr: " + amountStr);
         creditClientService.processCredit(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doCreditPayment");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -462,7 +521,9 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response authorizeCreditOverLimit(@FormParam("login") String login,
             @FormParam("password") String password) {
+        LOGGER.info("Entering method authorizeCreditOverLimit with login: " + login + ", password: ***");
         creditClientService.authorizeOverLimit(state, login, password);
+        LOGGER.info("Exiting method authorizeCreditOverLimit");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -475,7 +536,43 @@ public class PaymentResource {
     @POST
     @Path("/action/credit-authorize-cancel")
     public Response cancelCreditOverLimit() {
+        LOGGER.info("Entering method cancelCreditOverLimit");
         creditClientService.cancelOverLimit(state);
+        LOGGER.info("Exiting method cancelCreditOverLimit");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Lets a supervisor allow an administered tender bound to be passed for the
+     * settlement held back (BO-03-02-10/12/13/14).
+     *
+     * @param login the supervisor's login
+     * @param password the supervisor's password
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/tender-authorize")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response authorizeHeldTender(@FormParam("login") String login,
+            @FormParam("password") String password) {
+        LOGGER.info("Entering method authorizeHeldTender with login: " + login + ", password: ***");
+        paymentService.authorizeHeldTender(state, login, password);
+        LOGGER.info("Exiting method authorizeHeldTender");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Gives up on the settlement held back for a supervisor's authorization
+     * (BO-03-02-10/12/13/14).
+     *
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/tender-authorize-cancel")
+    public Response cancelHeldTender() {
+        LOGGER.info("Entering method cancelHeldTender");
+        paymentService.cancelHeldTender(state);
+        LOGGER.info("Exiting method cancelHeldTender");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -492,6 +589,7 @@ public class PaymentResource {
     @Path("/action/voucher-select")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response selectVoucherType(@FormParam("code") String code) {
+        LOGGER.info("Entering method selectVoucherType with code: " + code);
         CouponType type = CouponType.find("code = ?1 and active = true", code).firstResult();
         state.payment.clearPendingVoucher();
         state.payment.voucherPanelOpen = true;
@@ -503,6 +601,7 @@ public class PaymentResource {
             }
         }
         state.touch();
+        LOGGER.info("Exiting method selectVoucherType");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -520,6 +619,7 @@ public class PaymentResource {
     @Path("/action/voucher-number")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response validateVoucherNumber(@FormParam("number") String number) {
+        LOGGER.info("Entering method validateVoucherNumber with number: " + number);
         String code = state.payment.pendingVoucherTypeCode;
         CouponType type = (code != null)
                 ? CouponType.find("code = ?1 and active = true", code).firstResult()
@@ -528,12 +628,14 @@ public class PaymentResource {
         if (type == null) {
             state.payment.voucherError = "Type de bon inconnu";
             state.touch();
+            LOGGER.info("Exiting method validateVoucherNumber");
             return Response.seeOther(URI.create("/pay")).build();
         }
 
         if (number == null || !type.matches(number)) {
             state.payment.voucherError = "Numéro non reconnu — vérifiez la saisie";
             state.touch();
+            LOGGER.info("Exiting method validateVoucherNumber");
             return Response.seeOther(URI.create("/pay")).build();
         }
 
@@ -548,6 +650,7 @@ public class PaymentResource {
             state.payment.clearPendingVoucher();
             state.touch();
         }
+        LOGGER.info("Exiting method validateVoucherNumber");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -561,6 +664,7 @@ public class PaymentResource {
     @Path("/action/voucher-amount")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response validateVoucherAmount(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method validateVoucherAmount with amountStr: " + amountStr);
         String code = state.payment.pendingVoucherTypeCode;
         CouponType type = (code != null)
                 ? CouponType.find("code = ?1 and active = true", code).firstResult()
@@ -569,6 +673,7 @@ public class PaymentResource {
         voucherService.applyManualVoucher(state, type, state.payment.pendingVoucherNumber, amount);
         state.payment.clearPendingVoucher();
         state.touch();
+        LOGGER.info("Exiting method validateVoucherAmount");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -580,8 +685,10 @@ public class PaymentResource {
     @POST
     @Path("/action/voucher-cancel")
     public Response cancelVoucher() {
+        LOGGER.info("Entering method cancelVoucher");
         state.payment.clearPendingVoucher();
         state.touch();
+        LOGGER.info("Exiting method cancelVoucher");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -594,8 +701,10 @@ public class PaymentResource {
     @Path("/action/payments/prev")
     @DrawerMayBeOpen
     public Response paymentsPrev() {
+        LOGGER.info("Entering method paymentsPrev");
         state.payment.prevPage();
         state.touch();
+        LOGGER.info("Exiting method paymentsPrev");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -608,8 +717,10 @@ public class PaymentResource {
     @Path("/action/payments/next")
     @DrawerMayBeOpen
     public Response paymentsNext() {
+        LOGGER.info("Entering method paymentsNext");
         state.payment.nextPage();
         state.touch();
+        LOGGER.info("Exiting method paymentsNext");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -633,7 +744,9 @@ public class PaymentResource {
     // NEW sale starts with the drawer out.
     @DrawerMayBeOpen
     public Response validatePayment() {
+        LOGGER.info("Entering method validatePayment");
         paymentService.finalizeTransaction(state);
+        LOGGER.info("Exiting method validatePayment");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -648,7 +761,9 @@ public class PaymentResource {
     @GET
     @Path("/action/cancel")
     public Response cancelPayment() {
+        LOGGER.info("Entering method cancelPayment");
         paymentService.cancelPayments(state);
+        LOGGER.info("Exiting method cancelPayment");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -662,6 +777,7 @@ public class PaymentResource {
     @POST
     @Path("/action/print")
     public Response printTicket() {
+        LOGGER.info("Entering method printTicket");
         Long ticketId = state.payment.ticketDbId;
         if (state.trainingMode) {
             ticketPrinterService.printTrainingReceipt(state);
@@ -673,8 +789,10 @@ public class PaymentResource {
             }
         }
         if (state.payment.transactionComplete) {
+            LOGGER.info("Exiting method printTicket");
             return Response.seeOther(URI.create("/pay")).build();
         }
+        LOGGER.info("Exiting method printTicket");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -695,6 +813,7 @@ public class PaymentResource {
     @POST
     @Path("/action/print-choice")
     public Response applyPrintChoice(@FormParam("choice") String choice) {
+        LOGGER.info("Entering method applyPrintChoice with choice: " + choice);
         com.intermarche.pos.ui.hardware.PrintChoice picked =
                 com.intermarche.pos.ui.hardware.PrintChoice.of(choice);
         if (state.trainingMode) {
@@ -706,6 +825,7 @@ public class PaymentResource {
         } else {
             paymentService.applyPrintChoice(state, picked);
         }
+        LOGGER.info("Exiting method applyPrintChoice");
         return Response.seeOther(URI.create("/pay")).build();
     }
 
@@ -717,6 +837,7 @@ public class PaymentResource {
     @GET
     @Path("/action/reprint-last")
     public Response reprintLastTicket() {
+        LOGGER.info("Entering method reprintLastTicket");
         if (state.lastClosedTicketId != null) {
             try {
                 ticketPrinterService.printTicket(state.lastClosedTicketId);
@@ -724,6 +845,7 @@ public class PaymentResource {
                 System.err.println("Erreur réimpression: " + e.getMessage());
             }
         }
+        LOGGER.info("Exiting method reprintLastTicket");
         return Response.seeOther(URI.create("/")).build();
     }
     /**
@@ -740,6 +862,8 @@ public class PaymentResource {
     @GET
     @Path("/action/pay/abandon-ticket")
     public Response abandonTicketFromPayment() {
+        LOGGER.info("Entering method abandonTicketFromPayment");
+        LOGGER.info("Exiting method abandonTicketFromPayment");
         return Response.seeOther(URI.create("/abandon")).build();
     }
 }

@@ -1,14 +1,14 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.CouponType;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.attribute.ProductAttributes;
-import com.intermarche.pos.domain.gs1.Gs1AlertLevel;
-import com.intermarche.pos.domain.gs1.Gs1ApplicationIdentifier;
-import com.intermarche.pos.domain.gs1.Gs1Message;
-import com.intermarche.pos.domain.gs1.Gs1Parser;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
+import com.intermarche.pos.domain.barcode.AlertLevel;
+import com.intermarche.pos.domain.barcode.gs1.Gs1ApplicationIdentifier;
+import com.intermarche.pos.domain.barcode.gs1.Gs1Message;
+import com.intermarche.pos.domain.barcode.gs1.Gs1Parser;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
@@ -250,7 +250,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
      */
     private boolean isExpiredCoupon(PosState state, Gs1Message message) {
         LocalDate expiry = message.date(Gs1ApplicationIdentifier.EXPIRY);
-        Gs1AlertLevel level = Gs1AlertLevel.of(posSettingsService.gs1CouponExpiryAlert());
+        AlertLevel level = AlertLevel.of(posSettingsService.gs1CouponExpiryAlert());
         // A coupon is expired on the day AFTER its date: "atteinte" is still a valid
         // day, which is how a customer reads the date printed on the paper.
         if (expiry == null || !level.speaks() || !expiry.isBefore(LocalDate.now())) {
@@ -360,7 +360,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
      * @return true when the article is refused
      */
     private boolean isExpiredArticle(PosState state, LocalDate expiry) {
-        Gs1AlertLevel level = Gs1AlertLevel.of(posSettingsService.gs1ExpiryAlert());
+        AlertLevel level = AlertLevel.of(posSettingsService.gs1ExpiryAlert());
         if (expiry == null || !level.speaks()) {
             return false;
         }
@@ -446,7 +446,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         }
         // LC-09-01-11 to -18: what the article may be paid with.
         added.restrictedTenders =
-                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
+                com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(product);
     }
 
     /**

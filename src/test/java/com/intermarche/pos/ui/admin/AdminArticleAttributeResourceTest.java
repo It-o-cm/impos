@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.admin;
 
-import com.intermarche.pos.domain.ArticleAttributeDefinition;
+import com.intermarche.pos.domain.catalog.ArticleAttributeDefinition;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.qute.Template;

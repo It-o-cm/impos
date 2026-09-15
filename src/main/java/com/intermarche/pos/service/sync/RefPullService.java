@@ -49,7 +49,7 @@ import java.util.concurrent.TimeUnit;
 @ApplicationScoped
 public class RefPullService {
 
-    private static final Logger LOG = Logger.getLogger(RefPullService.class);
+    private static final Logger LOGGER = Logger.getLogger(RefPullService.class);
 
     /** Snapshot page size. */
     private static final int PAGE_SIZE = 1000;
@@ -109,7 +109,7 @@ public class RefPullService {
         boolean registerReady = "register".equalsIgnoreCase(role) && syncOutboxService.isEnabled();
         boolean storeReady = "store".equalsIgnoreCase(role) && hasCentralUrl();
         if (!registerReady && !storeReady) {
-            LOG.info("Tirage des référentiels désactivé (rôle central, ou URL amont absente)");
+            LOGGER.info("Tirage des référentiels désactivé (rôle central, ou URL amont absente)");
             return;
         }
         executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -118,7 +118,7 @@ public class RefPullService {
             return thread;
         });
         executor.scheduleWithFixedDelay(this::pullSafely, 15, pullSeconds, TimeUnit.SECONDS);
-        LOG.infof("Tirage des référentiels actif depuis %s (toutes les %ds)",
+        LOGGER.infof("Tirage des référentiels actif depuis %s (toutes les %ds)",
                 upstreamUrl(), pullSeconds);
     }
 
@@ -168,7 +168,7 @@ public class RefPullService {
         try {
             pullOnce();
         } catch (Exception e) {
-            LOG.errorf("Cycle de tirage des référentiels en erreur: %s", e.getMessage());
+            LOGGER.errorf("Cycle de tirage des référentiels en erreur: %s", e.getMessage());
         }
     }
 
@@ -185,7 +185,7 @@ public class RefPullService {
             if (remoteFingerprint == null || remoteFingerprint.equals(refApplyService.lastApplied(domain))) {
                 continue;
             }
-            LOG.infof("Référentiel %s modifié: tirage du snapshot", domain);
+            LOGGER.infof("Référentiel %s modifié: tirage du snapshot", domain);
             applyDomain(domain, remoteFingerprint);
         }
         lastSuccessfulPull = java.time.LocalDateTime.now();
@@ -198,6 +198,8 @@ public class RefPullService {
      *         has not completed one since it started
      */
     public java.time.LocalDateTime getLastSuccessfulPull() {
+        LOGGER.info("Entering method getLastSuccessfulPull");
+        LOGGER.info("Exiting method getLastSuccessfulPull");
         return lastSuccessfulPull;
     }
 
@@ -211,11 +213,14 @@ public class RefPullService {
      * @return null when the cycle completed, or the failure message otherwise
      */
     public String triggerPull() {
+        LOGGER.info("Entering method triggerPull");
         try {
             pullOnce();
+            LOGGER.info("Exiting method triggerPull");
             return null;
         } catch (Exception e) {
-            LOG.errorf("Tirage manuel des référentiels en erreur: %s", e.getMessage());
+            LOGGER.errorf("Tirage manuel des référentiels en erreur: %s", e.getMessage());
+            LOGGER.info("Exiting method triggerPull");
             return e.getMessage();
         }
     }
@@ -227,6 +232,8 @@ public class RefPullService {
      * @return the pull period in seconds
      */
     public long getPullSeconds() {
+        LOGGER.info("Entering method getPullSeconds");
+        LOGGER.info("Exiting method getPullSeconds");
         return pullSeconds;
     }
 
@@ -249,6 +256,14 @@ public class RefPullService {
                     this.<RefPayloads.EmployeeDto>pages(domain, new TypeReference<List<RefPayloads.EmployeeDto>>() {}));
             case "COUPON_TYPES" -> refApplyService.applyCouponTypes(
                     this.<RefPayloads.CouponTypeDto>pages(domain, new TypeReference<List<RefPayloads.CouponTypeDto>>() {}));
+            case "ISLANDS" -> refApplyService.applyCheckoutIslands(
+                    this.<RefPayloads.CheckoutIslandDto>pages(domain, new TypeReference<List<RefPayloads.CheckoutIslandDto>>() {}));
+            case "TENDERS" -> refApplyService.applyTenders(
+                    this.<RefPayloads.TenderDefinitionDto>pages(domain, new TypeReference<List<RefPayloads.TenderDefinitionDto>>() {}));
+            case "DOCUMENT_TEMPLATES" -> refApplyService.applyDocumentTemplates(
+                    this.<RefPayloads.DocumentTemplateDto>pages(domain, new TypeReference<List<RefPayloads.DocumentTemplateDto>>() {}));
+            case "ARTICLE_RANGES" -> refApplyService.applyArticleBarcodeRanges(
+                    this.<RefPayloads.ArticleBarcodeRangeDto>pages(domain, new TypeReference<List<RefPayloads.ArticleBarcodeRangeDto>>() {}));
             case "CUSTOMERS" -> refApplyService.applyCustomers(
                     this.<RefPayloads.CustomerDto>pages(domain, new TypeReference<List<RefPayloads.CustomerDto>>() {}));
             case "CURRENCIES" -> refApplyService.applyCurrencies(

@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.StoredValue;
+import com.intermarche.pos.domain.payment.StoredValue;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
@@ -21,6 +21,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 import java.math.RoundingMode;
+import org.jboss.logging.Logger;
 
 /**
  * Stored-value balance consultation (LC-02-09-04): gift cards and credit
@@ -31,6 +32,9 @@ import java.math.RoundingMode;
 @Path("/")
 @DrawerMustBeClosed
 public class VoucherBalanceResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(VoucherBalanceResource.class);
 
     /** The consultation page. */
     @Inject
@@ -61,6 +65,7 @@ public class VoucherBalanceResource {
     @Path("/voucher-balance")
     public TemplateInstance voucherBalancePage(@QueryParam("number") String number,
                                                @QueryParam("asked") boolean asked) {
+        LOGGER.info("Entering method voucherBalancePage with number: " + number + ", asked: " + asked);
         String typed = number == null ? "" : number.trim();
         BalanceView view;
         if (!typed.isEmpty()) {
@@ -71,6 +76,7 @@ public class VoucherBalanceResource {
         } else {
             view = null;
         }
+        LOGGER.info("Exiting method voucherBalancePage");
         return voucherBalance.data("state", state).data("result", view).data("number", typed);
     }
 
@@ -85,7 +91,9 @@ public class VoucherBalanceResource {
     @Path("/action/voucher-balance")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response consult(@FormParam("number") String number) {
+        LOGGER.info("Entering method consult with number: " + number);
         String encoded = number == null ? "" : URLEncoder.encode(number.trim(), StandardCharsets.UTF_8);
+        LOGGER.info("Exiting method consult");
         return Response.seeOther(
                 URI.create("/voucher-balance?number=" + encoded + "&asked=true")).build();
     }

@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
@@ -18,6 +18,7 @@ import jakarta.ws.rs.core.Response;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the cash-session screen: session status page,
@@ -42,6 +43,9 @@ import java.net.URI;
 @Path("/")
 public class CashSessionResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(CashSessionResource.class);
+
     @Inject @Location("session") Template session;
     /** The X report, read on screen before it is asked for on paper. */
     @Inject @Location("session-report") Template sessionReportPage;
@@ -63,12 +67,14 @@ public class CashSessionResource {
     @Path("/session")
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance sessionPage(@QueryParam("error") String error) {
+        LOGGER.info("Entering method sessionPage with error: " + error);
         String message = null;
         if ("open-failed".equals(error)) {
             message = "OUVERTURE IMPOSSIBLE (SESSION DÉJÀ OUVERTE ?)";
         } else if ("no-session".equals(error)) {
             message = "AUCUNE SESSION OUVERTE";
         }
+        LOGGER.info("Exiting method sessionPage");
         return session
                 .data("state", state)
                 .data("current", cashSessionService.getOpenSession())
@@ -86,19 +92,23 @@ public class CashSessionResource {
     @Path("/action/session/open")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response openSession(@FormParam("openingFloat") String floatStr) {
+        LOGGER.info("Entering method openSession with floatStr: " + floatStr);
         if (state.trainingMode) {
+            LOGGER.info("Exiting method openSession");
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
         BigDecimal openingFloat = parseAmount(floatStr);
         CashSession opened = cashSessionService.openSession(state.auth.operatorId, openingFloat);
         state.touch();
         if (opened == null) {
+            LOGGER.info("Exiting method openSession");
             return Response.seeOther(URI.create("/session?error=open-failed")).build();
         }
         // A successful opening flows straight into the sale: the status page
         // (X report, Z closing) is a MENU destination, not a post-opening
         // stop — right after opening, its only visible actions would be
         // reading and CLOSING, which is absurd at that point of the day.
+        LOGGER.info("Exiting method openSession");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -120,10 +130,13 @@ public class CashSessionResource {
     @Path("/session/x-report")
     @Produces(MediaType.TEXT_HTML)
     public Object showXReport() {
+        LOGGER.info("Entering method showXReport");
         CashSession current = cashSessionService.getOpenSession();
         if (current == null) {
+            LOGGER.info("Exiting method showXReport");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
+        LOGGER.info("Exiting method showXReport");
         return sessionReportPage.data("report", cashSessionService.buildReport(current));
     }
 
@@ -135,13 +148,16 @@ public class CashSessionResource {
     @GET
     @Path("/action/session/x-report")
     public Response printXReport() {
+        LOGGER.info("Entering method printXReport");
         CashSession current = cashSessionService.getOpenSession();
         if (current == null) {
+            LOGGER.info("Exiting method printXReport");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
         CashSessionService.SessionReport report = cashSessionService.buildReport(current);
         ticketPrinterService.printSessionReport(report);
         technicalEventService.log(TechnicalEvent.EventType.X_REPORT_PRINTED, current.sessionNumber);
+        LOGGER.info("Exiting method printXReport");
         return Response.seeOther(URI.create("/session/x-report")).build();
     }
 
@@ -154,10 +170,13 @@ public class CashSessionResource {
     @GET
     @Path("/action/session/close-start")
     public Response startClosing() {
+        LOGGER.info("Entering method startClosing");
         if (state.trainingMode) {
+            LOGGER.info("Exiting method startClosing");
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
         if (cashSessionService.getOpenSession() == null) {
+            LOGGER.info("Exiting method startClosing");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
         // BO-10-02-26: the Z count opens the drawer only when the back office
@@ -165,6 +184,7 @@ public class CashSessionResource {
         if (posSettingsService.drawerOpenOnSessionClose()) {
             hardwareService.openDrawer();
         }
+        LOGGER.info("Exiting method startClosing");
         return Response.seeOther(URI.create("/cash-count")).build();
     }
 
@@ -186,16 +206,20 @@ public class CashSessionResource {
     public Response closeSession(@FormParam("counted") String countedStr,
                                  @FormParam("withdrawn") String withdrawnStr,
                                  @FormParam("detail") String detail) {
+        LOGGER.info("Entering method closeSession with countedStr: " + countedStr + ", withdrawnStr: " + withdrawnStr + ", detail: " + detail);
         if (state.trainingMode) {
+            LOGGER.info("Exiting method closeSession");
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
         CashSessionService.SessionReport report = cashSessionService.closeSession(
                 state.auth.operatorId, parseAmount(countedStr), parseAmount(withdrawnStr), detail);
         if (report == null) {
+            LOGGER.info("Exiting method closeSession");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
         }
         ticketPrinterService.printSessionReport(report);
         state.touch();
+        LOGGER.info("Exiting method closeSession");
         return Response.seeOther(URI.create("/lock")).build();
     }
 

@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.returnprocess;
 
-import com.intermarche.pos.domain.ticket.Refund;
+import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;

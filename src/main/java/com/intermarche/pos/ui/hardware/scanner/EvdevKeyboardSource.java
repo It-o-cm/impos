@@ -13,7 +13,7 @@ import java.util.function.Consumer;
 public class EvdevKeyboardSource implements ScannerSource {
 
     /** The class logger. */
-    private static final Logger LOG = Logger.getLogger(EvdevKeyboardSource.class);
+    private static final Logger LOGGER = Logger.getLogger(EvdevKeyboardSource.class);
 
     /** The event device node path. */
     private final String path;
@@ -53,11 +53,11 @@ public class EvdevKeyboardSource implements ScannerSource {
     public int open() {
         int fd = LinuxInput.C.open(path, LinuxInput.O_RDONLY);
         if (fd < 0) {
-            LOG.errorf("Ouverture douchette (clavier) impossible: %s", path);
+            LOGGER.errorf("Ouverture douchette (clavier) impossible: %s", path);
             return -1;
         }
         if (LinuxInput.C.ioctl(fd, LinuxInput.EVIOCGRAB, 1) != 0) {
-            LOG.errorf("Prise exclusive (grab) impossible sur %s", path);
+            LOGGER.errorf("Prise exclusive (grab) impossible sur %s", path);
             LinuxInput.C.close(fd);
             return -1;
         }

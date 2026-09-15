@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.jboss.logging.Logger;
 
 /**
  * The rules that surround the abandon of a ticket ({@code LC-04-04-06} to
@@ -29,6 +30,9 @@ import java.util.Locale;
  */
 @ApplicationScoped
 public class TicketAbandonService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(TicketAbandonService.class);
 
     /** The register state whose abandon this service governs. */
     @Inject
@@ -56,6 +60,7 @@ public class TicketAbandonService {
      * @return the reasons, in administered order, empty when the shop asks for none
      */
     public List<String> reasons() {
+        LOGGER.info("Entering method reasons");
         List<String> reasons = new ArrayList<>();
         for (String reason : posSettingsService.abandonReasons().split(";")) {
             String trimmed = reason.trim();
@@ -63,6 +68,7 @@ public class TicketAbandonService {
                 reasons.add(trimmed);
             }
         }
+        LOGGER.info("Exiting method reasons");
         return reasons;
     }
 
@@ -72,6 +78,8 @@ public class TicketAbandonService {
      * @return true when the shop administered at least one reason
      */
     public boolean requiresReason() {
+        LOGGER.info("Entering method requiresReason");
+        LOGGER.info("Exiting method requiresReason");
         return !reasons().isEmpty();
     }
 
@@ -81,6 +89,8 @@ public class TicketAbandonService {
      * @return the entries, in registration order, empty when nothing was settled
      */
     public List<PaymentState.PaymentEntry> partialPayments() {
+        LOGGER.info("Entering method partialPayments");
+        LOGGER.info("Exiting method partialPayments");
         return new ArrayList<>(state.payment.payments);
     }
 
@@ -90,12 +100,14 @@ public class TicketAbandonService {
      * @return the total, zero when nothing was settled
      */
     public BigDecimal partialPaymentTotal() {
+        LOGGER.info("Entering method partialPaymentTotal");
         BigDecimal total = BigDecimal.ZERO;
         for (PaymentState.PaymentEntry entry : state.payment.payments) {
             if (entry.amount != null) {
                 total = total.add(entry.amount);
             }
         }
+        LOGGER.info("Exiting method partialPaymentTotal");
         return total;
     }
 
@@ -112,7 +124,9 @@ public class TicketAbandonService {
      * @return the operator-facing refusal, or null when the abandon may proceed
      */
     public String blockingReason() {
+        LOGGER.info("Entering method blockingReason");
         if (!BLOCK.equalsIgnoreCase(posSettingsService.abandonPartialPayment().trim())) {
+            LOGGER.info("Exiting method blockingReason");
             return null;
         }
         boolean external = false;
@@ -125,11 +139,14 @@ public class TicketAbandonService {
             }
         }
         if (external) {
+            LOGGER.info("Exiting method blockingReason");
             return "REGLEMENT PARTIEL AVEC APPEL EXTERNE - ANNULEZ-LE D'ABORD";
         }
         if (local) {
+            LOGGER.info("Exiting method blockingReason");
             return "REGLEMENT PARTIEL ENREGISTRE - ANNULEZ-LE D'ABORD";
         }
+        LOGGER.info("Exiting method blockingReason");
         return null;
     }
 
@@ -160,6 +177,8 @@ public class TicketAbandonService {
      * @return true when the shop leaves the decision to the operator
      */
     public boolean printOnDemand() {
+        LOGGER.info("Entering method printOnDemand");
+        LOGGER.info("Exiting method printOnDemand");
         return ON_DEMAND.equalsIgnoreCase(posSettingsService.abandonPrint().trim());
     }
 
@@ -170,15 +189,19 @@ public class TicketAbandonService {
      * @return true when a ticket must come out
      */
     public boolean printsTicket() {
+        LOGGER.info("Entering method printsTicket");
         String rule = posSettingsService.abandonPrint().trim();
         if (ALWAYS.equalsIgnoreCase(rule)) {
+            LOGGER.info("Exiting method printsTicket");
             return true;
         }
         if (ON_DEMAND.equalsIgnoreCase(rule)) {
+            LOGGER.info("Exiting method printsTicket");
             return state.abandonPrintRequested;
         }
         // NEVER, and anything a store mistyped: the silent behaviour, which is the
         // one that cannot surprise a lane.
+        LOGGER.info("Exiting method printsTicket");
         return false;
     }
 
@@ -190,23 +213,28 @@ public class TicketAbandonService {
      * @return the operator-facing refusal, or null when the abandon may proceed
      */
     public String prepare(String reason, boolean print) {
+        LOGGER.info("Entering method prepare with reason: " + reason + ", print: " + print);
         String blocking = blockingReason();
         if (blocking != null) {
+            LOGGER.info("Exiting method prepare");
             return blocking;
         }
         String chosen = reason == null ? "" : reason.trim();
         if (requiresReason() && chosen.isEmpty()) {
+            LOGGER.info("Exiting method prepare");
             return "MOTIF D'ABANDON OBLIGATOIRE";
         }
         // A reason the shop does not offer is refused rather than journalled: the
         // screen is a list of buttons, so anything else came from a stale page or a
         // hand-made request, and the reason is what the back-office reports count.
         if (!chosen.isEmpty() && !reasons().contains(chosen)) {
+            LOGGER.info("Exiting method prepare");
             return "MOTIF D'ABANDON INCONNU";
         }
         state.abandonReason = chosen;
         state.abandonPrintRequested = print;
         state.touch();
+        LOGGER.info("Exiting method prepare");
         return null;
     }
 }

@@ -13,6 +13,7 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.core.Response;
 
 import java.net.URI;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the theme-selection screen: lists the available themes
@@ -30,6 +31,9 @@ import java.net.URI;
 @DrawerMustBeClosed
 public class ThemeResource {
 
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ThemeResource.class);
+
     @Inject @Location("theme-select") Template themeSelect;
 
     @Inject
@@ -46,6 +50,8 @@ public class ThemeResource {
     @GET
     @Path("/theme-select")
     public TemplateInstance themeSelectPage() {
+        LOGGER.info("Entering method themeSelectPage");
+        LOGGER.info("Exiting method themeSelectPage");
         return themeSelect.data("state", state)
                 .data("themes", ThemeService.AVAILABLE_THEMES)
                 .data("current", themeService.currentTheme());
@@ -62,7 +68,9 @@ public class ThemeResource {
     @Path("/action/theme")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response chooseTheme(@FormParam("theme") String theme) {
+        LOGGER.info("Entering method chooseTheme with theme: " + theme);
         themeService.setThemeForOperator(theme);
+        LOGGER.info("Exiting method chooseTheme");
         return Response.seeOther(URI.create("/")).build();
     }
 }

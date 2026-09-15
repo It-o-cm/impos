@@ -32,7 +32,7 @@ import java.util.Set;
 public class ScannerDiscovery {
 
     /** The class logger. */
-    private static final Logger LOG = Logger.getLogger(ScannerDiscovery.class);
+    private static final Logger LOGGER = Logger.getLogger(ScannerDiscovery.class);
 
     /** The input channel a discovered device is read on. */
     public enum Channel {
@@ -196,7 +196,7 @@ public class ScannerDiscovery {
                 evdevKeys.add(key);
             }
             String path = new File(devDir, node).getAbsolutePath();
-            LOG.infof("Douchette (clavier) detectee: %s (%s)", name, path);
+            LOGGER.infof("Douchette (clavier) detectee: %s (%s)", name, path);
             found.add(new DiscoveredDevice(Channel.EVDEV, path, name));
         }
     }
@@ -220,7 +220,7 @@ public class ScannerDiscovery {
                 continue;
             }
             String path = new File(devDir, node).getAbsolutePath();
-            LOG.infof("Douchette (hidraw) detectee: %s (%s)", name, path);
+            LOGGER.infof("Douchette (hidraw) detectee: %s (%s)", name, path);
             found.add(new DiscoveredDevice(Channel.HIDRAW, path, name));
         }
     }
@@ -237,7 +237,7 @@ public class ScannerDiscovery {
         discoverEvdev(found, evdevKeys);
         discoverHidraw(found, evdevKeys);
         if (found.isEmpty()) {
-            LOG.warn("Aucune douchette detectee a l'autodecouverte du materiel.");
+            LOGGER.warn("Aucune douchette detectee a l'autodecouverte du materiel.");
         }
         return found;
     }

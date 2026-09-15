@@ -1,7 +1,7 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.SyncOutbox;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.sync.SyncOutboxService;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;

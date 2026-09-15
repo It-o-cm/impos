@@ -35,7 +35,7 @@ import java.util.Optional;
 @ApplicationScoped
 public class StoreTicketClient {
 
-    private static final Logger LOG = Logger.getLogger(StoreTicketClient.class);
+    private static final Logger LOGGER = Logger.getLogger(StoreTicketClient.class);
 
     /** Carries the store node's URL and whether the synchronization is wired at all. */
     @Inject
@@ -87,14 +87,14 @@ public class StoreTicketClient {
                 String body = response.body();
                 return body == null || body.isBlank() ? Optional.empty() : Optional.of(body);
             }
-            LOG.infof("Duplicata %s refusé par le nœud magasin (HTTP %d)",
+            LOGGER.infof("Duplicata %s refusé par le nœud magasin (HTTP %d)",
                     ticketNumber, response.statusCode());
             return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Optional.empty();
         } catch (Exception e) {
-            LOG.warnf("Nœud magasin injoignable pour le duplicata %s : %s",
+            LOGGER.warnf("Nœud magasin injoignable pour le duplicata %s : %s",
                     ticketNumber, e.getMessage());
             return Optional.empty();
         }

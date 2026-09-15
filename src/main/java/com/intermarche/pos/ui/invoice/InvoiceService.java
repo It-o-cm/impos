@@ -1,12 +1,12 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.AccountCustomer;
-import com.intermarche.pos.domain.Address;
-import com.intermarche.pos.domain.ticket.DocumentOutput;
-import com.intermarche.pos.domain.ticket.DocumentType;
-import com.intermarche.pos.domain.ticket.Invoice;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.VatBreakdown;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.sale.DocumentOutput;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.VatBreakdown;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
@@ -39,7 +39,7 @@ import java.util.List;
 @ApplicationScoped
 public class InvoiceService {
 
-    private static final Logger LOG = Logger.getLogger(InvoiceService.class);
+    private static final Logger LOGGER = Logger.getLogger(InvoiceService.class);
 
     /** How many closed tickets the shortlist offers. */
     private static final int SHORTLIST = 12;
@@ -71,6 +71,32 @@ public class InvoiceService {
     @Inject
     NetworkDocumentPrinter networkPrinter;
 
+    /** The administered layouts (BO-03-03). */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.DocumentTemplateService documentTemplateService;
+
+    /**
+     * Lays the document out in forty-two columns, through the ADMINISTERED
+     * layout when the shop has one (BO-03-03).
+     *
+     * <p>The gabarit answers ONE string; the roll and the slip station both work
+     * on lines, so it is cut on its own newlines — a layout decides what is
+     * printed, the paper path decides how it is fed.
+     *
+     * @param laid the document, already written
+     * @return the document's lines
+     */
+    List<String> renderLines(InvoiceDocument laid) {
+        String administered = documentTemplateService == null ? null
+                : documentTemplateService.render(
+                        com.intermarche.pos.domain.setting.DocumentTemplate
+                                .DocumentType.INVOICE, laid.asDocumentData());
+        if (administered != null) {
+            return List.of(administered.split("\\n", -1));
+        }
+        return InvoiceRenderer.render(laid);
+    }
+
     /**
      * The store-node outbox: a customer created at the register is declared to the
      * back office through it ({@code LC-08-04-09}), on the same road as tickets and
@@ -89,6 +115,7 @@ public class InvoiceService {
      * out of ten ({@code LC-08-04-03}).
      */
     public void open() {
+        LOGGER.info("Entering method open");
         state.invoice.clear();
         List<Ticket> recent = repository.recentClosedTickets(SHORTLIST);
         state.invoice.tickets = recent;
@@ -102,6 +129,7 @@ public class InvoiceService {
                     ? state.invoice.ticketTerminal : last.terminalId;
         }
         state.touch();
+        LOGGER.info("Exiting method open");
     }
 
     /**
@@ -119,6 +147,7 @@ public class InvoiceService {
      * @param ticketTerminal the register that issued it, blank when unknown
      */
     public void chooseTicket(String ticketNumber, String ticketDate, String ticketTerminal) {
+        LOGGER.info("Entering method chooseTicket with ticketNumber: " + ticketNumber + ", ticketDate: " + ticketDate + ", ticketTerminal: " + ticketTerminal);
         state.invoice.error = "";
         state.invoice.ticketNumber = trimmed(ticketNumber);
         state.invoice.ticketDate = trimmed(ticketDate);
@@ -129,6 +158,7 @@ public class InvoiceService {
         if (found == null) {
             state.invoice.error = "TICKET INTROUVABLE : " + state.invoice.ticketNumber;
             state.touch();
+            LOGGER.info("Exiting method chooseTicket");
             return;
         }
         state.invoice.ticket = found;
@@ -146,6 +176,7 @@ public class InvoiceService {
             state.invoice.documentType = null;
             state.invoice.step = InvoiceState.Step.DOCUMENT;
             state.touch();
+            LOGGER.info("Exiting method chooseTicket");
             return;
         }
         // WHERE THIS LEADS depends on what is already known. Going forward, the
@@ -157,6 +188,7 @@ public class InvoiceService {
                 ? InvoiceState.Step.CUSTOMER
                 : InvoiceState.Step.PREVIEW;
         state.touch();
+        LOGGER.info("Exiting method chooseTicket");
     }
 
     /**
@@ -170,11 +202,13 @@ public class InvoiceService {
      * @param typeName the enum name of the kind the operator touched
      */
     public void chooseDocumentType(String typeName) {
+        LOGGER.info("Entering method chooseDocumentType with typeName: " + typeName);
         state.invoice.error = "";
         DocumentType chosen = DocumentType.byName(typeName);
         if (chosen == null || !state.invoice.documentTypes.contains(chosen)) {
             state.invoice.error = "TYPE DE DOCUMENT INDISPONIBLE";
             state.touch();
+            LOGGER.info("Exiting method chooseDocumentType");
             return;
         }
         state.invoice.documentType = chosen;
@@ -182,6 +216,7 @@ public class InvoiceService {
                 ? InvoiceState.Step.CUSTOMER
                 : InvoiceState.Step.PREVIEW;
         state.touch();
+        LOGGER.info("Exiting method chooseDocumentType");
     }
 
     /**
@@ -196,6 +231,8 @@ public class InvoiceService {
      * @return the kinds to offer, in administered order, never empty
      */
     public List<DocumentType> eligibleDocumentTypes() {
+        LOGGER.info("Entering method eligibleDocumentTypes");
+        LOGGER.info("Exiting method eligibleDocumentTypes");
         return DocumentType.activated(posSettingsService.invoiceDocumentTypes());
     }
 
@@ -207,18 +244,21 @@ public class InvoiceService {
      * @param search what the operator typed, matched anywhere in the business name
      */
     public void searchCustomers(String search) {
+        LOGGER.info("Entering method searchCustomers with search: " + search);
         state.invoice.error = "";
         state.invoice.customerSearch = search == null ? "" : search.trim();
         if (state.invoice.customerSearch.isEmpty()) {
             state.invoice.customers = List.of();
             state.invoice.searched = false;
             state.touch();
+            LOGGER.info("Exiting method searchCustomers");
             return;
         }
         state.invoice.customers = repository.searchCustomers(
                 state.invoice.customerSearch.toLowerCase(), CUSTOMER_MATCHES);
         state.invoice.searched = true;
         state.touch();
+        LOGGER.info("Exiting method searchCustomers");
     }
 
     /**
@@ -232,23 +272,27 @@ public class InvoiceService {
      * @param accountNumber the account number typed
      */
     public void chooseCustomerByNumber(String accountNumber) {
+        LOGGER.info("Entering method chooseCustomerByNumber with accountNumber: " + accountNumber);
         state.invoice.error = "";
         state.invoice.customerNumber = trimmed(accountNumber);
         if (state.invoice.customerNumber.isEmpty()) {
             state.invoice.error = "NUMERO CLIENT VIDE";
             state.touch();
+            LOGGER.info("Exiting method chooseCustomerByNumber");
             return;
         }
         AccountCustomer found = repository.findCustomerByNumber(state.invoice.customerNumber);
         if (found == null) {
             state.invoice.error = "CLIENT INTROUVABLE : " + state.invoice.customerNumber;
             state.touch();
+            LOGGER.info("Exiting method chooseCustomerByNumber");
             return;
         }
         state.invoice.customer = found;
         state.invoice.creatingCustomer = false;
         state.invoice.step = InvoiceState.Step.PREVIEW;
         state.touch();
+        LOGGER.info("Exiting method chooseCustomerByNumber");
     }
 
     /**
@@ -257,17 +301,20 @@ public class InvoiceService {
      * @param customerId the database id of the customer
      */
     public void chooseCustomer(Long customerId) {
+        LOGGER.info("Entering method chooseCustomer with customerId: " + customerId);
         state.invoice.error = "";
         AccountCustomer found = repository.findCustomer(customerId);
         if (found == null) {
             state.invoice.error = "CLIENT INTROUVABLE";
             state.touch();
+            LOGGER.info("Exiting method chooseCustomer");
             return;
         }
         state.invoice.customer = found;
         state.invoice.creatingCustomer = false;
         state.invoice.step = InvoiceState.Step.PREVIEW;
         state.touch();
+        LOGGER.info("Exiting method chooseCustomer");
     }
 
     /**
@@ -293,6 +340,7 @@ public class InvoiceService {
     public void createCustomer(String companyName, String contactName, String street,
             String postalCode, String city, String siret, String vatNumber, String phone,
             String email) {
+        LOGGER.info("Entering method createCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
         state.invoice.error = "";
         java.util.Map<String, String> typed = new java.util.LinkedHashMap<>();
         typed.put("companyName", companyName);
@@ -308,6 +356,7 @@ public class InvoiceService {
         if (missing != null) {
             state.invoice.error = missing.toUpperCase() + " OBLIGATOIRE";
             state.touch();
+            LOGGER.info("Exiting method createCustomer");
             return;
         }
         // The business name is what the document is addressed to: whatever the
@@ -315,6 +364,7 @@ public class InvoiceService {
         if (companyName == null || companyName.isBlank()) {
             state.invoice.error = "RAISON SOCIALE OBLIGATOIRE";
             state.touch();
+            LOGGER.info("Exiting method createCustomer");
             return;
         }
         AccountCustomer created = new AccountCustomer();
@@ -335,14 +385,15 @@ public class InvoiceService {
         // created. It travels on the outbox road, so a store node that is down does
         // not lose the declaration — it receives it on the next drain.
         syncOutboxService.enqueue(
-                com.intermarche.pos.domain.SyncOutbox.EntityType.CUSTOMER, created.id);
-        LOG.infof("Client en compte cree en caisse : %s (%s)",
+                com.intermarche.pos.domain.sync.SyncOutbox.EntityType.CUSTOMER, created.id);
+        LOGGER.infof("Client en compte cree en caisse : %s (%s)",
                 created.companyName, created.accountNumber);
         state.invoice.customer = created;
         state.invoice.creatingCustomer = false;
         state.invoice.searched = false;
         state.invoice.step = InvoiceState.Step.PREVIEW;
         state.touch();
+        LOGGER.info("Exiting method createCustomer");
     }
 
     /**
@@ -359,16 +410,20 @@ public class InvoiceService {
      *         the screen has no ticket or no customer yet
      */
     public InvoiceDocument preview() {
+        LOGGER.info("Entering method preview");
         if (state.invoice.ticket == null || state.invoice.customer == null
                 || state.invoice.documentType == null) {
+            LOGGER.info("Exiting method preview");
             return null;
         }
         Ticket ticket = repository.findTicket(state.invoice.ticket.id);
         AccountCustomer customer = repository.findCustomer(state.invoice.customer.id);
         if (ticket == null || customer == null) {
+            LOGGER.info("Exiting method preview");
             return null;
         }
         Invoice draft = build(ticket, customer, "");
+        LOGGER.info("Exiting method preview");
         return InvoiceDocument.of(draft, ticket, posSettingsService.showEan());
     }
 
@@ -383,16 +438,19 @@ public class InvoiceService {
      */
     @Transactional
     public Long issue() {
+        LOGGER.info("Entering method issue");
         state.invoice.error = "";
         if (state.invoice.ticket == null || state.invoice.customer == null
                 || state.invoice.documentType == null) {
             state.invoice.error = "TICKET OU CLIENT MANQUANT";
             state.touch();
+            LOGGER.info("Exiting method issue");
             return null;
         }
         if (state.trainingMode) {
             state.invoice.error = "FACTURE INDISPONIBLE EN FORMATION";
             state.touch();
+            LOGGER.info("Exiting method issue");
             return null;
         }
         DocumentType type = state.invoice.documentType;
@@ -411,6 +469,7 @@ public class InvoiceService {
         repository.save(document);
         state.invoice.issuedInvoiceId = document.id;
         state.touch();
+        LOGGER.info("Exiting method issue");
         return document.id;
     }
 
@@ -421,14 +480,18 @@ public class InvoiceService {
      * @return the document, or null when there is none under that id
      */
     public InvoiceDocument issued(Long invoiceId) {
+        LOGGER.info("Entering method issued with invoiceId: " + invoiceId);
         Invoice document = repository.findInvoice(invoiceId);
         if (document == null) {
+            LOGGER.info("Exiting method issued");
             return null;
         }
         Ticket ticket = repository.findClosedTicket(document.ticketNumber);
         if (ticket == null) {
+            LOGGER.info("Exiting method issued");
             return null;
         }
+        LOGGER.info("Exiting method issued");
         return InvoiceDocument.of(document, ticket, posSettingsService.showEan());
     }
 
@@ -447,10 +510,12 @@ public class InvoiceService {
      * the other.
      */
     public void backToTicketStep() {
+        LOGGER.info("Entering method backToTicketStep");
         state.invoice.error = "";
         state.invoice.ticket = null;
         state.invoice.step = InvoiceState.Step.TICKET;
         state.touch();
+        LOGGER.info("Exiting method backToTicketStep");
     }
 
     /**
@@ -462,10 +527,12 @@ public class InvoiceService {
      * eligibility the ticket has not moved.
      */
     public void backToDocumentStep() {
+        LOGGER.info("Entering method backToDocumentStep");
         state.invoice.error = "";
         state.invoice.documentType = null;
         state.invoice.step = InvoiceState.Step.DOCUMENT;
         state.touch();
+        LOGGER.info("Exiting method backToDocumentStep");
     }
 
     /**
@@ -476,19 +543,23 @@ public class InvoiceService {
      * screen on a form the operator had already left.
      */
     public void backToCustomerStep() {
+        LOGGER.info("Entering method backToCustomerStep");
         state.invoice.error = "";
         state.invoice.customer = null;
         state.invoice.creatingCustomer = false;
         state.invoice.step = InvoiceState.Step.CUSTOMER;
         state.touch();
+        LOGGER.info("Exiting method backToCustomerStep");
     }
 
     /**
      * Gives up the document being prepared. Nothing to undo: nothing was written.
      */
     public void abandon() {
+        LOGGER.info("Entering method abandon");
         state.invoice.clear();
         state.touch();
+        LOGGER.info("Exiting method abandon");
     }
 
     /**
@@ -534,7 +605,7 @@ public class InvoiceService {
         document.ticketNumber = ticket.ticketNumber;
         document.addressTo(customer);
         VatBreakdown breakdown = new VatBreakdown();
-        for (com.intermarche.pos.domain.ticket.TicketLine line : ticket.lines) {
+        for (com.intermarche.pos.domain.sale.TicketLine line : ticket.lines) {
             if (line.cancelled) {
                 continue;
             }
@@ -568,16 +639,19 @@ public class InvoiceService {
      */
     @Transactional
     public DocumentType autoPrint(Long ticketId) {
+        LOGGER.info("Entering method autoPrint with ticketId: " + ticketId);
         java.util.Map<String, DocumentType> automatic =
                 DocumentType.automatic(posSettingsService.invoiceAutoPrint());
         if (automatic.isEmpty() || ticketId == null) {
+            LOGGER.info("Exiting method autoPrint");
             return null;
         }
         Ticket ticket = repository.findTicket(ticketId);
         if (ticket == null) {
+            LOGGER.info("Exiting method autoPrint");
             return null;
         }
-        for (com.intermarche.pos.domain.ticket.TicketPayment payment : ticket.payments) {
+        for (com.intermarche.pos.domain.payment.TicketPayment payment : ticket.payments) {
             DocumentType kind = automatic.get(payment.getMethodKey());
             if (kind == null) {
                 continue;
@@ -589,23 +663,26 @@ public class InvoiceService {
             // One sale, one document of each kind: a ticket that already carries this
             // kind — reissued by hand a moment earlier — is not doubled.
             if (repository.findInvoiceOfTicket(ticket.ticketNumber, kind) != null) {
+                LOGGER.info("Exiting method autoPrint");
                 return null;
             }
             Invoice document = build(ticket, customer,
                     ticketNumberService.nextDocumentNumber(kind), kind);
             InvoiceDocument laid =
                     InvoiceDocument.of(document, ticket, posSettingsService.showEan());
-            List<String> lines = InvoiceRenderer.render(laid);
+            List<String> lines = renderLines(laid);
             if (outputFor(kind) != DocumentOutput.A4 || !networkPrinter.print(laid, lines)) {
                 hardwareService.printReceipt(String.join("\n", lines) + "\n");
                 hardwareService.cutPaper();
             }
             document.printCount++;
             repository.save(document);
-            LOG.infof("Document %s émis automatiquement sur le règlement %s du ticket %s",
+            LOGGER.infof("Document %s émis automatiquement sur le règlement %s du ticket %s",
                     document.documentNumber, payment.getMethodKey(), ticket.ticketNumber);
+            LOGGER.info("Exiting method autoPrint");
             return kind;
         }
+        LOGGER.info("Exiting method autoPrint");
         return null;
     }
 
@@ -615,8 +692,8 @@ public class InvoiceService {
      * @param payment the settlement of the closed sale
      * @return the customer in account, or null when the method names none
      */
-    private AccountCustomer customerOf(com.intermarche.pos.domain.ticket.TicketPayment payment) {
-        if (payment instanceof com.intermarche.pos.domain.ticket.CreditPayment credit) {
+    private AccountCustomer customerOf(com.intermarche.pos.domain.payment.TicketPayment payment) {
+        if (payment instanceof com.intermarche.pos.domain.payment.CreditPayment credit) {
             return repository.findCustomerByNumber(credit.accountNumber);
         }
         return null;
@@ -633,6 +710,8 @@ public class InvoiceService {
      * @return its printer, never null
      */
     public DocumentOutput outputFor(DocumentType type) {
+        LOGGER.info("Entering method outputFor with type: " + type);
+        LOGGER.info("Exiting method outputFor");
         return DocumentOutput.administered(posSettingsService.invoiceDocumentOutput())
                 .getOrDefault(type, DocumentOutput.TICKET);
     }
@@ -652,7 +731,7 @@ public class InvoiceService {
      */
     private void print(Invoice document, Ticket ticket) {
         InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan());
-        List<String> lines = InvoiceRenderer.render(laid);
+        List<String> lines = renderLines(laid);
         DocumentOutput target = outputFor(document.documentType);
         if (target.needsInsertion()) {
             state.invoice.slipPages =
@@ -687,9 +766,11 @@ public class InvoiceService {
      * @return true when sheets are still to be fed, false when the document is complete
      */
     public boolean printNextSlip() {
+        LOGGER.info("Entering method printNextSlip");
         state.invoice.error = "";
         if (state.invoice.slipPrinted >= state.invoice.slipPages.size()) {
             finishSlips();
+            LOGGER.info("Exiting method printNextSlip");
             return false;
         }
         List<String> sheet = state.invoice.slipPages.get(state.invoice.slipPrinted);
@@ -698,9 +779,11 @@ public class InvoiceService {
         state.invoice.slipPrinted++;
         if (state.invoice.slipPrinted >= state.invoice.slipPages.size()) {
             finishSlips();
+            LOGGER.info("Exiting method printNextSlip");
             return false;
         }
         state.touch();
+        LOGGER.info("Exiting method printNextSlip");
         return true;
     }
 
@@ -721,6 +804,8 @@ public class InvoiceService {
      * @return the fields to ask for, in administered order, never empty
      */
     public List<EntryField> customerFields() {
+        LOGGER.info("Entering method customerFields");
+        LOGGER.info("Exiting method customerFields");
         return EntryField.customerFields(posSettingsService.invoiceCustomerFields());
     }
 

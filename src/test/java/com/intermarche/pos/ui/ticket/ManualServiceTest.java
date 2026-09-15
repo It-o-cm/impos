@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.ProductFamily;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.ticket.ManualService.ManualItem;
 import com.intermarche.pos.ui.ticket.ManualService.ManualViewData;

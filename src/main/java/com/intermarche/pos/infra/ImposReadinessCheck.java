@@ -1,7 +1,7 @@
 package com.intermarche.pos.infra;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.catalog.Product;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.health.HealthCheck;
 import org.eclipse.microprofile.health.HealthCheckResponse;

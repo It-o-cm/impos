@@ -1,9 +1,9 @@
 package com.intermarche.demo;
 
 import com.intermarche.e2e.E2eTestProfile;
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.ticket.Ticket;
-import com.intermarche.pos.domain.ticket.TicketLineValuation;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLineValuation;
 import com.intermarche.pos.ui.PosState;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;

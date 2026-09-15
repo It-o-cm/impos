@@ -1,6 +1,6 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.EngineFeed;
+import com.intermarche.pos.domain.sync.EngineFeed;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;

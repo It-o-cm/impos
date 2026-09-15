@@ -1,8 +1,8 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.ticket.DocumentCounter;
-import com.intermarche.pos.domain.ticket.DocumentType;
-import com.intermarche.pos.domain.ticket.TicketCounter;
+import com.intermarche.pos.domain.session.DocumentCounter;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.session.TicketCounter;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.persistence.LockModeType;

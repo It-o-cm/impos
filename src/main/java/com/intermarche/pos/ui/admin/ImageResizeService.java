@@ -10,6 +10,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Base64;
+import org.jboss.logging.Logger;
 
 /**
  * Resizes the touch pictures administered in the back office (BO-03-01-24): it
@@ -17,7 +18,7 @@ import java.util.Base64;
  * browser's {@code FileReader}), decodes it, scales it DOWN so its longest side
  * never exceeds {@link #MAX_DIMENSION} pixels — never up, a small picture is
  * kept as is — and re-encodes it as a PNG {@code data:} URI ready to store on
- * {@link com.intermarche.pos.domain.Product#imageData} and ship on the PRODUCTS
+ * {@link com.intermarche.pos.domain.catalog.Product#imageData} and ship on the PRODUCTS
  * domain of the tirage. Bounding the size here is what lets a manager import a
  * batch of full-resolution photos without bloating the referential snapshot.
  * <p>
@@ -26,6 +27,9 @@ import java.util.Base64;
  */
 @ApplicationScoped
 public class ImageResizeService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(ImageResizeService.class);
 
     /** The maximum length, in pixels, of the longest side of a stored picture. */
     static final int MAX_DIMENSION = 128;
@@ -42,6 +46,8 @@ public class ImageResizeService {
      * @throws IllegalArgumentException when the input is not a readable image
      */
     public String resizeToDataUri(String input) {
+        LOGGER.info("Entering method resizeToDataUri with input: " + input);
+        LOGGER.info("Exiting method resizeToDataUri");
         return resizeToDataUri(input, MAX_DIMENSION);
     }
 

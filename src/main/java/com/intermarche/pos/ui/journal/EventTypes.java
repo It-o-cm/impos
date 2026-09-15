@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.journal;
 
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 
 /**
  * Resolves the functional event-type names posted by the functional journal
