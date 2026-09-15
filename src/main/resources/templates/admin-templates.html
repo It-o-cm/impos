@@ -1,0 +1,143 @@
+{!
+ ! Back-office DOCUMENT TEMPLATES page (BO-03-03): the layout of every printed
+ ! document, edited as a Qute source. A text area and not a canvas — a receipt
+ ! is a flow of lines on a roll, there is nothing to drag sideways. What makes
+ ! it an editor is the PREVIEW beside each source: the layout is rendered on a
+ ! demonstration sale, so the paramétreur reads the receipt instead of imagining
+ ! it. POST -> 303 -> notice, the same admin cycle as the other pages.
+ ! No inline <style>: base.css primitives only.
+!}
+{#include admin-layout}
+
+{#title}Gabarits de documents{/title}
+
+{#body}
+<div class="page-head">
+    <div>
+        <h1>Gabarits de documents</h1>
+        <p class="page-sub">Chaque document imprimé peut porter sa mise en page. Un document sans gabarit reste imprimé par la caisse, à l'identique.</p>
+    </div>
+</div>
+
+{#if notice}
+<div class="alert {#if noticeOk}alert-ok{#else}alert-error{/if}" role="status">{notice}</div>
+{/if}
+
+<div class="card">
+    <h2 class="card-title">Ce qu'un gabarit peut lire</h2>
+    <p class="page-sub">
+        Le gabarit ne voit que des valeurs déjà mises en forme : <code>store</code> (name, street, postalCode, city, siret),
+        <code>terminal</code>, <code>operator</code>, <code>date</code>, <code>time</code>, puis selon le document
+        <code>document</code> (number, duplicate, duplicateNumber, digitalPath),
+        <code>lines</code> (label, ean, family, unit, quantity, unitPrice, total, vatRate),
+        <code>totals</code> (excludingTax, vat, includingTax, discount),
+        <code>vatRows</code> (rate, base, vat), <code>payments</code> (label, key, amount),
+        <code>fidelity</code> (card), <code>session</code>, <code>tenders</code>, <code>movement</code>,
+        <code>instrument</code>, <code>card</code>. Aucune méthode de la caisse n'est joignable depuis un gabarit.
+    </p>
+    <p class="page-sub">
+        Exemple : <code>{#raw}{store.name}{#for l in lines}{l.label} {l.total}{/for}TOTAL {totals.includingTax}{/raw}</code>
+    </p>
+</div>
+
+{#for preview in previews}
+<div class="card">
+    <h2 class="card-title">{preview.template.code} — {preview.template.label}</h2>
+    <form method="post" action="/admin/templates/save">
+        <input type="hidden" name="code" value="{preview.template.code}">
+        <div class="field-grid">
+            <div class="field">
+                <label class="field-label" for="gl-{preview.template.code}">Libellé</label>
+                <input class="input-control" id="gl-{preview.template.code}" type="text" name="label" maxlength="100" value="{preview.template.label}">
+            </div>
+            <div class="field">
+                <label class="field-label" for="gt-{preview.template.code}">Document</label>
+                <select class="input-control" id="gt-{preview.template.code}" name="documentType">
+                    {#for type in documentTypes}
+                    <option value="{type}" {#if preview.template.documentType == type}selected{/if}>{type.label}</option>
+                    {/for}
+                </select>
+            </div>
+            <div class="field">
+                <label class="field-label" for="gw-{preview.template.code}">Largeur</label>
+                <input class="input-control" id="gw-{preview.template.code}" type="number" name="width" value="{preview.template.width}">
+            </div>
+            <div class="field">
+                <label class="field-label" for="gc-{preview.template.code}">Exemplaires</label>
+                <input class="input-control" id="gc-{preview.template.code}" type="number" name="copies" min="1" value="{preview.template.copies}">
+            </div>
+            <div class="field">
+                <label class="field-label" for="gp-{preview.template.code}">Priorité</label>
+                <input class="input-control" id="gp-{preview.template.code}" type="number" name="priority" value="{preview.template.priority}">
+            </div>
+            <div class="field">
+                <label class="field-label" for="ga-{preview.template.code}">Actif</label>
+                <input id="ga-{preview.template.code}" type="checkbox" name="active" {#if preview.template.active}checked{/if}>
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="gs-{preview.template.code}">Mise en page</label>
+            <textarea class="input-control" id="gs-{preview.template.code}" name="source" rows="14" spellcheck="false">{preview.template.source}</textarea>
+        </div>
+        <div class="page-actions"><button class="btn btn-primary" type="submit">Enregistrer le gabarit</button></div>
+    </form>
+
+    <h3 class="card-title">Aperçu</h3>
+    {#if preview.rendered}
+    <pre class="preview-pane">{preview.rendered}</pre>
+    {#else}
+    <p class="page-sub">Ce gabarit ne rend rien : la caisse imprimera ce document à sa façon.</p>
+    {/if}
+
+    <form method="post" action="/admin/templates/delete">
+        <input type="hidden" name="code" value="{preview.template.code}">
+        <div class="page-actions"><button class="btn btn-muted" type="submit">Supprimer le gabarit</button></div>
+    </form>
+</div>
+{/for}
+
+<div class="card">
+    <h2 class="card-title">Nouveau gabarit</h2>
+    <form method="post" action="/admin/templates/save">
+        <div class="field-grid">
+            <div class="field">
+                <label class="field-label" for="new-gcode">Code</label>
+                <input class="input-control" id="new-gcode" type="text" name="code" maxlength="50" required>
+            </div>
+            <div class="field">
+                <label class="field-label" for="new-glabel">Libellé</label>
+                <input class="input-control" id="new-glabel" type="text" name="label" maxlength="100">
+            </div>
+            <div class="field">
+                <label class="field-label" for="new-gtype">Document</label>
+                <select class="input-control" id="new-gtype" name="documentType" required>
+                    {#for type in documentTypes}
+                    <option value="{type}">{type.label}</option>
+                    {/for}
+                </select>
+            </div>
+            <div class="field">
+                <label class="field-label" for="new-gwidth">Largeur</label>
+                <input class="input-control" id="new-gwidth" type="number" name="width" value="42">
+            </div>
+            <div class="field">
+                <label class="field-label" for="new-gcopies">Exemplaires</label>
+                <input class="input-control" id="new-gcopies" type="number" name="copies" min="1" value="1">
+            </div>
+            <div class="field">
+                <label class="field-label" for="new-gpriority">Priorité</label>
+                <input class="input-control" id="new-gpriority" type="number" name="priority" value="100">
+            </div>
+            <div class="field">
+                <label class="field-label" for="new-gactive">Actif</label>
+                <input id="new-gactive" type="checkbox" name="active" checked>
+            </div>
+        </div>
+        <div class="field">
+            <label class="field-label" for="new-gsource">Mise en page</label>
+            <textarea class="input-control" id="new-gsource" name="source" rows="14" spellcheck="false"></textarea>
+        </div>
+        <div class="page-actions"><button class="btn btn-primary" type="submit">Créer le gabarit</button></div>
+    </form>
+</div>
+{/body}
