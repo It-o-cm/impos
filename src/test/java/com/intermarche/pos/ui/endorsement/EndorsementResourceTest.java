@@ -1,7 +1,6 @@
 package com.intermarche.pos.ui.endorsement;
 
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.ticket.Refund;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.home.HomeService;
 import com.intermarche.pos.ui.returnprocess.RefundService;
@@ -225,7 +224,7 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         TicketState.TicketItem item = addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.REMISE;
+        resource.state.endorsement.pendingPriceType = "REMISE";
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("0.50");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
@@ -246,7 +245,7 @@ class EndorsementResourceTest {
     void validateEndorsementGrantedGlobalRemiseTargetsTheWholeTicket() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.GLOBAL_REMISE;
+        resource.state.endorsement.pendingPriceType = "GLOBAL_REMISE";
         resource.state.endorsement.pendingTargetUid = null;
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
@@ -257,7 +256,7 @@ class EndorsementResourceTest {
         assertEquals("/", response.getLocation().toString());
 
         verify(resource.ticketService).applyGlobalDiscount(
-                resource.state, PriceModType.GLOBAL_REMISE, new BigDecimal("1.00"));
+                resource.state, "GLOBAL_REMISE", new BigDecimal("1.00"));
         verify(resource.ticketService, never()).applyRemise(any(), any());
         verify(resource.ticketService, never()).recalculateTotal(resource.state);
     }
@@ -270,7 +269,7 @@ class EndorsementResourceTest {
     void validateEndorsementGrantedGlobalDiscountTargetsTheWholeTicket() {
         EndorsementResource resource = newResource();
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.GLOBAL_DISCOUNT;
+        resource.state.endorsement.pendingPriceType = "GLOBAL_DISCOUNT";
         resource.state.endorsement.pendingValue = new BigDecimal("10");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
                 .thenReturn(true);
@@ -278,7 +277,7 @@ class EndorsementResourceTest {
         resource.validateEndorsement("m", "1234");
 
         verify(resource.ticketService).applyGlobalDiscount(
-                resource.state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("10"));
+                resource.state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
     }
 
     /**
@@ -291,7 +290,7 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         TicketState.TicketItem item = addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.GLOBAL_REMISE;
+        resource.state.endorsement.pendingPriceType = "GLOBAL_REMISE";
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
@@ -300,7 +299,7 @@ class EndorsementResourceTest {
         resource.validateEndorsement("m", "1234");
 
         verify(resource.ticketService).applyGlobalDiscount(
-                resource.state, PriceModType.GLOBAL_REMISE, new BigDecimal("1.00"));
+                resource.state, "GLOBAL_REMISE", new BigDecimal("1.00"));
         verify(resource.ticketService, never()).applyRemise(item, new BigDecimal("1.00"));
     }
 
@@ -324,16 +323,16 @@ class EndorsementResourceTest {
     }
 
     /**
-     * A mode that is neither line-level nor ticket-level keeps the per-line
-     * path: the router asks the mode what it applies to, so a mode that claims
-     * neither cannot silently become a whole-ticket one.
+     * A type that merely CONTAINS "GLOBAL" without starting with the prefix
+     * keeps the per-line path: the router is a prefix test, so a future
+     * per-line gesture cannot silently become a whole-ticket one.
      */
     @Test
-    void validateEndorsementOnlyTheTicketScopeRoutesToTheWholeTicket() {
+    void validateEndorsementOnlyThePrefixRoutesToTheWholeTicket() {
         EndorsementResource resource = newResource();
         TicketState.TicketItem item = addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.QUANTITY;
+        resource.state.endorsement.pendingPriceType = "REMISE_GLOBAL";
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION"))
@@ -355,7 +354,7 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         TicketState.TicketItem item = addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.DISCOUNT;
+        resource.state.endorsement.pendingPriceType = "DISCOUNT";
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("10");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
@@ -375,7 +374,7 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         TicketState.TicketItem item = addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.FORCE_PRICE;
+        resource.state.endorsement.pendingPriceType = "FORCE_PRICE";
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("2.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
@@ -388,7 +387,7 @@ class EndorsementResourceTest {
 
     /**
      * {@code validateEndorsement()} still recalculates the total but applies no
-     * gesture when the granted price modification carries no type at all (all
+     * gesture when the granted price modification carries an unknown type (all
      * three type ternaries false, item present).
      */
     @Test
@@ -396,7 +395,7 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = null;
+        resource.state.endorsement.pendingPriceType = "UNKNOWN";
         resource.state.endorsement.pendingTargetUid = "L1";
         resource.state.endorsement.pendingValue = new BigDecimal("1.00");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);
@@ -418,7 +417,7 @@ class EndorsementResourceTest {
         EndorsementResource resource = newResource();
         addItem(resource, "L1");
         resource.state.endorsement.requestedAction = "PRICE_MODIFICATION";
-        resource.state.endorsement.pendingPriceType = PriceModType.REMISE;
+        resource.state.endorsement.pendingPriceType = "REMISE";
         resource.state.endorsement.pendingTargetUid = "NOPE";
         resource.state.endorsement.pendingValue = new BigDecimal("0.50");
         when(resource.endorsementService.authorize("m", "1234", "PRICE_MODIFICATION")).thenReturn(true);

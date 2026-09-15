@@ -1,7 +1,6 @@
-package com.intermarche.pos.domain.sale;
+package com.intermarche.pos.domain.ticket;
 
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.Product;
 import java.math.BigDecimal;
 import java.util.Objects;
 import org.junit.jupiter.api.Assertions;
@@ -65,7 +64,7 @@ class TicketLineTest {
         line.unitPrice = new BigDecimal("1.9900");
         line.vatRate = new BigDecimal("0.0550");
         line.modifierLabel = "REMISE -10%";
-        line.modifierType = PriceModType.REMISE;
+        line.modifierType = "REMISE";
         line.modifierValue = new BigDecimal("0.1000");
         line.originalUnitPrice = new BigDecimal("2.2100");
         line.totalPrice = new BigDecimal("2.9850");
@@ -85,7 +84,7 @@ class TicketLineTest {
         Assertions.assertEquals(new BigDecimal("1.9900"), line.unitPrice);
         Assertions.assertEquals(new BigDecimal("0.0550"), line.vatRate);
         Assertions.assertEquals("REMISE -10%", line.modifierLabel);
-        Assertions.assertEquals(PriceModType.REMISE, line.modifierType);
+        Assertions.assertEquals("REMISE", line.modifierType);
         Assertions.assertEquals(new BigDecimal("0.1000"), line.modifierValue);
         Assertions.assertEquals(new BigDecimal("2.2100"), line.originalUnitPrice);
         Assertions.assertEquals(new BigDecimal("2.9850"), line.totalPrice);

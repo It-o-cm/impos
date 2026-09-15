@@ -1,16 +1,15 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.payment.BackupPayment;
-import com.intermarche.pos.domain.payment.CardPayment;
-import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.payment.CreditPayment;
-import com.intermarche.pos.domain.payment.ForeignCurrencyPayment;
-import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.payment.TicketPayment;
-import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.domain.ticket.BackupPayment;
+import com.intermarche.pos.domain.ticket.CardPayment;
+import com.intermarche.pos.domain.ticket.CashPayment;
+import com.intermarche.pos.domain.ticket.CreditPayment;
+import com.intermarche.pos.domain.ticket.ForeignCurrencyPayment;
+import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.ticket.TicketLine;
+import com.intermarche.pos.domain.ticket.TicketPayment;
+import com.intermarche.pos.domain.ticket.VoucherPayment;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -144,7 +143,7 @@ class TicketRecoveryServiceTest {
         line.vatRate = new BigDecimal("0.2000");
         line.modifierLabel = modifierLabel;
         if (modifierLabel != null) {
-            line.modifierType = PriceModType.REMISE;
+            line.modifierType = "REMISE";
             line.modifierValue = new BigDecimal("5.00");
         }
         line.originalUnitPrice = originalUnitPrice != null ? new BigDecimal(originalUnitPrice) : null;
@@ -327,7 +326,7 @@ class TicketRecoveryServiceTest {
         TicketState.TicketItem second = items.get(1);
         assertEquals("L1", second.uid);
         assertEquals("REMISE -5", second.modifierLabel);
-        assertEquals(PriceModType.REMISE, second.modifierType);
+        assertEquals("REMISE", second.modifierType);
         assertEquals(0, new BigDecimal("5.00").compareTo(second.modifierValue));
         assertEquals(0, new BigDecimal("12.00").compareTo(second.originalUnitPrice));
         TicketState.TicketItem third = items.get(2);

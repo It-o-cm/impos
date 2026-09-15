@@ -1,8 +1,7 @@
 package com.intermarche.e2e;
 
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.CashSession;
+import com.intermarche.pos.domain.Employee;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import com.microsoft.playwright.APIResponse;
@@ -128,7 +127,7 @@ public class GroupCIT {
         typeAndValidate(page, "1");
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
-        Assertions.assertEquals(PriceModType.REMISE, line.modifierType, "the gesture must stamp a REMISE modifier");
+        Assertions.assertEquals("REMISE", line.modifierType, "the gesture must stamp a REMISE modifier");
         Assertions.assertEquals(0, line.modifierValue.compareTo(new BigDecimal("1")),
                 "the structured delta must be the 1,00 € typed amount");
         Assertions.assertTrue(line.modifierLabel.startsWith("Remise"),
@@ -181,7 +180,7 @@ public class GroupCIT {
         typeAndValidate(page100, "100");
         approveEndorsementWithManager(page100);
         TicketState.TicketItem full = posState.ticket.items.get(0);
-        Assertions.assertEquals(PriceModType.DISCOUNT, full.modifierType, "a 100 % discount must stamp a DISCOUNT modifier");
+        Assertions.assertEquals("DISCOUNT", full.modifierType, "a 100 % discount must stamp a DISCOUNT modifier");
         Assertions.assertEquals(0, full.getTotalPrice().compareTo(BigDecimal.ZERO),
                 "a 100 % discount must zero the line");
         page100.close();
@@ -260,7 +259,7 @@ public class GroupCIT {
         typeAndValidate(page, "5");
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
-        Assertions.assertEquals(PriceModType.FORCE_PRICE, line.modifierType, "the gesture must stamp a FORCE_PRICE modifier");
+        Assertions.assertEquals("FORCE_PRICE", line.modifierType, "the gesture must stamp a FORCE_PRICE modifier");
         Assertions.assertEquals(0, line.getTotalPrice().compareTo(new BigDecimal("5.00")),
                 "the forced line total must be 5,00 €");
         Assertions.assertEquals(0, line.unitPrice.compareTo(new BigDecimal("2.50")),
@@ -335,7 +334,7 @@ public class GroupCIT {
         // prefills the login, the modal jumps to PIN, the PIN applies the remise.
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
-        Assertions.assertEquals(PriceModType.REMISE, line.modifierType,
+        Assertions.assertEquals("REMISE", line.modifierType,
                 "the badge-prefilled endorsement must apply the gesture");
         Assertions.assertEquals(0, line.getTotalPrice().compareTo(new BigDecimal("5.00")),
                 "the remise applied through the badge must drop the line to 5,00 €");
@@ -360,14 +359,14 @@ public class GroupCIT {
         openGesture(page, "remise", "REMISE");
         typeAndValidate(page, "1");
         approveEndorsementWithManager(page);
-        Assertions.assertEquals(PriceModType.REMISE, posState.ticket.items.get(0).modifierType,
+        Assertions.assertEquals("REMISE", posState.ticket.items.get(0).modifierType,
                 "the first gesture must stamp a REMISE modifier");
         // Second gesture: a FORÇAGE to 4,00 € REPLACES the REMISE.
         openGesture(page, "force_price", "FORÇAGE PRIX");
         typeAndValidate(page, "4");
         approveEndorsementWithManager(page);
         TicketState.TicketItem line = posState.ticket.items.get(0);
-        Assertions.assertEquals(PriceModType.FORCE_PRICE, line.modifierType,
+        Assertions.assertEquals("FORCE_PRICE", line.modifierType,
                 "the second gesture must replace the modifier type");
         Assertions.assertEquals(0, line.modifierValue.compareTo(new BigDecimal("4")),
                 "the structured value must be the second gesture's, not the first's");
