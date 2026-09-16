@@ -78,16 +78,6 @@ public record EntryField(String name, String label, String keyboard, boolean upp
         return required ? label + " " + REQUIRED_MARK : label;
     }
 
-    /**
-     * Returns this field carrying a value.
-     *
-     * @param newValue the value to carry, null treated as empty
-     * @return a copy carrying that value
-     */
-    public EntryField withValue(String newValue) {
-        return new EntryField(name, label, keyboard, uppercase, maxLength, required,
-                newValue == null ? "" : newValue);
-    }
 
     /**
      * Parses the administered customer mask ({@code LC-08-04-10}).

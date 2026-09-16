@@ -116,32 +116,6 @@ public class ImfidClient {
         return baseUrl();
     }
 
-    /**
-     * Probes the service health endpoint (public, unauthenticated — spec
-     * §2.2).
-     *
-     * @return true when imfid answers 200 within the timeout
-     */
-    public boolean health() {
-        String base = baseUrl();
-        if (base == null) {
-            return false;
-        }
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(base + "/q/health"))
-                    .timeout(Duration.ofMillis(1500))
-                    .GET()
-                    .build();
-            return httpClient.send(request, HttpResponse.BodyHandlers.discarding())
-                    .statusCode() == 200;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        } catch (Exception e) {
-            return false;
-        }
-    }
 
     /**
      * Requests the earn projection for the current cart (spec §3): the
@@ -340,22 +314,6 @@ public class ImfidClient {
         }
     }
 
-    /**
-     * Posts a fiscal event body to an events endpoint (spec §6-7).
-     *
-     * @param path the endpoint path (e.g. /api/events/ticket-closed)
-     * @param payloadJson the composed event body
-     * @return the HTTP status (202 = accepted)
-     * @throws Exception on transport failure
-     */
-    public int postEvent(String path, String payloadJson) throws Exception {
-        HttpRequest request = authenticated(path)
-                .header("Content-Type", "application/json")
-                .timeout(Duration.ofMillis(2500))
-                .POST(HttpRequest.BodyPublishers.ofString(payloadJson))
-                .build();
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofString()).statusCode();
-    }
 
     /** Typed outcome of a reservation attempt (spec §5.1 codes). */
     public static class ReservationResult {

@@ -119,26 +119,7 @@ class EntryFieldTest {
         assertEquals("Ville", fields.get(1).getDisplayLabel());
     }
 
-    /**
-     * A field takes a value without losing anything else it carries.
-     */
-    @Test
-    void withValueKeepsEverythingElse() {
-        EntryField field = EntryField.customerFields("companyName*").get(0);
-        EntryField filled = field.withValue("BOULANGERIE");
-        assertEquals("BOULANGERIE", filled.value());
-        assertEquals(field.name(), filled.name());
-        assertEquals(field.keyboard(), filled.keyboard());
-        assertTrue(filled.required());
-    }
 
-    /**
-     * A missing value becomes an empty one rather than a null the screen would print.
-     */
-    @Test
-    void withValueTurnsNullIntoEmpty() {
-        assertEquals("", EntryField.customerFields("companyName").get(0).withValue(null).value());
-    }
 
     /**
      * The ticket mask asks for the three things printed on the paper the customer

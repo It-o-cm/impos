@@ -215,16 +215,6 @@ public class TicketState implements Serializable {
         onChange();
     }
 
-    /**
-     * Removes the last line of the ticket, if any, and recomputes the total.
-     */
-    public void removeLastItem() {
-        if (!items.isEmpty()) {
-            items.remove(items.size() - 1);
-            recomputeTotal();
-            onChange();
-        }
-    }
 
     /**
      * Removes the line identified by its uid, if present, and recomputes the total.
@@ -672,13 +662,6 @@ public class TicketState implements Serializable {
             return __t;
         }
 
-        /**
-         * Returns the register-local line total, ignoring any valuation —
-         * the "before" figure of the printed advantage delta.
-         *
-         * @return the local line total, tax included
-         */
-        public BigDecimal getLocalTotalPrice() { return unitPrice.multiply(quantity); }
 
         /**
          * Returns the HTML fragment displaying the quantity and label of the line.

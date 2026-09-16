@@ -213,66 +213,10 @@ class PaymentStateTest {
         assertEquals(2, state.currentPage);
     }
 
-    /**
-     * getVisiblePayments returns an empty list when there is no payment (empty arm).
-     */
-    @Test
-    void getVisiblePaymentsEmptyList() {
-        assertTrue(new PaymentState().getVisiblePayments().isEmpty());
-    }
 
-    /**
-     * getVisiblePayments clamps a page beyond the last (currentPage > maxPage
-     * true, currentPage < 0 false) and returns that last page's slice.
-     */
-    @Test
-    void getVisiblePaymentsClampsPageTooHigh() {
-        PaymentState state = stateWith(3);
-        state.currentPage = 5;
-        List<PaymentEntry> visible = state.getVisiblePayments();
-        assertEquals(0, state.currentPage);
-        assertEquals(3, visible.size());
-    }
 
-    /**
-     * getVisiblePayments clamps a negative page (currentPage > maxPage false,
-     * currentPage < 0 true) back to the first page.
-     */
-    @Test
-    void getVisiblePaymentsClampsNegativePage() {
-        PaymentState state = stateWith(3);
-        state.currentPage = -3;
-        List<PaymentEntry> visible = state.getVisiblePayments();
-        assertEquals(0, state.currentPage);
-        assertEquals(3, visible.size());
-    }
 
-    /**
-     * getVisiblePayments returns the second-page slice for an in-range page
-     * (both clamps false, fromIndex below size), covering only its five entries.
-     */
-    @Test
-    void getVisiblePaymentsSecondPageSlice() {
-        PaymentState state = stateWith(11);
-        state.currentPage = 1;
-        List<PaymentEntry> visible = state.getVisiblePayments();
-        assertEquals(5, visible.size());
-        assertSame(state.payments.get(5), visible.get(0));
-        assertSame(state.payments.get(9), visible.get(4));
-    }
 
-    /**
-     * getVisiblePayments returns the short final-page slice (toIndex capped at
-     * the list size) with the trailing entry only.
-     */
-    @Test
-    void getVisiblePaymentsLastPagePartialSlice() {
-        PaymentState state = stateWith(11);
-        state.currentPage = 2;
-        List<PaymentEntry> visible = state.getVisiblePayments();
-        assertEquals(1, visible.size());
-        assertSame(state.payments.get(10), visible.get(0));
-    }
 
     /**
      * isHasPreviousPage is true past the first page and false on it (both arms).
@@ -299,14 +243,6 @@ class PaymentStateTest {
         assertFalse(state.isHasNextPage());
     }
 
-    /**
-     * isPaginated is true above one full page and false at or below it (both arms).
-     */
-    @Test
-    void isPaginatedBothArms() {
-        assertFalse(stateWith(5).isPaginated());
-        assertTrue(stateWith(6).isPaginated());
-    }
 
     /**
      * getCurrentPageDisplay returns the 1-based page number.
@@ -443,23 +379,7 @@ class PaymentStateTest {
         assertEquals("1,01", new PaymentEntry("CARD", new BigDecimal("1.005")).getFormattedAmount());
     }
 
-    /**
-     * getFormattedTendered renders the amount when present (non-null arm).
-     */
-    @Test
-    void getFormattedTenderedPresent() {
-        PaymentEntry entry = new PaymentEntry("CASH", new BigDecimal("10.00"), new BigDecimal("20.5"));
-        assertEquals("20,50", entry.getFormattedTendered());
-    }
 
-    /**
-     * getFormattedTendered returns a dash when the tendered amount is absent
-     * (null arm).
-     */
-    @Test
-    void getFormattedTenderedAbsent() {
-        assertEquals("-", new PaymentEntry("CARD", new BigDecimal("10.00")).getFormattedTendered());
-    }
 
     /**
      * getVoucherNumber returns the stored number when present (non-null arm).

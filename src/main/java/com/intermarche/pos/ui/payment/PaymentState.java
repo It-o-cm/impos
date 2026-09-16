@@ -622,24 +622,6 @@ public class PaymentState implements Serializable {
         currentPage = getTotalPages() - 1;
     }
 
-    /**
-     * Returns the payments visible on the current page.
-     *
-     * @return the sublist of payments for the current page
-     */
-    public List<PaymentEntry> getVisiblePayments() {
-        if (payments.isEmpty()) return Collections.emptyList();
-        int maxPage = getTotalPages() - 1;
-        if (currentPage > maxPage) currentPage = maxPage;
-        if (currentPage < 0) currentPage = 0;
-        // The clamp above keeps the window inside the list: with a non-empty
-        // list, fromIndex = page * PAGE_SIZE <= maxPage * PAGE_SIZE <= size - 1
-        // (and a negative page is raised to 0). No further bound check is
-        // reachable — one used to sit here and could never fire.
-        int fromIndex = currentPage * PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PAGE_SIZE, payments.size());
-        return payments.subList(fromIndex, toIndex);
-    }
 
     /**
      * Indicates whether a previous page of payments exists.
@@ -659,14 +641,6 @@ public class PaymentState implements Serializable {
         return (currentPage + 1) * PAGE_SIZE < payments.size();
     }
 
-    /**
-     * Indicates whether pagination controls are needed (more than one page).
-     *
-     * @return true if the payments span more than one page
-     */
-    public boolean isPaginated() {
-        return payments.size() > PAGE_SIZE;
-    }
 
     /**
      * Returns the 1-based current page number for display.
@@ -837,15 +811,6 @@ public class PaymentState implements Serializable {
             return String.format("%.2f", amount.setScale(2, RoundingMode.HALF_UP)).replace(".", ",");
         }
 
-        /**
-         * Returns the tendered amount formatted for display, or "-" when absent.
-         *
-         * @return the formatted tendered amount
-         */
-        public String getFormattedTendered() {
-            if (tenderedAmount == null) return "-";
-            return String.format("%.2f", tenderedAmount.setScale(2, RoundingMode.HALF_UP)).replace(".", ",");
-        }
 
         /**
          * Indicates whether this entry is a voucher payment.

@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.payment.TenderDefinition;
-import com.intermarche.pos.ui.journal.PaymentTypes;
+import com.intermarche.pos.domain.payment.PaymentTypes;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.math.BigDecimal;
@@ -160,18 +160,6 @@ public class TenderRulesService {
         return tender == null ? fallback : tender.opensDrawer(changeDue, receiptPrinted);
     }
 
-    /**
-     * Tells whether picking this tender pre-fills the remaining due
-     * (BO-03-02-23).
-     *
-     * @param methodKey the settlement key, or null
-     * @param fallback what the register does when no row administers the tender
-     * @return the administered answer, or the fallback
-     */
-    public boolean defaultsToTotal(String methodKey, boolean fallback) {
-        TenderDefinition tender = TenderDefinition.findByCode(methodKey);
-        return tender == null ? fallback : tender.defaultsToTotal;
-    }
 
     /**
      * Returns the pre-fill answer of the ADMINISTERED tenders only

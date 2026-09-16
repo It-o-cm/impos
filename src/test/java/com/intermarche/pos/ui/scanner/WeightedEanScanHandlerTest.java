@@ -558,7 +558,12 @@ class WeightedEanScanHandlerTest {
         range.codeKind = com.intermarche.pos.domain.barcode.CouponField.Kind.NUMERIC;
         range.valueSource = source;
         range.checkDigit = false;
-        new com.intermarche.pos.service.CouponPatternService().regenerateRange(range);
+        // The pattern is NOT generated here: the register RECEIVES it with the
+        // range (RefApplyService.applyArticleBarcodeRanges copies
+        // ArticleBarcodeRangeDto.matchPattern). The fixture therefore states
+        // the pattern the node ships for a numeric range with no administered
+        // segment, which is what the scan chain actually reads.
+        range.matchPattern = "^" + prefix + "\\d{" + (length - prefix.length()) + "}$";
         return range;
     }
 

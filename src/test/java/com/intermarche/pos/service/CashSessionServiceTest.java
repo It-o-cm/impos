@@ -107,7 +107,7 @@ class CashSessionServiceTest {
      * @param mocked the active Panache static mock
      */
     private void stubNoAdministeredTenders(MockedStatic<PanacheEntityBase> mocked) {
-        for (String key : com.intermarche.pos.ui.journal.PaymentTypes.keys()) {
+        for (String key : com.intermarche.pos.domain.payment.PaymentTypes.keys()) {
             mocked.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
                     .find("code", key)).thenReturn(noTender);
         }

@@ -151,34 +151,8 @@ class ImfidClientTest {
 
     // --- health ---
 
-    /**
-     * A 200 on the public health endpoint means the service is up.
-     */
-    @Test
-    void healthIsTrueOn200() {
-        stub("/q/health", 200, "{\"status\":\"UP\"}");
-        assertTrue(client.health());
-    }
 
-    /**
-     * Any non-200 answer means DOWN — no exception escapes: a health probe
-     * that throws would be worse than one that says no.
-     */
-    @Test
-    void healthIsFalseOnErrorStatus() {
-        stub("/q/health", 503, "");
-        assertFalse(client.health());
-    }
 
-    /**
-     * An unreachable service is DOWN, not an exception (the port is closed
-     * after the server stops).
-     */
-    @Test
-    void healthIsFalseWhenUnreachable() {
-        server.stop(0);
-        assertFalse(client.health());
-    }
 
     // --- earn ---
 
@@ -527,18 +501,6 @@ class ImfidClientTest {
         assertDoesNotThrow(() -> bare.release(77L));
     }
 
-    /**
-     * An event is posted as-is to the given path, and the status is returned
-     * (202 = accepted by the ingestion).
-     */
-    @Test
-    void postEventSendsThePayloadAsIsAndReturnsTheStatus() throws Exception {
-        stub("/api/events/ticket-closed", 202, "");
-        String payload = "{\"ticketRef\":\"2026-C04-000001\",\"card\":\"2990000000019\"}";
-        int status = client.postEvent("/api/events/ticket-closed", payload);
-        assertEquals(202, status);
-        assertEquals(payload, receivedBody.get());
-    }
 
     // --- movements ---
 
@@ -584,42 +546,9 @@ class ImfidClientTest {
 
     // --- unconfigured service ---
 
-    /**
-     * With NO base URL, {@code health()} answers false WITHOUT touching the
-     * network: an unconfigured loyalty service is simply down, and probing a
-     * null address would throw.
-     */
-    @Test
-    void healthIsFalseWhenNoUrlIsConfigured() {
-        ImfidClient bare = new ImfidClient();
-        bare.posSettingsService = settings();
-        bare.url = Optional.empty();
-        assertFalse(bare.health());
-    }
 
     // --- interruption ---
 
-    /**
-     * An INTERRUPTED health probe answers false and — the point of the
-     * dedicated catch — RE-ARMS the thread's interrupt flag, which
-     * {@code send} cleared when it threw. Swallowing it would leave a
-     * shutting-down register unable to notice it was asked to stop.
-     */
-    @Test
-    void healthRestoresTheInterruptFlagAndAnswersFalse() throws Exception {
-        stub("/q/health", 200, "");
-        AtomicReference<Boolean> answer = new AtomicReference<>();
-        AtomicReference<Boolean> stillInterrupted = new AtomicReference<>();
-        Thread worker = new Thread(() -> {
-            Thread.currentThread().interrupt();
-            answer.set(client.health());
-            stillInterrupted.set(Thread.currentThread().isInterrupted());
-        });
-        worker.start();
-        worker.join();
-        assertFalse(answer.get());
-        assertTrue(stillInterrupted.get(), "le drapeau d'interruption doit être ré-armé");
-    }
 
     /**
      * An INTERRUPTED release swallows the interruption the same way — the
@@ -705,22 +634,6 @@ class ImfidClientTest {
         assertNull(receivedAuthorization.get());
     }
 
-    /**
-     * The Basic header travels on EVERY authenticated endpoint, not just the
-     * earn projection — the machine account identifies the register on the
-     * account read, the reservation and the events alike.
-     */
-    @Test
-    void authorizationTravelsOnTheOtherEndpointsToo() throws Exception {
-        stub("/api/accounts/2990000000019", 200, "{\"status\":\"ACTIVE\",\"balance\":1}");
-        client.account("2990000000019");
-        assertNotNull(receivedAuthorization.get());
-
-        receivedAuthorization.set(null);
-        stub("/api/events/ticket-closed", 202, "");
-        client.postEvent("/api/events/ticket-closed", "{}");
-        assertNotNull(receivedAuthorization.get());
-    }
 
     // --- lookup ---
 

@@ -251,12 +251,13 @@ cat <<READY
     NŒUD MAGASIN  http://localhost:8070             ← l'adresse seule suffit
     Dashboard     http://localhost:8070/dashboard   ← LE seul agrégateur
     Nomenclature  http://localhost:8070/admin/nomenclatures  (2504 nœuds réels)
-    Back-office   http://localhost:8070/admin       (admin / admin) — LE back-office
-                  du magasin : ce qui est saisi sur une caisse est effacé au
-                  tirage suivant. La caisse garde le sien pour le cas isolé.
+    Back-office   http://localhost:8070/admin       (admin / admin) — LE back-office,
+                  et le seul : la caisse n'en sert plus un seul écran, ils ont
+                  quitté impos avec le journal, les imports et GraphQL.
     Moteur        http://localhost:8090/   (IHM admin — données reçues d'impos)
     imfid         http://localhost:8060/   (IHM programme)
-    État des flux http://localhost:8080/feeds/import/status  ($ADMIN_AUTH)
+    État des flux http://localhost:8080/feeds/import/status  (sans identifiants :
+                  la caisse n'a plus de surface HTTP authentifiée)
   Logs: $RUN_DIR/   —   Arrêt: ./demo-stack.sh stop
   La caisse pousse vers :8070 — le dashboard se remplit à la première vente.
 ════════════════════════════════════════════════════════

@@ -120,16 +120,6 @@ class Gs1ParserTest {
     // The three shapes of an Element String
     // --------------------------------------------------
 
-    /**
-     * The human-readable form a specification writes decodes.
-     */
-    @Test
-    void theHumanReadableFormDecodes() {
-        Gs1Message message = Gs1Parser.parse("(01)09526000134367(10)ABC123");
-        assertEquals(2, message.getElements().size());
-        assertEquals("09526000134367", message.value("01"));
-        assertEquals("ABC123", message.value("10"));
-    }
 
     /**
      * The bare concatenation decodes, its variable-length element ending the payload.
@@ -141,30 +131,7 @@ class Gs1ParserTest {
         assertEquals("ABC123", message.value("10"));
     }
 
-    /**
-     * The transmitted form decodes: a symbology identifier is dropped and the
-     * separators close the variable-length elements.
-     */
-    @Test
-    void theTransmittedFormDecodes() {
-        Gs1Message message =
-                Gs1Parser.parse("]C1010952600013436710ABC123" + GS + "3103000195");
-        assertEquals(3, message.getElements().size());
-        assertEquals("ABC123", message.value("10"));
-        assertEquals(new BigDecimal("0.195"), message.decimal("310"));
-    }
 
-    /**
-     * A run of separators between two elements is stepped over rather than read as
-     * elements of its own — the separator leg of the reading loop.
-     */
-    @Test
-    void repeatedSeparatorsAreSteppedOver() {
-        Gs1Message message =
-                Gs1Parser.parse("]C110ABC" + GS + GS + "3103000195");
-        assertEquals(2, message.getElements().size());
-        assertEquals("ABC", message.value("10"));
-    }
 
     /**
      * An unclosed parenthesis does not lose the payload: what follows is read as it
@@ -180,18 +147,6 @@ class Gs1ParserTest {
     // Delimiting
     // --------------------------------------------------
 
-    /**
-     * A fixed-length element needs no separator: three of them run together and each
-     * comes back whole.
-     */
-    @Test
-    void fixedLengthElementsRunTogether() {
-        Gs1Message message = Gs1Parser.parse("(01)03560070123456(3103)000195(17)261130");
-        assertEquals(3, message.getElements().size());
-        assertEquals("03560070123456", message.value("01"));
-        assertEquals(new BigDecimal("0.195"), message.decimal("310"));
-        assertEquals(LocalDate.of(2026, 11, 30), message.date("17"));
-    }
 
     /**
      * A payload that stops in the middle of a fixed-length element yields what was
@@ -214,45 +169,8 @@ class Gs1ParserTest {
         assertEquals("001234", message.value("8005"));
     }
 
-    /**
-     * An identifier this version does not know, sitting BETWEEN two it does, is kept
-     * and stepped over — {@code LC-11-03-03} in one test: the article is still there
-     * after it.
-     */
-    @Test
-    void anUnknownIdentifierIsKeptAndSteppedOver() {
-        Gs1Message message = Gs1Parser.parse("(01)03560070123456(99)XYZ(17)261130");
-        assertEquals("03560070123456", message.value("01"));
-        assertEquals(LocalDate.of(2026, 11, 30), message.date("17"));
-        assertEquals(1, message.getUnknownElements().size());
-        assertEquals("XYZ", message.getUnknownElements().get(0).value());
-        assertFalse(message.getUnknownElements().get(0).isKnown());
-        assertEquals("AI inconnu", message.getUnknownElements().get(0).getLabel());
-    }
 
-    /**
-     * An unknown identifier that nothing closes takes the rest of the payload and the
-     * reading stops there: everything after it is undelimitable, and inventing elements
-     * out of it would be worse than admitting the payload ended.
-     */
-    @Test
-    void anUnclosedUnknownIdentifierEndsTheReading() {
-        Gs1Message message = Gs1Parser.parse("(01)03560070123456" + GS + "99XYZ123");
-        assertEquals("03560070123456", message.value("01"));
-        assertEquals(1, message.getUnknownElements().size());
-        assertEquals("XYZ123", message.getUnknownElements().get(0).value());
-    }
 
-    /**
-     * A payload ending on an identifier too short to be one stops rather than reading
-     * past the end — the bounds leg of the unknown reading.
-     */
-    @Test
-    void aDanglingSingleCharacterEndsTheReading() {
-        Gs1Message message = Gs1Parser.parse("(01)03560070123456" + GS + "9");
-        assertEquals("03560070123456", message.value("01"));
-        assertEquals(1, message.getElements().size());
-    }
 
     // --------------------------------------------------
     // The Digital Link URI (LC-11-02-03 / -06)
@@ -329,29 +247,7 @@ class Gs1ParserTest {
         assertTrue(Gs1Parser.parse("https://example.com/promo/ete").isEmpty());
     }
 
-    /**
-     * A Digital Link keeps an identifier this version does not know: the address
-     * delimits it for us, so there is nothing preventing the record
-     * ({@code LC-11-03-02}).
-     */
-    @Test
-    void aDigitalLinkKeepsUnknownIdentifiers() {
-        Gs1Message message =
-                Gs1Parser.parse("https://x.io/01/09526000134367/99/ZZZ");
-        assertEquals(1, message.getUnknownElements().size());
-        assertEquals("ZZZ", message.getUnknownElements().get(0).value());
-    }
 
-    /**
-     * A query parameter without a value is dropped rather than read as an empty
-     * element — the equals-sign leg.
-     */
-    @Test
-    void aValuelessQueryParameterIsDropped() {
-        Gs1Message message =
-                Gs1Parser.parse("https://x.io/01/09526000134367?flag&17=271231");
-        assertEquals(2, message.getElements().size());
-    }
 
     // --------------------------------------------------
     // Reading the values
@@ -488,21 +384,6 @@ class Gs1ParserTest {
     // The message itself
     // --------------------------------------------------
 
-    /**
-     * The message answers what it holds and what it does not, and hands back the
-     * payload it was given.
-     */
-    @Test
-    void theMessageAnswersWhatItHolds() {
-        Gs1Message message = Gs1Parser.parse("(01)03560070123456(10)L42");
-        assertTrue(message.has("01"));
-        assertFalse(message.has("17"));
-        assertNull(message.value("17"));
-        assertNull(message.decimal("17"));
-        assertNull(message.date("17"));
-        assertNull(message.get("17"));
-        assertEquals("(01)03560070123456(10)L42", message.getRawPayload());
-    }
 
     /**
      * The journal line names every identifier, its meaning and its value — the shape

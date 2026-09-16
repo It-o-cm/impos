@@ -241,28 +241,7 @@ class TicketStateTest {
         assertEquals(2, ts.items.size());
     }
 
-    /**
-     * removeLastItem on a non-empty ticket drops the last line and recomputes.
-     */
-    @Test
-    void removeLastItemNonEmpty() {
-        TicketState ts = new TicketState();
-        ts.addItem("111", null, "A", new BigDecimal("1.00"), BigDecimal.ONE, null);
-        ts.addItem("222", null, "B", new BigDecimal("2.00"), BigDecimal.ONE, null);
-        ts.removeLastItem();
-        assertEquals(1, ts.items.size());
-        assertEquals(0, new BigDecimal("1.00").compareTo(ts.totalAmount));
-    }
 
-    /**
-     * removeLastItem on an empty ticket is a no-op (isEmpty true arm).
-     */
-    @Test
-    void removeLastItemEmpty() {
-        TicketState ts = new TicketState();
-        ts.removeLastItem();
-        assertTrue(ts.items.isEmpty());
-    }
 
     /**
      * removeItemById with a null uid returns immediately (null arm).
@@ -445,15 +424,6 @@ class TicketStateTest {
         assertEquals(0, new BigDecimal("3.00").compareTo(item.getTotalPrice()));
     }
 
-    /**
-     * getLocalTotalPrice ignores any valuation.
-     */
-    @Test
-    void getLocalTotalPriceIgnoresValuation() {
-        TicketItem item = unitItem("1", "1.50", "2");
-        item.valuedTotal = new BigDecimal("99.00");
-        assertEquals(0, new BigDecimal("3.00").compareTo(item.getLocalTotalPrice()));
-    }
 
     /**
      * getHtml returns the raw label for a code-less span line (both arms true).

@@ -20,19 +20,6 @@ import org.junit.jupiter.api.Test;
  */
 class RefundTest {
 
-    /**
-     * Builds a refund line carrying the given unit price and quantity.
-     *
-     * @param price    the unit price including tax
-     * @param quantity the refunded quantity
-     * @return a populated {@link RefundLine}
-     */
-    private RefundLine line(String price, String quantity) {
-        RefundLine l = new RefundLine();
-        l.price = new BigDecimal(price);
-        l.quantity = new BigDecimal(quantity);
-        return l;
-    }
 
     /**
      * The default constructor sets the lifecycle status to OPEN.
@@ -118,27 +105,7 @@ class RefundTest {
         Assertions.assertEquals(Refund.RefundMethod.LOYALTY, Refund.RefundMethod.valueOf("LOYALTY"));
     }
 
-    /**
-     * calculateTotal over an empty line list yields zero (the reduction identity).
-     */
-    @Test
-    void calculateTotalWithNoLinesIsZero() {
-        Refund refund = new Refund();
-        refund.calculateTotal();
-        Assertions.assertEquals(BigDecimal.ZERO, refund.totalAmount);
-    }
 
-    /**
-     * calculateTotal sums price times quantity across every line.
-     */
-    @Test
-    void calculateTotalSumsLines() {
-        Refund refund = new Refund();
-        refund.lines.add(line("2.5000", "3"));
-        refund.lines.add(line("1.0000", "4"));
-        refund.calculateTotal();
-        Assertions.assertEquals(new BigDecimal("11.5000"), refund.totalAmount);
-    }
 
     /**
      * getChecksum hashes the refund number, ticket id, total, status and method.

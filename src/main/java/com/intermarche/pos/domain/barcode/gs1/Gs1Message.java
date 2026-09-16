@@ -50,23 +50,7 @@ public final class Gs1Message {
         return new Gs1Message(rawPayload, Collections.emptyList());
     }
 
-    /**
-     * Returns the elements, in the order the payload encoded them.
-     *
-     * @return the elements, never null
-     */
-    public List<Gs1Element> getElements() {
-        return elements;
-    }
 
-    /**
-     * Returns the payload as it arrived.
-     *
-     * @return the raw payload
-     */
-    public String getRawPayload() {
-        return rawPayload;
-    }
 
     /**
      * Tells whether the payload decoded to nothing, which is how a non-GS1 code reads.
@@ -77,24 +61,6 @@ public final class Gs1Message {
         return elements.isEmpty();
     }
 
-    /**
-     * Returns the elements this version has no meaning for ({@code LC-11-03-03}).
-     *
-     * <p>They are separated rather than dropped because they are journalled: an
-     * identifier the register ignored is the first thing anyone looks for when a
-     * supplier's code behaves oddly.
-     *
-     * @return the unknown elements, in encoding order
-     */
-    public List<Gs1Element> getUnknownElements() {
-        List<Gs1Element> unknown = new ArrayList<>();
-        for (Gs1Element element : elements) {
-            if (!element.isKnown()) {
-                unknown.add(element);
-            }
-        }
-        return unknown;
-    }
 
     /**
      * Returns the first element carrying that identifier.

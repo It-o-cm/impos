@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.payment.TenderDefinition;
-import com.intermarche.pos.ui.journal.PaymentTypes;
+import com.intermarche.pos.domain.payment.PaymentTypes;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -300,51 +300,7 @@ class TenderRulesServiceTest {
         }
     }
 
-    /**
-     * Change, change tender, drawer moment and pre-fill each answer the
-     * administered row, and each falls back to the register's own answer — both
-     * legs of every fallback (BO-03-02-16/19/23).
-     */
-    @Test
-    void everyReaderFallsBackToTheRegistersOwnAnswer() {
-        TenderRulesService service = new TenderRulesService();
-        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            wire(mocked, queries);
-            assertTrue(service.changeAllowed("TR", true));
-            assertFalse(service.changeAllowed("TR", false));
-            assertEquals("TR", service.changeTender("TR"));
-            assertTrue(service.opensDrawer("TR", true, false, true));
-            assertFalse(service.opensDrawer("TR", true, false, false));
-            assertTrue(service.defaultsToTotal("TR", true));
-            assertFalse(service.defaultsToTotal("TR", false));
-        }
-    }
 
-    /**
-     * An administered row overrides each of those four answers, whatever the
-     * register would have said on its own.
-     */
-    @Test
-    void anAdministeredRowOverridesTheRegistersOwnAnswer() {
-        TenderRulesService service = new TenderRulesService();
-        TenderDefinition tender = mealVoucher();
-        tender.changeAllowed = false;
-        tender.changeTenderCode = "CASH";
-        tender.drawerOpening = TenderDefinition.DrawerOpening.IF_CHANGE_DUE;
-        tender.defaultsToTotal = false;
-        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
-        queries.put("TR", queryOf(tender));
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            wire(mocked, queries);
-            assertFalse(service.changeAllowed("TR", true));
-            assertEquals("CASH", service.changeTender("TR"));
-            assertTrue(service.opensDrawer("TR", true, false, false));
-            assertFalse(service.opensDrawer("TR", false, false, true));
-            assertFalse(service.defaultsToTotal("TR", true));
-            assertEquals(Map.of("TR", false), service.administeredDefaultAmounts());
-        }
-    }
 
     /**
      * The pre-fill map carries the administered rows only, so a screen reading
@@ -394,21 +350,6 @@ class TenderRulesServiceTest {
         assertEquals("TROP HAUT - APPELER UN SUPERVISEUR", supervisor.displayMessage());
     }
 
-    /**
-     * A settlement key that is null is answered without touching the
-     * referential, which is what the absence of any stubbing here asserts.
-     */
-    @Test
-    void aNullKeyIsAnsweredWithoutAQuery() {
-        TenderRulesService service = new TenderRulesService();
-        assertFalse(service.check(null, BigDecimal.TEN, 0).speaks());
-        assertFalse(service.checkChange(null, BigDecimal.TEN).speaks());
-        assertTrue(service.isOffered(null));
-        assertTrue(service.changeAllowed(null, true));
-        assertNull(service.changeTender(null));
-        assertTrue(service.opensDrawer(null, true, false, true));
-        assertTrue(service.defaultsToTotal(null, true));
-    }
 
     /**
      * The catalog the readers sweep is the register's own list of settlement
