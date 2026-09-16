@@ -15,18 +15,13 @@
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-    .pos-terminal {
-      width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid var(--border-strong); border-radius: 10px;
-      display: grid; grid-template-rows: 60px 1fr 80px;
-      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-    }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
     .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
 
     .main-area { display: flex; justify-content: center; align-items: center; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 560px; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 35rem; }
     .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
     .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); }
     .info-row .label { color: var(--text-muted); }
@@ -34,7 +29,7 @@
     .status-open { color: var(--success); }
     .form-row { display: flex; align-items: center; gap: 15px; margin: 25px 0; justify-content: center; }
     .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
-    .form-row input { width: 160px; padding: 14px; font-size: var(--fs-field); font-weight: bold; text-align: right; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .form-row input { width: 10rem; padding: 14px; font-size: var(--fs-field); font-weight: bold; text-align: right; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
     .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
 
     .btn { display: block; }
@@ -85,9 +80,9 @@
       <!-- Sans session ouverte, RETOUR ne mène nulle part : le garde de session
            renvoie ici. La seule sortie légitime est alors de rendre la caisse. -->
       {#if current??}
-        <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+        <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
       {#else}
-        <a href="/lock" class="btn btn-muted" style="width: 180px;">DÉCONNEXION</a>
+        <a href="/lock" class="btn btn-muted" style="width: 11.25rem;">DÉCONNEXION</a>
       {/if}
     </div>
   </div>

@@ -16,12 +16,7 @@
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-    .pos-terminal {
-      width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid var(--border-strong); border-radius: 10px;
-      display: grid; grid-template-rows: 60px 1fr 80px;
-      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-    }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
     .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
@@ -32,20 +27,20 @@
     .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 8px; font-weight: bold; text-align: center; border-radius: 6px; }
 
     .method-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-    .method-row { display: grid; grid-template-columns: 1fr 140px 160px; align-items: center; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 18px; text-decoration: none; color: var(--text-main); }
+    .method-row { display: grid; grid-template-columns: 1fr 8.75rem 10rem; align-items: center; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 18px; text-decoration: none; color: var(--text-main); }
     .method-row:hover { border-color: var(--success); background: #0d2818; }
     .method-name { font-size: var(--fs-row); font-weight: bold; text-transform: uppercase; }
     .method-count { text-align: center; font-size: var(--fs-row); color: var(--text-muted); }
     .method-amount { text-align: right; font-size: var(--fs-amount); font-weight: bold; color: var(--success); }
     .empty { color: var(--text-muted); text-align: center; padding: 40px; font-weight: bold; }
 
-    .count-area { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 320px; gap: 12px; overflow: hidden; }
+    .count-area { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 20rem; gap: 12px; overflow: hidden; }
     .count-list-area { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-color); border-radius: 6px; }
     .tabs-container { display: flex; background: #1a1a1a; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
     .tab-btn { flex: 1; padding: 12px; background: none; border: none; color: var(--text-muted); font-size: var(--fs-btn-sm); font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; text-transform: uppercase; }
     .tab-btn.active { color: var(--success); border-bottom-color: var(--success); background: var(--bg-dark); }
     .items-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-    .count-item { display: grid; grid-template-columns: 220px 1fr 120px; align-items: center; background: var(--bg-panel); padding: 10px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; }
+    .count-item { display: grid; grid-template-columns: 13.75rem 1fr 7.5rem; align-items: center; background: var(--bg-panel); padding: 10px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; }
     .count-item.selected { background: #0d2818; border-color: var(--success); }
     .item-label { font-size: var(--fs-row); font-weight: bold; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .item-qty { text-align: center; font-size: var(--fs-row); color: white; }
@@ -68,7 +63,7 @@
     .manager-block .hint { color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 6px; }
     .manager-block .form-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 6px 0; }
     .manager-block label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
-    .manager-block input { width: 200px; padding: 8px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .manager-block input { width: 12.5rem; padding: 8px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -175,10 +170,10 @@
 
     <div class="bottom-nav">
       {#if selected??}
-        <a href="/withdrawal" class="btn btn-muted" style="width: 180px;">RETOUR</a>
-        <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 220px;">VALIDER LE PRÉLÈVEMENT</button>
+        <a href="/withdrawal" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+        <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE PRÉLÈVEMENT</button>
       {#else}
-        <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+        <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
         <span></span>
       {/if}
     </div>

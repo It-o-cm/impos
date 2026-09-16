@@ -34,10 +34,16 @@ public class ProductSearchResource {
     /**
      * Hits per screen.
      *
-     * <p>EIGHT, in four columns of two rows: what the results area holds between the
-     * title bar and the two keyboards WITHOUT a scrollbar. This register paginates,
-     * it does not scroll — dragging a list with a finger while the other hand holds
-     * an article is not a gesture a till can ask for, and nothing else here does it.
+     * <p>EIGHT, in a COLUMN beside the keyboard. The count is no longer set by
+     * what survives above a keyboard band but by the height of one row: results
+     * used to share the screen's width with nothing and its height with a
+     * 324-pixel keyboard, so they were a slice; standing them in a column gives
+     * them the terminal's full height, and one row costs 55 pixels where a
+     * horizontal tile cost 82 for less text.
+     *
+     * <p>This register paginates, it does not scroll — dragging a list with a
+     * finger while the other hand holds an article is not a gesture a till can
+     * ask for, and nothing else here does it.
      */
     private static final int PAGE_SIZE = 8;
 

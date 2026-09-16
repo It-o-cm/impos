@@ -53,6 +53,7 @@
                 '.pos-key--alpha { font-size: 1.5rem; text-transform: uppercase; }',
                 '.pos-key--wide { grid-column: span 2; }',
                 '.pos-key--wide5 { grid-column: span 5; }',
+                '.pos-key--wide2 { grid-column: span 2; }',
                 // Kept in sync with theme.html: the one shrunk pad, asked for
                 // by pos-kb-compact on the keyboard's container.
                 '.pos-kb-compact .pos-key { padding: 6px 4px; font-size: var(--fs-key-sm, 1rem); }',
@@ -218,6 +219,65 @@
         },
 
         /**
+         * Renders the SEARCH keyboard: one digit row above the AZERTY letters,
+         * with space and erase closing the last row.
+         * <p>
+         * ONE pad where the search screen used two. Letters and digits were a
+         * 10-column alphabetic grid beside a 3-column numeric pad, which cost
+         * 235 pixels of width for keys the alphabetic grid can carry in a row
+         * it did not have. The width freed is what lets the results stand in a
+         * COLUMN beside the keyboard instead of a band above it.
+         * <p>
+         * ADDITIVE variant, like the e-mail keyboard: the canonical .pos-key
+         * metrics are untouched and the two original renderers keep serving
+         * the screens that use them (lock, endorsement, fruits, return
+         * search). Nothing outside the search screen changes.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderSearchKeyboard: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const kb = this._makeGrid('pos-keyboard--alpha');
+            const rows = ['1234567890', 'AZERTYUIOP', 'QSDFGHJKLM'];
+            rows.forEach(row => {
+                row.split('').forEach(l => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.innerText = l;
+                    b.className = 'pos-key pos-key--digit pos-key--alpha';
+                    b.onclick = () => onKey(l);
+                    kb.appendChild(b);
+                });
+            });
+            // WXCVBN is six letters on a ten-column row: space and erase take
+            // the four slots that were empty, which is the row this pad saves.
+            'WXCVBN'.split('').forEach(l => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.innerText = l;
+                b.className = 'pos-key pos-key--digit pos-key--alpha';
+                b.onclick = () => onKey(l);
+                kb.appendChild(b);
+            });
+            const sp = document.createElement('button');
+            sp.type = 'button';
+            sp.innerText = 'ESPACE';
+            sp.className = 'pos-key pos-key--action pos-key--wide2';
+            sp.onclick = () => onKey(' ');
+            kb.appendChild(sp);
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.innerText = 'EFFACER';
+            del.className = 'pos-key pos-key--danger pos-key--wide2';
+            del.onclick = () => onKey('DEL');
+            kb.appendChild(del);
+            container.appendChild(kb);
+        },
+
+        /**
          * Renders the e-mail keyboard: digits row, AZERTY letters and the
          * four characters an address needs (@ . - _). ADDITIVE variant — the
          * canonical .pos-key metrics are untouched (theme rule).
@@ -285,6 +345,7 @@
                 case 'price': PosKeyboards.renderPriceNumpad(container, handler); break;
                 case 'payment': PosKeyboards.renderPaymentNumpad(container, handler); break;
                 case 'search': PosKeyboards.renderSearchPad(container, handler); break;
+                case 'searchAlpha': PosKeyboards.renderSearchKeyboard(container, handler); break;
                 default: PosKeyboards.renderNumpad(container, handler); break;
             }
 

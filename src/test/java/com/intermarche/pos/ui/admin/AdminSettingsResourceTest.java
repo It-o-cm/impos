@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
  * booted.
  * <p>
  * Branch enumeration (every arm exercised — 100%): {@code settingsPage} covers
- * the {@code firstOfSection} decision (open / continue section arms) and the
+ * the grouping into foldable sections (new heading / same heading arms) and the
  * {@code bool} / {@code integer} type ternaries over the whole catalog;
  * {@code save} covers the missing-field arm (continue), a valid integer
  * (parse-ok / non-negative arm) stored normalized, a non-numeric integer and a
@@ -70,9 +70,9 @@ class AdminSettingsResourceTest {
     }
 
     /**
-     * {@code settingsPage} projects the whole catalog into render entries,
-     * opening a section card on each section change (firstOfSection both arms)
-     * and flagging the boolean and integer widgets from the type.
+     * {@code settingsPage} projects the whole catalog into foldable SECTIONS,
+     * each holding its parameters in catalog order, and flags the boolean and
+     * integer widgets from the type.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -82,9 +82,19 @@ class AdminSettingsResourceTest {
         when(resource.posSettingsService.value(anyString())).thenReturn("V");
         assertEquals(instance, resource.settingsPage("hi", false));
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
-        verify(resource.adminSettings).data(eq("entries"), captor.capture());
-        List<AdminSettingsResource.Entry> entries =
-                (List<AdminSettingsResource.Entry>) captor.getValue();
+        verify(resource.adminSettings).data(eq("sections"), captor.capture());
+        List<AdminSettingsResource.Section> sections =
+                (List<AdminSettingsResource.Section>) captor.getValue();
+        List<AdminSettingsResource.Entry> entries = new java.util.ArrayList<>();
+        for (AdminSettingsResource.Section section : sections) {
+            assertFalse(section.getEntries().isEmpty(), "section vide: " + section.getLabel());
+            assertEquals(section.getEntries().size(), section.getCount(),
+                    "count#" + section.getLabel());
+            for (AdminSettingsResource.Entry entry : section.getEntries()) {
+                assertEquals(section.getLabel(), entry.section, "rubrique#" + entry.key);
+            }
+            entries.addAll(section.getEntries());
+        }
         // Expected BY KEY, not by position. Three parallel boolean arrays indexed
         // by catalog rank meant that adding one parameter — and the register adds
         // them by the handful — shifted every expectation after it and the test
@@ -168,19 +178,29 @@ class AdminSettingsResourceTest {
             {"training.theme",                      "MODE ÉCOLE",                 "",  ""},
         };
         assertEquals(expected.length, entries.size());
-        String previousSection = null;
         for (int i = 0; i < expected.length; i++) {
             AdminSettingsResource.Entry entry = entries.get(i);
             assertEquals(expected[i][0], entry.key, "key#" + i);
             assertEquals(expected[i][1], entry.section, "section#" + i);
             assertEquals("b".equals(expected[i][2]), entry.bool, "bool#" + entry.key);
             assertEquals("i".equals(expected[i][3]), entry.integer, "integer#" + entry.key);
-            // A card opens on every section change and only there.
-            assertEquals(!expected[i][1].equals(previousSection), entry.firstOfSection,
-                    "firstOfSection#" + entry.key);
-            previousSection = expected[i][1];
             assertEquals("V", entry.value);
         }
+        // A section opens on every heading change and ONLY there: consecutive
+        // parameters of one heading must not split it into two panels, and two
+        // headings must not be folded into one.
+        List<String> headings = sections.stream()
+                .map(AdminSettingsResource.Section::getLabel).toList();
+        List<String> expectedHeadings = new java.util.ArrayList<>();
+        String previousSection = null;
+        for (String[] row : expected) {
+            if (!row[1].equals(previousSection)) {
+                expectedHeadings.add(row[1]);
+            }
+            previousSection = row[1];
+        }
+        assertEquals(expectedHeadings, headings);
+        verify(instance).data("settingCount", expected.length);
         verify(instance).data("notice", "hi");
         verify(instance).data("noticeOk", false);
     }
@@ -269,31 +289,31 @@ class AdminSettingsResourceTest {
     }
 
     /**
-     * {@code adminRoot} routes a signed-in non-administrator to the
-     * supervision: the non-null arm of the identity guard, the false arm of
+     * {@code adminRoot} routes a signed-in non-administrator to the journal:
+     * the non-null arm of the identity guard, the false arm of
      * {@code hasRole} and the false arm of the routing ternary.
      */
     @Test
-    void adminRootRoutesNonAdminToDashboard() {
+    void adminRootRoutesNonAdminToJournal() {
         AdminSettingsResource resource = newResource();
         resource.identity = mock(SecurityIdentity.class);
         when(resource.identity.hasRole(Employee.EmployeeRole.ADMIN.name())).thenReturn(false);
         Response response = resource.adminRoot();
         assertEquals(303, response.getStatus());
-        assertEquals("/dashboard", response.getLocation().toString());
+        assertEquals("/admin/journal", response.getLocation().toString());
     }
 
     /**
-     * {@code adminRoot} routes to the supervision when there is no identity:
+     * {@code adminRoot} routes to the journal when there is no identity:
      * the null arm of the identity guard short-circuits before {@code hasRole}
      * and lands on the false arm of the routing ternary.
      */
     @Test
-    void adminRootRoutesNullIdentityToDashboard() {
+    void adminRootRoutesNullIdentityToJournal() {
         AdminSettingsResource resource = newResource();
         resource.identity = null;
         Response response = resource.adminRoot();
         assertEquals(303, response.getStatus());
-        assertEquals("/dashboard", response.getLocation().toString());
+        assertEquals("/admin/journal", response.getLocation().toString());
     }
 }

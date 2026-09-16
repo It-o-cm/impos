@@ -15,6 +15,11 @@ import java.util.TreeMap;
  * Any field added here must also be added to the canonical string of
  * {@code RefExportService} (fingerprint input) and to the corresponding
  * apply method — the three evolve as one.
+ * <p>
+ * The two domain lists live here rather than on the exporter because both
+ * ends read them: the store node exports those domains, the downstream node
+ * pulls them. Holding them on the exporter made the pull loop — common to
+ * both roles — depend on the store half of the synchronization.
  */
 public final class RefPayloads {
 
@@ -22,6 +27,51 @@ public final class RefPayloads {
      * Non-instantiable payload container.
      */
     private RefPayloads() {}
+
+    /**
+     * The referential domains a REGISTER pulls from its store node, in apply
+     * order.
+     * <p>
+     * PRODUCTS comes BEFORE FAMILIES: a family payload carries the articles it
+     * contains, so the articles must already exist when the family is wired.
+     * Nothing points the other way — an article holds no family reference, the
+     * association is owned by the family — so the swap is safe.
+     */
+    public static final List<String> DOMAINS =
+            List.of("PRODUCTS", "FAMILIES", "TOUCH_GROUPS", "PRICES", "EMPLOYEES", "COUPON_TYPES",
+                    "ARTICLE_RANGES", "ISLANDS", "TENDERS", "DOCUMENT_TEMPLATES", "SETTINGS", "ENGINE_FEEDS",
+                    "CUSTOMERS", "CURRENCIES");
+
+    /**
+     * The echelon domains a STORE node pulls from the CENTRAL node (route A),
+     * in apply order: the organisation tree top-down (a PDV references its
+     * enseigne, an enseigne its country) then the parameters posed on it. A
+     * register never pulls these — it receives only the resolved SETTINGS.
+     */
+    public static final List<String> ECHELON_DOMAINS =
+            List.of("COUNTRIES", "ENSEIGNES", "PDVS", "ECHELON_SETTINGS");
+
+    /**
+     * How one article group is drawn on the touch grid (upsert by group code).
+     * <p>
+     * A domain of its own, and not four more fields on {@link FamilyDto},
+     * because the two have different owners and different lifetimes: the
+     * nomenclature comes from the gestion commerciale and is replaced whole at
+     * every integration, the touch configuration is administered in the back
+     * office. Merged, re-importing the nomenclature erased the shop's grid.
+     */
+    public static class TouchGroupDto {
+        /** The code of the group this row configures (upsert key). */
+        public String familyCode;
+        /** Whether the group touch is pinned (BO-03-01-07). */
+        public boolean pinned;
+        /** The touch size SMALL/NORMAL/LARGE (BO-03-01-08), never null. */
+        public String buttonSize;
+        /** The custom display rank (BO-03-01-11). */
+        public int displayOrder;
+        /** The sales volume for the volume order (BO-03-01-13). */
+        public long salesVolume;
+    }
 
     /**
      * A product family (upsert by code).
@@ -33,14 +83,6 @@ public final class RefPayloads {
         public String description;
         /** The display flags. */
         public String flags;
-        /** Whether the group touch is pinned (BO-03-01-07). */
-        public boolean pinned;
-        /** The touch size SMALL/NORMAL/LARGE (BO-03-01-08), never null. */
-        public String buttonSize;
-        /** The custom display rank (BO-03-01-11). */
-        public int displayOrder;
-        /** The sales volume for the volume order (BO-03-01-13). */
-        public long salesVolume;
         /**
          * The codes of the families this one hangs under (BO-03-01-01).
          * <p>

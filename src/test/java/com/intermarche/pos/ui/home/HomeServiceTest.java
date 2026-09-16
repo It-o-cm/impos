@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;

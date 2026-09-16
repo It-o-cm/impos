@@ -15,12 +15,7 @@
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 1fr;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-        }
+        .pos-terminal { grid-template-rows: 1fr; position: relative; }
 
         .overlay {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -83,7 +78,7 @@
 
 
         .price-section {
-            width: 260px; display: flex; flex-direction: column; gap: 8px;
+            width: 16.25rem; display: flex; flex-direction: column; gap: 8px;
             background: var(--bg-inset); padding: 12px; border-radius: 5px;
             border-left: 1px solid var(--border-color); flex-shrink: 0; position: relative;
         }
@@ -152,7 +147,7 @@
                 <div class="numpad-dynamic-area" id="keyboardArea"></div>
 
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <a href="/" class="btn btn-muted" style="flex:0 0 130px; display:flex; align-items:center; justify-content:center;">RETOUR</a>
+                    <a href="/" class="btn btn-muted" style="flex:0 0 8.125rem; display:flex; align-items:center; justify-content:center;">RETOUR</a>
                     <button type="button" class="btn btn-success" style="flex:1;" onclick="submitForm()">VALIDER</button>
                 </div>
             </div>

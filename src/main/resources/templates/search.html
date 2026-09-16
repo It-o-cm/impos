@@ -4,8 +4,12 @@
  ! results on top and the input zone full-width below, which fits the keys
  ! at their STANDARD size (the historical compact override is gone: keys
  ! render identically on every screen, theme.html owns the metrics). The hits are
- ! PAGINATED, eight at a time: this register paginates everywhere and never asks a
- ! finger to drag a list. Alpha keyboard AND numeric search pad feed the SAME PosInput
+ ! PAGINÉS, QUATRE à la fois — pas huit : le clavier prend 324 des 600 pixels du
+ ! terminal, et huit résultats sur deux rangées tombaient à 19 pixels de haut,
+ ! coupés en deux. Ce registre pagine partout et ne demande jamais à un doigt de
+ ! faire défiler une liste. Les DEUX destinations du tampon tiennent sur la même
+ ! ligne (chercher au catalogue, valider comme un scan) : la bande pleine largeur
+ ! qu'occupait la seconde était prise sur les résultats. Alpha keyboard AND numeric search pad feed the SAME PosInput
  ! buffer (renderSearchPad routed through PosInput.handleKey), so names, EANs
  ! and PLUs mix freely. A hit tap routes /action/search/add/{code} through
  ! processScan: tapping = scanning, same chain, same guards. The display MUST
@@ -21,43 +25,59 @@
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-    .pos-terminal {
-      width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid var(--border-strong); border-radius: 10px;
-      display: grid; grid-template-rows: 52px 1fr auto;
-      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-    }
+    .pos-terminal { grid-template-rows: 3.25rem 1fr; }
+    /* DEUX COLONNES, pas deux bandes. Les résultats posés au-dessus du clavier
+       ne pouvaient qu'être écrasés : le clavier est haut et large à la fois, et
+       ce qui reste au-dessus de lui est une tranche. En colonne, ils prennent
+       toute la hauteur du terminal et leur nombre ne dépend plus que de la
+       hauteur d'une ligne. */
+    .work { display: grid; grid-template-columns: 1fr 21.25rem; min-height: 0; }
+    .pad-col { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; min-width: 0; }
+    /* Le pavé prend le BAS de sa colonne : sur une caisse, les doigts partent du
+       plan de travail, et une rangée de touches flottant au milieu de l'écran
+       s'atteint moins bien que la même rangée posée en bas. */
+    .kb-area { margin-top: auto; }
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
     .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
 
-    /* PAGINATED, NOT SCROLLED: eight hits fill the area exactly, and the pager sits
-       under them. Nothing on this register asks a finger to drag a list. */
-    .results-area { padding: 8px 15px; overflow: hidden; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    /* PAGINÉ, JAMAIS DÉROULÉ : la colonne tient huit lignes et le pager ferme
+       le bas. Huit et non quatre : une ligne pleine largeur de colonne coûte
+       55 pixels de haut, là où un bouton en grille horizontale en coûtait 82
+       pour afficher moins de texte. */
+    .results-col {
+      border-left: 1px solid var(--border-color); background: var(--bg-inset);
+      padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+      min-height: 0; min-width: 0; overflow: hidden;
+    }
+    .results-count { font-size: var(--fs-label); color: var(--text-muted); font-weight: bold; letter-spacing: 1px; text-transform: uppercase; flex-shrink: 0; }
     .results-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; font-size: var(--fs-body); }
-    .results-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); gap: 8px; min-height: 0; }
+    .results-list { flex: 1; display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
     .hit-btn {
       background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-main); border-radius: 8px;
-      cursor: pointer; text-align: center; text-transform: uppercase;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 2px; padding: 4px 6px; min-height: 0; text-decoration: none;
+      cursor: pointer; text-align: left; text-transform: uppercase; text-decoration: none;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 10px; min-height: 0; flex: 1;
       font-size: var(--fs-btn-sm); font-weight: bold; line-height: 1.15; overflow: hidden;
     }
     .hit-btn:active { background: var(--bg-panel); transform: scale(0.98); }
-    .hit-price { color: var(--success); font-size: var(--fs-row-sub); }
+    .hit-label { overflow: hidden; }
+    .hit-price { color: var(--success); font-size: var(--fs-row-sub); flex: 0 0 auto; }
 
 
-    .input-zone { background: var(--bg-inset); border-top: 1px solid var(--border-color); padding: 10px 15px; display: flex; flex-direction: column; gap: 8px; }
     .input-row { display: flex; gap: 10px; }
     .search-display {
       flex: 1; font-size: var(--fs-field); color: var(--primary); font-weight: bold;
       background: var(--bg-page); border: 2px solid var(--primary); border-radius: 4px;
       padding: 8px 12px; text-transform: uppercase;
     }
-    .btn-back { width: 150px; display: flex; align-items: center; justify-content: center; }
-    .btn-search { width: 220px; font-size: var(--fs-btn); font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; background-color: var(--primary); }
+    .btn-back { width: 9.375rem; display: flex; align-items: center; justify-content: center; }
+    .btn-search { width: 13.75rem; font-size: var(--fs-btn); font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-transform: uppercase; background-color: var(--primary); }
+    /* Les deux destinations du MÊME tampon tiennent sur une ligne : la bande
+       pleine largeur qu'occupait « valider ce code » était prise sur les
+       résultats, et c'est elle qui les avait réduits à une tranche illisible. */
+    .input-search { flex: 1; display: flex; gap: 10px; min-width: 0; }
+    .btn-scan { width: 100%; font-size: var(--fs-btn-sm); white-space: nowrap; }
 
-    .kb-row { display: grid; grid-template-columns: 1fr 235px; gap: 12px; }
-    /* Compact keys so both pads fit the 600px terminal with room for results */
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -66,60 +86,60 @@
       <span class="title">Recherche produit — nom, EAN ou code article</span>
     </div>
 
-    <div class="results-area">
-      {#if hits.isEmpty}
-        {#if q.length >= 2}
-          <div class="results-empty">AUCUN PRODUIT POUR « {q} »</div>
-        {#else}
-          <div class="results-empty">TAPEZ UN NOM, UN EAN OU UN CODE ARTICLE PUIS RECHERCHER</div>
-        {/if}
-      {#else}
-        <div class="results-grid">
-          {#for hit in pageHits}
-            <a href="/action/search/add/{hit.code}" class="hit-btn">
-              <span>{hit.label}</span>
-              <span class="hit-price">{hit.priceFormatted}</span>
-            </a>
-          {/for}
-        </div>
-        <div class="pos-pager">
-          {#if hasPrev}
-            <a href="{pageUrl}{prevPage}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
-          {#else}
-            <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
-          {/if}
-          <span class="pos-pager-info">PAGE {page} / {pageCount} — {hits.size} RÉSULTATS</span>
-          {#if hasNext}
-            <a href="{pageUrl}{nextPage}" class="btn btn-sm btn-muted">SUIVANT</a>
-          {#else}
-            <span class="btn btn-sm btn-muted off">SUIVANT</span>
-          {/if}
-        </div>
-      {/if}
-    </div>
-
-    <div class="input-zone">
-      <form action="/search" method="GET" id="searchForm">
+    <div class="work">
+      <div class="pad-col">
         <div class="input-row">
           <a href="/" class="btn btn-muted btn-back">RETOUR</a>
-          <input type="text" id="searchDisplay" class="search-display" value="{q}" readonly>
-          <input type="hidden" name="q" id="searchHidden" value="{q}">
-          <button type="submit" class="btn-search">RECHERCHER</button>
+          <form action="/search" method="GET" id="searchForm" class="input-search">
+            <input type="text" id="searchDisplay" class="search-display" value="{q}" readonly>
+            <input type="hidden" name="q" id="searchHidden" value="{q}">
+            <button type="submit" class="btn-search">RECHERCHER</button>
+          </form>
         </div>
-      </form>
-      {! LC-06-01-01: a SECOND destination for the same buffer. The search above only
-       ! offers catalog articles; a counter-ticket reference, a voucher or a loyalty
-       ! card are codes the catalog has never heard of and that no result list can
-       ! ever show. This one walks what was typed through the scan chain — typing is
-       ! scanning. It posts the same hidden field, so the two buttons cannot disagree
-       ! about what the operator typed. !}
-      <form action="/action/search/scan" method="POST" id="scanForm" style="margin-top:8px;">
-        <input type="hidden" name="q" id="scanHidden" value="{q}">
-        <button type="submit" class="btn btn-primary" style="width:100%;">VALIDER CE CODE (COMME UN SCAN)</button>
-      </form>
-      <div class="kb-row">
-        <div id="alphaKbArea"></div>
-        <div id="numKbArea"></div>
+        {! LC-06-01-01: a SECOND destination for the same buffer. The search only
+         ! offers catalog articles; a counter-ticket reference, a voucher or a
+         ! loyalty card are codes the catalog has never heard of and that no
+         ! result list can ever show. This one walks what was typed through the
+         ! scan chain — typing is scanning. It posts the same hidden field, so
+         ! the two buttons cannot disagree about what the operator typed. !}
+        <form action="/action/search/scan" method="POST" id="scanForm">
+          <input type="hidden" name="q" id="scanHidden" value="{q}">
+          <button type="submit" class="btn btn-primary btn-scan">VALIDER CE CODE (COMME UN SCAN)</button>
+        </form>
+        <div id="alphaKbArea" class="kb-area"></div>
+      </div>
+
+      <div class="results-col">
+        {#if hits.isEmpty}
+          {#if q.length >= 2}
+            <div class="results-empty">AUCUN PRODUIT POUR « {q} »</div>
+          {#else}
+            <div class="results-empty">TAPEZ UN NOM, UN EAN OU UN CODE ARTICLE PUIS RECHERCHER</div>
+          {/if}
+        {#else}
+          <div class="results-count">{hits.size} RÉSULTATS</div>
+          <div class="results-list">
+            {#for hit in pageHits}
+              <a href="/action/search/add/{hit.code}" class="hit-btn">
+                <span class="hit-label">{hit.label}</span>
+                <span class="hit-price">{hit.priceFormatted}</span>
+              </a>
+            {/for}
+          </div>
+          <div class="pos-pager">
+            {#if hasPrev}
+              <a href="{pageUrl}{prevPage}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
+            {#else}
+              <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
+            {/if}
+            <span class="pos-pager-info">{page} / {pageCount}</span>
+            {#if hasNext}
+              <a href="{pageUrl}{nextPage}" class="btn btn-sm btn-muted">SUIVANT</a>
+            {#else}
+              <span class="btn btn-sm btn-muted off">SUIVANT</span>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   </div>
@@ -127,18 +147,16 @@
   {#include keyboard-lib /}
 
   <script>
-    /* Alpha keyboard bound through PosInput (buffer, display, hidden field) */
+    /* UN seul pavé : lettres et chiffres, noms et EAN, le même tampon. */
     PosInput.setup({
       displayId: 'searchDisplay',
       hiddenId: 'searchHidden',
       containerId: 'alphaKbArea',
-      keyboardType: 'alpha',
+      keyboardType: 'searchAlpha',
       mode: 'text',
       maxLength: 30,
       initialValue: document.getElementById('searchHidden').value || ""
     });
-    /* Numeric pad (EAN / article code) feeding the same buffer */
-    PosKeyboards.renderSearchPad(document.getElementById('numKbArea'), k => PosInput.handleKey(k));
 
     /* PosInput writes into ONE hidden field, and the scan form has its own: it is
        filled from that single source at submit time rather than kept in step key by

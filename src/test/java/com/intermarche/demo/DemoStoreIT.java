@@ -30,14 +30,14 @@ import java.util.regex.Pattern;
 /**
  * The demo's module XIII (two-node store) automated on the SAME prerequisite
  * philosophy as the engine in {@link DemoIT}: an EXTERNAL store node must be
- * running on {@code localhost:8082} (the same application in store role),
+ * running on {@code localhost:8070} (the imedge project, whose own
  * exactly like the demo's second instance. The first check pings it with the
  * message to display before a demo; then a full sale is closed on the
  * register and the STORE's dashboard is polled until the consolidation
  * lands — the ticket count moves by one within the outbox drain window.
  * <p>
  * Start the store node before running (same command as the demo's module 0):
- * a second instance with the store profile listening on 8082. When it is not
+ * the imedge node listening on 8070. When it is not
  * there the class SKIPS (assumption, not failure): module XIII is the 90'
  * option of the demo, its absence must not redden the 30'/60' pre-flight.
  */
@@ -56,7 +56,7 @@ public class DemoStoreIT {
     private static final String COFFEE_EAN = "3300000000004";
 
     /** The external store node the demo's module XIII runs against. */
-    private static final String STORE_URL = "http://localhost:8082";
+    private static final String STORE_URL = "http://localhost:8070";
 
     /** The outbox drains every 10 s: poll up to three cycles. */
     private static final int DRAIN_TIMEOUT_SECONDS = 35;
@@ -123,7 +123,7 @@ public class DemoStoreIT {
         Integer before = storeTicketCount();
         Assumptions.assumeTrue(before != null,
                 "LE NŒUD MAGASIN NE RÉPOND PAS sur " + STORE_URL
-                        + " — démarrez la seconde instance (rôle store, port 8082) "
+                        + " — démarrez le nœud imedge (port 8070) "
                         + "avant de certifier le module XIII, ou jouez la démo sans lui");
         // --- A full sale on the register ---
         String root = base.toString();
@@ -208,7 +208,7 @@ public class DemoStoreIT {
         diagnosis.append("outbox caisse: ").append(remaining).append(" ligne(s) restante(s)");
         if (remaining > 0) {
             diagnosis.append(" [").append(lastError).append("]")
-                    .append(" → LE MAGASIN REFUSE OU EST MUET: vérifier pos.role=store sur :8082")
+                    .append(" → LE MAGASIN REFUSE OU EST MUET: vérifier le nœud imedge sur :8070")
                     .append(" et un éventuel pos.sync.token discordant");
         } else {
             diagnosis.append(" → soit la caisse n'a RIEN enfilé (pos.sync.store-url absent au")

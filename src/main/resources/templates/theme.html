@@ -73,6 +73,37 @@
         }
         * { box-sizing: border-box; font-family: var(--font-ui); margin: 0; padding: 0; }
 
+        /* L'ÉCHELLE. Une caisse n'a pas une définition, elle en a plusieurs
+           (LC-09-01-01 : 800x600, 1024x768, 1360x768, ratios 4/3 et 16/9), et
+           les écrans étaient figés à 1000x600 — une taille qui n'est aucune
+           des leurs. Tout le texte de ce thème étant exprimé en rem, UNE
+           racine suffit à faire suivre les trente et un écrans.
+
+           min(vw, vh) et non vw seul : une dalle est bornée par ses DEUX
+           dimensions. Un 1360x768 est large mais court, et échelonner sur la
+           largeur ferait déborder en hauteur. Le clamp pose un plancher, pour
+           qu'une petite dalle reste lisible, et un plafond, pour qu'une grande
+           ne donne pas des libellés de panneau d'autoroute. */
+        html { font-size: clamp(11px, min(1.45vw, 2.3vh), 22px); }
+
+        /* LE CADRE, déclaré ICI et plus dans chaque écran. Les trente et un
+           gabarits en portaient une copie identique au caractère près — même
+           histoire que les blocs :root d'avant. Seules les RANGÉES diffèrent
+           d'un écran à l'autre : chacun garde sa grid-template-rows, et rien
+           d'autre.
+
+           Il remplit la dalle au lieu de s'y poser en timbre : sur un
+           1024x768, un cadre de 1000x600 laissait 168 pixels de hauteur
+           inutilisés autour de lui. */
+        .pos-terminal {
+            width: 100vw; height: 100vh;
+            background-color: var(--bg-dark);
+            border: 2px solid var(--border-strong);
+            display: grid;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+        }
+
         /* Overlay banners: full-width strips laid OVER the positional grids
            (never grid children). Stacking order is semantic: training wins
            over degraded, degraded over advantages, advantages over

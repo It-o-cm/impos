@@ -1,5 +1,7 @@
 package com.intermarche.pos.ui.home;
 
+import com.intermarche.pos.ui.PriceModType;
+
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
@@ -17,6 +19,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the home screen: drawer-error handling, main pages,
@@ -39,6 +42,9 @@ import java.util.Map;
 @Path("/")
 @DrawerMustBeClosed
 public class HomeResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(HomeResource.class);
 
     @Inject Template main;
     @Inject Template supervisor;
@@ -65,6 +71,8 @@ public class HomeResource {
     @Produces(MediaType.TEXT_HTML)
     @DrawerMayBeOpen
     public TemplateInstance drawerErrorPage() {
+        LOGGER.info("Entering method drawerErrorPage");
+        LOGGER.info("Exiting method drawerErrorPage");
         return drawerError.data("state", state);
     }
 
@@ -77,9 +85,11 @@ public class HomeResource {
     @Path("/action/resume-after-drawer")
     @DrawerMayBeOpen
     public Response resumeAfterDrawer() {
+        LOGGER.info("Entering method resumeAfterDrawer");
         String target = (state.returnUrl != null && !state.returnUrl.isEmpty()) ? state.returnUrl : "/";
         state.returnUrl = null;
         state.touch();
+        LOGGER.info("Exiting method resumeAfterDrawer");
         return Response.seeOther(URI.create(target)).build();
     }
 
@@ -94,12 +104,15 @@ public class HomeResource {
     @Produces(MediaType.APPLICATION_JSON)
     @DrawerMayBeOpen
     public Map<String, Object> checkDrawerStatus() {
+        LOGGER.info("Entering method checkDrawerStatus");
         if (!hardwareService.isDrawerOpen()) {
             String target = (state.returnUrl != null && !state.returnUrl.isEmpty()) ? state.returnUrl : "/";
             state.returnUrl = null;
             state.touch();
+            LOGGER.info("Exiting method checkDrawerStatus");
             return Map.of("open", false, "redirect", target);
         }
+        LOGGER.info("Exiting method checkDrawerStatus");
         return Map.of("open", true, "redirect", "");
     }
 
@@ -113,6 +126,8 @@ public class HomeResource {
     @GET
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance home() {
+        LOGGER.info("Entering method home");
+        LOGGER.info("Exiting method home");
         return main.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows());
     }
@@ -128,6 +143,7 @@ public class HomeResource {
     @Produces(MediaType.APPLICATION_JSON)
     @DrawerMayBeOpen
     public Map<String, Object> getTicketFragment(@QueryParam("v") Long clientVersion) {
+        LOGGER.info("Entering method getTicketFragment with clientVersion: " + clientVersion);
         Map<String, Object> result = new HashMap<>();
         // The lock state rides on EVERY answer, version match included: the
         // poll is how an already-open screen learns that the register locked
@@ -141,6 +157,7 @@ public class HomeResource {
         result.put("payable", state.ticket.getTotalAmount().signum() > 0);
         if (clientVersion != null && state.version == clientVersion) {
             result.put("changed", false);
+            LOGGER.info("Exiting method getTicketFragment");
             return result;
         }
         result.put("changed", true);
@@ -169,6 +186,7 @@ public class HomeResource {
                 && state.fidelity.earnTotal.signum() > 0
                 ? String.format("AVANTAGE CARTE %.2f €", state.fidelity.earnTotal).replace('.', ',')
                 : null);
+        LOGGER.info("Exiting method getTicketFragment");
         return result;
     }
 
@@ -181,6 +199,8 @@ public class HomeResource {
     @Path("/supervisor")
     @DrawerMayBeOpen
     public TemplateInstance supervisorPage() {
+        LOGGER.info("Entering method supervisorPage");
+        LOGGER.info("Exiting method supervisorPage");
         return supervisor.data("state", state);
     }
 
@@ -194,7 +214,9 @@ public class HomeResource {
     @GET
     @Path("/action/supervisor/{reason}")
     public Response callSupervisor(@PathParam("reason") String reason) {
+        LOGGER.info("Entering method callSupervisor with reason: " + reason);
         homeService.callSupervisor(reason.toUpperCase().replace('-', ' '));
+        LOGGER.info("Exiting method callSupervisor");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -206,7 +228,9 @@ public class HomeResource {
     @GET
     @Path("/action/training")
     public Response toggleTraining() {
+        LOGGER.info("Entering method toggleTraining");
         homeService.requestTrainingToggle();
+        LOGGER.info("Exiting method toggleTraining");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -226,11 +250,13 @@ public class HomeResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response toggleMoneticsDegraded(@FormParam("login") String login,
             @FormParam("password") String password) {
+        LOGGER.info("Entering method toggleMoneticsDegraded with login: " + login + ", password: ***");
         if (state.isMoneticsDegradedForced()) {
             moneticsDegradedService.deactivate(state, login, password);
         } else {
             moneticsDegradedService.activate(state, login, password);
         }
+        LOGGER.info("Exiting method toggleMoneticsDegraded");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -249,7 +275,9 @@ public class HomeResource {
     @GET
     @Path("/action/menu/{key}")
     public TemplateInstance showMenu(@jakarta.ws.rs.PathParam("key") String key) {
+        LOGGER.info("Entering method showMenu with key: " + key);
         homeService.selectMenu(com.intermarche.pos.ui.PosMenu.of(key));
+        LOGGER.info("Exiting method showMenu");
         return home();
     }
 
@@ -263,7 +291,9 @@ public class HomeResource {
     @GET
     @Path("/action/ticket/prev")
     public TemplateInstance ticketPrev() {
+        LOGGER.info("Entering method ticketPrev");
         state.prevPage();
+        LOGGER.info("Exiting method ticketPrev");
         return home();
     }
 
@@ -275,7 +305,9 @@ public class HomeResource {
     @GET
     @Path("/action/ticket/next")
     public TemplateInstance ticketNext() {
+        LOGGER.info("Entering method ticketNext");
         state.nextPage();
+        LOGGER.info("Exiting method ticketNext");
         return home();
     }
 
@@ -290,7 +322,9 @@ public class HomeResource {
     @GET
     @Path("/action/select/{index}")
     public TemplateInstance selectLine(@PathParam("index") int index) {
+        LOGGER.info("Entering method selectLine with index: " + index);
         homeService.selectLine(index);
+        LOGGER.info("Exiting method selectLine");
         return home();
     }
 
@@ -304,7 +338,9 @@ public class HomeResource {
     @Path("/action/price-mod/arm")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response armQuantity(@FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method armQuantity with rawValue: " + rawValue);
         homeService.armQuantity(parseAmount(rawValue));
+        LOGGER.info("Exiting method armQuantity");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -316,7 +352,9 @@ public class HomeResource {
     @GET
     @Path("/action/repeat")
     public TemplateInstance repeatLastItem() {
+        LOGGER.info("Entering method repeatLastItem");
         homeService.repeatLastItem();
+        LOGGER.info("Exiting method repeatLastItem");
         return home();
     }
 
@@ -331,7 +369,9 @@ public class HomeResource {
     @Path("/action/entry/confirm")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response confirmEntry(@FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method confirmEntry with rawValue: " + rawValue);
         ticketService.confirmEntry(state, parseAmount(rawValue));
+        LOGGER.info("Exiting method confirmEntry");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -343,7 +383,9 @@ public class HomeResource {
     @GET
     @Path("/action/entry/cancel")
     public Response cancelEntry() {
+        LOGGER.info("Entering method cancelEntry");
         ticketService.cancelEntry(state);
+        LOGGER.info("Exiting method cancelEntry");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -375,7 +417,9 @@ public class HomeResource {
     @GET
     @Path("/action/collect")
     public TemplateInstance toggleCollect() {
+        LOGGER.info("Entering method toggleCollect");
         homeService.toggleCollect();
+        LOGGER.info("Exiting method toggleCollect");
         return home();
     }
 
@@ -387,7 +431,9 @@ public class HomeResource {
     @GET
     @Path("/action/cancelLine")
     public TemplateInstance cancelLine() {
+        LOGGER.info("Entering method cancelLine");
         homeService.cancelLine();
+        LOGGER.info("Exiting method cancelLine");
         return home();
     }
 
@@ -402,7 +448,9 @@ public class HomeResource {
     @GET
     @Path("/action/price-mod/{type}")
     public TemplateInstance openPriceMod(@PathParam("type") String type) {
+        LOGGER.info("Entering method openPriceMod with type: " + type);
         homeService.openPriceMod(type);
+        LOGGER.info("Exiting method openPriceMod");
         return home();
     }
 
@@ -420,7 +468,9 @@ public class HomeResource {
     @GET
     @Path("/action/age-check/confirm")
     public Response ageCheckConfirm() {
+        LOGGER.info("Entering method ageCheckConfirm");
         ticketService.confirmAgeCheck(state);
+        LOGGER.info("Exiting method ageCheckConfirm");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -433,21 +483,25 @@ public class HomeResource {
     @GET
     @Path("/action/age-check/refuse")
     public Response ageCheckRefuse() {
+        LOGGER.info("Entering method ageCheckRefuse");
         ticketService.refuseAgeCheck(state);
+        LOGGER.info("Exiting method ageCheckRefuse");
         return Response.seeOther(URI.create("/")).build();
     }
 
     @GET
     @Path("/action/price-mod/cancel")
     public TemplateInstance cancelPriceMod() {
+        LOGGER.info("Entering method cancelPriceMod");
         homeService.cancelPriceMod();
+        LOGGER.info("Exiting method cancelPriceMod");
         return home();
     }
 
     /**
      * Submits the price-modification value typed in the modal.
      *
-     * @param type the modification type (REMISE, DISCOUNT, FORCE_PRICE)
+     * @param type the name of the modification mode
      * @param uid the uid of the targeted ticket line
      * @param rawValue the raw typed value (French comma tolerated)
      * @return a 303 redirect to the home page (PRG pattern, so a browser
@@ -460,6 +514,7 @@ public class HomeResource {
             @FormParam("type") String type,
             @FormParam("uid") String uid,
             @FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method submitPriceMod with type: " + type + ", uid: " + uid + ", rawValue: " + rawValue);
 
         BigDecimal value;
         try {
@@ -469,10 +524,23 @@ public class HomeResource {
             state.ticket.setError("VALEUR INVALIDE");
             state.priceModState.clear();
             state.touch();
+            LOGGER.info("Exiting method submitPriceMod");
             return Response.seeOther(URI.create("/")).build();
         }
 
-        homeService.submitPriceMod(type, uid, value);
+        // The posted word is the last place the mode is still a string. A stale page
+        // or a forged post naming no mode applies nothing and says so, rather than
+        // falling through the dispatch in silence.
+        PriceModType mode = PriceModType.of(type);
+        if (mode == null) {
+            state.ticket.setError("MODIFICATION INCONNUE");
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method submitPriceMod");
+            return Response.seeOther(URI.create("/")).build();
+        }
+        homeService.submitPriceMod(mode, uid, value);
+        LOGGER.info("Exiting method submitPriceMod");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -487,7 +555,9 @@ public class HomeResource {
     @GET
     @Path("/action/add/{code}")
     public TemplateInstance addPlu(@PathParam("code") String code) {
+        LOGGER.info("Entering method addPlu with code: " + code);
         ticketService.addItemByPlu(state, code);
+        LOGGER.info("Exiting method addPlu");
         return home();
     }
 
@@ -503,10 +573,12 @@ public class HomeResource {
     @Path("/action/manual-add-known")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response addManualKnown(@FormParam("ean") String ean, @FormParam("quantity") String quantityStr) {
+        LOGGER.info("Entering method addManualKnown with ean: " + ean + ", quantityStr: " + quantityStr);
         int qty = 1;
         try { if(quantityStr != null && !quantityStr.isEmpty()) qty = Integer.parseInt(quantityStr); } catch(Exception e) {}
         if(qty <= 0) qty = 1;
         ticketService.addItemByEan(state, ean, BigDecimal.valueOf(qty));
+        LOGGER.info("Exiting method addManualKnown");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -522,7 +594,9 @@ public class HomeResource {
     @Path("/action/manual-add-unknown")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response addManualUnknown(@FormParam("label") String label, @FormParam("price") String priceStr) {
+        LOGGER.info("Entering method addManualUnknown with label: " + label + ", priceStr: " + priceStr);
         ticketService.addUnknownItem(state, label, priceStr);
+        LOGGER.info("Exiting method addManualUnknown");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -534,7 +608,9 @@ public class HomeResource {
     @GET
     @Path("/action/deposit")
     public TemplateInstance addDepositReturn() {
+        LOGGER.info("Entering method addDepositReturn");
         ticketService.addDeposit(state);
+        LOGGER.info("Exiting method addDepositReturn");
         return home();
     }
 
@@ -551,6 +627,8 @@ public class HomeResource {
     @GET
     @Path("/action/cancelTicket")
     public Response cancelTicket() {
+        LOGGER.info("Entering method cancelTicket");
+        LOGGER.info("Exiting method cancelTicket");
         return Response.seeOther(URI.create("/abandon")).build();
     }
 
@@ -567,7 +645,9 @@ public class HomeResource {
     @GET
     @Path("/action/print-last")
     public Response printLast() {
+        LOGGER.info("Entering method printLast");
         homeService.printLastTicket();
+        LOGGER.info("Exiting method printLast");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -580,7 +660,9 @@ public class HomeResource {
     @GET
     @Path("/action/print-last-barcode")
     public Response printLastBarcode() {
+        LOGGER.info("Entering method printLastBarcode");
         homeService.printLastTicketBarcode();
+        LOGGER.info("Exiting method printLastBarcode");
         return Response.seeOther(URI.create("/")).build();
     }
 
@@ -592,7 +674,9 @@ public class HomeResource {
     @GET
     @Path("/action/print-last-card")
     public Response printLastCard() {
+        LOGGER.info("Entering method printLastCard");
         homeService.printLastCardReceiptDuplicate();
+        LOGGER.info("Exiting method printLastCard");
         return Response.seeOther(URI.create("/")).build();
     }
 }

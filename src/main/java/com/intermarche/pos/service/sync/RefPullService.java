@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
  * fingerprint recorded yet, everything differs).
  * <p>
  * Two-level chain (route A): the SAME loop runs on a store node too, pulling
- * the echelon domains ({@link RefExportService#ECHELON_DOMAINS}) from the
+ * the echelon domains ({@link RefPayloads#ECHELON_DOMAINS}) from the
  * CENTRAL node instead of the register domains from the store — a register
  * pulls its store, a store pulls the central, and neither the mechanism nor
  * the fingerprint form changes, only the upstream URL and the domain set. A
@@ -71,7 +71,7 @@ public class RefPullService {
     Optional<String> centralUrl;
 
     @Inject
-    SyncOutboxService syncOutboxService;
+    SyncEndpoints syncEndpoints;
 
     @Inject
     RefApplyService refApplyService;
@@ -106,7 +106,7 @@ public class RefPullService {
      * @param event the Quarkus startup event
      */
     void onStart(@Observes StartupEvent event) {
-        boolean registerReady = "register".equalsIgnoreCase(role) && syncOutboxService.isEnabled();
+        boolean registerReady = "register".equalsIgnoreCase(role) && syncEndpoints.hasStoreUrl();
         boolean storeReady = "store".equalsIgnoreCase(role) && hasCentralUrl();
         if (!registerReady && !storeReady) {
             LOGGER.info("Tirage des référentiels désactivé (rôle central, ou URL amont absente)");
@@ -138,7 +138,7 @@ public class RefPullService {
      * @return the domain list to iterate
      */
     private List<String> pullDomains() {
-        return "store".equalsIgnoreCase(role) ? RefExportService.ECHELON_DOMAINS : RefExportService.DOMAINS;
+        return "store".equalsIgnoreCase(role) ? RefPayloads.ECHELON_DOMAINS : RefPayloads.DOMAINS;
     }
 
     /**
@@ -148,7 +148,7 @@ public class RefPullService {
      * @return the upstream base URL
      */
     private String upstreamUrl() {
-        return "store".equalsIgnoreCase(role) ? centralUrl.orElse("") : syncOutboxService.getStoreUrl();
+        return "store".equalsIgnoreCase(role) ? centralUrl.orElse("") : syncEndpoints.storeUrl();
     }
 
     /**
@@ -248,6 +248,8 @@ public class RefPullService {
         switch (domain) {
             case "FAMILIES" -> refApplyService.applyFamilies(
                     this.<RefPayloads.FamilyDto>pages(domain, new TypeReference<List<RefPayloads.FamilyDto>>() {}));
+            case "TOUCH_GROUPS" -> refApplyService.applyTouchGroups(
+                    this.<RefPayloads.TouchGroupDto>pages(domain, new TypeReference<List<RefPayloads.TouchGroupDto>>() {}));
             case "PRODUCTS" -> refApplyService.applyProducts(
                     this.<RefPayloads.ProductDto>pages(domain, new TypeReference<List<RefPayloads.ProductDto>>() {}));
             case "PRICES" -> refApplyService.applyPrices(

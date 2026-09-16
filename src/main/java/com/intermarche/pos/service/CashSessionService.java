@@ -9,7 +9,7 @@ import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.sync.SyncOutbox;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

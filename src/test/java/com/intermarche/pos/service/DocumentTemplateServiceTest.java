@@ -11,6 +11,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -393,5 +394,283 @@ class DocumentTemplateServiceTest {
         service.engine = engine;
         assertNull(service.renderTemplate(template("TOTAL {ticket.total}"), saleData()));
         assertTrue(service.parseError("TOTAL {ticket.total}").contains("boum"));
+    }
+    // --------------------------------------------------
+    // defaultSource — the starter layout offered in the editor
+    // --------------------------------------------------
+
+    /**
+     * EVERY kind of document offers a starter, every starter PARSES, and every
+     * starter RENDERS against the sample data of its own kind.
+     * <p>
+     * This is the test that matters, and it is written as one loop over the
+     * whole enum on purpose: a starter is only worth offering if it works, and
+     * the way it stops working is that someone adds a document type — or
+     * renames a key in {@code sampleData} — and the example nobody re-reads
+     * silently starts rendering an empty document. The rendering is asserted
+     * non-blank for the same reason: a layout referring only to absent keys
+     * parses cleanly and renders to nothing.
+     */
+    @Test
+    void everyKindOffersAStarterThatParsesAndRenders() {
+        DocumentTemplateService service = newService();
+        for (DocumentTemplate.DocumentType type : DocumentTemplate.DocumentType.values()) {
+            String source = service.defaultSource(type);
+            assertNotNull(source, type + " offers no starter");
+            assertFalse(source.isBlank(), type + " offers a blank starter");
+            assertNull(service.parseError(source), type + " offers a starter that does not parse");
+            DocumentTemplate template = new DocumentTemplate();
+            template.code = "STARTER";
+            template.documentType = type;
+            template.active = true;
+            template.width = DocumentTemplate.MIN_WIDTH;
+            template.source = source;
+            String rendered = service.renderTemplate(template, service.sampleData(type));
+            assertNotNull(rendered, type + " offers a starter that renders nothing");
+            assertFalse(rendered.isBlank(), type + " offers a starter that renders blank");
+        }
+    }
+
+    /**
+     * A starter names the data of ITS OWN kind: the sale receipt shows the
+     * articles and the total, the movement ticket shows the movement, the
+     * voucher shows the instrument. A starter rendering the store name alone
+     * would pass the loop above and teach the operator nothing.
+     */
+    @Test
+    void aStarterNamesTheDataOfItsOwnKind() {
+        DocumentTemplateService service = newService();
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.SALE_RECEIPT)
+                .contains("LAIT DEMI-ECREME 1L"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.SALE_RECEIPT)
+                .contains("4,60"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.REFUND_RECEIPT)
+                .contains("C04-R000012"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.INVOICE)
+                .contains("SARL DUPONT"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.INVOICE_A4)
+                .contains("FR00123456789"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.Z_REPORT)
+                .contains("C04-S00012"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.WITHDRAWAL_TICKET)
+                .contains("Billets 50"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.GIFT_CARD_VOUCHER)
+                .contains("296000000000042"));
+        assertTrue(rendered(service, DocumentTemplate.DocumentType.CARD_RECEIPT)
+                .contains("CREDIT"));
+    }
+
+    /**
+     * The A4 starter keeps its stylesheet: the CSS braces sit next to Qute's
+     * own delimiter, and a starter whose style block was eaten would render a
+     * page nobody wants to print.
+     */
+    @Test
+    void theA4StarterKeepsItsStylesheet() {
+        String page = rendered(newService(), DocumentTemplate.DocumentType.INVOICE_A4);
+        assertTrue(page.contains("border-collapse: collapse"));
+        assertTrue(page.contains("</style>"));
+    }
+
+    /**
+     * No kind means no starter — the null arm, which the editor hits before a
+     * type is chosen.
+     */
+    @Test
+    void noKindOffersNoStarter() {
+        assertEquals("", newService().defaultSource(null));
+    }
+
+    /**
+     * Renders the starter of one kind against the sample data of that kind.
+     *
+     * @param service the service under test
+     * @param type the kind of document
+     * @return what the starter renders
+     */
+    private String rendered(DocumentTemplateService service,
+                            DocumentTemplate.DocumentType type) {
+        DocumentTemplate template = new DocumentTemplate();
+        template.code = "STARTER";
+        template.documentType = type;
+        template.active = true;
+        template.width = DocumentTemplate.MIN_WIDTH;
+        template.source = service.defaultSource(type);
+        return service.renderTemplate(template, service.sampleData(type));
+    }
+
+    // --------------------------------------------------
+    // references (BO-03-03)
+    // --------------------------------------------------
+
+    /**
+     * The catalogue is DERIVED from the demonstration document: every
+     * expression it offers resolves against {@code sampleData} of the same
+     * type, and none is missing. This is the property the screen rests on —
+     * a paramétreur told about a key the renderer does not serve would write
+     * a layout that renders empty.
+     */
+    @Test
+    void everyReferenceOfferedResolvesOnTheDemonstrationDocument() {
+        DocumentTemplateService service = newService();
+        for (DocumentTemplate.DocumentType type : DocumentTemplate.DocumentType.values()) {
+            Map<String, Object> sample = service.sampleData(type);
+            java.util.Set<String> offered = new java.util.HashSet<>();
+            for (DocumentTemplateService.Reference reference : service.references(type)) {
+                String expression = reference.getExpression();
+                if (expression.startsWith("{#for ")) {
+                    String list = expression.substring(expression.indexOf(" in ") + 4,
+                            expression.indexOf("}"));
+                    assertTrue(sample.get(list) instanceof List,
+                            type + " : " + list + " n'est pas une liste du document");
+                    offered.add(list);
+                    continue;
+                }
+                String path = expression.substring(1, expression.length() - 1);
+                offered.add(path.contains(".") ? path.substring(0, path.indexOf('.')) : path);
+            }
+            for (String key : sample.keySet()) {
+                assertTrue(offered.contains(key),
+                        type + " : la clé " + key + " n'est offerte nulle part");
+            }
+        }
+    }
+
+    /**
+     * A block is offered field by field, each with what it yields — the map
+     * arm of the walk.
+     */
+    @Test
+    void aBlockIsOfferedFieldByFieldWithItsValue() {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> references =
+                service.references(DocumentTemplate.DocumentType.SALE_RECEIPT);
+        DocumentTemplateService.Reference name = find(references, "{store.name}");
+        assertEquals("INTERMARCHE VAUCRESSON", name.getSample());
+        assertNull(name.getLoop());
+        assertFalse(name.isRepeating());
+    }
+
+    /**
+     * A scalar is offered on its own — the neither-map-nor-list arm.
+     */
+    @Test
+    void aScalarIsOfferedOnItsOwn() {
+        DocumentTemplateService service = newService();
+        DocumentTemplateService.Reference terminal = find(
+                service.references(DocumentTemplate.DocumentType.SALE_RECEIPT), "{terminal}");
+        assertEquals("C04", terminal.getSample());
+        assertFalse(terminal.isRepeating());
+    }
+
+    /**
+     * A repeating block is offered as its loop plus one expression per field
+     * of its rows, each marked as readable only INSIDE that loop — the list
+     * arm, and the list-of-maps arm under it.
+     */
+    @Test
+    void aRepeatingBlockIsOfferedAsItsLoopAndItsFields() {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> references =
+                service.references(DocumentTemplate.DocumentType.SALE_RECEIPT);
+        DocumentTemplateService.Reference loop = find(references, "{#for line in lines}…{/for}");
+        assertEquals("2 ligne(s)", loop.getSample());
+        assertFalse(loop.isRepeating());
+        DocumentTemplateService.Reference label = find(references, "{line.label}");
+        assertEquals("LAIT DEMI-ECREME 1L", label.getSample());
+        assertTrue(label.isRepeating());
+        assertEquals("{#for line in lines}…{/for}", label.getLoop());
+    }
+
+    /**
+     * A list of plain values is offered as its loop and the value itself, not
+     * as fields — the not-a-map arm; the invoice's address lines are one.
+     */
+    @Test
+    void aListOfPlainValuesIsOfferedAsTheValueItself() {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> references =
+                service.references(DocumentTemplate.DocumentType.INVOICE);
+        DocumentTemplateService.Reference lines = find(references, "{seller.addressLines}");
+        assertEquals("15 RUE DE LA GARE / 92420 VAUCRESSON", lines.getSample());
+    }
+
+    /**
+     * An EMPTY repeating block is offered as its loop alone: there is no row
+     * to read the fields off, and inventing them would describe a shape the
+     * document does not carry. A transfer ticket counts nothing.
+     */
+    @Test
+    void anEmptyRepeatingBlockIsOfferedAsItsLoopAlone() {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> references =
+                service.references(DocumentTemplate.DocumentType.TRANSFER_TICKET);
+        DocumentTemplateService.Reference loop =
+                find(references, "{#for count in counts}…{/for}");
+        assertEquals("0 ligne(s)", loop.getSample());
+        for (DocumentTemplateService.Reference reference : references) {
+            assertFalse(reference.getExpression().startsWith("{count."),
+                    "aucun champ ne doit être inventé sur une liste vide");
+        }
+    }
+
+    /**
+     * Without a type the catalogue names the values EVERY document carries and
+     * nothing else — the null arm, which the page uses before a type is
+     * chosen.
+     */
+    @Test
+    void withoutATypeOnlyTheCommonValuesAreOffered() {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> references = service.references(null);
+        assertEquals(9, references.size());
+        assertNotNull(find(references, "{store.siret}"));
+        assertNotNull(find(references, "{date}"));
+        for (DocumentTemplateService.Reference reference : references) {
+            assertFalse(reference.isRepeating());
+        }
+    }
+
+    /**
+     * The order is the order a document is written in: the standalone values,
+     * then the blocks, then the repeating rows.
+     */
+    @Test
+    void theOrderGoesFromStandaloneValuesDownToRepeatingRows() {
+        DocumentTemplateService service = newService();
+        List<DocumentTemplateService.Reference> references =
+                service.references(DocumentTemplate.DocumentType.SALE_RECEIPT);
+        int lastScalar = -1;
+        int firstBlock = Integer.MAX_VALUE;
+        int firstLoop = Integer.MAX_VALUE;
+        for (int i = 0; i < references.size(); i++) {
+            String expression = references.get(i).getExpression();
+            if (expression.startsWith("{#for ")) {
+                firstLoop = Math.min(firstLoop, i);
+            } else if (expression.contains(".")) {
+                firstBlock = Math.min(firstBlock, i);
+            } else {
+                lastScalar = i;
+            }
+        }
+        assertTrue(lastScalar < firstBlock, "les valeurs seules viennent en premier");
+        assertTrue(firstBlock < firstLoop, "les blocs viennent avant les lignes répétées");
+    }
+
+    /**
+     * Finds one offered expression.
+     *
+     * @param references the catalogue
+     * @param expression the expression looked for
+     * @return the reference, never null
+     */
+    private DocumentTemplateService.Reference find(
+            List<DocumentTemplateService.Reference> references, String expression) {
+        for (DocumentTemplateService.Reference reference : references) {
+            if (reference.getExpression().equals(expression)) {
+                return reference;
+            }
+        }
+        throw new AssertionError("référence absente du catalogue : " + expression);
     }
 }

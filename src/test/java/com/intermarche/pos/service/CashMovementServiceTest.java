@@ -4,7 +4,7 @@ import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.sync.SyncOutbox;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 

@@ -25,17 +25,12 @@
       {#include theme /}
       body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-      .pos-terminal {
-        width: 1000px; height: 600px; background-color: var(--bg-dark);
-        border: 2px solid var(--border-strong); border-radius: 10px;
-        display: grid; grid-template-rows: 60px 1fr 80px;
-        overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-      }
+      .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
       .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
       .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
       .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
 
-      .main-area { display: grid; grid-template-columns: 1fr 320px; overflow: hidden; }
+      .main-area { display: grid; grid-template-columns: 1fr 20rem; overflow: hidden; }
 
       .count-list-area { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-color); }
       .tabs-container { display: flex; background: #1a1a1a; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
@@ -44,7 +39,7 @@
 
       .items-scroll { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 
-      .count-item { display: grid; grid-template-columns: 220px 1fr 120px; align-items: center; background: var(--bg-panel); padding: 12px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; transition: 0.1s; }
+      .count-item { display: grid; grid-template-columns: 13.75rem 1fr 7.5rem; align-items: center; background: var(--bg-panel); padding: 12px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; transition: 0.1s; }
       .count-item.selected { background: #0d2818; border-color: var(--success); }
 
       .item-label { font-size: var(--fs-row); font-weight: bold; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -104,14 +99,14 @@
            The way out used to be called ANNULER and sat on the right next to
            CLOTURER (Z), so the two keys that end this screen looked alike and
            the one that goes back read as a refusal of the count. -->
-      <a href="/session" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+      <a href="/session" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
       <form id="closeForm" method="post" action="/action/session/close" onsubmit="return prepareClose();" style="display:flex; gap:15px; align-items:center;">
         <label for="withdrawn" style="color: var(--text-muted); font-weight: bold;">PRÉLÈVEMENT €</label>
         <input type="text" id="withdrawn" name="withdrawn" value="0" inputmode="decimal" autocomplete="off"
-               style="width:110px; padding:12px; font-size:var(--fs-field); font-weight:bold; text-align:right; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
+               style="width:6.875rem; padding:12px; font-size:var(--fs-field); font-weight:bold; text-align:right; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
         <input type="hidden" id="counted" name="counted" value="0">
         <input type="hidden" id="detail" name="detail" value="">
-        <button type="submit" class="btn btn-lg btn-success" style="width: 180px;">CLÔTURER (Z)</button>
+        <button type="submit" class="btn btn-lg btn-success" style="width: 11.25rem;">CLÔTURER (Z)</button>
       </form>
     </div>
   </div>

@@ -21,20 +21,50 @@ import com.intermarche.pos.domain.people.Menu;
  */
 public enum Feature {
 
-    /** The register PARAMETERS screen ({@code /admin/settings}). */
-    SETTINGS("settings", Menu.PARAMETRAGE, "Paramètres caisse"),
+    /** The register PARAMETERS screen. */
+    SETTINGS("settings", Menu.PARAMETRAGE, "Paramètres caisse", "/admin/settings"),
 
-    /** The point-of-sale INFORMATION screen ({@code /admin/store}). */
-    STORE("store", Menu.PARAMETRAGE, "Point de vente"),
+    /** The point-of-sale INFORMATION screen. */
+    STORE("store", Menu.PARAMETRAGE, "Point de vente", "/admin/store"),
 
-    /** The PROFILES administration screen ({@code /admin/profiles}). */
-    PROFILE("profile", Menu.ADMINISTRATION, "Profils"),
+    /** The ECHELON parameters screen: country, enseigne, point of sale. */
+    ECHELON("echelon", Menu.PARAMETRAGE, "Échelons", "/admin/echelons"),
 
-    /** The USER-to-profile assignment screen ({@code /admin/users}). */
-    USER("user", Menu.ADMINISTRATION, "Utilisateurs"),
+    /** The TENDER referential screen: the administered settlement methods. */
+    TENDER("tender", Menu.PARAMETRAGE, "Règlements", "/admin/tenders"),
 
-    /** The SUPERVISION dashboard ({@code /dashboard}). */
-    SUPERVISION("supervision", Menu.SUPERVISION, "Supervision de la ligne");
+    /** The DOCUMENT TEMPLATE screen: the administered layouts. */
+    TEMPLATE("template", Menu.PARAMETRAGE, "Gabarits", "/admin/templates"),
+
+    /** The BARCODE screen: coupon patterns and article ranges. */
+    COUPON("coupon", Menu.PARAMETRAGE, "Codes-barres", "/admin/coupons"),
+
+    /** The ARTICLE screen: the catalog and the article sheet. */
+    ARTICLE("article", Menu.ARTICLES, "Articles", "/admin/articles"),
+
+    /** The ARTICLE GROUP screen: the group tree and its memberships. */
+    ARTICLE_GROUP("article_group", Menu.ARTICLES, "Groupes", "/admin/article-groups"),
+
+    /** The NOMENCLATURE screen: the classification, level by level. */
+    NOMENCLATURE("nomenclature", Menu.ARTICLES, "Nomenclatures", "/admin/nomenclatures"),
+
+    /** The TOUCH screen: how the groups are drawn on the direct-entry grid. */
+    TOUCH("touch", Menu.ARTICLES, "Touches", "/admin/touches"),
+
+    /** The PROFILES administration screen. */
+    PROFILE("profile", Menu.ADMINISTRATION, "Profils", "/admin/profiles"),
+
+    /** The USER-to-profile assignment screen. */
+    USER("user", Menu.ADMINISTRATION, "Utilisateurs", "/admin/users"),
+
+    /** The SUPERVISION dashboard. */
+    SUPERVISION("supervision", Menu.SUPERVISION, "Supervision de la ligne", "/dashboard"),
+
+    /** The JOURNAL screen: the line's events and movements. */
+    JOURNAL("journal", Menu.SUPERVISION, "Journal", "/admin/journal"),
+
+    /** The SYNCHRONIZATION supervision screen: the referential feeds. */
+    SYNC("sync", Menu.SUPERVISION, "Flux", "/admin/sync");
 
     /** The stable storage/form token of this feature. */
     private final String key;
@@ -46,16 +76,29 @@ public enum Feature {
     private final String label;
 
     /**
-     * Builds a feature with its stable key, its menu and its label.
+     * The path of the screen serving this feature.
+     * <p>
+     * Held here so the back-office navigation is BUILT from this catalog
+     * instead of being a second, hand-written list beside it. Before, the
+     * header carried fourteen links and this enum knew five features: nine
+     * screens were reachable by everyone and grantable to no one, and nothing
+     * could tell.
+     */
+    private final String path;
+
+    /**
+     * Builds a feature with its stable key, its menu, its label and its path.
      *
      * @param key the stable storage/form token
      * @param menu the aggregate this feature belongs to
      * @param label the French label shown in the profile grid
+     * @param path the path of the screen serving it
      */
-    Feature(String key, Menu menu, String label) {
+    Feature(String key, Menu menu, String label, String path) {
         this.key = key;
         this.menu = menu;
         this.label = label;
+        this.path = path;
     }
 
     /**
@@ -83,6 +126,15 @@ public enum Feature {
      */
     public String getLabel() {
         return label;
+    }
+
+    /**
+     * Returns the path of the screen serving this feature.
+     *
+     * @return the back-office path
+     */
+    public String getPath() {
+        return path;
     }
 
     /**

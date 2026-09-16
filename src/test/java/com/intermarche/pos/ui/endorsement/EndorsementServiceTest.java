@@ -1,7 +1,8 @@
 package com.intermarche.pos.ui.endorsement;
 
-import com.intermarche.pos.domain.Employee;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.ui.PriceModType;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.auth.AuthService;
@@ -186,8 +187,8 @@ class EndorsementServiceTest {
         PosState state = mock(PosState.class);
         state.endorsement = mock(EndorsementState.class);
         BigDecimal value = new BigDecimal("0.50");
-        service.requestPriceModification(state, "REMISE", "L1", value);
-        verify(state.endorsement).requestPriceModification("REMISE", "L1", value);
+        service.requestPriceModification(state, PriceModType.REMISE, "L1", value);
+        verify(state.endorsement).requestPriceModification(PriceModType.REMISE, "L1", value);
         verify(state).touch();
     }
 

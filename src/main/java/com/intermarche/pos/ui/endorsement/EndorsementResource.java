@@ -1,6 +1,8 @@
 package com.intermarche.pos.ui.endorsement;
 
-import com.intermarche.pos.domain.ticket.Refund;
+import com.intermarche.pos.ui.PriceModType;
+
+import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
@@ -15,6 +17,7 @@ import java.net.URI;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the manager-endorsement modal: polling endpoint,
@@ -32,6 +35,9 @@ import java.util.Map;
  */
 @Path("/")
 public class EndorsementResource {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(EndorsementResource.class);
 
     @Inject EndorsementService endorsementService;
     @Inject TicketService ticketService;
@@ -52,8 +58,10 @@ public class EndorsementResource {
     @Path("/endorsement-data")
     @Produces("application/json")
     public Map<String, Object> getEndorsementData() {
+        LOGGER.info("Entering method getEndorsementData");
         String badge = state.endorsement.scannedBadge;
         if (badge != null) state.endorsement.clearScannedBadge();
+        LOGGER.info("Exiting method getEndorsementData");
         return Map.of(
                 "active", state.endorsement.active,
                 "action", state.endorsement.requestedAction != null ? state.endorsement.requestedAction : "",
@@ -76,10 +84,12 @@ public class EndorsementResource {
     @Path("/action/endorse-validate")
     @Consumes("application/x-www-form-urlencoded")
     public Response validateEndorsement(@FormParam("login") String login, @FormParam("password") String password) {
+        LOGGER.info("Entering method validateEndorsement with login: " + login + ", password: ***");
         String actionToExecute = state.endorsement.requestedAction;
 
         if (actionToExecute == null) {
             endorsementService.clearRequest(state);
+            LOGGER.info("Exiting method validateEndorsement");
             return redirectHome();
         }
 
@@ -87,10 +97,12 @@ public class EndorsementResource {
             executeApprovedAction(actionToExecute);
             endorsementService.clearRequest(state);
             state.touch();
+            LOGGER.info("Exiting method validateEndorsement");
             return redirectHome();
         } else {
             state.endorsement.error = "AUTORISATION REFUSÉE";
             state.touch();
+            LOGGER.info("Exiting method validateEndorsement");
             return redirectHome();
         }
     }
@@ -119,11 +131,11 @@ public class EndorsementResource {
                 ticketService.cancelItemById(state, uid);
             }
             else if (actionToExecute.equals("PRICE_MODIFICATION")) {
-                String type = state.endorsement.pendingPriceType;
+                PriceModType type = state.endorsement.pendingPriceType;
                 String uid = state.endorsement.pendingTargetUid;
                 BigDecimal val = state.endorsement.pendingValue;
 
-                if (type != null && type.startsWith("GLOBAL_")) {
+                if (type != null && type.isTicketLevel()) {
                     // Ticket-level gesture: no target line — the global
                     // discount applies to the whole sale (phase: global
                     // ticket discount) and recomputes internally; the flow
@@ -137,9 +149,9 @@ public class EndorsementResource {
 
                     if (item != null) {
                         // Type dispatch
-                        if ("REMISE".equals(type)) ticketService.applyRemise(item, val);
-                        else if ("DISCOUNT".equals(type)) ticketService.applyDiscount(item, val);
-                        else if ("FORCE_PRICE".equals(type)) ticketService.forcePrice(item, val);
+                        if (type == PriceModType.REMISE) ticketService.applyRemise(item, val);
+                        else if (type == PriceModType.DISCOUNT) ticketService.applyDiscount(item, val);
+                        else if (type == PriceModType.FORCE_PRICE) ticketService.forcePrice(item, val);
 
                         ticketService.recalculateTotal(state);
                     }
@@ -179,19 +191,23 @@ public class EndorsementResource {
     @POST
     @Path("/action/endorse-self")
     public Response selfEndorse() {
+        LOGGER.info("Entering method selfEndorse");
         String actionToExecute = state.endorsement.requestedAction;
         if (actionToExecute == null) {
             endorsementService.clearRequest(state);
+            LOGGER.info("Exiting method selfEndorse");
             return redirectHome();
         }
         if (!endorsementService.operatorIsSupervisor(state)) {
             state.endorsement.error = "AUTORISATION REFUSÉE";
             state.touch();
+            LOGGER.info("Exiting method selfEndorse");
             return redirectHome();
         }
         executeApprovedAction(actionToExecute);
         endorsementService.clearRequest(state);
         state.touch();
+        LOGGER.info("Exiting method selfEndorse");
         return redirectHome();
     }
 
@@ -203,8 +219,10 @@ public class EndorsementResource {
     @GET
     @Path("/action/endorse-cancel")
     public TemplateInstance cancelEndorsement() {
+        LOGGER.info("Entering method cancelEndorsement");
         endorsementService.clearRequest(state);
         state.touch();
+        LOGGER.info("Exiting method cancelEndorsement");
         return mainView(state);
     }
 

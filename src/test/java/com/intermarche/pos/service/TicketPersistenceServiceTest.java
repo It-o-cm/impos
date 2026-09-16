@@ -14,7 +14,7 @@ import com.intermarche.pos.domain.session.TicketCounter;
 import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.payment.VoucherPayment;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;

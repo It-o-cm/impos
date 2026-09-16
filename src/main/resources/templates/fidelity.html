@@ -12,12 +12,7 @@
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
@@ -34,7 +29,7 @@
         .overlay.active { display: flex; }
         .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
         .overlay-title { font-size: var(--fs-title); }
-        .fid-container { width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; padding-bottom: 8px; margin: 0 auto; flex: 1 1 auto; min-height: 0; }
+        .fid-container { width: 100%; max-width: 40rem; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; padding-bottom: 8px; margin: 0 auto; flex: 1 1 auto; min-height: 0; }
         /* The result list is PAGINATED (app convention — every list pages):
            4 matches per page plus the pager always fit under the chrome. */
         /* The result list must NEVER be the column's crumple zone. It used to
@@ -46,7 +41,7 @@
         .fid-results-wrap { flex: 0 0 auto; max-height: 100%; overflow: hidden; }
         /* Compact keys on this screen so the alpha/email keyboards fit the
            600px terminal together with the tabs and the action row. */
-        .fid-container form, .fid-modes { max-width: 500px; width: 100%; margin: 0 auto; }
+        .fid-container form, .fid-modes { max-width: 31.25rem; width: 100%; margin: 0 auto; }
         .fid-modes { display: flex; gap: 10px; justify-content: center; }
         .fid-toggle { flex: 1; padding: 12px; background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-muted); font-size: var(--fs-btn); font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; transition: 0.2s; text-transform: uppercase; }
         .fid-toggle.active { background: var(--primary); border-color: white; color: white; }
@@ -105,9 +100,9 @@
                 <div class="fid-keyboard-area pos-kb-compact" id="fidKeyboardArea"></div>
 
                 <div class="fid-actions">
-                    <a href="/" class="btn btn-muted" style="width:180px;">RETOUR</a>
-                    <button type="submit" class="btn btn-primary" style="width:180px;" id="fidSubmit">VALIDER</button>
-                    <a href="/" class="btn btn-muted" style="width:180px;">PASSER</a>
+                    <a href="/" class="btn btn-muted" style="width:11.25rem;">RETOUR</a>
+                    <button type="submit" class="btn btn-primary" style="width:11.25rem;" id="fidSubmit">VALIDER</button>
+                    <a href="/" class="btn btn-muted" style="width:11.25rem;">PASSER</a>
                 </div>
             </form>
 

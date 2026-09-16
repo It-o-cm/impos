@@ -187,7 +187,7 @@ class ProductSearchResourceTest {
 
     /**
      * {@code searchPage(query, page)} with a non-null page number (page ternary
-     * non-null arm) over a result set that spans three pages clamps the request
+     * non-null arm) over a result set that spans three pages of eight clamps the request
      * to a middle page: {@code current} is neither the first nor the last, so
      * {@code hasPrev} takes the {@code current > 1} true arm and {@code hasNext}
      * takes the {@code current < pageCount} true arm, and the pager exposes both

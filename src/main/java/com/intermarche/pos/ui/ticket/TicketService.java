@@ -1,14 +1,15 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
-import com.intermarche.pos.domain.attribute.ProductAttributes;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.scanner.ScanContext;
 import jakarta.annotation.Priority;
@@ -22,6 +23,7 @@ import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.StreamSupport;
+import org.jboss.logging.Logger;
 
 /**
  * Ticket-building service: scan processing, item additions, price
@@ -45,6 +47,9 @@ import java.util.stream.StreamSupport;
  */
 @ApplicationScoped
 public class TicketService {
+
+    /** Technical log of this class. */
+    private static final Logger LOGGER = Logger.getLogger(TicketService.class);
 
     /** The back-office parameters (discount caps — LC-03-02). */
     @jakarta.inject.Inject
@@ -126,25 +131,41 @@ public class TicketService {
      * TicketState.allocateGlobalDiscount). Refused during an active payment.
      *
      * @param state the current POS state
-     * @param type GLOBAL_REMISE (euros) or GLOBAL_DISCOUNT (percent)
+     * @param type {@link PriceModType#GLOBAL_REMISE} (euros) or
+     *             {@link PriceModType#GLOBAL_DISCOUNT} (percent)
      * @param value the endorsed value
      */
-    public void applyGlobalDiscount(PosState state, String type, BigDecimal value) {
+    public void applyGlobalDiscount(PosState state, PriceModType type, BigDecimal value) {
+        LOGGER.info("Entering method applyGlobalDiscount with state: " + state + ", type: " + type + ", value: " + value);
         if (state.payment.paymentInProgress) {
             state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+            LOGGER.info("Exiting method applyGlobalDiscount");
             return;
         }
         // The percentage cap is administered (LC-03-02-13); 100 stays the
         // absolute ceiling whatever the back office says.
         int cap = Math.min(100, posSettingsService.globalMaxDiscountPercent());
         if (value == null || value.signum() < 0
-                || ("GLOBAL_DISCOUNT".equals(type) && value.compareTo(BigDecimal.valueOf(cap)) > 0)) {
+                || (type == PriceModType.GLOBAL_DISCOUNT
+                        && value.compareTo(BigDecimal.valueOf(cap)) > 0)) {
             state.ticket.setError("VALEUR INVALIDE");
+            LOGGER.info("Exiting method applyGlobalDiscount");
+            return;
+        }
+        // The EURO cap is administered separately (BO-03-07-04) and governs the
+        // amount gesture only: a percentage is already bounded by its own cap.
+        // Zero disables it, so an unadministered register behaves as before.
+        BigDecimal amountCap = posSettingsService.globalMaxDiscountAmount();
+        if (type == PriceModType.GLOBAL_REMISE && amountCap.signum() > 0
+                && value.compareTo(amountCap) > 0) {
+            state.ticket.setError("REMISE SUPERIEURE AU PLAFOND");
+            LOGGER.info("Exiting method applyGlobalDiscount");
             return;
         }
         state.ticket.setGlobalDiscount(
-                "GLOBAL_DISCOUNT".equals(type) ? "PERCENT" : "AMOUNT", value);
+                type == PriceModType.GLOBAL_DISCOUNT ? "PERCENT" : "AMOUNT", value);
         recalculateTotal(state);
+        LOGGER.info("Exiting method applyGlobalDiscount");
     }
 
     /**
@@ -163,8 +184,10 @@ public class TicketService {
      */
     public boolean suspendForAgeCheck(PosState state, Product product, String kind,
                                       String code, BigDecimal quantity) {
+        LOGGER.info("Entering method suspendForAgeCheck with state: " + state + ", product: " + product + ", kind: " + kind + ", code: " + code + ", quantity: " + quantity);
         if (product.ageRestriction == null
                 || product.ageRestriction <= state.ticket.ageVerifiedThreshold) {
+            LOGGER.info("Exiting method suspendForAgeCheck");
             return false;
         }
         state.ageCheck.active = true;
@@ -175,6 +198,7 @@ public class TicketService {
         state.ageCheck.quantity = quantity;
         hardwareService.displayMessage("CONTROLE D'AGE EN COURS");
         state.touch();
+        LOGGER.info("Exiting method suspendForAgeCheck");
         return true;
     }
 
@@ -200,9 +224,11 @@ public class TicketService {
      * @return true when the add was suspended behind the prompt
      */
     public boolean suspendForEntry(PosState state, Product product, BigDecimal quantity) {
+        LOGGER.info("Entering method suspendForEntry with state: " + state + ", product: " + product + ", quantity: " + quantity);
         boolean needsQuantity = ProductAttributes.quantityToEnter(product);
         boolean needsPrice = ProductAttributes.priceToEnter(product);
         if (!needsQuantity && !needsPrice) {
+            LOGGER.info("Exiting method suspendForEntry");
             return false;
         }
         Price price = Price.findCurrentPrice(product.id);
@@ -218,6 +244,7 @@ public class TicketService {
                 ? "" : String.format("%.2f", price.priceIncludingTax).replace('.', ',');
         state.entryPrompt.quantity = quantity == null ? BigDecimal.ONE : quantity;
         state.touch();
+        LOGGER.info("Exiting method suspendForEntry");
         return true;
     }
 
@@ -230,12 +257,15 @@ public class TicketService {
      *              prompt
      */
     public void confirmEntry(PosState state, BigDecimal value) {
+        LOGGER.info("Entering method confirmEntry with state: " + state + ", value: " + value);
         if (!state.entryPrompt.active) {
+            LOGGER.info("Exiting method confirmEntry");
             return;
         }
         if (value == null || value.signum() <= 0) {
             state.ticket.setError("VALEUR INVALIDE");
             state.touch();
+            LOGGER.info("Exiting method confirmEntry");
             return;
         }
         Product product = Product.findActiveByEan(state.entryPrompt.ean);
@@ -243,6 +273,7 @@ public class TicketService {
             state.entryPrompt.clear();
             state.ticket.setError("PRODUIT INTROUVABLE");
             state.touch();
+            LOGGER.info("Exiting method confirmEntry");
             return;
         }
         if (state.entryPrompt.isPriceKind()) {
@@ -254,6 +285,7 @@ public class TicketService {
             if (ProductAttributes.priceToEnter(product)) {
                 state.entryPrompt.kind = PosState.EntryPromptState.PRICE;
                 state.touch();
+                LOGGER.info("Exiting method confirmEntry");
                 return;
             }
         }
@@ -261,6 +293,7 @@ public class TicketService {
         BigDecimal keyedPrice = state.entryPrompt.price;
         state.entryPrompt.clear();
         addEnteredLine(state, product, quantity, keyedPrice);
+        LOGGER.info("Exiting method confirmEntry");
     }
 
     /**
@@ -269,9 +302,11 @@ public class TicketService {
      * @param state the current POS state
      */
     public void cancelEntry(PosState state) {
+        LOGGER.info("Entering method cancelEntry with state: " + state);
         state.entryPrompt.clear();
         state.ticket.setError("SAISIE ABANDONNÉE");
         state.touch();
+        LOGGER.info("Exiting method cancelEntry");
     }
 
     /**
@@ -308,8 +343,12 @@ public class TicketService {
         if (ProductAttributes.discountForbidden(product)) {
             line.discountForbidden = true;
         }
+        // BO-02-03-06: the meal-voucher eligibility travels with the line, so a
+        // register the engine never answered still knows what may be settled
+        // with a meal ticket.
+        line.mealVoucherEligible = ProductAttributes.mealVoucherEligible(product);
         line.restrictedTenders =
-                com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(product);
+                com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(product);
         displayItem(line);
         syncAndRevalue(state);
     }
@@ -323,12 +362,13 @@ public class TicketService {
      * @param state the current POS state
      */
     public void confirmAgeCheck(PosState state) {
+        LOGGER.info("Entering method confirmAgeCheck with state: " + state);
         PosState.AgeCheckState pending = state.ageCheck;
-        if (!pending.active) return;
+        if (!pending.active) { LOGGER.info("Exiting method confirmAgeCheck"); return; }
         state.ticket.ageVerifiedThreshold =
                 Math.max(state.ticket.ageVerifiedThreshold, pending.threshold);
         technicalEventService.log(
-                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.AGE_CHECK_CONFIRMED,
+                com.intermarche.pos.domain.session.TechnicalEvent.EventType.AGE_CHECK_CONFIRMED,
                 pending.productLabel + " (" + pending.threshold + "+) - ID vérifiée par "
                         + state.auth.operatorName);
         String kind = pending.kind;
@@ -340,6 +380,7 @@ public class TicketService {
             case "EAN_QTY" -> addItemByEan(state, code, quantity);
             default -> processScan(code);
         }
+        LOGGER.info("Exiting method confirmAgeCheck");
     }
 
     /**
@@ -350,15 +391,17 @@ public class TicketService {
      * @param state the current POS state
      */
     public void refuseAgeCheck(PosState state) {
+        LOGGER.info("Entering method refuseAgeCheck with state: " + state);
         PosState.AgeCheckState pending = state.ageCheck;
-        if (!pending.active) return;
+        if (!pending.active) { LOGGER.info("Exiting method refuseAgeCheck"); return; }
         technicalEventService.log(
-                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.AGE_CHECK_REFUSED,
+                com.intermarche.pos.domain.session.TechnicalEvent.EventType.AGE_CHECK_REFUSED,
                 pending.productLabel + " (" + pending.threshold + "+) - vente refusée par "
                         + state.auth.operatorName);
         pending.clear();
         state.ticket.setError("VENTE REFUSÉE - CONTRÔLE D'ÂGE");
         state.touch();
+        LOGGER.info("Exiting method refuseAgeCheck");
     }
 
     /**
@@ -367,12 +410,14 @@ public class TicketService {
      * @param code the scanned code
      */
     public void processScan(String code) {
+        LOGGER.info("Entering method processScan with code: " + code);
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         state.selectedTicketIndex = -1;
 
         // Phase 2 session gate: sale scans are refused while no session is
         // open (badge scans on the lock screen are unaffected).
         if (!state.isLocked() && !requireOpenSession(state)) {
+            LOGGER.info("Exiting method processScan");
             return;
         }
 
@@ -388,6 +433,7 @@ public class TicketService {
         if (!state.isLocked() && (!state.ticket.items.isEmpty() || state.payment.ticketDbId != null)) {
             syncAndRevalue(state);
         }
+        LOGGER.info("Exiting method processScan");
     }
 
     /**
@@ -396,11 +442,13 @@ public class TicketService {
      * @param weightStr the weight as text (comma or dot separator)
      */
     public void processWeight(String weightStr) {
-        if (state.isLocked()) return;
+        LOGGER.info("Entering method processWeight with weightStr: " + weightStr);
+        if (state.isLocked()) { LOGGER.info("Exiting method processWeight"); return; }
         try {
             double w = Double.parseDouble(weightStr.replace(',', '.'));
             state.ticket.setWeight(w);
         } catch (NumberFormatException e) { System.err.println("Poids invalide: " + weightStr); }
+        LOGGER.info("Exiting method processWeight");
     }
 
     /**
@@ -473,9 +521,17 @@ public class TicketService {
      * @param amount the discount amount in euros (strictly positive)
      */
     public void applyRemise(TicketState.TicketItem item, BigDecimal amount) {
-        if (item == null || amount == null || amount.signum() <= 0) return;
-        if (item.moneyProduct) return; // money products are never discounted
-        if (item.discountForbidden) return; // BO-02-03-09: article bans discounts
+        LOGGER.info("Entering method applyRemise with item: " + item + ", amount: " + amount);
+        if (item == null || amount == null || amount.signum() <= 0) { LOGGER.info("Exiting method applyRemise"); return; }
+        if (item.moneyProduct) { LOGGER.info("Exiting method applyRemise"); return; } // money products are never discounted
+        if (item.discountForbidden) { LOGGER.info("Exiting method applyRemise"); return; } // BO-02-03-09: article bans discounts
+        // The euro ceiling of a LINE remise is administered (BO-03-07-04);
+        // zero disables it. The amount AT the ceiling passes, beyond it is refused.
+        BigDecimal amountCap = posSettingsService.lineMaxDiscountAmount();
+        if (amountCap.signum() > 0 && amount.compareTo(amountCap) > 0) {
+            LOGGER.info("Exiting method applyRemise");
+            return;
+        }
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
@@ -488,9 +544,10 @@ public class TicketService {
             item.unitPrice = newTotal;
         }
         item.modifierLabel = String.format("Remise -%.2f€", amount);
-        item.modifierType = "REMISE";
+        item.modifierType = PriceModType.REMISE;
         item.modifierValue = amount;
         displayItem(item);
+        LOGGER.info("Exiting method applyRemise");
     }
 
     /**
@@ -500,12 +557,16 @@ public class TicketService {
      * @param percent the discount percentage (0 exclusive to 100 inclusive)
      */
     public void applyDiscount(TicketState.TicketItem item, BigDecimal percent) {
-        if (item != null && item.moneyProduct) return; // money products are never discounted
-        if (item != null && item.discountForbidden) return; // BO-02-03-09: article bans discounts
+        LOGGER.info("Entering method applyDiscount with item: " + item + ", percent: " + percent);
+        if (item != null && item.moneyProduct) { LOGGER.info("Exiting method applyDiscount"); return; } // money products are never discounted
+        if (item != null && item.discountForbidden) { LOGGER.info("Exiting method applyDiscount"); return; } // BO-02-03-09: article bans discounts
         // The line cap is administered (LC-03-02-07); 100 stays absolute.
         int lineCap = Math.min(100, posSettingsService.lineMaxDiscountPercent());
         if (item == null || percent == null || percent.signum() <= 0
-                || percent.compareTo(BigDecimal.valueOf(lineCap)) > 0) return;
+                || percent.compareTo(BigDecimal.valueOf(lineCap)) > 0) {
+            LOGGER.info("Exiting method applyDiscount");
+            return;
+        }
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
@@ -513,9 +574,10 @@ public class TicketService {
                 .divide(BigDecimal.valueOf(100), PRICE_SCALE, RoundingMode.HALF_UP);
         item.unitPrice = item.unitPrice.subtract(reduction);
         item.modifierLabel = String.format("Discount -%.2f%%", percent);
-        item.modifierType = "DISCOUNT";
+        item.modifierType = PriceModType.DISCOUNT;
         item.modifierValue = percent;
         displayItem(item);
+        LOGGER.info("Exiting method applyDiscount");
     }
 
     /**
@@ -525,8 +587,9 @@ public class TicketService {
      * @param newTotalPrice the new line total (zero or positive)
      */
     public void forcePrice(TicketState.TicketItem item, BigDecimal newTotalPrice) {
-        if (item != null && item.moneyProduct) return; // money products are never discounted
-        if (item == null || newTotalPrice == null || newTotalPrice.signum() < 0) return;
+        LOGGER.info("Entering method forcePrice with item: " + item + ", newTotalPrice: " + newTotalPrice);
+        if (item != null && item.moneyProduct) { LOGGER.info("Exiting method forcePrice"); return; } // money products are never discounted
+        if (item == null || newTotalPrice == null || newTotalPrice.signum() < 0) { LOGGER.info("Exiting method forcePrice"); return; }
         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
             item.originalUnitPrice = item.unitPrice;
         }
@@ -540,9 +603,10 @@ public class TicketService {
         // back office administers it; masked, the line carries no "Prix initial".
         item.modifierLabel = posSettingsService.priceShowOriginalOnForce()
                 ? String.format("Prix initial: %.2f€", oldTotalPrice) : null;
-        item.modifierType = "FORCE_PRICE";
+        item.modifierType = PriceModType.FORCE_PRICE;
         item.modifierValue = newTotalPrice;
         displayItem(item);
+        LOGGER.info("Exiting method forcePrice");
     }
 
     /**
@@ -553,9 +617,11 @@ public class TicketService {
      * @param state the current POS state
      */
     public void recalculateTotal(PosState state) {
+        LOGGER.info("Entering method recalculateTotal with state: " + state);
         state.ticket.recomputeTotal();
         state.ticket.onChange();
         syncAndRevalue(state);
+        LOGGER.info("Exiting method recalculateTotal");
     }
 
     // --- STANDARD ACTIONS ---
@@ -568,8 +634,9 @@ public class TicketService {
      * @param quantity the quantity to add
      */
     public void addItemByEan(PosState state, String ean, BigDecimal quantity) {
-        if (ean == null || ean.isEmpty()) return;
-        if (!requireOpenSession(state)) return;
+        LOGGER.info("Entering method addItemByEan with state: " + state + ", ean: " + ean + ", quantity: " + quantity);
+        if (ean == null || ean.isEmpty()) { LOGGER.info("Exiting method addItemByEan"); return; }
+        if (!requireOpenSession(state)) { LOGGER.info("Exiting method addItemByEan"); return; }
         state.selectedTicketIndex = -1;
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         Product p = Product.find("ean = ?1 and active = true", ean).firstResult();
@@ -581,19 +648,23 @@ public class TicketService {
         if (p != null) {
             if (p.forbiddenToSale) {
                 state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+                LOGGER.info("Exiting method addItemByEan");
                 return;
             }
             if (ProductAttributes.recall(p)) {
                 state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                LOGGER.info("Exiting method addItemByEan");
                 return;
             }
             if (suspendForAgeCheck(state, p, "EAN_QTY", p.ean, quantity)) {
+                LOGGER.info("Exiting method addItemByEan");
                 return;
             }
             // LC-02-03-01/03 and LC-02-13-08: the quantity keyed or armed is carried
             // into the prompt, so an article that also wants its price is rung at the
             // quantity the operator gave and not at one.
             if (suspendForEntry(state, p, quantity)) {
+                LOGGER.info("Exiting method addItemByEan");
                 return;
             }
             Price price = Price.findCurrentPrice(p.id);
@@ -613,9 +684,10 @@ public class TicketService {
             if (ProductAttributes.discountForbidden(p)) {
                 line.discountForbidden = true;
             }
+            line.mealVoucherEligible = ProductAttributes.mealVoucherEligible(p);
             // LC-09-01-11 to -18: what the article may be paid with.
             line.restrictedTenders =
-                    com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(p);
+                    com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(p);
             displayItem(line);
             syncAndRevalue(state);
             // LC-02-03-13: a keyed EAN or internal code names no lot, so the recalled
@@ -624,6 +696,7 @@ public class TicketService {
         } else {
             state.ticket.setError("PRODUIT INTROUVABLE");
         }
+        LOGGER.info("Exiting method addItemByEan");
     }
 
     /**
@@ -651,27 +724,31 @@ public class TicketService {
      * @param pluCode the PLU code
      */
     public void addItemByPlu(PosState state, String pluCode) {
-        if (!requireOpenSession(state)) return;
+        LOGGER.info("Entering method addItemByPlu with state: " + state + ", pluCode: " + pluCode);
+        if (!requireOpenSession(state)) { LOGGER.info("Exiting method addItemByPlu"); return; }
         state.selectedTicketIndex = -1;
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         Product p = Product.findActiveByPlu(pluCode);
         if (p != null) {
             if (p.forbiddenToSale) {
                 state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+                LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
             if (ProductAttributes.recall(p)) {
                 state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
             // Age gate BEFORE weighing: the scale read is consumed on the
             // replay only, so a confirmed check weighs exactly once.
             if (suspendForAgeCheck(state, p, "PLU", pluCode, null)) {
+                LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
             double weight = hardwareService.requestWeighing();
-            if (weight <= 0) { state.ticket.setError("POIDS INVALIDE"); return; }
-            if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError("ERREUR POIDS IDENTIQUE"); return; }
+            if (weight <= 0) { state.ticket.setError("POIDS INVALIDE"); LOGGER.info("Exiting method addItemByPlu"); return; }
+            if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError("ERREUR POIDS IDENTIQUE"); LOGGER.info("Exiting method addItemByPlu"); return; }
 
             state.ticket.lastRecordedWeight = weight;
             Price price = Price.findCurrentPrice(p.id);
@@ -690,9 +767,10 @@ public class TicketService {
             if (ProductAttributes.discountForbidden(p)) {
                 line.discountForbidden = true;
             }
+            line.mealVoucherEligible = ProductAttributes.mealVoucherEligible(p);
             // LC-09-01-11 to -18: what the article may be paid with.
             line.restrictedTenders =
-                    com.intermarche.pos.domain.attribute.RestrictedTender.snapshot(p);
+                    com.intermarche.pos.domain.catalog.attribute.RestrictedTender.snapshot(p);
 
             displayItem(line);
             syncAndRevalue(state);
@@ -701,6 +779,7 @@ public class TicketService {
         } else {
             state.ticket.setError("PLU INTROUVABLE");
         }
+        LOGGER.info("Exiting method addItemByPlu");
     }
 
     /**
@@ -711,7 +790,8 @@ public class TicketService {
      * @param priceStr the price typed by the cashier
      */
     public void addUnknownItem(PosState state, String label, String priceStr) {
-        if (!requireOpenSession(state)) return;
+        LOGGER.info("Entering method addUnknownItem with state: " + state + ", label: " + label + ", priceStr: " + priceStr);
+        if (!requireOpenSession(state)) { LOGGER.info("Exiting method addUnknownItem"); return; }
         state.selectedTicketIndex = -1;
         if (state.ticket.transientError != null) state.ticket.transientError = null;
         try {
@@ -725,6 +805,7 @@ public class TicketService {
         } catch (Exception e) {
             state.ticket.setError("ERREUR PRIX SAISI");
         }
+        LOGGER.info("Exiting method addUnknownItem");
     }
 
     /**
@@ -733,12 +814,14 @@ public class TicketService {
      * @param state the current POS state
      */
     public void addDeposit(PosState state) {
-        if (!requireOpenSession(state)) return;
+        LOGGER.info("Entering method addDeposit with state: " + state);
+        if (!requireOpenSession(state)) { LOGGER.info("Exiting method addDeposit"); return; }
         state.selectedTicketIndex = -1;
         state.ticket.addItem(deconsignmentEan, null, "DECONSIGNATION",
                 new BigDecimal("-1.00"), BigDecimal.ONE, BigDecimal.ZERO);
         displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
         syncAndRevalue(state);
+        LOGGER.info("Exiting method addDeposit");
     }
 
     /**
@@ -748,6 +831,7 @@ public class TicketService {
      * @param uid the uid of the line to cancel
      */
     public void cancelItemById(PosState state, String uid) {
+        LOGGER.info("Entering method cancelItemById with state: " + state + ", uid: " + uid);
         // Conserve the cancelled article (lot C4, BO-04-01-16): mark the draft
         // line BEFORE it leaves the cart, so the reconciliation keeps it as a
         // witness. Training and pre-draft carts have no id — the marking is
@@ -760,6 +844,7 @@ public class TicketService {
         recalculateTotal(state);
         state.selectedTicketIndex = -1;
         displayLastItemOrWelcome(state);
+        LOGGER.info("Exiting method cancelItemById");
     }
 
     /**
@@ -769,6 +854,7 @@ public class TicketService {
      * @param state the current POS state
      */
     public void cancelTicket(PosState state) {
+        LOGGER.info("Entering method cancelTicket with state: " + state);
         // Cancel the draft before clearTicket() nulls its id
         if (state.payment.ticketDbId != null) {
             // LC-04-04-11/12: the abandon ticket states a sale that is about to stop
@@ -785,11 +871,12 @@ public class TicketService {
         // back-office reports count abandons by reason, and a paper the shop chose
         // not to print must not take the reason with it.
         technicalEventService.log(
-                com.intermarche.pos.domain.ticket.TechnicalEvent.EventType.TICKET_CANCELLED,
+                com.intermarche.pos.domain.session.TechnicalEvent.EventType.TICKET_CANCELLED,
                 state.abandonReason == null || state.abandonReason.isBlank()
                         ? "Abandon ticket" : "Abandon ticket : " + state.abandonReason);
         state.clearTicket();
         hardwareService.displayMessage("INTERMARCHE");
+        LOGGER.info("Exiting method cancelTicket");
     }
 
     /**
@@ -809,12 +896,14 @@ public class TicketService {
      *         has closed none
      */
     public Long resolveLastClosedTicketId(PosState state) {
+        LOGGER.info("Entering method resolveLastClosedTicketId with state: " + state);
         if (state.lastClosedTicketId == null) {
             Ticket recovered = Ticket.findLastClosedByTerminal(ticketNumberService.getTerminalId());
             if (recovered != null) {
                 state.lastClosedTicketId = recovered.id;
             }
         }
+        LOGGER.info("Exiting method resolveLastClosedTicketId");
         return state.lastClosedTicketId;
     }
 
@@ -824,9 +913,11 @@ public class TicketService {
      * @param ticketId the ticket database id
      */
     public void reprintTicket(Long ticketId) {
+        LOGGER.info("Entering method reprintTicket with ticketId: " + ticketId);
         if (ticketId != null) {
             ticketPrinterService.printTicket(ticketId);
         }
+        LOGGER.info("Exiting method reprintTicket");
     }
 
     /**
@@ -835,9 +926,11 @@ public class TicketService {
      * @param ticketId the ticket database id
      */
     public void printTicketIdentityBarcode(Long ticketId) {
+        LOGGER.info("Entering method printTicketIdentityBarcode with ticketId: " + ticketId);
         if (ticketId != null) {
             ticketPrinterService.printTicketIdentityBarcode(ticketId);
         }
+        LOGGER.info("Exiting method printTicketIdentityBarcode");
     }
 
     /**
@@ -848,9 +941,12 @@ public class TicketService {
      * @return the number of slips printed; zero when the sale carried no card
      */
     public int printCardReceiptDuplicate(Long ticketId) {
+        LOGGER.info("Entering method printCardReceiptDuplicate with ticketId: " + ticketId);
         if (ticketId != null) {
+            LOGGER.info("Exiting method printCardReceiptDuplicate");
             return ticketPrinterService.printCardReceipt(ticketId, false, "DUPLICATA");
         }
+        LOGGER.info("Exiting method printCardReceiptDuplicate");
         return 0;
     }
 }

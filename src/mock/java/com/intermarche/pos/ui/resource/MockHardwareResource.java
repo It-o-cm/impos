@@ -309,4 +309,70 @@ public class MockHardwareResource {
         }
         return Response.ok().build();
     }
+
+    /**
+     * What the register CURRENTLY knows how to sell, for the simulator's
+     * article lists.
+     * <p>
+     * The simulator used to carry those lists written by hand, and they were
+     * true of exactly one catalogue: the referential seed. A register is fed
+     * by its store node, and the node's own feed carries another numbering
+     * plan entirely — so every list went stale the day the demonstration
+     * started going through the node, and each scan came back
+     * "CODE INCONNU" without the operator being able to see why. A hand-kept
+     * mirror of a table that another machine replaces cannot be kept right;
+     * the only list that is never wrong is the one read off the register at
+     * the moment of the scan.
+     * <p>
+     * The filter is the one the scan itself applies — {@code active = true} —
+     * so what this answers is exactly what a scan will accept. An article
+     * forbidden to sale IS listed: refusing it is one of the cases worth
+     * demonstrating, and the flag is carried so the screen can say so.
+     *
+     * @param limit how many articles at most (bounded to 500)
+     * @return the sellable articles as JSON, EAN, label, PLU and the
+     *         forbidden flag, in catalogue order
+     */
+    @GET
+    @Path("/catalog")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response catalog(@QueryParam("limit") Integer limit) {
+        int bounded = (limit == null || limit <= 0 || limit > 500) ? 200 : limit;
+        StringBuilder body = new StringBuilder("[");
+        boolean first = true;
+        for (com.intermarche.pos.domain.catalog.Product product
+                : com.intermarche.pos.domain.catalog.Product
+                        .<com.intermarche.pos.domain.catalog.Product>find(
+                                "active = true order by ean").page(0, bounded).list()) {
+            if (!first) {
+                body.append(',');
+            }
+            first = false;
+            body.append("{\"ean\":\"").append(escape(product.ean))
+                    .append("\",\"label\":\"").append(escape(product.name))
+                    .append("\",\"plu\":").append(product.plu == null || product.plu.isBlank()
+                            ? "null" : "\"" + escape(product.plu) + "\"")
+                    .append(",\"forbidden\":").append(product.forbiddenToSale)
+                    .append('}');
+        }
+        return Response.ok(body.append(']').toString()).build();
+    }
+
+    /**
+     * Escapes a value for the catalogue's JSON body.
+     * <p>
+     * An article label comes from a published file and is not trusted to be
+     * JSON-safe: a quote in "Huile d'Olive" is harmless, a double quote or a
+     * backslash would break the body the simulator parses.
+     *
+     * @param value the value, possibly null
+     * @return the escaped value, never null
+     */
+    private String escape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", " ").replace("\r", " ");
+    }
 }

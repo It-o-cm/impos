@@ -286,18 +286,12 @@
         <div class="module">
             <h3>🏷️ Étiquette Balance (EAN 2x)</h3>
             <label for="scalePlu">Article balance :</label>
-            <!-- Same seed mirror as the PLU module above: the label is well
-                 formed either way, but an article the referential does not know
-                 lands on "CODE INCONNU" once the checksum passes. -->
+            <!-- Remplie par loadCatalog() avec les seuls articles PORTANT UN
+                 PLU : l'étiquette 2x cite un PLU, pas un EAN, et proposer un
+                 article qui n'en a pas fabrique une étiquette bien formée que
+                 la caisse refusera par « ARTICLE BALANCE INTROUVABLE ». -->
             <select id="scalePlu">
-                <option value="">-- Sélectionner --</option>
-                <option value="4020">4020 - Pommes Golden</option>
-                <option value="4062">4062 - Concombre</option>
-                <option value="4796">4796 - Tomates Cerises 500g</option>
-                <option value="210">210 - Jambon Blanc 100g</option>
-                <option value="220">220 - Beurre Doux 250g</option>
-                <option value="230">230 - Poulet Rôti 1.2kg</option>
-                <option value="240">240 - Saumon Fumé 200g</option>
+                <option value="">-- Caisse injoignable --</option>
             </select>
             <label for="scaleMode">Type d'étiquette :</label>
             <select id="scaleMode">
@@ -318,7 +312,7 @@
                  presented. Emitting without scanning, or scanning twice, are the
                  two cases worth exercising here. -->
             <label for="counterStoreUrl">Nœud magasin :</label>
-            <input type="text" id="counterStoreUrl" value="http://localhost:8082">
+            <input type="text" id="counterStoreUrl" value="http://localhost:8070">
             <label for="counterToken">Jeton de synchronisation (vide = aucun) :</label>
             <input type="text" id="counterToken" placeholder="X-Sync-Token">
             <label for="counterLabel">Comptoir :</label>
@@ -331,11 +325,7 @@
             <input type="text" id="counterReference" value="">
             <label for="counterEan">Article pesé :</label>
             <select id="counterEan">
-                <option value="3000000000014">3000000000014 - Pommes Golden</option>
-                <option value="3000000000175">3000000000175 - Concombre</option>
-                <option value="3000000000182">3000000000182 - Tomates Cerises 500g</option>
-                <option value="4004099000015">4004099000015 - Champignon sauvage (INTERDIT)</option>
-                <option value="9999999999994">9999999999994 - Article hors référentiel</option>
+                <option value="">-- Caisse injoignable --</option>
             </select>
             <label for="counterWeight">Poids (kg) :</label>
             <input type="text" id="counterWeight" placeholder="Ex: 0.752">
@@ -351,44 +341,19 @@
 
         <div class="module">
             <h3>barcode EAN-13 (Codes Longs)</h3>
+            <div id="catalogNote" class="status">Lecture du catalogue…</div>
+            <button class="btn-ean" onclick="loadCatalog()" style="margin-bottom:6px;">Recharger le catalogue</button>
             <label for="eanList">Produits scannables :</label>
-            <!-- These EANs MIRROR the register seed (DataInitializer). A code
-                 absent from the referential answers "CODE INCONNU", which reads
-                 as a broken simulator rather than an unknown article. Keep this
-                 list in step whenever the catalog changes. -->
+            <!-- La liste n'est PLUS écrite ici. Elle est lue sur la caisse au
+                 chargement (/api/hardware/catalog), donc elle décrit le
+                 catalogue réellement en ligne — le seed, le flux de la démo ou
+                 le fichier 07039 — et jamais celui d'avant-hier. Une liste
+                 tenue à la main est fausse le jour où le nœud magasin remplace
+                 le référentiel, et le symptôme est « CODE INCONNU » sur un
+                 simulateur qui a l'air cassé. Le contenu ci-dessous n'est
+                 qu'un repli si la caisse ne répond pas. -->
             <select id="eanList">
-                <option value="">-- Sélectionner --</option>
-                <optgroup label="🍎 Fruits &amp; légumes (au poids)">
-                    <option value="3000000000014">3000000000014 - Pommes Golden</option>
-                    <option value="3000000000175">3000000000175 - Concombre</option>
-                    <option value="3000000000182">3000000000182 - Tomates Cerises 500g</option>
-                </optgroup>
-                <optgroup label="🥖 Épicerie">
-                    <option value="3000000000021">3000000000021 - Lait UHT 1L</option>
-                    <option value="3000000000038">3000000000038 - Baguette Tradition</option>
-                    <option value="3000000000045">3000000000045 - Café Grains 500g</option>
-                    <option value="3000000000069">3000000000069 - Huile d'Olive 1L</option>
-                    <option value="3000000000106">3000000000106 - Yaourt Nature 4x125g</option>
-                    <option value="3000000000137">3000000000137 - Biscuits Chocolat 200g</option>
-                    <option value="3000000000144">3000000000144 - Chips Classiques 150g</option>
-                    <option value="3000000000199">3000000000199 - Oeufs Bio 6 unités</option>
-                </optgroup>
-                <optgroup label="💧 Boissons">
-                    <option value="3000000000076">3000000000076 - Eau Minérale 1.5L</option>
-                    <option value="3000000000113">3000000000113 - Coca-Cola 1.5L</option>
-                    <option value="3000000000120">3000000000120 - Orangina 1.25L</option>
-                </optgroup>
-                <optgroup label="🍷 Contrôle d'âge (18+)">
-                    <option value="4000180000018">4000180000018 - Vin Rouge Bordeaux 75cl</option>
-                </optgroup>
-                <optgroup label="🎁 Cartes cadeau (produit-monnaie)">
-                    <option value="4000250000016">4000250000016 - Carte Cadeau 25 €</option>
-                    <option value="4000500000018">4000500000018 - Carte Cadeau 50 €</option>
-                </optgroup>
-                <optgroup label="⛔ Interdits à la vente">
-                    <option value="4004099000015">4004099000015 - Champignon sauvage (INTERDIT)</option>
-                    <option value="6600000999997">6600000999997 - Lot rappelé (INTERDIT)</option>
-                </optgroup>
+                <option value="">-- Caisse injoignable --</option>
             </select>
             <button class="btn-ean" onclick="sendEan()">Scanner cet EAN</button>
             <div id="eanStatus" class="status">En attente...</div>
@@ -582,6 +547,98 @@
 
     setInterval(refreshHardwareState, 500);
     refreshHardwareState();
+
+    /* ---------------- Le catalogue, lu sur la caisse ----------------
+       Les trois listes d'articles du simulateur (EAN long, étiquette balance,
+       comptoir traditionnel) sont remplies ici, à partir de ce que la caisse
+       sait vendre À CET INSTANT. Rien n'est écrit en dur : le référentiel
+       d'une caisse est remplacé par le tirage de son nœud magasin, donc une
+       liste figée dans cette page ne décrit le catalogue en ligne que jusqu'au
+       premier tirage. C'était la cause des « CODE INCONNU » : la page offrait
+       des codes qu'aucune des deux machines ne portait plus.
+
+       Rechargée à chaque ouverture de la page ET sur demande, parce qu'un
+       nœud magasin qui redémarre en dev repart de son seed et emporte le
+       catalogue injecté avec lui. */
+    const CATALOG_LIMIT = 300;
+
+    /* Range un article dans le groupe qui le décrit. Les groupes sont ceux
+       que la démonstration raconte : ce qu'on pèse, ce qui est interdit, ce
+       qui demande un âge. */
+    function catalogGroup(article) {
+        if (article.forbidden) { return "⛔ Interdits à la vente"; }
+        if (article.plu) { return "⚖️ Pesés (PLU)"; }
+        return "🛒 Articles";
+    }
+
+    function fillArticleList(select, articles, keepFirst) {
+        const chosen = select.value;
+        select.textContent = '';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = articles.length ? '-- Sélectionner --' : '-- Catalogue vide --';
+        select.appendChild(empty);
+        const groups = {};
+        articles.forEach(article => {
+            const name = catalogGroup(article);
+            if (!groups[name]) {
+                groups[name] = document.createElement('optgroup');
+                groups[name].label = name;
+                select.appendChild(groups[name]);
+            }
+            const option = document.createElement('option');
+            option.value = article.ean;
+            option.textContent = article.ean + ' - ' + article.label;
+            groups[name].appendChild(option);
+        });
+        if (keepFirst && chosen) { select.value = chosen; }
+    }
+
+    function fillPluList(select, articles) {
+        const chosen = select.value;
+        select.textContent = '';
+        const weighed = articles.filter(a => a.plu);
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = weighed.length ? '-- Sélectionner --' : '-- Aucun article pesé --';
+        select.appendChild(empty);
+        weighed.forEach(article => {
+            const option = document.createElement('option');
+            option.value = article.plu;
+            option.textContent = article.plu + ' - ' + article.label;
+            select.appendChild(option);
+        });
+        if (chosen) { select.value = chosen; }
+    }
+
+    async function loadCatalog() {
+        const note = document.getElementById('catalogNote');
+        try {
+            const response = await fetch(
+                'http://localhost:8080/api/hardware/catalog?limit=' + CATALOG_LIMIT);
+            if (!response.ok) { throw new Error('HTTP ' + response.status); }
+            const articles = await response.json();
+            fillArticleList(document.getElementById('eanList'), articles, true);
+            fillArticleList(document.getElementById('counterEan'), articles, true);
+            fillPluList(document.getElementById('scalePlu'), articles);
+            if (note) {
+                const weighed = articles.filter(a => a.plu).length;
+                note.innerText = articles.length + ' article(s) en ligne, dont '
+                        + weighed + ' pesé(s)';
+                note.className = 'status success';
+            }
+        } catch (error) {
+            // La page reste utilisable — saisie manuelle, bons, badges — et dit
+            // pourquoi les listes sont vides plutôt que d'offrir des codes morts.
+            if (note) {
+                note.innerText = 'Catalogue illisible (' + error.message
+                        + ') — la caisse est-elle démarrée ?';
+                note.className = 'status error';
+            }
+        }
+    }
+
+    loadCatalog();
 
     // --- ACTIONS ---
     async function postPosAction(action, data, statusElement) {

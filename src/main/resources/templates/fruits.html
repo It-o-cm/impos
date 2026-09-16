@@ -13,12 +13,7 @@
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
 
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
@@ -47,8 +42,8 @@
         .plu-btn { background: var(--bg-row); font-size: var(--fs-btn-sm); padding: 8px 4px; border: 1px solid var(--border-strong); color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
         .plu-btn:hover { background: #444; border-color: var(--primary); }
         .plu-btn .plu-emoji { font-size: 1.2rem; }
-        .plu-btn .plu-img { max-width: 44px; max-height: 44px; object-fit: contain; }
-        .plu-search-result .psr-img { width: 26px; height: 26px; object-fit: contain; margin-right: 11px; vertical-align: middle; }
+        .plu-btn .plu-img { max-width: 2.75rem; max-height: 2.75rem; object-fit: contain; }
+        .plu-search-result .psr-img { width: 1.625rem; height: 1.625rem; object-fit: contain; margin-right: 11px; vertical-align: middle; }
         .plu-btn .plu-name { margin: 2px 0; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
         .plu-btn .plu-meta { display: flex; gap: 8px; justify-content: center; }
         .plu-btn .plu-code { display: block; font-size: var(--fs-label); color: var(--warning); font-weight: bold; }
@@ -58,13 +53,13 @@
         .plu-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 5; justify-content: center; align-items: center; }
         .plu-modal.active { display: flex; }
         .plu-modal-panel { background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.5); overflow: hidden; }
-        .plu-modal-panel.search-panel { width: 874px; height: 520px; }
-        .plu-modal-panel.code-panel { width: 340px; }
+        .plu-modal-panel.search-panel { width: 54.625rem; height: 32.5rem; }
+        .plu-modal-panel.code-panel { width: 21.25rem; }
         .plu-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-shrink: 0; }
         .plu-modal-title { font-size: var(--fs-section); font-weight: bold; color: white; }
 
         .plu-search-input { background: var(--bg-page); color: white; padding: 12px 14px; font-size: var(--fs-field); border-radius: 6px; border: 1px solid var(--primary); width: 100%; margin-bottom: 8px; flex-shrink: 0; }
-        .plu-search-results { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; overflow-y: auto; max-height: 300px; }
+        .plu-search-results { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; overflow-y: auto; max-height: 18.75rem; }
         .plu-search-result { background: var(--bg-row); border: 1px solid var(--border-strong); color: white; padding: 14px 16px; border-radius: 6px; cursor: pointer; text-align: left; font-size: var(--fs-row); display: flex; justify-content: space-between; align-items: center; }
         .plu-search-result:hover { background: #444; border-color: var(--primary); }
         .plu-search-result .psr-emoji { font-size: 1.26rem; margin-right: 11px; }
@@ -73,7 +68,7 @@
 
         .plu-code-display { background: var(--bg-page); color: white; padding: 14px; font-size: var(--fs-field-num); border-radius: 6px; border: 2px solid var(--warning); text-align: center; letter-spacing: 8px; margin-bottom: 14px; flex-shrink: 0; }
 
-        .plu-kb-area { min-height: 220px; display: flex; flex-direction: column; }
+        .plu-kb-area { min-height: 13.75rem; display: flex; flex-direction: column; }
 
         .btn-muted:disabled { background-color: #333; color: #555; cursor: not-allowed; box-shadow: none; }
     </style>

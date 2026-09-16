@@ -15,12 +15,7 @@
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
@@ -46,12 +41,12 @@
         .overlay.active { display: flex; }
         .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
         .overlay-title { font-size: var(--fs-title); }
-        .resume-container { width: 540px; margin: 0 auto; padding-bottom: 20px; }
+        .resume-container { width: 33.75rem; margin: 0 auto; padding-bottom: 20px; }
         .login-modes { display: flex; gap: 10px; margin-bottom: 15px; width: 100%; }
         .login-toggle { flex: 1; padding: 10px; background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-muted); font-size: var(--fs-body); font-weight: bold; border-radius: 6px; cursor: pointer; text-align: center; transition: 0.2s; text-transform: uppercase; }
         .login-toggle.active { background: var(--primary); border-color: white; color: white; }
         .resume-display { font-size: var(--fs-field-num); text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 3px solid var(--primary); border-radius: 8px; padding: 10px; letter-spacing: 5px; margin-bottom: 12px; width: 100%; }
-        #keyboardArea { width: 100%; display: flex; justify-content: center; min-height: 210px; }
+        #keyboardArea { width: 100%; display: flex; justify-content: center; min-height: 13.125rem; }
         .step-indicator { color: var(--warning); margin-bottom: 8px; font-size: var(--fs-body); }
         .hint-text { color:var(--text-muted); margin-bottom:8px; font-size: var(--fs-body); }
         .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-top: 15px; padding: 10px; font-weight: bold; font-size: var(--fs-body); border-radius: 6px; }

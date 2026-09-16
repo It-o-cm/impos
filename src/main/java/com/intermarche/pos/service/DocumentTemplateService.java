@@ -7,9 +7,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * Renders a printed document from its ADMINISTERED template (BO-03-03).
@@ -274,6 +276,377 @@ public class DocumentTemplateService {
         }
         LOGGER.info("Exiting method sampleData");
         return data;
+    }
+
+    /**
+     * One value a template of a given document type may read, as the screen
+     * shows it to the paramétreur.
+     */
+    public static class Reference {
+
+        /** What to type in the layout, braces included. */
+        public final String expression;
+
+        /** What that expression yields on the demonstration document. */
+        public final String sample;
+
+        /** The loop this expression only reads inside, or null. */
+        public final String loop;
+
+        /**
+         * Builds a reference.
+         *
+         * @param expression what to type, braces included
+         * @param sample what it yields on the demonstration document
+         * @param loop the loop it only reads inside, or null
+         */
+        public Reference(String expression, String sample, String loop) {
+            this.expression = expression;
+            this.sample = sample;
+            this.loop = loop;
+        }
+
+        /**
+         * Returns what to type in the layout.
+         *
+         * @return the expression, braces included
+         */
+        public String getExpression() {
+            return expression;
+        }
+
+        /**
+         * Returns what the expression yields on the demonstration document.
+         *
+         * @return the sample value
+         */
+        public String getSample() {
+            return sample;
+        }
+
+        /**
+         * Returns the loop this expression only reads inside.
+         *
+         * @return the loop expression, or null outside any loop
+         */
+        public String getLoop() {
+            return loop;
+        }
+
+        /**
+         * Whether this expression only means something inside a loop.
+         *
+         * @return true when it belongs to a repeating block
+         */
+        public boolean isRepeating() {
+            return loop != null;
+        }
+    }
+
+    /**
+     * Everything a template of this document type may read, each with what it
+     * yields on the demonstration document (BO-03-03).
+     * <p>
+     * DERIVED FROM {@link #sampleData}, never written beside it. The sample is
+     * already the contract — "a key that is not here is a key no template may
+     * read" — so listing the keys by hand would create a second list free to
+     * drift from the first, and a paramétreur would be told about a value that
+     * renders empty. Walking the sample means the screen cannot describe a key
+     * the renderer does not serve, nor miss one it does.
+     * <p>
+     * Order is meaning, not the alphabet: the values that stand alone first,
+     * then the blocks, then the repeating rows — which is the order a document
+     * is written in, from its header down to its lines.
+     *
+     * @param type the document to describe, or null for the common values
+     * @return the readable expressions, never null
+     */
+    public List<Reference> references(DocumentTemplate.DocumentType type) {
+        LOGGER.info("Entering method references with type: " + type);
+        Map<String, Object> sample = sampleData(type);
+        List<Reference> scalars = new ArrayList<>();
+        List<Reference> blocks = new ArrayList<>();
+        List<Reference> rows = new ArrayList<>();
+        for (String key : new TreeSet<>(sample.keySet())) {
+            Object value = sample.get(key);
+            if (value instanceof Map<?, ?> block) {
+                for (Object field : new TreeSet<>(stringKeys(block))) {
+                    blocks.add(new Reference("{" + key + "." + field + "}",
+                            text(block.get(field)), null));
+                }
+            } else if (value instanceof List<?> list) {
+                rows.addAll(listReferences(key, list));
+            } else {
+                scalars.add(new Reference("{" + key + "}", text(value), null));
+            }
+        }
+        List<Reference> all = new ArrayList<>(scalars);
+        all.addAll(blocks);
+        all.addAll(rows);
+        LOGGER.info("Exiting method references");
+        return all;
+    }
+
+    /**
+     * The expressions of a repeating block: its loop, then one per field of the
+     * rows it carries.
+     * <p>
+     * The first row names the fields, because the sample builds every row of a
+     * list the same way — a list whose rows differed would be a sample that
+     * lies about what a template can read.
+     *
+     * @param key the name of the list
+     * @param list the demonstration rows
+     * @return the loop and its fields, or the loop alone for an empty list
+     */
+    private List<Reference> listReferences(String key, List<?> list) {
+        String item = singular(key);
+        String loop = "{#for " + item + " in " + key + "}…{/for}";
+        List<Reference> found = new ArrayList<>();
+        found.add(new Reference(loop, list.size() + " ligne(s)", null));
+        if (list.isEmpty()) {
+            return found;
+        }
+        Object first = list.get(0);
+        if (!(first instanceof Map<?, ?> row)) {
+            found.add(new Reference("{" + item + "}", text(first), loop));
+            return found;
+        }
+        for (Object field : new TreeSet<>(stringKeys(row))) {
+            found.add(new Reference("{" + item + "." + field + "}",
+                    text(row.get(field)), loop));
+        }
+        return found;
+    }
+
+    /**
+     * The loop variable a list is read through: its name without the plural s,
+     * which is what a paramétreur would have written anyway.
+     *
+     * @param key the list name
+     * @return the loop variable name
+     */
+    private String singular(String key) {
+        return key.endsWith("s") && key.length() > 1
+                ? key.substring(0, key.length() - 1) : key + "Item";
+    }
+
+    /**
+     * The keys of a demonstration map, as strings.
+     *
+     * @param map the map
+     * @return its keys written out
+     */
+    private List<String> stringKeys(Map<?, ?> map) {
+        List<String> keys = new ArrayList<>();
+        for (Object key : map.keySet()) {
+            keys.add(String.valueOf(key));
+        }
+        return keys;
+    }
+
+    /**
+     * Writes a demonstration value the way the screen shows it.
+     *
+     * @param value the value, possibly null or a nested list
+     * @return the value written out, never null
+     */
+    private String text(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof List<?> list) {
+            return String.join(" / ", list.stream().map(String::valueOf).toList());
+        }
+        return String.valueOf(value);
+    }
+
+    /**
+     * A ready-made STARTER layout for one kind of document.
+     * <p>
+     * The editor used to open on an empty box, which meant the operator had to
+     * already know the shape of the data — that {@code lines} is a list, that a
+     * line names {@code label} and {@code total}, that the totals hang under
+     * {@code totals}. Nobody knows that from the screen. The example is written
+     * against the SAME keys {@link #sampleData} publishes, so the two describe
+     * one contract rather than two, and a starter that renders here renders on
+     * the register.
+     * <p>
+     * It is a starting point, not a house layout: the register keeps printing
+     * its own way until a row is administered, and the operator is expected to
+     * cut this one down.
+     *
+     * @param type the kind of document, possibly null
+     * @return the starter source, never null but empty for an unknown kind
+     */
+    public String defaultSource(DocumentTemplate.DocumentType type) {
+        LOGGER.info("Entering method defaultSource with type: " + type);
+        String source = starter(type);
+        LOGGER.info("Exiting method defaultSource");
+        return source;
+    }
+
+    /**
+     * The starter layout of each kind, kept apart so the public method stays
+     * one statement and the switch stays readable.
+     *
+     * @param type the kind of document, possibly null
+     * @return the starter source, empty for an unknown kind
+     */
+    private String starter(DocumentTemplate.DocumentType type) {
+        if (type == null) {
+            return "";
+        }
+        return switch (type) {
+            case SALE_RECEIPT -> """
+                    {store.name}
+                    {store.street}
+                    {store.postalCode} {store.city}
+                    ---
+                    Caisse {terminal}  {date} {time}
+                    Ticket {document.number}
+                    ---
+                    {#for line in lines}
+                    {line.label}
+                      {line.quantity} x {line.unitPrice}   {line.total}
+                    {/for}
+                    ---
+                    TOTAL HT   {totals.excludingTax}
+                    TVA        {totals.vat}
+                    TOTAL TTC  {totals.includingTax}
+                    ---
+                    {#for payment in payments}
+                    {payment.label}   {payment.amount}
+                    {/for}
+                    ---
+                    Merci de votre visite
+                    """;
+            case REFUND_RECEIPT -> """
+                    {store.name}
+                    ---
+                    TICKET DE REMBOURSEMENT
+                    Caisse {terminal}  {date} {time}
+                    Avoir {document.number}
+                    Ticket d'origine {document.originalNumber}
+                    ---
+                    {#for line in lines}
+                    {line.label}
+                      {line.quantity} x {line.unitPrice}   {line.total}
+                    {/for}
+                    ---
+                    TOTAL REMBOURSE  {totals.includingTax}
+                    Mode {document.method}
+                    """;
+            case INVOICE -> """
+                    {store.name}
+                    ---
+                    {document.title} {document.number}
+                    Du {document.issueDate}
+                    Ticket {document.ticketNumber}
+                    ---
+                    Client {customer.name}
+                    {#for address in customer.addressLines}
+                    {address}
+                    {/for}
+                    ---
+                    {#for line in lines}
+                    {line.label}
+                      {line.quantity} x {line.unitPrice}   {line.total}
+                    {/for}
+                    ---
+                    TOTAL HT   {totals.excludingTax}
+                    TVA        {totals.vat}
+                    TOTAL TTC  {totals.includingTax}
+                    """;
+            case INVOICE_A4 -> """
+                    <!DOCTYPE html>
+                    <html lang="fr"><head><meta charset="UTF-8">
+                    <title>{document.title} {document.number}</title>
+                    <style>
+                      body { font: 12px/1.5 system-ui, sans-serif; margin: 40px; }
+                      table { border-collapse: collapse; width: 100%; margin-top: 18px; }
+                      th, td { border-bottom: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+                      td.num, th.num { text-align: right; }
+                      .parties { display: flex; gap: 60px; margin-top: 24px; }
+                    </style></head><body>
+                    <h1>{document.title} {document.number}</h1>
+                    <p>Du {document.issueDate} — ticket {document.ticketNumber}</p>
+                    <div class="parties">
+                      <div><b>{seller.legalName}</b>
+                        {#for address in seller.addressLines}<br>{address}{/for}
+                        <br>SIRET {seller.siret}<br>TVA {seller.vatNumber}</div>
+                      <div><b>{customer.name}</b>
+                        {#for address in customer.addressLines}<br>{address}{/for}</div>
+                    </div>
+                    <table>
+                      <tr><th>Article</th><th class="num">Qte</th>
+                          <th class="num">PU</th><th class="num">Total</th></tr>
+                      {#for line in lines}
+                      <tr><td>{line.label}</td><td class="num">{line.quantity}</td>
+                          <td class="num">{line.unitPrice}</td><td class="num">{line.total}</td></tr>
+                      {/for}
+                    </table>
+                    <p>Total HT {totals.excludingTax} — TVA {totals.vat}
+                       — <b>Total TTC {totals.includingTax}</b></p>
+                    </body></html>
+                    """;
+            case X_REPORT, Z_REPORT -> """
+                    {store.name}
+                    ---
+                    RAPPORT DE SESSION
+                    Session {session.number}
+                    Ouverte {session.openedAt}
+                    Caisse {terminal}  {date} {time}
+                    ---
+                    Tickets          {totals.ticketCount}
+                    Chiffre TTC      {totals.includingTax}
+                    Remboursements   {totals.refunds}
+                    ---
+                    {#for tender in tenders}
+                    {tender.label}   {tender.amount}
+                    {/for}
+                    ---
+                    Fond de caisse   {totals.openingFloat}
+                    Especes theorique {totals.theoreticalCash}
+                    Especes comptees  {totals.countedCash}
+                    Ecart             {totals.variance}
+                    """;
+            case WITHDRAWAL_TICKET, TRANSFER_TICKET -> """
+                    {store.name}
+                    ---
+                    {movement.label}
+                    Caisse {terminal}  {date} {time}
+                    Operateur {operator}
+                    ---
+                    Montant {movement.amount}
+                    ---
+                    {#for count in counts}
+                    {count.label}   {count.amount}
+                    {/for}
+                    ---
+                    Signature
+                    """;
+            case GIFT_CARD_VOUCHER, CREDIT_NOTE_VOUCHER -> """
+                    {store.name}
+                    ---
+                    BON D'ACHAT
+                    Numero {instrument.number}
+                    Montant {instrument.amount}
+                    Emis le {date} a {time}
+                    ---
+                    A presenter en caisse
+                    """;
+            case CARD_RECEIPT -> """
+                    {store.name}
+                    ---
+                    JUSTIFICATIF CARTE
+                    Caisse {terminal}  {date} {time}
+                    Type {card.kind}
+                    Montant {card.amount}
+                    ---
+                    A conserver
+                    """;
+        };
     }
 
     /**

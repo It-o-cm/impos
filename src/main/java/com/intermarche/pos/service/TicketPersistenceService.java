@@ -20,7 +20,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;

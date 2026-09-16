@@ -16,12 +16,7 @@
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .main-area { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px; gap: 10px; }
@@ -76,7 +71,7 @@
         /* Le récapitulatif : chaque choix avec, en face, de quoi le refaire.
            C'est le dernier point avant l'irréversible, donc le seul endroit où
            se corriger doit coûter un geste et non tout recommencer. */
-        .recap { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 620px; }
+        .recap { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 38.75rem; }
         .recap-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; background: var(--bg-row); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px; text-align: left; }
         .recap-row .recap-label { font-size: var(--fs-label); color: var(--text-muted); display: block; }
         .recap-row .recap-value { font-size: var(--fs-row); font-weight: bold; }
@@ -84,7 +79,7 @@
            colonne que le récapitulatif, pour que le geste soit celui d'une caisse
            tactile et non celui d'une liste déroulante. */
         .doc-types { overflow-y: auto; }
-        .slip-count { font-size: var(--fs-body); color: var(--text-muted); max-width: 620px; }
+        .slip-count { font-size: var(--fs-body); color: var(--text-muted); max-width: 38.75rem; }
         .doc-type { display: block; text-align: center; padding: 16px; font-size: var(--fs-row); }
 
         .bottom-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }

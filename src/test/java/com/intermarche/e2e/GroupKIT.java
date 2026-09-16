@@ -1,6 +1,7 @@
 package com.intermarche.e2e;
 
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.ui.PriceModType;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.TicketRecoveryService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentService;
@@ -204,7 +205,7 @@ public class GroupKIT {
         openGesture(page, "remise", "REMISE");
         typeAndValidate(page, "1");
         approveEndorsementWithManager(page);
-        Assertions.assertEquals("REMISE", posState.ticket.items.get(0).modifierType,
+        Assertions.assertEquals(PriceModType.REMISE, posState.ticket.items.get(0).modifierType,
                 "the first line must carry a structured REMISE gesture");
         scan(EAN_MIEL);
         scan(WEIGHT_LABEL_VALID);
@@ -245,7 +246,7 @@ public class GroupKIT {
         List<String> uidsAfter = new ArrayList<>();
         for (TicketState.TicketItem it : posState.ticket.items) uidsAfter.add(it.uid);
         Assertions.assertEquals(uidsBefore, uidsAfter, "recovery must restore the same line uids in the same order");
-        Assertions.assertEquals("REMISE", posState.ticket.items.get(0).modifierType,
+        Assertions.assertEquals(PriceModType.REMISE, posState.ticket.items.get(0).modifierType,
                 "recovery must restore the structured REMISE modifier");
         Assertions.assertEquals(0, posState.ticket.items.get(0).modifierValue.compareTo(BigDecimal.ONE),
                 "recovery must restore the 1,00 € REMISE value");
@@ -779,9 +780,9 @@ public class GroupKIT {
      *
      * @return the OPEN session on C04, or null when none is open
      */
-    private com.intermarche.pos.domain.CashSession openSession() {
+    private com.intermarche.pos.domain.session.CashSession openSession() {
         return QuarkusTransaction.requiringNew().call(
-                () -> com.intermarche.pos.domain.CashSession.findOpenByTerminal(TERMINAL));
+                () -> com.intermarche.pos.domain.session.CashSession.findOpenByTerminal(TERMINAL));
     }
 
     /**

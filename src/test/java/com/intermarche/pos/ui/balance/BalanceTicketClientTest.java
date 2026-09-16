@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.balance;
 
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.service.sync.SyncPayloads;
 import org.junit.jupiter.api.Test;
 

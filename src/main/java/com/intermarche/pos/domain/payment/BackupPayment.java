@@ -42,7 +42,7 @@ public class BackupPayment extends TicketPayment {
      * True when the operator keyed the outcome in instead of scanning it, so no
      * signature was verified ({@code LC-07-07-09}).
      */
-    @Column(name = "backup_manual", nullable = false)
+    @Column(name = "backup_manual")
     public boolean manual = false;
 
     /**

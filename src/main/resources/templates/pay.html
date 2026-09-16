@@ -18,7 +18,7 @@
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-        .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark); border: 2px solid var(--border-strong); border-radius: 10px; display: grid; grid-template-rows: 60px 1fr 80px; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative; }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
 
         /* Header & Footer */
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
@@ -50,7 +50,7 @@
 
 
         /* Corps : zone principale (gauche) + colonne moyens de paiement (droite) */
-        .pay-body { flex: 1; display: grid; grid-template-columns: 1fr 190px; gap: 14px; min-height: 0; }
+        .pay-body { flex: 1; display: grid; grid-template-columns: 1fr 11.875rem; gap: 14px; min-height: 0; }
 
         /* Colonne verticale des moyens de paiement */
         .pay-methods { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
@@ -93,7 +93,7 @@
         .sub-display.voucher { color: #CE93D8; border-color: #CE93D8; letter-spacing: 2px; }
 
         /* Ligne Saisie + Numpad */
-        .pay-action-row { display: grid; grid-template-columns: 1fr 260px; gap: 12px; align-items: end; }
+        .pay-action-row { display: grid; grid-template-columns: 1fr 16.25rem; gap: 12px; align-items: end; }
 
         /* Zone Info / Saisie */
         .pay-info-zone { display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
@@ -116,7 +116,7 @@
         .sub-display { font-size: var(--fs-field); text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 8px; width: 100%; }
 
         /* Zone Numpad */
-        .pay-numpad-zone { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
+        .pay-numpad-zone { width: 16.25rem; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
 
         /* --- MODALE DE VALIDATION --- */
         .confirm-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 55; justify-content: center; align-items: center; }
@@ -124,7 +124,7 @@
 
         .confirm-panel {
             background: var(--bg-panel); border: 2px solid var(--success); border-radius: 16px;
-            width: 480px; display: flex; flex-direction: column;
+            width: 30rem; display: flex; flex-direction: column;
             box-shadow: 0 0 40px rgba(0,200,83,0.2); overflow: hidden;
         }
 
@@ -439,7 +439,7 @@
         <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">LECTURE DU CHEQUE</div>
         <div style="color:var(--text-main); font-size:var(--fs-total-xl); font-weight:bold;">{state.payment.pendingChequeAmount} €</div>
         <div style="color:var(--text-muted); font-size:var(--fs-body);">Insérez le chèque dans l'imprimante</div>
-        <a href="/action/cheque-cancel" class="btn btn-danger" style="width:260px;">ANNULER</a>
+        <a href="/action/cheque-cancel" class="btn btn-danger" style="width:16.25rem;">ANNULER</a>
     </div>
     </div>
     {/if}
@@ -451,7 +451,7 @@
         <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">PAIEMENT CARTE EN COURS</div>
         <div style="color:var(--text-main); font-size:var(--fs-total-xl); font-weight:bold;">{state.payment.pendingCardAmount} €</div>
         <div style="color:var(--text-muted); font-size:var(--fs-body);">Suivez les instructions du terminal de paiement</div>
-        <a href="/action/card-cancel" class="btn btn-danger" style="width:260px;">ANNULER</a>
+        <a href="/action/card-cancel" class="btn btn-danger" style="width:16.25rem;">ANNULER</a>
     </div>
     </div>
     {/if}
@@ -463,7 +463,7 @@
      ! Two machines that never talk, meeting on two printed codes.
     !}
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
-      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:42.5rem;">
         <div class="pos-title" style="text-align:center;">SECOURS MONÉTIQUE</div>
 
         {#if state.payment.backupError??}
@@ -472,8 +472,8 @@
 
         {#if state.payment.backupRequestSvg??}
         <div style="display:flex; gap:16px; align-items:flex-start;">
-            <div style="width:230px; display:flex; flex-direction:column; gap:6px; align-items:center;">
-                <div style="width:210px; height:210px; background:#FFFFFF; padding:4px; border-radius:4px;">
+            <div style="width:14.375rem; display:flex; flex-direction:column; gap:6px; align-items:center;">
+                <div style="width:13.125rem; height:13.125rem; background:#FFFFFF; padding:4px; border-radius:4px;">
                     {state.payment.backupRequestSvg.raw}
                 </div>
                 <div class="pos-row-sub">Scannez ce code sur le terminal mobile</div>
@@ -525,7 +525,7 @@
      ! over, and the register is the only thing in the shop that can tell them.
     !}
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
-      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:42.5rem;">
         <div class="pos-title" style="text-align:center;">PAIEMENT EN DEVISE</div>
 
         {#if state.payment.currencyError??}
@@ -546,7 +546,7 @@
                 </form>
             </div>
             <form action="/action/pay-currency" method="POST" id="currencyAmountForm"
-                  style="width:300px; display:flex; flex-direction:column; gap:6px;">
+                  style="width:18.75rem; display:flex; flex-direction:column; gap:6px;">
                 <div class="pos-label">Montant remis en {state.payment.selectedCurrency.displayUnit}</div>
                 <input type="text" id="currencyAmountDisplay" class="sub-display" value="0,00" readonly>
                 <input type="hidden" name="amount" id="currencyAmountValue" value="0">
@@ -585,7 +585,7 @@
      ! have walked over.
     !}
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:86; display:flex; justify-content:center; align-items:center;">
-      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:42.5rem;">
         <div class="pos-title" style="text-align:center;">AUTORISATION SUPERVISEUR</div>
         <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.tenderHeldMessage}</div>
         <div class="pos-row-sub" style="text-align:center;">{state.payment.tenderHeldLabel}</div>
@@ -611,7 +611,7 @@
      ! account, charging it, and asking a supervisor to pass the ceiling.
     !}
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
-      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:680px;">
+      <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:42.5rem;">
         <div class="pos-title" style="text-align:center;">CRÉDIT CLIENT</div>
 
         {#if state.payment.creditError??}
@@ -659,7 +659,7 @@
             </div>
             {#if state.payment.creditCustomer.creditAllowed}
             <form action="/action/pay-credit" method="POST" id="creditAmountForm"
-                  style="width:300px; display:flex; flex-direction:column; gap:6px;">
+                  style="width:18.75rem; display:flex; flex-direction:column; gap:6px;">
                 <div class="pos-label">Montant à porter au compte</div>
                 <input type="text" id="creditAmountDisplay" class="sub-display" value="0,00" readonly>
                 <input type="hidden" name="amount" id="creditAmountValue" value="0">
@@ -673,11 +673,11 @@
         {! LC-07-09-02 and -07: by number when it is known, by name when it is not. !}
         <form action="/action/credit-number" method="POST" style="display:flex; gap:8px;">
             <input type="text" name="number" class="sub-display" style="flex:1;" placeholder="N° de compte" autocomplete="off">
-            <button type="submit" class="btn btn-primary" style="width:150px;">VALIDER</button>
+            <button type="submit" class="btn btn-primary" style="width:9.375rem;">VALIDER</button>
         </form>
         <form action="/action/credit-search" method="POST" style="display:flex; gap:8px;">
             <input type="text" name="search" class="sub-display" style="flex:1;" placeholder="Nom du client" value="{state.payment.creditSearch}" autocomplete="off">
-            <button type="submit" class="btn btn-primary" style="width:150px;">RECHERCHER</button>
+            <button type="submit" class="btn btn-primary" style="width:9.375rem;">RECHERCHER</button>
         </form>
         {#if state.payment.creditSearchWithoutMatch}
         <div class="pos-list-empty">AUCUN COMPTE POUR CETTE RECHERCHE</div>

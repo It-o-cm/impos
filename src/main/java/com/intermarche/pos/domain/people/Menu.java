@@ -16,6 +16,9 @@ public enum Menu {
     /** The parameters aggregate: register settings and point-of-sale data. */
     PARAMETRAGE("Paramétrage"),
 
+    /** The article aggregate: the catalog and the way it reaches the grid. */
+    ARTICLES("Articles"),
+
     /** The administration aggregate: users and profiles. */
     ADMINISTRATION("Administration"),
 
@@ -32,6 +35,27 @@ public enum Menu {
      */
     Menu(String label) {
         this.label = label;
+    }
+
+    /**
+     * The features grouped under this menu, in declaration order.
+     * <p>
+     * Declared here rather than walked by each caller, because the navigation,
+     * the profile grid and the favourites screen all need the same grouping and
+     * must never disagree about it.
+     *
+     * @return the features of this menu, empty when none declares it
+     */
+    public java.util.List<com.intermarche.pos.domain.setting.Feature> features() {
+        java.util.List<com.intermarche.pos.domain.setting.Feature> grouped =
+                new java.util.ArrayList<>();
+        for (com.intermarche.pos.domain.setting.Feature feature
+                : com.intermarche.pos.domain.setting.Feature.values()) {
+            if (feature.inMenu(this)) {
+                grouped.add(feature);
+            }
+        }
+        return grouped;
     }
 
     /**

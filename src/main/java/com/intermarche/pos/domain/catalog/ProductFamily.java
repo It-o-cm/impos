@@ -49,48 +49,35 @@ public class ProductFamily extends BaseEntity {
     public String flags;
 
     // --------------------------------------------------
-    // Touch configuration (Lot 5F) — administered in the back office,
-    // distributed on the FAMILIES domain, rendered on the SAISIE DIRECTE
-    // group-touch grid.
+    // Nomenclature placement (BO-02-01-01, BO-02-03-14)
     // --------------------------------------------------
 
     /**
-     * Whether this group is PINNED (BO-03-01-07): a pinned group stays shown at
-     * the register whatever the cashier's navigation — it is prepended to every
-     * page of the group grid and to every drilled-down category level. Bounded
-     * to at most four pinned groups by the back office. Referential data: it
-     * rides the FAMILIES domain and reaches the registers at the next tirage.
+     * The classification scheme this node belongs to, or null when the group
+     * is not part of one.
+     * <p>
+     * Null is a real case and not a defect: the direct-entry grid lets a shop
+     * build its own groups, which classify nothing and come from no commercial
+     * system. A node WITH a scheme is a nomenclature node and answers to its
+     * rules — a code of a declared length, one parent, a named level.
      */
-    @Column(name = "pinned", nullable = false)
-    public boolean pinned = false;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "nomenclature_id")
+    public Nomenclature nomenclature;
 
     /**
-     * The touch SIZE of this group (BO-03-01-08): one of {@code SMALL},
-     * {@code NORMAL} or {@code LARGE}, rendered as a differently sized button on
-     * the group grid. Never null (defaults to {@code NORMAL}); an unknown value
-     * renders as the normal size. Referential data on the FAMILIES domain.
+     * The 0-based level of this node inside its scheme — 0 for an activité,
+     * 3 for a sous-famille in the Intermarché scheme — or null when the node
+     * belongs to no scheme.
+     * <p>
+     * Held on the node rather than derived at every read, because it is what
+     * the published hierarchy file states: its {@code niveau} column is the
+     * source, the code length only confirms it. Reports select a level by it
+     * ("rupture par rayon"), and an importer validates the code length against
+     * it.
      */
-    @Column(name = "button_size", length = 10, nullable = false)
-    public String buttonSize = "NORMAL";
-
-    /**
-     * The custom rank of this group in the group grid (BO-03-01-11), honoured
-     * when the display-order mode is {@code CUSTOM}: lower comes first, ties
-     * broken by description. Never null (defaults to zero). Referential data on
-     * the FAMILIES domain.
-     */
-    @Column(name = "display_order", nullable = false)
-    public int displayOrder = 0;
-
-    /**
-     * The sales volume of this group (BO-03-01-13), honoured when the
-     * display-order mode is {@code VOLUME}: higher comes first, ties broken by
-     * description. Carried as referential data on the FAMILIES domain (fed from
-     * the gestion commerciale or set in the back office); the POS does not
-     * aggregate sales into it. Defaults to zero.
-     */
-    @Column(name = "sales_volume", nullable = false)
-    public long salesVolume = 0L;
+    @Column(name = "nomenclature_level")
+    public Integer level;
 
     // --------------------------------------------------
     // Relations: Direct Products
@@ -108,12 +95,27 @@ public class ProductFamily extends BaseEntity {
     // --------------------------------------------------
 
     /**
-     * The list of sub-families (ProductFamilies) contained within this family.
+     * The sub-families contained within this family — the NAVIGATION edges.
      * <p>
-     * Unidirectional relationship via a foreign key in the 'product_families' table.
+     * A JOIN TABLE, not a foreign key on the child, because a group may hang
+     * under several: the direct-entry grid lets a shop show one group under
+     * two others, and {@code RefPayloads.FamilyDto} has always carried
+     * {@code parentCodes} as a list. With a single
+     * {@code parent_product_family_id} column the second parent silently
+     * overwrote the first at every pull.
+     * <p>
+     * These edges are NOT what places a node in a nomenclature. Inside a
+     * scheme the parent is read off the code — see {@link #parentCode()} —
+     * and is therefore unique by construction. The two structures coexist on
+     * the same rows: {@link #nomenclature} says which one applies.
+     * <p>
+     * No cascade: a child reachable from two parents must not be deleted with
+     * either of them.
      */
-    @OneToMany(fetch = FetchType.LAZY, cascade = CascadeType.ALL)
-    @JoinColumn(name = "parent_product_family_id") // FK in the child product_family row
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "product_family_children",
+            joinColumns = @JoinColumn(name = "parent_id"),
+            inverseJoinColumns = @JoinColumn(name = "child_id"))
     public Set<ProductFamily> productFamilies = new HashSet<>();
 
     // --------------------------------------------------
@@ -131,20 +133,86 @@ public class ProductFamily extends BaseEntity {
     }
 
     /**
-     * Returns the DIRECT family a product belongs to — the family whose
-     * {@code products} collection contains it — but ONLY when that family is
-     * unambiguous. The model allows a product to be attached directly to
-     * several families, and nothing in the product says which of them names a
-     * sale; picking one would be inventing a rule, and the line snapshot is
-     * permanent, so the invented rule would be frozen into every consolidated
-     * line. An ambiguous product therefore leaves the line's nomenclature blank
-     * until the rule is decided (campaign lot C3 / BO-04-01-11).
+     * The code of this node's parent inside its own scheme, truncated off its
+     * own code.
+     *
+     * @return the parent's code, or null for a top node or a node in no scheme
+     */
+    public String parentCode() {
+        return nomenclature == null ? null : nomenclature.parentCodeOf(code);
+    }
+
+    /**
+     * Lists the nodes of one scheme sitting at one level, in code order.
+     *
+     * @param nomenclature the scheme, possibly null
+     * @param level the 0-based level
+     * @return the nodes at that level, empty when the scheme is null
+     */
+    public static List<ProductFamily> listAtLevel(Nomenclature nomenclature, int level) {
+        if (nomenclature == null || nomenclature.id == null) {
+            return List.of();
+        }
+        return list("nomenclature.id = ?1 and level = ?2 order by code",
+                nomenclature.id, level);
+    }
+
+    /**
+     * Lists every node of one scheme, top level first then by code — the order
+     * the level-by-level display needs (BO-02-01-08).
+     *
+     * @param nomenclature the scheme, possibly null
+     * @return the nodes of the scheme, empty when the scheme is null
+     */
+    public static List<ProductFamily> listInNomenclature(Nomenclature nomenclature) {
+        if (nomenclature == null || nomenclature.id == null) {
+            return List.of();
+        }
+        return list("nomenclature.id = ?1 order by level, code", nomenclature.id);
+    }
+
+    /**
+     * Whether this node's code is well formed for its scheme AND matches the
+     * level it claims.
      * <p>
-     * Also returns null when the product is null, unpersisted, or attached to
-     * no family at all.
+     * Both halves matter and neither implies the other: a code of the right
+     * length placed at the wrong level would put a famille among the rayons,
+     * and a code of the wrong length belongs nowhere. A node in no scheme is
+     * consistent by definition — nothing constrains it.
+     *
+     * @return true when the node is consistent with its scheme
+     */
+    public boolean isConsistentWithNomenclature() {
+        if (nomenclature == null) {
+            return true;
+        }
+        NomenclatureLevel placed = nomenclature.levelOfCode(code);
+        return placed != null && level != null && placed.rank == level;
+    }
+
+    /**
+     * Returns the family whose code the sale line keeps — the article's place
+     * in the NOMENCLATURE when it has one.
+     * <p>
+     * A product hangs under several groups at once: the nomenclature node the
+     * gestion commerciale filed it under, and any number of touch groups a
+     * shop built for its own grid. Those are not the same kind of thing, and
+     * the arbitration is now written rather than declined: a node belonging to
+     * a scheme wins, because that is the one the VAT and sales reports break
+     * on (BO-06-07-01, BO-06-04-01). Between two nodes of ONE scheme the
+     * deepest wins — the sous-famille says more than the rayon it hangs under,
+     * and the rayon is its own prefix anyway, so nothing is lost.
+     * <p>
+     * Outside any scheme the old rule stands: a single group is the answer,
+     * several is silence. Picking among touch groups would be inventing a
+     * rule, and the line snapshot is permanent, so the invented rule would be
+     * frozen into every consolidated line.
+     * <p>
+     * Returns null when the product is null, unpersisted, or attached to
+     * nothing (campaign lot C3 / BO-04-01-11).
      *
      * @param product the sold product
-     * @return the single direct family, or null when there is none or several
+     * @return the family the line records, or null when there is none
      */
     public static ProductFamily findDirectFamily(Product product) {
         if (product == null || product.id == null) {
@@ -154,7 +222,78 @@ public class ProductFamily extends BaseEntity {
                 "select pf from ProductFamily pf join pf.products p where p.id = ?1",
                 product.id
         ).list();
+        ProductFamily classified = null;
+        for (ProductFamily candidate : direct) {
+            if (candidate.nomenclature == null) {
+                continue;
+            }
+            if (classified == null || deeper(candidate, classified)) {
+                classified = candidate;
+            }
+        }
+        if (classified != null) {
+            return classified;
+        }
         return direct.size() == 1 ? direct.get(0) : null;
+    }
+
+    /**
+     * Whether a node sits deeper than another, a null level counting as the
+     * top so an unplaced node never wins over a placed one.
+     *
+     * @param candidate the node being considered
+     * @param incumbent the node currently held
+     * @return true when the candidate is the deeper of the two
+     */
+    private static boolean deeper(ProductFamily candidate, ProductFamily incumbent) {
+        int candidateLevel = candidate.level == null ? -1 : candidate.level;
+        int incumbentLevel = incumbent.level == null ? -1 : incumbent.level;
+        return candidateLevel > incumbentLevel;
+    }
+
+    /**
+     * Files an article under its place in a nomenclature (BO-02-03-14).
+     * <p>
+     * The article feed names the node, and the membership is what makes the
+     * classification REACH the register: the sale line keeps the family of the
+     * article it sold, and {@link #findDirectFamily(Product)} reads it off this
+     * collection. Administering a nomenclature that no article belongs to
+     * changes nothing at the till.
+     * <p>
+     * The article is detached from every OTHER node of the same scheme first.
+     * A scheme is a partition — one place per article — and an article moved
+     * from one sous-famille to another must not end up in both, or the VAT
+     * state would count it twice. Touch groups are left alone: they are not a
+     * classification and an article may sit in as many as the shop wants.
+     *
+     * @param product the article being filed, possibly null
+     * @param nodeCode the code of the node it belongs to, possibly blank
+     * @return true when the article is now filed under that node
+     */
+    public static boolean fileUnderNomenclature(Product product, String nodeCode) {
+        if (product == null || nodeCode == null || nodeCode.isBlank()) {
+            return false;
+        }
+        ProductFamily node = findByCode(nodeCode.trim());
+        if (node == null || node.nomenclature == null) {
+            return false;
+        }
+        List<ProductFamily> holding = ProductFamily.<ProductFamily>find(
+                "select pf from ProductFamily pf join pf.products p where p.id = ?1",
+                product.id).list();
+        for (ProductFamily other : holding) {
+            if (other.nomenclature != null && !other.code.equals(node.code)
+                    && other.nomenclature.id != null
+                    && other.nomenclature.id.equals(node.nomenclature.id)) {
+                other.products.remove(product);
+                other.persist();
+            }
+        }
+        if (!node.products.contains(product)) {
+            node.products.add(product);
+            node.persist();
+        }
+        return true;
     }
 
     /**

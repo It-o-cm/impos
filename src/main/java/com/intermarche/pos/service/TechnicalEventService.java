@@ -2,7 +2,7 @@ package com.intermarche.pos.service;
 
 import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

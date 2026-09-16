@@ -103,7 +103,7 @@ public class InvoiceService {
      * refunds, so the declaration survives a broken link instead of being lost.
      */
     @Inject
-    com.intermarche.pos.service.sync.SyncOutboxService syncOutboxService;
+    com.intermarche.pos.service.sync.register.SyncOutboxService syncOutboxService;
 
     /** How a date is typed and shown on this screen. */
     private static final java.time.format.DateTimeFormatter DATE_MASK =

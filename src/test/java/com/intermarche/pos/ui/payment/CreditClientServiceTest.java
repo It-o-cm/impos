@@ -4,7 +4,7 @@ import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.domain.store.Address;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.sync.RefPullService;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;

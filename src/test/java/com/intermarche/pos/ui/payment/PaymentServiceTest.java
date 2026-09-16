@@ -4,7 +4,7 @@ import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.valuation.ValuationReconciler;
 import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.service.sync.FidEventOutboxService;
+import com.intermarche.pos.service.sync.register.FidEventOutboxService;
 import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.hardware.terminal.AutoAcceptTerminalClient;

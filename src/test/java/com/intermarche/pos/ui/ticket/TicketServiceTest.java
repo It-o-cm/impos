@@ -1,13 +1,14 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.CashSession;
-import com.intermarche.pos.domain.Price;
-import com.intermarche.pos.domain.Product;
+import com.intermarche.pos.ui.PriceModType;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.valuation.ValuationService;
-import com.intermarche.pos.domain.ticket.Ticket;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.scanner.ScanContext;
@@ -21,7 +22,7 @@ import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
-import com.intermarche.pos.domain.ticket.TechnicalEvent;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -97,6 +98,10 @@ class TicketServiceTest {
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(service.posSettingsService.lineMaxDiscountPercent()).thenReturn(100);
         when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(100);
+        // Euro ceilings at their catalog default of zero, i.e. disabled, so every
+        // historical assertion on remises is unchanged (BO-03-07-04).
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(BigDecimal.ZERO);
+        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(BigDecimal.ZERO);
         // Original price shown at its catalog default (BO-10-07-12), so the
         // historical "Prix initial" assertions on forcePrice hold.
         when(service.posSettingsService.priceShowOriginalOnForce()).thenReturn(true);
@@ -418,7 +423,7 @@ class TicketServiceTest {
         service.applyRemise(item, new BigDecimal("5"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
         assertEquals(0, new BigDecimal("7.5").compareTo(item.unitPrice));
-        assertEquals("REMISE", item.modifierType);
+        assertEquals(PriceModType.REMISE, item.modifierType);
         assertEquals(0, new BigDecimal("5").compareTo(item.modifierValue));
         assertEquals("Remise -5,00€", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
@@ -433,7 +438,7 @@ class TicketServiceTest {
         TicketState.TicketItem item = line("X", new BigDecimal("2"), BigDecimal.ONE);
         service.applyRemise(item, new BigDecimal("5"));
         assertEquals(0, BigDecimal.ZERO.compareTo(item.unitPrice));
-        assertEquals("REMISE", item.modifierType);
+        assertEquals(PriceModType.REMISE, item.modifierType);
     }
 
     /**
@@ -492,6 +497,36 @@ class TicketServiceTest {
     }
 
     /**
+     * BO-03-07-02: the line ceiling is the one the back office administers, not
+     * the absolute 100. With {@code discount.line-max-percent} at 20, a 30 %
+     * discount is refused — a percentage the absolute ceiling would have let
+     * through. Replacing the administered read by a literal 100 makes this test
+     * fail, which is the whole point of it.
+     */
+    @Test
+    void applyDiscountRefusesPercentAboveTheAdministeredLineCap() {
+        when(service.posSettingsService.lineMaxDiscountPercent()).thenReturn(20);
+        TicketState.TicketItem item = line("X", new BigDecimal("10"), BigDecimal.ONE);
+        service.applyDiscount(item, new BigDecimal("30"));
+        assertNull(item.modifierType);
+        assertEquals(0, new BigDecimal("10").compareTo(item.unitPrice));
+    }
+
+    /**
+     * BO-03-07-02: the administered ceiling is INCLUSIVE — a discount exactly at
+     * the configured percentage applies. Paired with the case above, the two
+     * bracket the boundary the back office actually sets.
+     */
+    @Test
+    void applyDiscountAcceptsPercentExactlyAtTheAdministeredLineCap() {
+        when(service.posSettingsService.lineMaxDiscountPercent()).thenReturn(20);
+        TicketState.TicketItem item = line("X", new BigDecimal("10"), BigDecimal.ONE);
+        service.applyDiscount(item, new BigDecimal("20"));
+        assertEquals(PriceModType.DISCOUNT, item.modifierType);
+        assertEquals(0, new BigDecimal("8").compareTo(item.unitPrice));
+    }
+
+    /**
      * {@code applyDiscount} with a zero original price (first orig operand)
      * reduces the unit price by the percentage.
      */
@@ -502,7 +537,7 @@ class TicketServiceTest {
         service.applyDiscount(item, new BigDecimal("10"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
         assertEquals(0, new BigDecimal("9").compareTo(item.unitPrice));
-        assertEquals("DISCOUNT", item.modifierType);
+        assertEquals(PriceModType.DISCOUNT, item.modifierType);
         assertEquals(0, new BigDecimal("10").compareTo(item.modifierValue));
         assertEquals("Discount -10,00%", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
@@ -575,7 +610,7 @@ class TicketServiceTest {
         service.forcePrice(item, new BigDecimal("30"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
         assertEquals(0, new BigDecimal("15").compareTo(item.unitPrice));
-        assertEquals("FORCE_PRICE", item.modifierType);
+        assertEquals(PriceModType.FORCE_PRICE, item.modifierType);
         assertEquals(0, new BigDecimal("30").compareTo(item.modifierValue));
         assertEquals("Prix initial: 20,00€", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
@@ -606,7 +641,7 @@ class TicketServiceTest {
         TicketState.TicketItem item = line("X", new BigDecimal("10"), new BigDecimal("2"));
         service.forcePrice(item, new BigDecimal("30"));
         assertNull(item.modifierLabel);
-        assertEquals("FORCE_PRICE", item.modifierType);
+        assertEquals(PriceModType.FORCE_PRICE, item.modifierType);
         assertEquals(0, new BigDecimal("15").compareTo(item.unitPrice));
     }
 
@@ -804,7 +839,7 @@ class TicketServiceTest {
     void addItemByEanVatExemptVentilatesAtZero() {
         openSession();
         Product p = product("MILK", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
         Price pr = price("1.50", "0.055");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
@@ -828,7 +863,7 @@ class TicketServiceTest {
     void addItemByEanRefusesRecalledArticle() {
         openSession();
         Product p = product("MILK", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.RECALL, "true");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             @SuppressWarnings("unchecked")
             PanacheQuery<Product> query = mock(PanacheQuery.class);
@@ -848,7 +883,7 @@ class TicketServiceTest {
     void addItemByEanSnapshotsDiscountForbidden() {
         openSession();
         Product p = product("MILK", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             @SuppressWarnings("unchecked")
@@ -859,6 +894,49 @@ class TicketServiceTest {
             service.addItemByEan(state, "123", BigDecimal.ONE);
         }
         assertTrue(state.ticket.items.get(0).discountForbidden);
+    }
+
+    /**
+     * BO-02-03-06: {@code addItemByEan} snapshots the meal-voucher eligibility
+     * onto the added line, so a register the engine never answered still knows
+     * what a meal ticket may settle.
+     */
+    @Test
+    void addItemByEanSnapshotsMealVoucherEligibility() {
+        openSession();
+        Product p = product("SANDWICH", "124", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE, "true");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "124")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "124", BigDecimal.ONE);
+        }
+        assertTrue(state.ticket.items.get(0).mealVoucherEligible);
+    }
+
+    /**
+     * An article the referential does NOT declare eligible lands on a line that
+     * says so — the second value, which is what proves the attribute is read
+     * rather than a literal posed.
+     */
+    @Test
+    void addItemByEanSnapshotsAnIneligibleArticleAsSuch() {
+        openSession();
+        Product p = product("VIN", "125", null);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "125")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "125", BigDecimal.ONE);
+        }
+        assertFalse(state.ticket.items.get(0).mealVoucherEligible);
     }
 
     // --- addItemByPlu ---
@@ -996,7 +1074,7 @@ class TicketServiceTest {
     void addItemByPluRefusesRecalledArticle() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.RECALL, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.RECALL, "true");
         try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
             service.addItemByPlu(state, "1234");
@@ -1015,7 +1093,7 @@ class TicketServiceTest {
     void addItemByPluVatExemptVentilatesAtZero() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
         when(hardwareService.requestWeighing()).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
@@ -1037,7 +1115,7 @@ class TicketServiceTest {
     void addItemByPluSnapshotsDiscountForbidden() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
         when(hardwareService.requestWeighing()).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
@@ -1136,7 +1214,7 @@ class TicketServiceTest {
     @Test
     void applyGlobalDiscountRefusedDuringPayment() {
         state.payment.paymentInProgress = true;
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("10"));
         assertEquals("TERMINEZ OU ANNULEZ LE TICKET D'ABORD", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1146,7 +1224,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountRejectsNullValue() {
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", null);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, null);
         assertEquals("VALEUR INVALIDE", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1157,7 +1235,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountRejectsNegativeValue() {
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("-1"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("-1"));
         assertEquals("VALEUR INVALIDE", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1169,7 +1247,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountRejectsPercentAbove100() {
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("101"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("101"));
         assertEquals("VALEUR INVALIDE", state.ticket.transientError);
         assertNull(state.ticket.globalDiscountType);
     }
@@ -1180,9 +1258,49 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountAcceptsExactly100Percent() {
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("100"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("100"));
         assertEquals("PERCENT", state.ticket.globalDiscountType);
         assertEquals(0, new BigDecimal("100").compareTo(state.ticket.globalDiscountValue));
+    }
+
+    /**
+     * BO-03-07-08: the whole-ticket ceiling is the one the back office
+     * administers. With {@code discount.global-max-percent} at 30, a 50 %
+     * ticket discount is refused — a percentage the absolute 100 would have
+     * accepted, so this case fails the moment the administered read is replaced
+     * by a literal.
+     */
+    @Test
+    void applyGlobalDiscountRefusesPercentAboveTheAdministeredCap() {
+        when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(30);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("50"));
+        assertEquals("VALEUR INVALIDE", state.ticket.transientError);
+        assertNull(state.ticket.globalDiscountType);
+    }
+
+    /**
+     * BO-03-07-08: the administered ceiling is INCLUSIVE — a ticket discount
+     * exactly at the configured percentage applies.
+     */
+    @Test
+    void applyGlobalDiscountAcceptsPercentExactlyAtTheAdministeredCap() {
+        when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(30);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("30"));
+        assertEquals("PERCENT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("30").compareTo(state.ticket.globalDiscountValue));
+    }
+
+    /**
+     * BO-03-07-08: the administered ceiling governs PERCENT only. The same
+     * figure asked in euros goes through untouched — a 50 € reduction on a
+     * ticket is not a 50 % one, and the allocation caps it at the base.
+     */
+    @Test
+    void applyGlobalDiscountAdministeredCapDoesNotGovernEuros() {
+        when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(30);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("50"));
+        assertEquals("AMOUNT", state.ticket.globalDiscountType);
+        assertEquals(0, new BigDecimal("50").compareTo(state.ticket.globalDiscountValue));
     }
 
     /**
@@ -1191,7 +1309,7 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountAcceptsEurosAbove100() {
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("150"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("150"));
         assertEquals("AMOUNT", state.ticket.globalDiscountType);
         assertEquals(0, new BigDecimal("150").compareTo(state.ticket.globalDiscountValue));
     }
@@ -1203,8 +1321,8 @@ class TicketServiceTest {
      */
     @Test
     void applyGlobalDiscountZeroErasesRequest() {
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", new BigDecimal("10"));
-        service.applyGlobalDiscount(state, "GLOBAL_DISCOUNT", BigDecimal.ZERO);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("10"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, BigDecimal.ZERO);
         assertNull(state.ticket.globalDiscountType);
         assertNull(state.ticket.globalDiscountValue);
     }
@@ -1217,7 +1335,7 @@ class TicketServiceTest {
     @Test
     void applyGlobalDiscountMapsTypeAndRecomputes() {
         state.ticket.items.add(line("MILK", new BigDecimal("10.00"), BigDecimal.ONE));
-        service.applyGlobalDiscount(state, "GLOBAL_REMISE", new BigDecimal("2.00"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("2.00"));
         assertEquals("AMOUNT", state.ticket.globalDiscountType);
         assertEquals(0, new BigDecimal("2.00").compareTo(state.ticket.globalDiscountApplied));
         assertEquals(0, new BigDecimal("8.00").compareTo(state.ticket.totalAmount));
@@ -1868,7 +1986,7 @@ class TicketServiceTest {
     @Test
     void suspendForEntryAsksForADecimalQuantity() {
         Product p = product("CABLE", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .QUANTITY_TO_ENTER, "true");
         p.unitName = "m";
         try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
@@ -1892,7 +2010,7 @@ class TicketServiceTest {
     @Test
     void suspendForEntryAsksForAPriceWhenOnlyThePriceIsMissing() {
         Product p = product("FLEURS", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .PRICE_TO_ENTER, "true");
         try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
@@ -1911,7 +2029,7 @@ class TicketServiceTest {
     @Test
     void suspendForEntryCarriesTheQuantityTheOperatorAlreadyGave() {
         Product p = product("FLEURS", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .PRICE_TO_ENTER, "true");
         try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
@@ -1947,6 +2065,42 @@ class TicketServiceTest {
         service.confirmEntry(state, new BigDecimal("-1"));
         assertTrue(state.entryPrompt.active);
         assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * BO-02-03-06: a line rung through the entry prompt carries the meal-voucher
+     * eligibility too, and an article the referential does not declare eligible
+     * lands as ineligible — the two values, on the third snapshot site.
+     */
+    @Test
+    void confirmEntrySnapshotsMealVoucherEligibility() {
+        openSession();
+        Product eligible = product("SANDWICH", "126", null);
+        eligible.attributes.put(
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.MEAL_VOUCHER_ELIGIBLE,
+                "true");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "126";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("126")).thenReturn(eligible);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.20"));
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        assertTrue(state.ticket.items.get(0).mealVoucherEligible);
+
+        Product ordinary = product("VIN", "127", null);
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "127";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("127")).thenReturn(ordinary);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.20"));
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        assertFalse(state.ticket.items.get(1).mealVoucherEligible);
     }
 
     /**
@@ -2003,7 +2157,7 @@ class TicketServiceTest {
     void confirmEntryChainsTheQuantityIntoThePrice() {
         openSession();
         Product p = product("FLEURS", "123", null);
-        p.attributes.put(com.intermarche.pos.domain.attribute.ProductAttributeCatalog
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
                 .PRICE_TO_ENTER, "true");
         state.entryPrompt.active = true;
         state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
@@ -2064,5 +2218,100 @@ class TicketServiceTest {
         assertEquals("SAISIE ABANDONNÉE", state.ticket.transientError);
         assertTrue(state.ticket.items.isEmpty());
         assertTrue(state.version > version);
+    }
+
+    /**
+     * The administered EURO ceiling refuses a line remise beyond it
+     * (BO-03-07-04): the line keeps its price and its modifier.
+     */
+    @Test
+    void applyRemiseRefusesAnAmountAboveTheAdministeredCap() {
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("10.00"));
+        TicketState.TicketItem item = line("Pommes", new BigDecimal("20.00"), BigDecimal.ONE);
+        service.applyRemise(item, new BigDecimal("10.01"));
+        assertEquals(0, new BigDecimal("20.0000").compareTo(item.unitPrice));
+        assertNull(item.modifierType);
+    }
+
+    /**
+     * The administered EURO ceiling accepts a line remise exactly AT it
+     * (BO-03-07-04, boundary): the minimum promised is honoured.
+     */
+    @Test
+    void applyRemiseAcceptsAnAmountExactlyAtTheAdministeredCap() {
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("10.00"));
+        TicketState.TicketItem item = line("Pommes", new BigDecimal("20.00"), BigDecimal.ONE);
+        service.applyRemise(item, new BigDecimal("10.00"));
+        assertEquals(0, new BigDecimal("10.0000").compareTo(item.unitPrice));
+        assertEquals(PriceModType.REMISE, item.modifierType);
+    }
+
+    /**
+     * A SECOND administered ceiling moves the refusal: what 10 € forbade, 20 €
+     * allows. Two distinct administered values, so no literal can satisfy both.
+     */
+    @Test
+    void applyRemiseFollowsTheAdministeredCapWhateverItIs() {
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("20.00"));
+        TicketState.TicketItem item = line("Pommes", new BigDecimal("30.00"), BigDecimal.ONE);
+        service.applyRemise(item, new BigDecimal("15.00"));
+        assertEquals(PriceModType.REMISE, item.modifierType);
+    }
+
+    /**
+     * A zero ceiling is no ceiling: the historical behaviour, kept as the
+     * catalog default so an unadministered register refuses nothing new.
+     */
+    @Test
+    void applyRemiseIsUncappedWhenTheAdministeredCapIsZero() {
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(BigDecimal.ZERO);
+        TicketState.TicketItem item = line("Pommes", new BigDecimal("20.00"), BigDecimal.ONE);
+        service.applyRemise(item, new BigDecimal("19.00"));
+        assertEquals(PriceModType.REMISE, item.modifierType);
+    }
+
+    /**
+     * The administered EURO ceiling refuses a TICKET remise beyond it
+     * (BO-03-07-04).
+     */
+    @Test
+    void applyGlobalDiscountRefusesEurosAboveTheAdministeredAmountCap() {
+        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("30.00"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("30.01"));
+        assertNull(state.ticket.globalDiscountType);
+        assertEquals("REMISE SUPERIEURE AU PLAFOND", state.ticket.transientError);
+    }
+
+    /**
+     * The administered EURO ceiling accepts a TICKET remise exactly AT it
+     * (BO-03-07-04, boundary).
+     */
+    @Test
+    void applyGlobalDiscountAcceptsEurosExactlyAtTheAdministeredAmountCap() {
+        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("30.00"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("30.00"));
+        assertEquals("AMOUNT", state.ticket.globalDiscountType);
+    }
+
+    /**
+     * A SECOND administered ceiling moves the refusal on the ticket gesture too.
+     */
+    @Test
+    void applyGlobalDiscountFollowsTheAdministeredAmountCapWhateverItIs() {
+        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("60.00"));
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("50.00"));
+        assertEquals("AMOUNT", state.ticket.globalDiscountType);
+    }
+
+    /**
+     * The euro ceiling does NOT govern the percentage gesture, which keeps its
+     * own cap: the two guards are independent.
+     */
+    @Test
+    void theAmountCapDoesNotGovernThePercentageGesture() {
+        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("5.00"));
+        when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(50);
+        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("40"));
+        assertEquals("PERCENT", state.ticket.globalDiscountType);
     }
 }

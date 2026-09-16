@@ -274,7 +274,7 @@ class InvoiceServiceTest {
     }
 
     /** An outbox that records the declarations instead of writing rows. */
-    private static class FakeOutbox extends com.intermarche.pos.service.sync.SyncOutboxService {
+    private static class FakeOutbox extends com.intermarche.pos.service.sync.register.SyncOutboxService {
 
         /** The entity types it was asked to declare, in order. */
         private final List<com.intermarche.pos.domain.sync.SyncOutbox.EntityType> types =

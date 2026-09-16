@@ -11,12 +11,7 @@
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
         .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: var(--fs-title); }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-around; align-items: center; padding: 0 10px; }
@@ -32,12 +27,12 @@
         .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
         .overlay-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; flex-shrink: 0; }
         .overlay-title { font-size: var(--fs-title); }
-        .pin-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 760px; margin: 0 auto; padding-top: 10px; }
+        .pin-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 47.5rem; margin: 0 auto; padding-top: 10px; }
         .pin-fields { display: flex; flex-direction: column; gap: 14px; justify-content: center; }
         .pin-field-label { font-size: var(--fs-label); color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
         .pin-display { width: 100%; font-size: var(--fs-field-num); text-align: center; color: var(--text-main); font-weight: bold; background: var(--bg-page); border: 3px solid var(--border-color); border-radius: 8px; padding: 10px; letter-spacing: 8px; cursor: pointer; transition: border-color 0.2s; }
         .pin-display.active { border-color: var(--primary); }
-        .pin-keyboard-area { min-height: 220px; display: flex; flex-direction: column; }
+        .pin-keyboard-area { min-height: 13.75rem; display: flex; flex-direction: column; }
         .pin-actions { grid-column: 1 / -1; display: flex; gap: 15px; justify-content: center; margin-top: 10px; }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
         .btn:disabled:active { transform: none; }
@@ -96,8 +91,8 @@
                  navigation lui en avait ajouté une deuxième, identique, à gauche —
                  deux touches RETOUR sur la même rangée. -->
             <div class="pin-actions">
-                <a href="/" id="btnSecondary" class="btn btn-muted" style="width:220px;">RETOUR</a>
-                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:220px;" disabled>VALIDER</button>
+                <a href="/" id="btnSecondary" class="btn btn-muted" style="width:13.75rem;">RETOUR</a>
+                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:13.75rem;" disabled>VALIDER</button>
             </div>
         </form>
         </div>

@@ -21,15 +21,17 @@
 #
 # The stack is the whole ecosystem, on four ports:
 #   8090 imvaluation (engine)   8060 imfid (loyalty)
-#   8082 the STORE NODE         8080 the register
-# Store node and register are THE SAME application in two roles, so they need
-# two ports and two databases (one H2 file for both locks itself — the trap
-# documented in store-node.sh).
+#   8070 the STORE NODE         8080 the register
+# Store node and register are TWO PROJECTS since the imedge split: the node is
+# imedge, the register is impos. They still need two ports and two databases
+# (one H2 file for both locks itself — the trap documented in imedge's
+# sh/imedge.sh).
 #   ./demo-stack.sh --no-tests # same without the pre-flight
 #   ./demo-stack.sh stop       # stop everything started by this script
 #
-# Layout assumption (override by env): the three workspaces are siblings —
+# Layout assumption (override by env): the four workspaces are siblings —
 #   IMPOS_DIR       (default: the directory containing this script's parent)
+#   IMEDGE_DIR      (default: $IMPOS_DIR/../imedge)
 #   IMVALUATION_DIR (default: $IMPOS_DIR/../imvaluation)
 #   IMFID_DIR       (default: $IMPOS_DIR/../imfid)
 set -u
@@ -37,7 +39,7 @@ set -u
 lsof -ti :8080 | xargs kill
 lsof -ti :8060 | xargs kill
 lsof -ti :8090 | xargs kill
-lsof -ti :8082 | xargs kill
+lsof -ti :8070 | xargs kill
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Location-agnostic: the script may live at the impos root OR under demo/ —
@@ -48,6 +50,10 @@ if [ -z "${IMPOS_DIR:-}" ]; then
 fi
 if [ ! -f "$IMPOS_DIR/pom.xml" ]; then
   echo "✗ Racine impos introuvable ($IMPOS_DIR sans pom.xml) — exporter IMPOS_DIR."; exit 1
+fi
+IMEDGE_DIR="${IMEDGE_DIR:-$IMPOS_DIR/../imedge}"
+if [ ! -f "$IMEDGE_DIR/pom.xml" ]; then
+  echo "✗ Racine imedge introuvable ($IMEDGE_DIR sans pom.xml) — exporter IMEDGE_DIR."; exit 1
 fi
 IMVALUATION_DIR="${IMVALUATION_DIR:-$IMPOS_DIR/../imvaluation}"
 IMFID_DIR="${IMFID_DIR:-$IMPOS_DIR/../imfid}"
@@ -117,12 +123,25 @@ inject_feed() { # path label file
   local path="$1" label="$2" file="$3" http
   http=$(curl -s -o "$RUN_DIR/inject-$label.json" -w "%{http_code}" \
       -u "$ADMIN_AUTH" -H "Content-Type: text/plain; charset=utf-8" \
-      --data-binary "@$FEEDS_DIR/$file" "http://localhost:8082$path")
+      --data-binary "@$FEEDS_DIR/$file" "http://localhost:8070$path")
   if [ "$http" != "200" ]; then
     echo "✗ Injection $label refusée (HTTP $http) — voir $RUN_DIR/inject-$label.json"
     exit 1
   fi
   echo "  · $label injecté."
+}
+
+inject_nomenclature() { # scheme label enseigne file
+  local scheme="$1" label="$2" enseigne="$3" file="$4" http
+  http=$(curl -s -o "$RUN_DIR/inject-NOMENCLATURE.json" -w "%{http_code}" \
+      -u "$ADMIN_AUTH" -H "Content-Type: text/plain; charset=utf-8" \
+      --data-binary "@$FEEDS_DIR/$file" \
+      "http://localhost:8070/nomenclatures/import?scheme=$scheme&label=$label&enseigne=$enseigne")
+  if [ "$http" != "200" ]; then
+    echo "✗ Injection NOMENCLATURE refusée (HTTP $http) — voir $RUN_DIR/inject-NOMENCLATURE.json"
+    exit 1
+  fi
+  echo "  · NOMENCLATURE injectée ($(sed 's/.*createdCount.:\([0-9]*\).*/\1/' "$RUN_DIR/inject-NOMENCLATURE.json" 2>/dev/null) nœuds créés)."
 }
 
 # ---------- 1. le moteur (VIDE: son seed est coupé) et le programme ----------
@@ -133,24 +152,25 @@ start_app imfid       "$IMFID_DIR"       8060
 wait_ready imvaluation 8090 180
 wait_ready imfid       8060 180
 
-# ---------- 2. le nœud magasin (même appli, rôle store, base à part) -------
+# ---------- 2. le nœud magasin (projet imedge, base à part) ---------------
 # Il monte AVANT la caisse pour que celle-ci ait où pousser dès son premier
 # ticket. Mode dev obligatoire: le seed du référentiel est @IfBuildProfile
 # (dev, test), un jar de prod ne le contient pas et le nœud refuserait toute
 # ingestion par « 409 Aucun magasin ».
 # Le port DOIT etre passe a l'application: le 3e argument de start_app ne sert
 # qu'a l'attente de disponibilite. Sans -Dquarkus.http.port le noeud demarre
-# sur le 8080 par defaut d'impos, wait_ready interroge le 8082 dans le vide et
-# la pile s'arrete sur « store-node muet ».
+# sur le 8080 par defaut, wait_ready interroge le 8070 dans le vide et la pile
+# s'arrete sur « store-node muet ».
+# pos.role n'est plus passe ici: imedge porte pos.role=store dans son propre
+# application.properties, c'est le noeud.
 # URL moteur VIDE au noeud: sa livraison des flux est coupée — c'est la
 # caisse qui livre le moteur, avec les ENGINE_FEEDS qu'elle tire du noeud.
 # Sans cela les deux instances livreraient le même moteur en double.
-start_app store-node "$IMPOS_DIR" 8082 \
-    -Dquarkus.http.port=8082 \
+start_app store-node "$IMEDGE_DIR" 8070 \
+    -Dquarkus.http.port=8070 \
     -Dquarkus.datasource.jdbc.url="jdbc:h2:file:./data/store-node" \
-    -Dpos.role=store \
     -Dpos.valuation.url=
-wait_ready store-node 8082 180
+wait_ready store-node 8070 180
 
 # ---------- 3. la caisse de démo (livraison des flux accélérée à 5s) -------
 # pos.sync.store-url fait remonter ventes, sessions et appels superviseur
@@ -158,12 +178,12 @@ wait_ready store-node 8082 180
 # référentiel descendant — accéléré à 5s ici pour que la caisse reflète
 # l'injection au nœud sans attendre les 300s de production.
 start_app impos "$IMPOS_DIR" 8080 -Dpos.valuation.feed-delivery-seconds=5 \
-    -Dpos.sync.store-url=http://localhost:8082 \
+    -Dpos.sync.store-url=http://localhost:8070 \
     -Dpos.referential.pull-seconds=5
 wait_ready impos 8080 180
 
 # ---------- 4. l'alimentation PAR LE NŒUD MAGASIN ----------
-# Tous les flux entrent au nœud (8082): les fichiers partagés y sont
+# Tous les flux entrent au nœud (8070): les fichiers partagés y sont
 # appliqués au référentiel magasin ET capturés verbatim; les fichiers
 # propres au moteur passent par le relais (capturés sans être ouverts).
 # La caisse reçoit ensuite TOUT par le tirage (référentiel + ENGINE_FEEDS)
@@ -181,6 +201,14 @@ inject_feed "/feeds/import/FAMILIES"             FAMILIES          product-famil
 inject_feed "/feeds/import/CATEGORY_STORAGES"    CATEGORY_STORAGES product-category-storages.csv
 inject_feed "/feeds/import/PRICES"               PRICES            prices.csv
 inject_feed "/feeds/import/OFFERS"               OFFERS            offers.csv
+
+# La NOMENCLATURE ne passe pas par la grammaire /feeds/import/{code}, et ce
+# n'est pas un oubli: cette grammaire n'a pas de place pour dire DANS QUELLE
+# nomenclature charger. Deux enseignes publient les mêmes colonnes et rien
+# dans le fichier ne les distingue, donc le schéma se nomme sur la requête.
+# Le fichier est l'export réel du groupe: 2504 nœuds, quatre niveaux de 2, 4,
+# 8 et 12 caractères, le niveau le plus fin entièrement CUSTOM.
+inject_nomenclature ITM_FR "Nomenclature+ITM+France" ITM hierarchies.csv
 
 # ---------- 5. attendre l'ACK du moteur sur les 7 flux ----------
 # Le statut est lu SUR LA CAISSE (8080): un flux n'y existe qu'une fois
@@ -220,12 +248,16 @@ cat <<READY
     Simulateur    $IMPOS_DIR/docs/simulateur.html   (page STATIQUE: 'open' ce
                   fichier — l'appli ne la sert pas, elle parle au 8080)
     Écran client  http://localhost:8080/customer
-    NŒUD MAGASIN  http://localhost:8082/dashboard   ← LE seul agrégateur
-    Back-office   http://localhost:8082/admin       (admin / admin)
+    NŒUD MAGASIN  http://localhost:8070             ← l'adresse seule suffit
+    Dashboard     http://localhost:8070/dashboard   ← LE seul agrégateur
+    Nomenclature  http://localhost:8070/admin/nomenclatures  (2504 nœuds réels)
+    Back-office   http://localhost:8070/admin       (admin / admin) — LE back-office
+                  du magasin : ce qui est saisi sur une caisse est effacé au
+                  tirage suivant. La caisse garde le sien pour le cas isolé.
     Moteur        http://localhost:8090/   (IHM admin — données reçues d'impos)
     imfid         http://localhost:8060/   (IHM programme)
     État des flux http://localhost:8080/feeds/import/status  ($ADMIN_AUTH)
   Logs: $RUN_DIR/   —   Arrêt: ./demo-stack.sh stop
-  La caisse pousse vers :8082 — le dashboard se remplit à la première vente.
+  La caisse pousse vers :8070 — le dashboard se remplit à la première vente.
 ════════════════════════════════════════════════════════
 READY

@@ -37,10 +37,10 @@ import static org.mockito.Mockito.when;
  * <p>
  * The service is a register-side scheduled pull loop over the store node's
  * HTTP referential API. It has no database access: every collaborator
- * ({@link SyncOutboxService}, {@link RefApplyService}, {@link ObjectMapper})
+ * ({@link SyncEndpoints}, {@link RefApplyService}, {@link ObjectMapper})
  * and the outbound {@link HttpClient} is a plain Mockito mock, so no Quarkus
  * context, no HTTP server and no database is booted. Package-private fields
- * ({@code role}, {@code token}, {@code syncOutboxService}, {@code refApplyService},
+ * ({@code role}, {@code token}, {@code syncEndpoints}, {@code refApplyService},
  * {@code objectMapper}, {@code pullSeconds}) are assigned directly since the
  * test lives in the production package; the private final {@code httpClient}
  * and the private {@code executor} are reached through reflection, as are the
@@ -57,7 +57,7 @@ import static org.mockito.Mockito.when;
  * <p>
  * Branch enumeration: {@code onStart} — the two operands of
  * {@code !"register".equalsIgnoreCase(role) || !isEnabled()} (wrong role,
- * disabled outbox) plus the enabled arm (and the thread-factory lambda);
+ * disabled endpoints) plus the enabled arm (and the thread-factory lambda);
  * {@code onStop} — the {@code executor != null} both arms; {@code pullSafely} —
  * the success arm and the catch arm; {@code pullOnce} — the three arms of
  * {@code remoteFingerprint == null || equals(lastApplied)} (absent, unchanged,
@@ -129,17 +129,17 @@ class RefPullServiceTest {
      * Builds a service wired with the three collaborator mocks and a mocked
      * HTTP client, leaving role, token and pull period at test defaults.
      *
-     * @param outbox the outbox mock
+     * @param endpoints the endpoints mock
      * @param apply the apply-service mock
      * @param mapper the object-mapper mock
      * @param client the HTTP client mock
      * @return the wired service
      * @throws Exception if reflection fails
      */
-    private RefPullService service(SyncOutboxService outbox, RefApplyService apply,
+    private RefPullService service(SyncEndpoints endpoints, RefApplyService apply,
             ObjectMapper mapper, HttpClient client) throws Exception {
         RefPullService service = new RefPullService();
-        service.syncOutboxService = outbox;
+        service.syncEndpoints = endpoints;
         service.refApplyService = apply;
         service.objectMapper = mapper;
         service.role = "register";
@@ -160,24 +160,24 @@ class RefPullServiceTest {
      */
     @Test
     void onStartSkipsWhenRoleIsNotRegister() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.role = "store";
         service.onStart(null);
         assertNull(getExecutor(service));
-        verify(outbox, never()).isEnabled();
+        verify(endpoints, never()).hasStoreUrl();
     }
 
     /**
      * Covers the second operand of the guard in {@code onStart}: a register
-     * whose outbox is disabled does not start the loop.
+     * whose endpoints is disabled does not start the loop.
      */
     @Test
     void onStartSkipsWhenOutboxDisabled() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.isEnabled()).thenReturn(false);
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.hasStoreUrl()).thenReturn(false);
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.onStart(null);
         assertNull(getExecutor(service));
@@ -185,16 +185,16 @@ class RefPullServiceTest {
 
     /**
      * Covers the enabled arm of {@code onStart} and the thread-factory lambda:
-     * a register with an enabled outbox creates the scheduled executor. The
+     * a register with an enabled endpoints creates the scheduled executor. The
      * loop is torn down immediately via {@code onStop}, also covering its
      * non-null arm.
      */
     @Test
     void onStartCreatesExecutorAndOnStopShutsItDown() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.isEnabled()).thenReturn(true);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.hasStoreUrl()).thenReturn(true);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.onStart(null);
         ScheduledExecutorService executor = getExecutor(service);
@@ -211,7 +211,7 @@ class RefPullServiceTest {
      */
     @Test
     void onStartStartsForStoreWithCentralUrl() throws Exception {
-        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.role = "store";
         service.centralUrl = Optional.of("http://central");
@@ -228,7 +228,7 @@ class RefPullServiceTest {
      */
     @Test
     void onStartSkipsForStoreWithBlankCentralUrl() throws Exception {
-        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.role = "store";
         service.centralUrl = Optional.of("   ");
@@ -243,7 +243,7 @@ class RefPullServiceTest {
      */
     @Test
     void onStartSkipsForCentralRole() throws Exception {
-        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.role = "central";
         service.centralUrl = Optional.of("http://central");
@@ -257,7 +257,7 @@ class RefPullServiceTest {
      */
     @Test
     void onStopIsNoOpWhenExecutorNull() throws Exception {
-        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         service.onStop();
         assertNull(getExecutor(service));
@@ -273,14 +273,14 @@ class RefPullServiceTest {
      */
     @Test
     void pullSafelyRunsCleanCycle() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
         doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         invoke(service, "pullSafely");
         verify(apply, never()).recordApplied(any(), any());
     }
@@ -291,15 +291,15 @@ class RefPullServiceTest {
      */
     @Test
     void pullSafelySwallowsException() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
         doThrow(new RuntimeException("boom")).when(mapper)
                 .readValue(eq("VERSIONS"), any(TypeReference.class));
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         invoke(service, "pullSafely");
         verify(apply, never()).recordApplied(any(), any());
     }
@@ -316,8 +316,8 @@ class RefPullServiceTest {
      */
     @Test
     void pullOnceAppliesEveryChangedDomain() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
@@ -341,7 +341,7 @@ class RefPullServiceTest {
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
         when(apply.lastApplied(any())).thenReturn(null);
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         service.pullOnce();
         verify(apply).applyFamilies(any());
         verify(apply).applyProducts(any());
@@ -372,7 +372,7 @@ class RefPullServiceTest {
      */
     @Test
     void pullOnceAppliesEchelonDomainsForStore() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
@@ -394,7 +394,7 @@ class RefPullServiceTest {
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
         when(apply.lastApplied(any())).thenReturn(null);
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         service.role = "store";
         service.centralUrl = Optional.of("http://central");
         service.pullOnce();
@@ -416,8 +416,8 @@ class RefPullServiceTest {
      */
     @Test
     void pullOnceAppliesCustomerAndCurrencyDomains() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
@@ -438,7 +438,7 @@ class RefPullServiceTest {
         doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
         when(apply.lastApplied(any())).thenReturn(null);
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         service.pullOnce();
         verify(apply).applyCustomers(any());
         verify(apply).applyCurrencies(any());
@@ -453,8 +453,8 @@ class RefPullServiceTest {
      */
     @Test
     void pullOnceSkipsAbsentAndUnchangedDomains() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
@@ -462,7 +462,7 @@ class RefPullServiceTest {
         doReturn(Map.of("FAMILIES", "same")).when(mapper)
                 .readValue(eq("VERSIONS"), any(TypeReference.class));
         when(apply.lastApplied("FAMILIES")).thenReturn("same");
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         service.pullOnce();
         verify(apply).lastApplied("FAMILIES");
         verify(apply, never()).applyFamilies(any());
@@ -475,7 +475,7 @@ class RefPullServiceTest {
      */
     @Test
     void applyDomainThrowsOnUnknownDomain() throws Exception {
-        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         Method method = RefPullService.class.getDeclaredMethod("applyDomain", String.class, String.class);
         method.setAccessible(true);
@@ -492,14 +492,14 @@ class RefPullServiceTest {
      */
     @Test
     void getLastSuccessfulPullReflectsCycleCompletion() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
         doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         assertNull(service.getLastSuccessfulPull());
         service.pullOnce();
         assertNotNull(service.getLastSuccessfulPull());
@@ -535,11 +535,11 @@ class RefPullServiceTest {
      */
     @Test
     void getReturnsBodyAndSendsTokenHeader() throws Throwable {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "BODY")).when(client).send(any(HttpRequest.class), any());
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), client);
         service.token = Optional.of("secret");
         String body = callGet(service, "/path");
@@ -555,11 +555,11 @@ class RefPullServiceTest {
      */
     @Test
     void getOmitsHeaderWhenTokenBlank() throws Throwable {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "BODY")).when(client).send(any(HttpRequest.class), any());
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), client);
         service.token = Optional.empty();
         String body = callGet(service, "/path");
@@ -575,11 +575,11 @@ class RefPullServiceTest {
      */
     @Test
     void getThrowsOnStatusBelow200() throws Throwable {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(100, null)).when(client).send(any(HttpRequest.class), any());
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), client);
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> callGet(service, "/path"));
@@ -592,11 +592,11 @@ class RefPullServiceTest {
      */
     @Test
     void getThrowsOnStatusAtLeast300() throws Throwable {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(500, null)).when(client).send(any(HttpRequest.class), any());
-        RefPullService service = service(outbox, mock(RefApplyService.class),
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
                 mock(ObjectMapper.class), client);
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> callGet(service, "/path"));
@@ -610,14 +610,14 @@ class RefPullServiceTest {
      */
     @Test
     void triggerPullReturnsNullOnCleanCycle() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         RefApplyService apply = mock(RefApplyService.class);
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
         doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
-        RefPullService service = service(outbox, apply, mapper, client);
+        RefPullService service = service(endpoints, apply, mapper, client);
         assertNull(service.triggerPull());
         assertNotNull(service.getLastSuccessfulPull());
     }
@@ -628,14 +628,14 @@ class RefPullServiceTest {
      */
     @Test
     void triggerPullReturnsErrorMessageOnFailure() throws Exception {
-        SyncOutboxService outbox = mock(SyncOutboxService.class);
-        when(outbox.getStoreUrl()).thenReturn("http://store");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
         ObjectMapper mapper = mock(ObjectMapper.class);
         HttpClient client = mock(HttpClient.class);
         doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
         doThrow(new RuntimeException("boom")).when(mapper)
                 .readValue(eq("VERSIONS"), any(TypeReference.class));
-        RefPullService service = service(outbox, mock(RefApplyService.class), mapper, client);
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mapper, client);
         assertEquals("boom", service.triggerPull());
     }
 
@@ -644,7 +644,7 @@ class RefPullServiceTest {
      */
     @Test
     void getPullSecondsReturnsConfiguredCadence() throws Exception {
-        RefPullService service = service(mock(SyncOutboxService.class), mock(RefApplyService.class),
+        RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         assertEquals(300L, service.getPullSeconds());
     }

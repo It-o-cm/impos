@@ -25,6 +25,12 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doNothing;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Unit tests for {@link AdminTouchResource}, targeting 100% branch coverage.
@@ -80,9 +86,57 @@ class AdminTouchResourceTest {
         ProductFamily f = new ProductFamily();
         f.id = id;
         f.code = code;
-        f.pinned = pinned;
-        f.buttonSize = "NORMAL";
+        TouchGroupSetting setting = spiedSetting(code);
+        setting.pinned = pinned;
+        touches.put(code, setting);
         return f;
+    }
+
+    /** The touch rows this test administers, by group code. */
+    private final Map<String, TouchGroupSetting> touches = new HashMap<>();
+
+    /**
+     * Returns the touch row of a group, as the screen will find and write it.
+     *
+     * @param code the group code
+     * @return its touch row
+     */
+    private TouchGroupSetting touch(String code) {
+        return touches.computeIfAbsent(code, this::spiedSetting);
+    }
+
+    /**
+     * Builds a touch row whose {@code persist()} does nothing.
+     * <p>
+     * The screen creates the row the first time a group is configured, and a
+     * real {@code persist()} reaches for the CDI container, which no unit test
+     * has. The spy keeps the real fields — they are what the assertions read —
+     * and silences the write.
+     *
+     * @param code the group code
+     * @return the spied row
+     */
+    private TouchGroupSetting spiedSetting(String code) {
+        TouchGroupSetting setting = spy(TouchGroupSetting.defaults(code));
+        doNothing().when(setting).persist();
+        return setting;
+    }
+
+    /**
+     * Stubs the touch referential on an active static mock: the lookup by group
+     * code, the whole-configuration read and the pinned count.
+     *
+     * @param mocked the active PanacheEntityBase static mock
+     */
+    private void stubTouches(MockedStatic<PanacheEntityBase> mocked) {
+        for (Map.Entry<String, TouchGroupSetting> entry : touches.entrySet()) {
+            PanacheQuery<TouchGroupSetting> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(entry.getValue());
+            mocked.when(() -> TouchGroupSetting.find("familyCode", entry.getKey()))
+                    .thenReturn(query);
+        }
+        mocked.when(() -> TouchGroupSetting.list("order by familyCode"))
+                .thenReturn(new ArrayList<>(touches.values()));
     }
 
     /**
@@ -154,6 +208,7 @@ class AdminTouchResourceTest {
         ProductFamily plain = family(2L, "B", false);
         PanacheQuery<ProductFamily> query = listQuery(List.of(pinned, plain));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.find("order by code")).thenReturn(query);
             assertSame(instance, resource.list(null, true));
         }
@@ -188,6 +243,7 @@ class AdminTouchResourceTest {
     void saveConfigMissingFamily() {
         AdminTouchResource resource = newResource();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(7L)).thenReturn(null);
             assertRedirect(resource.saveConfig(form("id", "7")), false);
         }
@@ -201,6 +257,7 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(3L, "C", false);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(3L)).thenReturn(f);
             assertRedirect(resource.saveConfig(form("id", "3", "buttonSize", "HUGE")), false);
         }
@@ -215,6 +272,7 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(4L, "D", false);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(4L)).thenReturn(f);
             assertRedirect(resource.saveConfig(form("id", "4", "buttonSize", "NORMAL")), false);
             assertRedirect(resource.saveConfig(form("id", "4", "buttonSize", "NORMAL", "displayOrder", "  ")), false);
@@ -232,6 +290,7 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(5L, "E", false);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(5L)).thenReturn(f);
             assertRedirect(resource.saveConfig(form("id", "5", "buttonSize", "NORMAL", "displayOrder", "0")), false);
             assertRedirect(resource.saveConfig(form("id", "5", "buttonSize", "NORMAL", "displayOrder", "0", "salesVolume", " ")), false);
@@ -249,13 +308,14 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(6L, "F", false);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(6L)).thenReturn(f);
             Response response = resource.saveConfig(
                     form("id", "6", "buttonSize", "large", "displayOrder", "3", "salesVolume", "99"));
             assertRedirect(response, true);
-            assertEquals("LARGE", f.buttonSize);
-            assertEquals(3, f.displayOrder);
-            assertEquals(99L, f.salesVolume);
+            assertEquals("LARGE", touch("F").buttonSize);
+            assertEquals(3, touch("F").displayOrder);
+            assertEquals(99L, touch("F").salesVolume);
         }
     }
 
@@ -300,13 +360,14 @@ class AdminTouchResourceTest {
     private void assertSizeIsStored(String posted, String stored) {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(6L, "F", false);
-        f.buttonSize = "SENTINEL";
+        touch("F").buttonSize = "SENTINEL";
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(6L)).thenReturn(f);
             Response response = resource.saveConfig(
                     form("id", "6", "buttonSize", posted, "displayOrder", "0", "salesVolume", "0"));
             assertRedirect(response, true);
-            assertEquals(stored, f.buttonSize);
+            assertEquals(stored, touch("F").buttonSize);
         }
     }
 
@@ -328,10 +389,11 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(8L, "G", false);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(8L)).thenReturn(f);
-            mocked.when(() -> ProductFamily.count("pinned", true)).thenReturn(4L);
+            mocked.when(() -> TouchGroupSetting.count("pinned", true)).thenReturn(4L);
             assertRedirect(resource.togglePin(form("id", "8")), false);
-            assertFalse(f.pinned);
+            assertFalse(touch("G").pinned);
         }
     }
 
@@ -344,10 +406,11 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(9L, "H", false);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(9L)).thenReturn(f);
-            mocked.when(() -> ProductFamily.count("pinned", true)).thenReturn(2L);
+            mocked.when(() -> TouchGroupSetting.count("pinned", true)).thenReturn(2L);
             assertRedirect(resource.togglePin(form("id", "9")), true);
-            assertTrue(f.pinned);
+            assertTrue(touch("H").pinned);
         }
     }
 
@@ -361,9 +424,10 @@ class AdminTouchResourceTest {
         AdminTouchResource resource = newResource();
         ProductFamily f = family(10L, "I", true);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubTouches(mocked);
             mocked.when(() -> ProductFamily.findById(10L)).thenReturn(f);
             assertRedirect(resource.togglePin(form("id", "10")), true);
-            assertFalse(f.pinned);
+            assertFalse(touch("I").pinned);
         }
     }
 

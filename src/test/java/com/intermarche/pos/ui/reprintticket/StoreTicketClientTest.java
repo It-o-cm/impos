@@ -1,6 +1,6 @@
 package com.intermarche.pos.ui.reprintticket;
 
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

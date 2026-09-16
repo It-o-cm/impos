@@ -86,8 +86,61 @@ public class AdminSettingsResource {
         public boolean bool;
         /** True for an integer parameter (number widget). */
         public boolean integer;
-        /** True when this entry opens a new section card. */
-        public boolean firstOfSection;
+    }
+
+    /**
+     * One SECTION of the catalog: a heading and the parameters under it.
+     * <p>
+     * The page carries seventy-five parameters over twenty-four headings, and
+     * rendering them all open made a screen nobody could read. Grouping them
+     * here rather than in the template also retires the {@code firstOfSection}
+     * marker and the hand-closed {@code </div></div>} that went with it: the
+     * template had to open a card on one iteration and close it on another,
+     * which is the kind of arrangement that survives exactly until someone
+     * adds a parameter.
+     */
+    public static class Section {
+        /** The section heading. */
+        public String label;
+        /** The parameters under it, in catalog order. */
+        public List<Entry> entries = new ArrayList<>();
+
+        /**
+         * Builds a section.
+         *
+         * @param label the section heading
+         */
+        public Section(String label) {
+            this.label = label;
+        }
+
+        /**
+         * Returns the section heading.
+         *
+         * @return the heading
+         */
+        public String getLabel() {
+            return label;
+        }
+
+        /**
+         * Returns the parameters under this section.
+         *
+         * @return the entries, never null
+         */
+        public List<Entry> getEntries() {
+            return entries;
+        }
+
+        /**
+         * How many parameters this section holds — shown on the closed panel,
+         * so the operator knows what is behind it without opening it.
+         *
+         * @return the parameter count
+         */
+        public int getCount() {
+            return entries.size();
+        }
     }
 
     /**
@@ -95,13 +148,18 @@ public class AdminSettingsResource {
      * may actually reach.
      * <p>
      * An administrator lands on the parameters; a manager, who has no
-     * business there, lands on the supervision. Without this the single
+     * business there, lands on the journal. Without this the single
      * landing page of form authentication would send half the operators
      * onto a refusal, and the header brand would do the same. Kept in this
      * resource rather than in a class of its own: a redirect does not
      * warrant one.
      *
-     * @return a 303 redirect to the parameters or to the supervision
+     * <p>The manager used to land on the store dashboard. That screen is the
+     * store NODE's, and it left with it: a register does not supervise the
+     * line, it is one of the tills on it. The journal is what a manager reads
+     * here.
+     *
+     * @return a 303 redirect to the parameters or to the journal
      */
     @GET
     @Path("/admin")
@@ -110,7 +168,7 @@ public class AdminSettingsResource {
         LOGGER.info("Entering method adminRoot");
         boolean admin = identity != null && identity.hasRole(Employee.EmployeeRole.ADMIN.name());
         LOGGER.info("Exiting method adminRoot");
-        return Response.seeOther(URI.create(admin ? "/admin/settings" : "/dashboard")).build();
+        return Response.seeOther(URI.create(admin ? "/admin/settings" : "/admin/journal")).build();
     }
 
     /**
@@ -126,8 +184,9 @@ public class AdminSettingsResource {
     public TemplateInstance settingsPage(@QueryParam("notice") String notice,
                                          @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
         LOGGER.info("Entering method settingsPage with notice: " + notice + ", noticeOk: " + noticeOk);
-        List<Entry> entries = new ArrayList<>();
-        String lastSection = null;
+        List<Section> sections = new ArrayList<>();
+        Section current = null;
+        int total = 0;
         for (PosSettingsService.Def def : PosSettingsService.CATALOG) {
             Entry entry = new Entry();
             entry.key = def.key();
@@ -137,12 +196,16 @@ public class AdminSettingsResource {
             entry.value = posSettingsService.value(def.key());
             entry.bool = def.type() == PosSettingsService.Type.BOOL;
             entry.integer = def.type() == PosSettingsService.Type.INT;
-            entry.firstOfSection = !def.section().equals(lastSection);
-            lastSection = def.section();
-            entries.add(entry);
+            if (current == null || !current.label.equals(def.section())) {
+                current = new Section(def.section());
+                sections.add(current);
+            }
+            current.entries.add(entry);
+            total++;
         }
         LOGGER.info("Exiting method settingsPage");
-        return adminSettings.data("entries", entries)
+        return adminSettings.data("sections", sections)
+                .data("settingCount", total)
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
     }

@@ -2,6 +2,7 @@ package com.intermarche.pos.imports;
 
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.ProductFamily;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.annotation.security.RolesAllowed;
@@ -96,6 +97,14 @@ public class ProductCsvResource extends ImporterCsvResource {
      */
     static final String COL_ATTRIBUTES = "ATTRIBUTES";
 
+    /**
+     * Header of the column naming the article's place in the NOMENCLATURE
+     * (BO-02-03-14): the code of the node it is filed under, usually the
+     * sous-famille. Optional — a feed that does not carry it leaves the
+     * article's filing untouched.
+     */
+    static final String COL_NOMENCLATURE = "NOMENCLATURE";
+
     /** The columns this importer cannot work without. */
     private static final List<String> REQUIRED_COLUMNS = List.of(
             COL_NAME, COL_DESCRIPTION, COL_BRAND, COL_REFERENCE_WEIGHT,
@@ -189,6 +198,13 @@ public class ProductCsvResource extends ImporterCsvResource {
                 feedProduct(data, product);
                 counters[1]++; // Updated
             }
+        }
+        // OUTSIDE the checksum shortcut, deliberately: the filing lives on the
+        // family side, so it is not part of the article's checksum, and an
+        // article moved from one sous-famille to another would otherwise be
+        // skipped as unchanged and stay filed where it was.
+        if (data.has(COL_NOMENCLATURE)) {
+            ProductFamily.fileUnderNomenclature(product, safeGet(data, COL_NOMENCLATURE));
         }
     }
 

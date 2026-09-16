@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 
 /**
  * Unit tests for {@link ManualService}.
@@ -55,11 +56,36 @@ class ManualServiceTest {
         f.description = description;
         f.products = new HashSet<>();
         f.productFamilies = new HashSet<>();
-        f.pinned = false;
-        f.buttonSize = "NORMAL";
-        f.displayOrder = 0;
-        f.salesVolume = 0L;
+        touches.put(code, TouchGroupSetting.defaults(code));
         return f;
+    }
+
+    /**
+     * The touch configuration this test administers, by group code. It stands
+     * where the four fields used to sit on the family itself.
+     */
+    private final Map<String, TouchGroupSetting> touches = new HashMap<>();
+
+    /**
+     * Returns the touch row of a family, so a test can administer its pinning,
+     * size, rank or volume.
+     *
+     * @param family the family to configure
+     * @return its touch row
+     */
+    private TouchGroupSetting touch(ProductFamily family) {
+        return touches.computeIfAbsent(family.code, TouchGroupSetting::defaults);
+    }
+
+    /**
+     * Stubs the touch referential on an active static mock so the service reads
+     * what this test administered.
+     *
+     * @param mocked the active PanacheEntityBase static mock
+     */
+    private void stubTouches(MockedStatic<PanacheEntityBase> mocked) {
+        mocked.when(() -> TouchGroupSetting.list("order by familyCode"))
+                .thenReturn(new ArrayList<>(touches.values()));
     }
 
     /**
@@ -233,6 +259,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(bravo, child, alpha, noName, empty);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceOver(all).getManualRootData(1);
             assertEquals("Accueil", data.breadcrumb);
             assertTrue(data.isRoot);
@@ -267,6 +294,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(top, middle, grand);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceOver(all).getManualRootData(1);
             assertEquals(1, data.items.size());
             assertEquals("Top", data.items.get(0).label);
@@ -287,6 +315,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(first, second);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceOver(all).getManualRootData(1);
             assertTrue(data.items.isEmpty());
         }
@@ -302,16 +331,17 @@ class ManualServiceTest {
     void getManualRootDataCustomOrderPaginates() {
         ProductFamily one = fam(1L, "O1", "One");
         one.products = new HashSet<>(List.of(prod("E1", "201", null)));
-        one.displayOrder = 1;
+        touch(one).displayOrder = 1;
         ProductFamily two = fam(2L, "O2", "Two");
         two.products = new HashSet<>(List.of(prod("E2", "202", null)));
-        two.displayOrder = 2;
+        touch(two).displayOrder = 2;
         ProductFamily three = fam(3L, "O3", "Three");
         three.products = new HashSet<>(List.of(prod("E3", "203", null)));
-        three.displayOrder = 3;
+        touch(three).displayOrder = 3;
         List<ProductFamily> all = List.of(three, one, two);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceWith("CUSTOM", 1, all).getManualRootData(2);
             assertEquals(2, data.page);
             assertEquals(3, data.totalPages);
@@ -331,22 +361,23 @@ class ManualServiceTest {
     void getManualRootDataVolumeOrderPinnedFirstClampsHigh() {
         ProductFamily pinnedHigh = fam(1L, "PH", "PinnedHigh");
         pinnedHigh.products = new HashSet<>(List.of(prod("E1", "301", null)));
-        pinnedHigh.pinned = true;
-        pinnedHigh.salesVolume = 10L;
-        pinnedHigh.buttonSize = "LARGE";
+        touch(pinnedHigh).pinned = true;
+        touch(pinnedHigh).salesVolume = 10L;
+        touch(pinnedHigh).buttonSize = "LARGE";
         ProductFamily pinnedLow = fam(2L, "PL", "PinnedLow");
         pinnedLow.products = new HashSet<>(List.of(prod("E2", "302", null)));
-        pinnedLow.pinned = true;
-        pinnedLow.salesVolume = 5L;
+        touch(pinnedLow).pinned = true;
+        touch(pinnedLow).salesVolume = 5L;
         ProductFamily restHigh = fam(3L, "RH", "RestHigh");
         restHigh.products = new HashSet<>(List.of(prod("E3", "303", null)));
-        restHigh.salesVolume = 10L;
+        touch(restHigh).salesVolume = 10L;
         ProductFamily restLow = fam(4L, "RL", "RestLow");
         restLow.products = new HashSet<>(List.of(prod("E4", "304", null)));
-        restLow.salesVolume = 5L;
+        touch(restLow).salesVolume = 5L;
         List<ProductFamily> all = List.of(pinnedLow, pinnedHigh, restLow, restHigh);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceWith("VOLUME", 2, all).getManualRootData(99);
             assertEquals(1, data.page);
             assertEquals(1, data.totalPages);
@@ -374,7 +405,7 @@ class ManualServiceTest {
         for (int i = 0; i < 3; i++) {
             ProductFamily pinned = fam((long) i, "P" + i, "Pinned" + i);
             pinned.products = new HashSet<>(List.of(prod("PE" + i, "10" + i, null)));
-            pinned.pinned = true;
+            touch(pinned).pinned = true;
             all.add(pinned);
         }
         for (int i = 0; i < 9; i++) {
@@ -384,6 +415,7 @@ class ManualServiceTest {
         }
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceWith("ALPHA", 12, all).getManualRootData(1);
             assertEquals(2, data.totalPages);
             assertEquals(11, data.items.size());
@@ -401,7 +433,7 @@ class ManualServiceTest {
         for (int i = 0; i < 12; i++) {
             ProductFamily pinned = fam((long) i, "P" + i, "Pinned" + String.format("%02d", i));
             pinned.products = new HashSet<>(List.of(prod("PE" + i, "30" + i, null)));
-            pinned.pinned = true;
+            touch(pinned).pinned = true;
             all.add(pinned);
         }
         ProductFamily restA = fam(90L, "RA", "RestA");
@@ -412,6 +444,7 @@ class ManualServiceTest {
         all.add(restB);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceWith("ALPHA", 12, all).getManualRootData(1);
             assertEquals(2, data.totalPages);
             assertEquals(13, data.items.size());
@@ -427,19 +460,20 @@ class ManualServiceTest {
     void getManualRootDataClampsLowAndMapsSizes() {
         ProductFamily large = fam(1L, "A", "AlargeX");
         large.products = new HashSet<>(List.of(prod("E1", "401", null)));
-        large.buttonSize = "LARGE";
+        touch(large).buttonSize = "LARGE";
         ProductFamily small = fam(2L, "B", "BsmallX");
         small.products = new HashSet<>(List.of(prod("E2", "402", null)));
-        small.buttonSize = "SMALL";
+        touch(small).buttonSize = "SMALL";
         ProductFamily normal = fam(3L, "C", "CnormalX");
         normal.products = new HashSet<>(List.of(prod("E3", "403", null)));
-        normal.buttonSize = "NORMAL";
+        touch(normal).buttonSize = "NORMAL";
         ProductFamily weird = fam(4L, "D", "DweirdX");
         weird.products = new HashSet<>(List.of(prod("E4", "404", null)));
-        weird.buttonSize = "HUGE";
+        touch(weird).buttonSize = "HUGE";
         List<ProductFamily> all = List.of(large, small, normal, weird);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceOver(all).getManualRootData(0);
             assertEquals(1, data.page);
             assertEquals(4, data.items.size());
@@ -459,13 +493,14 @@ class ManualServiceTest {
     void getManualRootDataAllPinnedEmptyRest() {
         ProductFamily pinnedA = fam(1L, "A", "Aaa");
         pinnedA.products = new HashSet<>(List.of(prod("E1", "501", null)));
-        pinnedA.pinned = true;
+        touch(pinnedA).pinned = true;
         ProductFamily pinnedB = fam(2L, "B", "Bbb");
         pinnedB.products = new HashSet<>(List.of(prod("E2", "502", null)));
-        pinnedB.pinned = true;
+        touch(pinnedB).pinned = true;
         List<ProductFamily> all = List.of(pinnedA, pinnedB);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             ManualViewData data = serviceOver(all).getManualRootData(1);
             assertEquals(1, data.totalPages);
             assertNull(data.prevUrl);
@@ -487,20 +522,21 @@ class ManualServiceTest {
     void getManualCategoryDataNotFoundStillShowsPinned() {
         ProductFamily pinnedQual = fam(1L, "PQ", "PinnedQual");
         pinnedQual.products = new HashSet<>(List.of(prod("E1", "601", null)));
-        pinnedQual.pinned = true;
+        touch(pinnedQual).pinned = true;
         ProductFamily pinnedChild = fam(2L, "PC", "PinnedChild");
         pinnedChild.products = new HashSet<>(List.of(prod("E2", "602", null)));
-        pinnedChild.pinned = true;
+        touch(pinnedChild).pinned = true;
         ProductFamily parentOfChild = fam(3L, "PP", "Parent");
         parentOfChild.products = new HashSet<>(List.of(prod("E3", "603", null)));
         parentOfChild.productFamilies = new HashSet<>(List.of(pinnedChild));
         ProductFamily pinnedEmpty = fam(4L, "PE", "PinnedEmpty");
-        pinnedEmpty.pinned = true;
+        touch(pinnedEmpty).pinned = true;
         ProductFamily notPinned = fam(5L, "NP", "NotPinned");
         notPinned.products = new HashSet<>(List.of(prod("E5", "605", null)));
         List<ProductFamily> all = List.of(pinnedQual, pinnedChild, parentOfChild, pinnedEmpty, notPinned);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             stubFindByCode(mocked, "NONE", null);
             ManualViewData data = serviceOver(all).getManualCategoryData("NONE", 1);
             assertEquals("Accueil", data.breadcrumb);
@@ -521,7 +557,7 @@ class ManualServiceTest {
     void getManualCategoryDataListsPinnedChildrenThenProducts() {
         ProductFamily pinnedQual = fam(10L, "PQ", "PinnedQual");
         pinnedQual.products = new HashSet<>(List.of(prod("EP", "700", null)));
-        pinnedQual.pinned = true;
+        touch(pinnedQual).pinned = true;
         ProductFamily grandQual = fam(11L, "G1", "Grand");
         grandQual.products = new HashSet<>(List.of(prod("GrandEan", "701", null)));
         grandQual.productFamilies = null;
@@ -534,6 +570,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(pinnedQual, childRecurse, grandQual, family);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             stubFindByCode(mocked, "CAT", family);
             ManualViewData data = serviceOver(all).getManualCategoryData("CAT", 1);
             assertEquals("Accueil > Cat", data.breadcrumb);
@@ -576,6 +613,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(family, child);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             stubFindByCode(mocked, "CAT5", family);
             ManualService service = serviceWith("ALPHA", 2, all);
             ManualViewData first = service.getManualCategoryData("CAT5", 1);
@@ -609,6 +647,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(family);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             stubFindByCode(mocked, "CAT6", family);
             ManualService service = serviceWith("ALPHA", 1, all);
             assertEquals(2, service.getManualCategoryData("CAT6", 99).page);
@@ -687,6 +726,7 @@ class ManualServiceTest {
         List<ProductFamily> all = List.of(family, childA, childB);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> ProductFamily.listAll()).thenReturn(all);
+            stubTouches(mocked);
             stubFindByCode(mocked, "CAT7", family);
             ManualViewData data = serviceWith("ALPHA", 1, all).getManualCategoryData("CAT7", 1);
             assertEquals(1, data.page);

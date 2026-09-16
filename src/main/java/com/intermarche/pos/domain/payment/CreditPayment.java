@@ -43,7 +43,7 @@ public class CreditPayment extends TicketPayment {
      * the shop must be able to tell, later, which credit lines went through on an
      * override and which did not.
      */
-    @Column(name = "credit_over_limit", nullable = false)
+    @Column(name = "credit_over_limit")
     public boolean overLimit = false;
 
     /**

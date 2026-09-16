@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.admin;
 
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import com.intermarche.pos.service.PosSettingsService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
@@ -24,6 +25,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.jboss.logging.Logger;
 
 /**
@@ -89,12 +91,14 @@ public class AdminTouchResource {
                                  @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
         LOGGER.info("Entering method list with notice: " + notice + ", noticeOk: " + noticeOk);
         List<ProductFamily> families = ProductFamily.<ProductFamily>find("order by code").list();
+        Map<String, TouchGroupSetting> settings = TouchGroupSetting.byFamilyCode();
         List<TouchRow> rows = new ArrayList<>();
         int pinnedCount = 0;
         for (ProductFamily family : families) {
-            rows.add(new TouchRow(family.id, family.code, family.description, family.pinned,
-                    family.buttonSize, family.displayOrder, family.salesVolume));
-            if (family.pinned) {
+            TouchGroupSetting setting = TouchGroupSetting.orDefaults(settings, family.code);
+            rows.add(new TouchRow(family.id, family.code, family.description, setting.pinned,
+                    setting.buttonSize, setting.displayOrder, setting.salesVolume));
+            if (setting.pinned) {
                 pinnedCount++;
             }
         }
@@ -143,9 +147,11 @@ public class AdminTouchResource {
             LOGGER.info("Exiting method saveConfig");
             return redirect("Volume de vente invalide — entier positif attendu.", false);
         }
-        family.buttonSize = size;
-        family.displayOrder = order;
-        family.salesVolume = volume;
+        TouchGroupSetting setting = settingFor(family.code);
+        setting.buttonSize = size;
+        setting.displayOrder = order;
+        setting.salesVolume = volume;
+        setting.persist();
         LOGGER.info("Exiting method saveConfig");
         return redirect("Touche du groupe « " + family.code + " » mise à jour.", true);
     }
@@ -171,14 +177,32 @@ public class AdminTouchResource {
             LOGGER.info("Exiting method togglePin");
             return redirect("Groupe introuvable.", false);
         }
-        if (!family.pinned && ProductFamily.count("pinned", true) >= MAX_PINNED) {
+        TouchGroupSetting setting = settingFor(family.code);
+        if (!setting.pinned && TouchGroupSetting.countPinned() >= MAX_PINNED) {
             LOGGER.info("Exiting method togglePin");
             return redirect("Maximum " + MAX_PINNED + " groupes épinglés — désépinglez-en un d'abord.", false);
         }
-        family.pinned = !family.pinned;
-        String state = family.pinned ? "épinglé" : "désépinglé";
+        setting.pinned = !setting.pinned;
+        setting.persist();
+        String state = setting.pinned ? "épinglé" : "désépinglé";
         LOGGER.info("Exiting method togglePin");
         return redirect("Groupe « " + family.code + " » " + state + ".", true);
+    }
+
+    /**
+     * Returns the touch row of a group, creating an unwritten one carrying the
+     * defaults when the group has never been configured.
+     * <p>
+     * A group is configured the first time someone touches it, not when the
+     * nomenclature is imported: a referential of forty thousand families would
+     * otherwise carry forty thousand rows of defaults that say nothing.
+     *
+     * @param familyCode the group code
+     * @return the row to write into, persisted or not yet
+     */
+    private TouchGroupSetting settingFor(String familyCode) {
+        TouchGroupSetting setting = TouchGroupSetting.findByFamilyCode(familyCode);
+        return setting == null ? TouchGroupSetting.defaults(familyCode) : setting;
     }
 
     /**

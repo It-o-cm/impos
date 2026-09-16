@@ -6,6 +6,8 @@ import com.intermarche.pos.domain.catalog.Price;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.catalog.Nomenclature;
+import com.intermarche.pos.domain.catalog.NomenclatureLevel;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import java.util.HashSet;
@@ -21,6 +23,8 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 /**
  * Unit tests for {@link DataInitializer}.
@@ -60,7 +64,8 @@ class DataInitializerTest {
      * Drives {@code onStart} through a fully mocked Panache layer and verifies
      * that every entity type is constructed and persisted in the exact expected
      * quantity, that the five referential tables are wiped once, and that
-     * Marie's cashier-level light-theme preference is applied.
+     * Marie's cashier-level light-theme preference is applied, and that the
+     * Intermarché nomenclature is seeded with its levels and its nodes.
      */
     @Test
     void onStartWipesAndReloadsTheReferential() {
@@ -78,15 +83,29 @@ class DataInitializerTest {
              MockedConstruction<Product> products = mockConstruction(Product.class);
              MockedConstruction<Price> prices = mockConstruction(Price.class);
              MockedConstruction<CouponType> couponTypes = mockConstruction(CouponType.class);
-             MockedConstruction<Store> stores = mockConstruction(Store.class)) {
+             MockedConstruction<Store> stores = mockConstruction(Store.class);
+             MockedConstruction<Nomenclature> schemes = mockConstruction(Nomenclature.class);
+             MockedConstruction<NomenclatureLevel> levels =
+                     mockConstruction(NomenclatureLevel.class)) {
+            // The seeder files four articles under their sous-famille by name;
+            // an unstubbed find would hand back null and the walk would stop
+            // before the nomenclature is wired.
+            PanacheQuery<Product> noArticle = mock(PanacheQuery.class);
+            when(noArticle.firstResult()).thenReturn(null);
+            panache.when(() -> Product.find(eq("name"), any(Object[].class)))
+                    .thenReturn(noArticle);
             PanacheQuery<Employee> marieQuery = employeeQuery(marie);
             panache.when(() -> Employee.find("loginName", "mcurie")).thenReturn(marieQuery);
             PanacheQuery<Employee> adminQuery = employeeQuery(admin);
             panache.when(() -> Employee.find("loginName", "admin")).thenReturn(adminQuery);
             initializer.onStart(null);
-            panache.verify(() -> Employee.deleteAll(), times(5));
+            panache.verify(() -> Employee.deleteAll(), times(7));
             assertEquals(4, employees.constructed().size());
-            assertEquals(10, families.constructed().size());
+            // Ten touch groups plus the twenty-one seeded nomenclature nodes.
+            assertEquals(31, families.constructed().size());
+            // One scheme, its four levels: the screen opens on real data.
+            assertEquals(1, schemes.constructed().size());
+            assertEquals(4, levels.constructed().size());
             assertEquals(38, products.constructed().size());
             assertEquals(41, prices.constructed().size());
             assertEquals(8, couponTypes.constructed().size());
@@ -94,8 +113,13 @@ class DataInitializerTest {
             for (Employee employee : employees.constructed()) {
                 verify(employee).persist();
             }
-            for (ProductFamily family : families.constructed()) {
-                verify(family, times(2)).persist();
+            // A touch group is persisted twice — once on creation, once after its
+            // edges and flags are wired — while a nomenclature node is written
+            // once, complete: it has no edge to wire, its parent being its own
+            // code prefix.
+            for (int i = 0; i < families.constructed().size(); i++) {
+                ProductFamily family = families.constructed().get(i);
+                verify(family, times(i < 10 ? 2 : 1)).persist();
             }
             for (Product product : products.constructed()) {
                 verify(product).persist();

@@ -2,7 +2,7 @@ package com.intermarche.pos.ui.balance;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.service.sync.SyncPayloads;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

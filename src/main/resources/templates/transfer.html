@@ -15,22 +15,17 @@
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-    .pos-terminal {
-      width: 1000px; height: 600px; background-color: var(--bg-dark);
-      border: 2px solid var(--border-strong); border-radius: 10px;
-      display: grid; grid-template-rows: 60px 1fr 80px;
-      overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-    }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
     .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
 
     .main-area { display: flex; justify-content: center; align-items: center; overflow: hidden; min-height: 0; }
-    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 25px 40px; width: 680px; max-height: 100%; overflow-y: auto; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 25px 40px; width: 42.5rem; max-height: 100%; overflow-y: auto; }
     .panel h2 { text-transform: uppercase; margin-bottom: 18px; text-align: center; letter-spacing: 1px; }
     .form-row { display: flex; align-items: center; gap: 15px; margin: 14px 0; justify-content: space-between; }
     .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
-    .form-row select, .form-row input { width: 360px; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .form-row select, .form-row input { width: 22.5rem; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
     .ceiling { color: var(--text-muted); font-size: var(--fs-body); text-align: right; margin-top: -8px; }
     .manager-block { border: 1px solid var(--border-strong); border-radius: 8px; padding: 12px 18px; margin-top: 15px; }
     .manager-block .hint { color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 8px; }
@@ -101,11 +96,11 @@
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
       {#if methods.isEmpty}
         <span></span>
       {#else}
-        <button type="submit" form="transferForm" class="btn btn-lg btn-success" style="width: 220px;">VALIDER LE TRANSFERT</button>
+        <button type="submit" form="transferForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE TRANSFERT</button>
       {/if}
     </div>
   </div>

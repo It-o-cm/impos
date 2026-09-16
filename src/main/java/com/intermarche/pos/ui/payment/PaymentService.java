@@ -111,7 +111,7 @@ public class PaymentService {
 
     /** Loyalty fiscal-event outbox (imfid lot 3). */
     @jakarta.inject.Inject
-    com.intermarche.pos.service.sync.FidEventOutboxService fidEventOutboxService;
+    com.intermarche.pos.service.sync.register.FidEventOutboxService fidEventOutboxService;
 
     @Inject
     ValuationService valuationService;

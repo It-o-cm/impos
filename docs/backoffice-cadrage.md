@@ -15,7 +15,7 @@ La colonne L a donc été renseignée ainsi :
 
 | Réponse | Critère |
 |---|---|
-| `1. Couvert intégralement` | le paramétrage existe dans un back-office et atteint les caisses |
+| `1. Couvert intégralement` | le paramétrage existe dans un back-office, **la caisse le lit**, et l'écran ne recopie rien : ce qu'il montre d'un référentiel, il le lit sur la machine qui le détient |
 | `1a. Couvert partiellement` | un mécanisme réel couvre une part : le comportement existe et n'est administrable qu'en partie, **ou** la donnée et la plomberie existent mais l'écran manque, **ou** c'est administré par une autre porte (import CSV, GraphQL) |
 | `3. Non couvert non prévu` | ni le paramétrage ni le comportement |
 
@@ -23,6 +23,15 @@ Conséquence assumée : un comportement correct mais **figé dans le code** ne
 vaut pas « couvert » sur cet onglet. C'est ce qui explique l'écart avec
 l'onglet Ligne de caisses (149 / 114 / 467 sur 730), où l'exigence était le
 comportement lui-même.
+
+Deuxième conséquence, apprise le 16/09 : un écran qui **recopie** un
+référentiel ne couvre rien. Une liste tenue à la main dans une page double
+une table qu'une autre machine remplace ; le jour du remplacement elle est
+fausse, et le symptôme accuse l'écran au lieu de la donnée. Le simulateur
+offrait des codes articles écrits en dur : ils étaient justes le jour où on
+les a écrits, et faux dès le premier tirage du référentiel depuis le nœud
+magasin. Ce n'est pas un défaut de mise à jour, c'est un défaut de
+conception — et une exigence servie par une copie manuelle reste en `1a`.
 
 ---
 
@@ -133,6 +142,29 @@ ne commence : ils s'appuient tous sur l'identité.
   CLAUDE.md, jambe par jambe), un groupe de scénarios e2e joué au
   navigateur, et le décompte des lignes AO qui basculent effectivement en
   colonne L — le questionnaire est le juge, pas l'impression de progrès.
+- **Une preuve jouée contre une maquette écrite pour l'occasion ne prouve
+  rien.** Le 16/09, un bouton « Charger » portant un style fantôme — bordure
+  transparente, texte gris, coincé entre deux autres textes gris — était
+  invisible à l'écran et parfaitement visible dans la page de vérification,
+  parce que cette page définissait `.btn` et pas `.btn-ghost`. La maquette
+  de preuve se fabrique **à partir des artefacts de production** : la
+  feuille réelle, le gabarit réel, le corps rendu par le serveur réel. Toute
+  règle qu'elle réécrit de mémoire est une règle qu'elle ne teste pas.
+- **Le scénario de preuve est celui de l'exigence, pas le plus commode à
+  monter.** L'ouverture automatique d'une ligne d'arbre, quand un glissement
+  s'y arrête, passait tous ses essais : ils reposaient sur une cible déjà
+  visible. L'exigence parle d'atteindre une cible trois niveaux plus bas, et
+  jouée ainsi la fonction ne s'armait sur aucune des lignes à traverser —
+  elle était muette exactement là où elle sert. Un essai qui n'a jamais eu à
+  descendre ne dit rien de la descente.
+- **La donnée de la démonstration fait partie de la preuve.** Le 16/09 le
+  nœud magasin, rechargé à chaud en dev (`drop-and-create`), est reparti de
+  son seed, et la caisse a désactivé les 304 articles injectés douze
+  secondes plus tôt — `38 ligne(s), 304 désactivé(s)` dans son propre
+  journal. Aucun test ne l'a vu parce qu'aucun ne regardait la base sous
+  l'écran. Une ligne n'est promue que si la démonstration qui la montre
+  tourne sur le référentiel réellement en ligne, et une ligne ne se démontre
+  jamais sur une base qu'on ne sait pas décrire.
 - **Le catalogue e2e précède le code.** Comme pour la caisse : on écrit les
   scénarios du lot dans `e2e-scenarios.md` avant de l'ouvrir, sinon on
   teste ce qu'on a écrit au lieu de ce qui était demandé.

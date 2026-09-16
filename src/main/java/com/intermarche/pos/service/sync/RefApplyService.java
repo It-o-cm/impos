@@ -15,6 +15,7 @@ import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductType;
 import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.domain.sync.RefState;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
@@ -87,10 +88,6 @@ public class RefApplyService {
             }
             family.description = dto.description;
             family.flags = dto.flags;
-            family.pinned = dto.pinned;
-            family.buttonSize = dto.buttonSize;
-            family.displayOrder = dto.displayOrder;
-            family.salesVolume = dto.salesVolume;
             family.persist();
             byCode.put(dto.code, family);
         }
@@ -124,6 +121,44 @@ public class RefApplyService {
         }
         LOGGER.infof("Référentiel familles appliqué: %d ligne(s)", dtos.size());
         LOGGER.info("Exiting method applyFamilies");
+    }
+
+    /**
+     * Applies a touch-configuration snapshot: upsert by group code, absents
+     * deleted.
+     * <p>
+     * DELETED and not merely ignored, unlike the article referential where an
+     * absent row is deactivated: a group that no longer has a configured touch
+     * must fall back to the defaults, and leaving a stale row behind would keep
+     * it pinned or oversized long after the back office un-pinned it.
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyTouchGroups(List<RefPayloads.TouchGroupDto> dtos) {
+        LOGGER.info("Entering method applyTouchGroups with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.TouchGroupDto dto : dtos) {
+            TouchGroupSetting setting = TouchGroupSetting.findByFamilyCode(dto.familyCode);
+            if (setting == null) {
+                setting = new TouchGroupSetting();
+                setting.familyCode = dto.familyCode;
+            }
+            setting.pinned = dto.pinned;
+            setting.buttonSize = dto.buttonSize == null
+                    ? TouchGroupSetting.DEFAULT_BUTTON_SIZE : dto.buttonSize;
+            setting.displayOrder = dto.displayOrder;
+            setting.salesVolume = dto.salesVolume;
+            setting.persist();
+            seen.add(dto.familyCode);
+        }
+        for (TouchGroupSetting setting : TouchGroupSetting.<TouchGroupSetting>listAll()) {
+            if (!seen.contains(setting.familyCode)) {
+                setting.delete();
+            }
+        }
+        LOGGER.infof("Référentiel touches appliqué: %d ligne(s)", dtos.size());
+        LOGGER.info("Exiting method applyTouchGroups");
     }
 
     /**

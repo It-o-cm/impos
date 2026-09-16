@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -138,14 +139,15 @@ public class ManualService {
         LOGGER.info("Entering method getManualRootData with page: " + page);
         List<ProductFamily> allFamilies = ProductFamily.listAll();
         Tree tree = readTree();
-        Comparator<ProductFamily> order = orderComparator(mode());
+        Map<String, TouchGroupSetting> settings = TouchGroupSetting.byFamilyCode();
+        Comparator<ProductFamily> order = orderComparator(mode(), settings);
         List<ProductFamily> pinned = new ArrayList<>();
         List<ProductFamily> rest = new ArrayList<>();
         for (ProductFamily f : allFamilies) {
             if (tree.childIds().contains(f.id) || !tree.qualifying().contains(f.id)) {
                 continue;
             }
-            if (f.pinned) {
+            if (TouchGroupSetting.orDefaults(settings, f.code).pinned) {
                 pinned.add(f);
             } else {
                 rest.add(f);
@@ -158,12 +160,12 @@ public class ManualService {
         int current = clamp(page, totalPages);
         List<ManualItem> items = new ArrayList<>();
         for (ProductFamily f : pinned) {
-            items.add(categoryItem(f));
+            items.add(categoryItem(f, settings));
         }
         int from = (current - 1) * perPage;
         int to = Math.min(from + perPage, rest.size());
         for (int i = from; i < to; i++) {
-            items.add(categoryItem(rest.get(i)));
+            items.add(categoryItem(rest.get(i), settings));
         }
         String prevUrl = current > 1 ? "/manual?page=" + (current - 1) : null;
         String nextUrl = current < totalPages ? "/manual?page=" + (current + 1) : null;
@@ -195,10 +197,11 @@ public class ManualService {
         String parentUrl = "/manual";
         List<ProductFamily> allFamilies = ProductFamily.listAll();
         Tree tree = readTree();
-        Comparator<ProductFamily> order = orderComparator(mode());
-        List<ProductFamily> pinned = pinnedTopFamilies(allFamilies, tree, order);
+        Map<String, TouchGroupSetting> settings = TouchGroupSetting.byFamilyCode();
+        Comparator<ProductFamily> order = orderComparator(mode(), settings);
+        List<ProductFamily> pinned = pinnedTopFamilies(allFamilies, tree, order, settings);
         for (ProductFamily f : pinned) {
-            items.add(categoryItem(f));
+            items.add(categoryItem(f, settings));
         }
         ProductFamily family = ProductFamily.findByCode(code);
         if (family == null) {
@@ -223,7 +226,7 @@ public class ManualService {
         int from = (current - 1) * perPage;
         int to = from + perPage;
         for (int i = Math.min(from, children.size()); i < Math.min(to, children.size()); i++) {
-            items.add(categoryItem(children.get(i)));
+            items.add(categoryItem(children.get(i), settings));
         }
         int productFrom = Math.max(0, from - children.size());
         int productTo = Math.max(0, to - children.size());
@@ -303,15 +306,18 @@ public class ManualService {
      * permanently whatever the navigation (BO-03-01-07).
      *
      * @param allFamilies every family
-     * @param childIds the ids of the child families
+     * @param tree the child ids and the qualifying families
      * @param order the configured ordering
+     * @param settings the touch configuration by group code
      * @return the ordered pinned top families
      */
     private List<ProductFamily> pinnedTopFamilies(List<ProductFamily> allFamilies, Tree tree,
-                                                  Comparator<ProductFamily> order) {
+                                                  Comparator<ProductFamily> order,
+                                                  Map<String, TouchGroupSetting> settings) {
         List<ProductFamily> pinned = new ArrayList<>();
         for (ProductFamily f : allFamilies) {
-            if (f.pinned && !tree.childIds().contains(f.id) && tree.qualifying().contains(f.id)) {
+            if (TouchGroupSetting.orDefaults(settings, f.code).pinned
+                    && !tree.childIds().contains(f.id) && tree.qualifying().contains(f.id)) {
                 pinned.add(f);
             }
         }
@@ -323,11 +329,14 @@ public class ManualService {
      * Builds a category tile for a family, carrying its size class.
      *
      * @param family the family
+     * @param settings the touch configuration by group code
      * @return the category tile
      */
-    private ManualItem categoryItem(ProductFamily family) {
+    private ManualItem categoryItem(ProductFamily family,
+                                    Map<String, TouchGroupSetting> settings) {
+        TouchGroupSetting setting = TouchGroupSetting.orDefaults(settings, family.code);
         return new ManualItem(family.description, true, "/manual/cat/" + family.code, null,
-                sizeClass(family.buttonSize), family.pinned);
+                sizeClass(setting.buttonSize), setting.pinned);
     }
 
     /**
@@ -373,17 +382,22 @@ public class ManualService {
      * description order for ties and for the unknown mode.
      *
      * @param mode the order mode
+     * @param settings the touch configuration by group code
      * @return the comparator
      */
-    private Comparator<ProductFamily> orderComparator(String mode) {
+    private Comparator<ProductFamily> orderComparator(String mode,
+                                                      Map<String, TouchGroupSetting> settings) {
         Comparator<ProductFamily> byDescription = Comparator.comparing(
                 f -> f.description == null ? "" : f.description, String.CASE_INSENSITIVE_ORDER);
         if ("CUSTOM".equals(mode)) {
-            return Comparator.comparingInt((ProductFamily f) -> f.displayOrder).thenComparing(byDescription);
+            return Comparator.comparingInt(
+                    (ProductFamily f) -> TouchGroupSetting.orDefaults(settings, f.code).displayOrder)
+                    .thenComparing(byDescription);
         }
         if ("VOLUME".equals(mode)) {
-            return Comparator.comparingLong((ProductFamily f) -> f.salesVolume).reversed()
-                    .thenComparing(byDescription);
+            return Comparator.comparingLong(
+                    (ProductFamily f) -> TouchGroupSetting.orDefaults(settings, f.code).salesVolume)
+                    .reversed().thenComparing(byDescription);
         }
         return byDescription;
     }

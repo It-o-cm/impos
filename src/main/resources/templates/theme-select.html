@@ -19,12 +19,7 @@
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
         .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
         .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
@@ -32,7 +27,7 @@
         .main-area { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; padding: 20px; }
         .lead { font-size: var(--fs-body); color: var(--text-muted); }
         .choices { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
-        .choice { min-width: 220px; padding: 40px 20px; font-size: var(--fs-btn); font-weight: bold;
+        .choice { min-width: 13.75rem; padding: 40px 20px; font-size: var(--fs-btn); font-weight: bold;
                   border-radius: 10px; border: 2px solid var(--border-color);
                   background: var(--bg-panel); color: var(--text-main); cursor: pointer;
                   text-transform: uppercase; }
@@ -63,7 +58,7 @@
         </div>
 
         <div class="bottom-nav">
-            <a href="/" class="btn btn-muted" style="width: 180px;">RETOUR</a>
+            <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
         </div>
     </div>
 

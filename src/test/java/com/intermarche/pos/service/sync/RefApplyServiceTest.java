@@ -22,6 +22,7 @@ import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.domain.catalog.ProductType;
 import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -135,6 +136,55 @@ class RefApplyServiceTest {
             // Persisted twice: once for the row, once for its (empty) edges.
             verify(inserted, times(2)).persist();
             verify(existing, times(2)).persist();
+        }
+    }
+
+    /**
+     * {@code applyTouchGroups} upserts by group code — an absent row is created,
+     * a present one updated — and DELETES the rows the snapshot no longer
+     * carries, so a group un-pinned upstream falls back to the defaults instead
+     * of staying pinned on the register forever.
+     * <p>
+     * The null {@code buttonSize} of the inserted row also covers the default
+     * arm: a payload that says nothing about the size must land on NORMAL, not
+     * on null, because the column is not nullable.
+     */
+    @Test
+    void applyTouchGroupsUpsertsAndDeletesTheAbsent() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.TouchGroupDto insert = new RefPayloads.TouchGroupDto();
+        insert.familyCode = "F1";
+        insert.pinned = true;
+        insert.buttonSize = null;
+        insert.displayOrder = 2;
+        insert.salesVolume = 40L;
+        RefPayloads.TouchGroupDto update = new RefPayloads.TouchGroupDto();
+        update.familyCode = "F2";
+        update.buttonSize = "LARGE";
+        update.displayOrder = 7;
+        update.salesVolume = 5L;
+        TouchGroupSetting existing = mock(TouchGroupSetting.class);
+        TouchGroupSetting stale = mock(TouchGroupSetting.class);
+        stale.familyCode = "GONE";
+        PanacheQuery<TouchGroupSetting> absentQuery = queryReturning(null);
+        PanacheQuery<TouchGroupSetting> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<TouchGroupSetting> created =
+                        mockConstruction(TouchGroupSetting.class)) {
+            mocked.when(() -> TouchGroupSetting.find("familyCode", "F1")).thenReturn(absentQuery);
+            mocked.when(() -> TouchGroupSetting.find("familyCode", "F2")).thenReturn(existingQuery);
+            mocked.when(() -> TouchGroupSetting.listAll()).thenReturn(List.of(stale));
+            service.applyTouchGroups(List.of(insert, update));
+            TouchGroupSetting inserted = created.constructed().get(0);
+            assertEquals("F1", inserted.familyCode);
+            assertTrue(inserted.pinned);
+            assertEquals("NORMAL", inserted.buttonSize);
+            assertEquals(2, inserted.displayOrder);
+            assertEquals(40L, inserted.salesVolume);
+            assertEquals("LARGE", existing.buttonSize);
+            assertEquals(7, existing.displayOrder);
+            assertEquals(5L, existing.salesVolume);
+            verify(stale, times(1)).delete();
         }
     }
 

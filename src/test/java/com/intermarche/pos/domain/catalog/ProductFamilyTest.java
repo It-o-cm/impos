@@ -12,6 +12,11 @@ import org.mockito.MockedStatic;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link ProductFamily}, targeting 100% branch coverage.
@@ -532,5 +537,130 @@ class ProductFamilyTest {
         f.flags = "ORGANIC";
         Assertions.assertEquals(Objects.hash("FRUITS", "Fruits and vegetables", "ORGANIC"),
                 f.getChecksum());
+    }
+    // --------------------------------------------------
+    // Nomenclature placement (BO-02-01-01, BO-02-03-14)
+    // --------------------------------------------------
+
+    /**
+     * Builds a scheme carrying the real Intermarché levels, served through the
+     * given static mock.
+     *
+     * @param mocked the active PanacheEntityBase static mock
+     * @return the scheme
+     */
+    private Nomenclature intermarche(MockedStatic<PanacheEntityBase> mocked) {
+        Nomenclature scheme = new Nomenclature();
+        scheme.id = 1L;
+        scheme.code = "ITM_FR";
+        NomenclatureLevel activite = new NomenclatureLevel();
+        activite.rank = 0;
+        activite.label = "Activité";
+        activite.codeLength = 2;
+        NomenclatureLevel rayon = new NomenclatureLevel();
+        rayon.rank = 1;
+        rayon.label = "Rayon";
+        rayon.codeLength = 4;
+        NomenclatureLevel famille = new NomenclatureLevel();
+        famille.rank = 2;
+        famille.label = "Famille";
+        famille.codeLength = 8;
+        mocked.when(() -> NomenclatureLevel.list("nomenclature.id = ?1 order by rank", 1L))
+                .thenReturn(List.of(activite, rayon, famille));
+        return scheme;
+    }
+
+    /**
+     * Builds a node of a scheme.
+     *
+     * @param scheme the scheme, possibly null
+     * @param code the node code
+     * @param level the declared level, possibly null
+     * @return the node
+     */
+    private ProductFamily node(Nomenclature scheme, String code, Integer level) {
+        ProductFamily family = new ProductFamily();
+        family.code = code;
+        family.nomenclature = scheme;
+        family.level = level;
+        return family;
+    }
+
+    /**
+     * A node of a scheme names its parent by truncating its own code, at every
+     * depth of the real Intermarché coding.
+     */
+    @Test
+    void aNodeNamesItsParentByTruncatingItsCode() {
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            Nomenclature itm = intermarche(mocked);
+            assertNull(node(itm, "10", 0).parentCode());
+            assertEquals("10", node(itm, "1002", 1).parentCode());
+            assertEquals("1002", node(itm, "10020200", 2).parentCode());
+        }
+    }
+
+    /**
+     * A group belonging to no scheme names no parent that way: its edges are
+     * the navigation join table, not a code prefix. This is the null arm, and
+     * it is a normal case — a shop's own touch group classifies nothing.
+     */
+    @Test
+    void aGroupOutsideAnySchemeNamesNoParentByCode() {
+        ProductFamily loose = new ProductFamily();
+        loose.code = "PROMO";
+        assertNull(loose.parentCode());
+        assertTrue(loose.isConsistentWithNomenclature());
+    }
+
+    /**
+     * A node is consistent when its code length AND its declared level agree.
+     * Both legs are exercised apart: a right length at the wrong level would
+     * file a famille among the rayons, a wrong length belongs nowhere, and a
+     * missing level says nothing at all.
+     */
+    @Test
+    void consistencyNeedsTheLengthAndTheLevelToAgree() {
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            Nomenclature itm = intermarche(mocked);
+            assertTrue(node(itm, "1002", 1).isConsistentWithNomenclature());
+            assertFalse(node(itm, "1002", 2).isConsistentWithNomenclature());
+            assertFalse(node(itm, "100", 1).isConsistentWithNomenclature());
+            assertFalse(node(itm, "1002", null).isConsistentWithNomenclature());
+        }
+    }
+
+    /**
+     * The level-by-level readers refuse a null or unpersisted scheme rather
+     * than querying on a null key — the display of BO-02-01-08 is built from
+     * them and must not fail on a shop that has no scheme yet.
+     */
+    @Test
+    void theLevelReadersRefuseASchemeThatCannotBeQueried() {
+        assertEquals(List.of(), ProductFamily.listAtLevel(null, 0));
+        assertEquals(List.of(), ProductFamily.listAtLevel(new Nomenclature(), 0));
+        assertEquals(List.of(), ProductFamily.listInNomenclature(null));
+        assertEquals(List.of(), ProductFamily.listInNomenclature(new Nomenclature()));
+    }
+
+    /**
+     * The nodes of one level, and the whole scheme top-down, are read through
+     * the scheme's id.
+     */
+    @Test
+    void theNodesOfASchemeAreReadThroughItsId() {
+        Nomenclature scheme = new Nomenclature();
+        scheme.id = 1L;
+        List<ProductFamily> atLevel = List.of(node(scheme, "1002", 1));
+        List<ProductFamily> whole = List.of(node(scheme, "10", 0), node(scheme, "1002", 1));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> ProductFamily.list(
+                    "nomenclature.id = ?1 and level = ?2 order by code", 1L, 1))
+                    .thenReturn(atLevel);
+            mocked.when(() -> ProductFamily.list(
+                    "nomenclature.id = ?1 order by level, code", 1L)).thenReturn(whole);
+            assertSame(atLevel, ProductFamily.listAtLevel(scheme, 1));
+            assertSame(whole, ProductFamily.listInNomenclature(scheme));
+        }
     }
 }

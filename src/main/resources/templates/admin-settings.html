@@ -12,7 +12,7 @@
 <div class="page-head">
     <div>
         <h1>Paramètres caisse</h1>
-        <p class="page-sub">{entries.size()} paramètres — appliqués aux caisses au prochain tirage référentiel.</p>
+        <p class="page-sub">{settingCount} paramètres en {sections.size()} rubriques — appliqués aux caisses au prochain tirage référentiel.</p>
     </div>
 </div>
 
@@ -21,37 +21,57 @@
 {/if}
 
 <form method="post" action="/admin/settings">
-    {#for entry in entries}
-    {#if entry.firstOfSection}
-    {#if entry_index > 0}
-    </div></div>
-    {/if}
-    <div class="card">
-        <h2 class="card-title">{entry.section}</h2>
+    <div class="page-actions panel-actions">
+        <button class="btn btn-ghost" type="button" data-panels="open">Tout déplier</button>
+        <button class="btn btn-ghost" type="button" data-panels="close">Tout replier</button>
+    </div>
+
+    {#for section in sections}
+    <details class="card panel">
+        <summary class="card-title panel-title">
+            {section.label}<span class="panel-count">{section.count}</span>
+        </summary>
         <div class="field-grid">
-    {/if}
-        <div class="field">
-            <label class="field-label" for="f-{entry.key}">{entry.label}</label>
-            {#if entry.bool}
-            <select class="input-control" id="f-{entry.key}" name="{entry.key}">
-                <option value="true" {#if entry.value == 'true'}selected{/if}>Activé</option>
-                <option value="false" {#if entry.value != 'true'}selected{/if}>Désactivé</option>
-            </select>
-            {#else if entry.integer}
-            <input type="number" id="f-{entry.key}" name="{entry.key}" value="{entry.value}" min="0">
-            {#else}
-            <input type="text" id="f-{entry.key}" name="{entry.key}" value="{entry.value}" maxlength="120">
-            {/if}
-            <span class="field-hint">{entry.hint}</span>
+            {#for entry in section.entries}
+            <div class="field">
+                <label class="field-label" for="f-{entry.key}">{entry.label}</label>
+                {#if entry.bool}
+                <select class="input-control" id="f-{entry.key}" name="{entry.key}">
+                    <option value="true" {#if entry.value == 'true'}selected{/if}>Activé</option>
+                    <option value="false" {#if entry.value != 'true'}selected{/if}>Désactivé</option>
+                </select>
+                {#else if entry.integer}
+                <input type="number" id="f-{entry.key}" name="{entry.key}" value="{entry.value}" min="0">
+                {#else}
+                <input type="text" id="f-{entry.key}" name="{entry.key}" value="{entry.value}" maxlength="120">
+                {/if}
+                <span class="field-hint">{entry.hint}</span>
+            </div>
+            {/for}
         </div>
+    </details>
     {/for}
-    </div></div>
 
     <div class="page-actions" style="margin-top: 6px;">
         <button class="btn btn-primary" type="submit">Enregistrer</button>
         <a class="btn btn-ghost" href="/admin/settings">Annuler</a>
     </div>
 </form>
+
+{|
+<script>
+// A collapsed panel keeps its inputs in the form, so saving saves every
+// parameter whatever is open. The two buttons only fold and unfold.
+document.querySelectorAll('[data-panels]').forEach(function (button) {
+    button.addEventListener('click', function () {
+        var open = button.getAttribute('data-panels') === 'open';
+        document.querySelectorAll('details.panel').forEach(function (panel) {
+            panel.open = open;
+        });
+    });
+});
+</script>
+|}
 {/body}
 
 {#footer}Les paramètres sont distribués aux caisses par le tirage référentiel (domaine SETTINGS), comme les produits et les prix.{/footer}

@@ -22,12 +22,7 @@
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 
-        .pos-terminal {
-            width: 1000px; height: 600px; background-color: var(--bg-dark);
-            border: 2px solid var(--border-strong); border-radius: 10px;
-            display: grid; grid-template-rows: 60px 1fr 80px;
-            overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); position: relative;
-        }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; position: relative; }
 
         /* Header */
         .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); z-index: 2; }
@@ -52,7 +47,7 @@
         }
         .receipt-item.selected { background-color: rgba(0, 85, 255, 0.2); border-left-color: var(--primary); }
         .receipt-item .item-details { flex: 1; padding-right: 20px; }
-        .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 80px; }
+        .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 5rem; }
         .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: var(--fs-amount); display: flex; align-items: center; gap: 8px; }
         .receipt-item.negative .price { color: var(--danger); }
         /* LC-02-08-04 : la pastille « à enlever ». Elle prend la couleur des
@@ -70,7 +65,7 @@
 
         /* Navigation Ticket */
         .ticket-nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: auto; flex-shrink: 0; }
-        .nav-btn { height: 32px; min-width: 100px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+        .nav-btn { height: 2rem; min-width: 6.25rem; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
         .nav-info { color: var(--text-muted); font-size: var(--fs-label); }
 
         /* Colonne Action */
@@ -78,13 +73,13 @@
         .total-display { position: relative; text-align: right; }
         .total-label { font-size: var(--fs-label); color: var(--text-muted); }
         .total-amount { font-size: var(--fs-total-xl); font-weight: bold; color: var(--text-main); }
-        .fid-icon { position: absolute; top: 5px; left: 0; width: 28px; height: 28px; transition: all 0.4s ease; }
+        .fid-icon { position: absolute; top: 5px; left: 0; width: 1.75rem; height: 1.75rem; transition: all 0.4s ease; }
         .fid-icon.inactive { stroke: #333; fill: transparent; }
         .fid-icon.active { stroke: var(--success); fill: var(--success); filter: drop-shadow(0 0 4px rgba(0,200,83,0.6)); }
 
         /* Grille Boutons */
         .grid-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; flex: 1; align-content: end; }
-        .grid-buttons .btn { height: 50px; font-size: var(--fs-btn-sm); display: flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; padding: 0 4px; min-width: 0; overflow: hidden; }
+        .grid-buttons .btn { height: 3.125rem; font-size: var(--fs-btn-sm); display: flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; padding: 0 4px; min-width: 0; overflow: hidden; }
         /* TEN BUTTONS, TWO COLUMNS, FIVE ROWS — and never more. The action column
            holds exactly that at the register's button size; a menu that needed an
            eleventh row would have it cut off by the panel, which is how MODE
@@ -99,14 +94,14 @@
            width made the bar wider than the 1000px terminal as soon as a sixth
            button appeared (MOUVEMENT, lot C5b), and the whole screen was
            clipped on the right. Adding a button must cost width, never layout. */
-        .bottom-nav .btn { flex: 1 1 0; min-width: 0; max-width: 180px; height: 50px; font-size: var(--fs-btn-sm); padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1.15; text-decoration: none; }
+        .bottom-nav .btn { flex: 1 1 0; min-width: 0; max-width: 11.25rem; height: 3.125rem; font-size: var(--fs-btn-sm); padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1.15; text-decoration: none; }
 
         /* Boutons Communs */
 
         /* Modale Prix */
         .price-modal { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); z-index: 90; justify-content: center; align-items: center; overflow-y: auto; }
         .price-modal.active { display: flex; }
-        .price-panel { background: var(--bg-panel); border: 2px solid var(--primary); border-radius: 12px; padding: 16px; width: 360px; display: flex; flex-direction: column; gap: 10px; margin: auto; }
+        .price-panel { background: var(--bg-panel); border: 2px solid var(--primary); border-radius: 12px; padding: 16px; width: 22.5rem; display: flex; flex-direction: column; gap: 10px; margin: auto; }
         .price-title { font-size: var(--fs-title); font-weight: bold; color: var(--primary); text-align: center; }
         .price-target { color: var(--text-muted); font-size: var(--fs-label); text-align: center; border-bottom: 1px solid var(--border-strong); padding-bottom: 10px; }
         /* Le rappel de la ligne : la MEME lecture que sur le ticket (quantité en
@@ -123,12 +118,12 @@
            du panneau, qu'elles soient deux (remise ticket) ou trois (remise,
            discount, forçage sur une ligne). */
         .price-modes { display: flex; gap: 8px; }
-        .price-modes .btn { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: var(--fs-btn-sm); }
+        .price-modes .btn { flex: 1 1 0; min-width: 0; height: 2.5rem; padding: 0 4px; display: flex; align-items: center; justify-content: center; font-size: var(--fs-btn-sm); }
         .price-input-display { font-size: var(--fs-field-num); text-align: right; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 12px; width: 100%; }
         /* Le pavé compact du thème, comme sur les autres écrans chargés : le
            panneau porte maintenant le rappel de la ligne et le sélecteur de
            mode, et un pavé pleine taille le poussait hors du terminal. */
-        .price-kb-area { display: flex; flex-direction: column; min-height: 150px; }
+        .price-kb-area { display: flex; flex-direction: column; min-height: 9.375rem; }
 
     </style>
 </head>
@@ -281,8 +276,8 @@
                 Vérifiez la pièce d'identité du client<br>(né avant {ageCheckBirthYear})
             </div>
             <div style="display:flex; gap:12px; justify-content:center;">
-                <a href="/action/age-check/refuse" class="btn btn-danger" style="min-width:150px; text-align:center;">REFUSER</a>
-                <a href="/action/age-check/confirm" class="btn btn-success" style="min-width:150px; text-align:center;">CLIENT MAJEUR</a>
+                <a href="/action/age-check/refuse" class="btn btn-danger" style="min-width:9.375rem; text-align:center;">REFUSER</a>
+                <a href="/action/age-check/confirm" class="btn btn-success" style="min-width:9.375rem; text-align:center;">CLIENT MAJEUR</a>
             </div>
         </div>
     </div>
@@ -309,7 +304,7 @@
                 <input type="text" id="entryDisplay" class="price-input-display" value="0" readonly>
                 <div class="price-kb-area pos-kb-compact" id="entryKbArea"></div>
                 <div style="display:flex; gap:10px; margin-top:10px;">
-                    <a href="/action/entry/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
+                    <a href="/action/entry/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">ANNULER</a>
                     <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
                 </div>
             </form>
@@ -362,7 +357,7 @@
                     <input type="text" id="priceDisplay" class="price-input-display" value="0" readonly>
                     <div class="price-kb-area pos-kb-compact" id="priceKbArea"></div>
                     <div style="display:flex; gap:10px; margin-top:10px;">
-                        <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height:50px;">ANNULER</a>
+                        <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">ANNULER</a>
                         <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
                     </div>
                     {#if state.priceModState.typeName == 'QUANTITY'}

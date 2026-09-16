@@ -13,7 +13,7 @@ import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
-import com.intermarche.pos.service.sync.SyncOutboxService;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.HardwareService;
@@ -86,7 +86,7 @@ class RefundServiceTest {
         // A return on a card-bearing ticket enqueues the loyalty event that
         // feeds imfid's RETURN_DEBIT recomputation — in the refund's own
         // transaction, so the collaborator belongs to the fixture.
-        s.fidEventOutboxService = mock(com.intermarche.pos.service.sync.FidEventOutboxService.class);
+        s.fidEventOutboxService = mock(com.intermarche.pos.service.sync.register.FidEventOutboxService.class);
         // The conditional-printing rule (LC-08-03): left un-stubbed, it forces
         // nothing, which is the behaviour every case here was written against.
         s.printPolicy = mock(com.intermarche.pos.ui.hardware.PrintPolicy.class);

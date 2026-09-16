@@ -74,6 +74,70 @@ body {
 
 .app-nav a:hover { color: var(--im-ink); border-bottom-color: var(--im-red); }
 
+/* Two-level navigation: a Menu aggregate opens on its features. Built on
+   <details>/<summary> so it opens with the keyboard and without JavaScript.
+   Exclusivity comes from the shared name= on each <details>; closing on a
+   click elsewhere is the one thing HTML does not give and the layout's small
+   script adds. */
+.app-menu { position: relative; }
+
+.app-menu-title {
+    list-style: none;
+    cursor: pointer;
+    color: var(--im-ink-soft);
+    font-size: 14px;
+    padding: 6px 0;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+}
+
+.app-menu-title::-webkit-details-marker { display: none; }
+
+.app-menu-title::after {
+    content: "";
+    display: inline-block;
+    margin-left: 6px;
+    border: 4px solid transparent;
+    border-top-color: currentColor;
+    vertical-align: middle;
+}
+
+.app-menu-title:hover,
+.app-menu[open] > .app-menu-title {
+    color: var(--im-ink);
+    border-bottom-color: var(--im-red);
+}
+
+.app-menu-panel {
+    position: absolute;
+    z-index: 40;
+    top: 100%;
+    left: 0;
+    min-width: 210px;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+    background: var(--im-surface);
+    border: 1px solid var(--im-line);
+    border-radius: var(--radius, 8px);
+    box-shadow: 0 8px 24px rgba(22, 24, 29, 0.12);
+}
+
+/* .app-nav a is (0,1,1) and would win over a lone class, which is how these
+   entries ended up flush against the panel edge with no left margin. */
+.app-nav a.app-menu-item {
+    display: block;
+    padding: 9px 20px;
+    border-bottom: 0;
+    white-space: nowrap;
+}
+
+.app-nav a.app-menu-item:hover {
+    background: var(--im-bg);
+    color: var(--im-ink);
+    border-bottom-color: transparent;
+}
+
 .app-main {
     max-width: 1080px;
     margin: 0 auto;
@@ -611,3 +675,46 @@ body {
     white-space: pre;
     overflow-x: auto;
 }
+
+/* Foldable parameter panels. The page carries seventy-five parameters over
+   twenty-four headings; shown open it was unreadable. A collapsed <details>
+   keeps its inputs in the form, so saving still saves every parameter
+   whatever is folded. */
+.panel { padding: 0; }
+
+.panel-title {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 14px 18px;
+}
+
+.panel-title::-webkit-details-marker { display: none; }
+
+.panel-title::before {
+    content: "";
+    border: 5px solid transparent;
+    border-left-color: currentColor;
+    transition: transform 0.12s ease-in-out;
+}
+
+.panel[open] > .panel-title::before { transform: rotate(90deg); }
+
+.panel-title:hover { background: var(--im-bg); }
+
+.panel-count {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--im-ink-soft);
+    border: 1px solid var(--im-line);
+    border-radius: 999px;
+    padding: 1px 9px;
+}
+
+.panel > .field-grid { padding: 0 18px 18px; }
+
+.panel-actions { justify-content: flex-end; margin-bottom: 10px; }

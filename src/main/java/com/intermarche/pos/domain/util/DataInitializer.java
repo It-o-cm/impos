@@ -9,6 +9,8 @@ import com.intermarche.pos.domain.session.*;
 import com.intermarche.pos.domain.setting.*;
 import com.intermarche.pos.domain.store.*;
 import com.intermarche.pos.domain.sync.*;
+import com.intermarche.pos.domain.catalog.Nomenclature;
+import com.intermarche.pos.domain.catalog.NomenclatureLevel;
 import io.quarkus.arc.profile.IfBuildProfile;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -60,13 +62,129 @@ public class DataInitializer {
         Employee.deleteAll();
         Price.deleteAll();
         Product.deleteAll();
+        NomenclatureLevel.deleteAll();
         ProductFamily.deleteAll();
+        Nomenclature.deleteAll();
         CouponType.deleteAll();
 
         createStore();
         loadEmployees();
         loadProductsAndFamilies();
         loadCouponTypes();
+        loadNomenclature();
+    }
+
+    /**
+     * Seeds the Intermarché France nomenclature: its four levels and a slice
+     * of the published hierarchy, codes and labels taken verbatim from the
+     * group's file.
+     * <p>
+     * A slice and not the whole file — two and a half thousand nodes in a
+     * dev seed would slow every start for nothing — but a REAL slice: the same
+     * codes, the same cumulative lengths, three activities opening on their
+     * rayons, familles and sous-familles. The screen and the drill-down are
+     * therefore exercised on the real coding, not on a shape invented here.
+     */
+    private void loadNomenclature() {
+        Nomenclature itm = new Nomenclature();
+        itm.code = "ITM_FR";
+        itm.label = "Intermarché France";
+        itm.enseigneCode = "ITM";
+        itm.persist();
+        seedLevel(itm, 0, "Activité", 2, false);
+        seedLevel(itm, 1, "Rayon", 4, false);
+        seedLevel(itm, 2, "Famille", 8, false);
+        seedLevel(itm, 3, "Sous-famille", 12, true);
+
+        seedNode(itm, 0, "10", "FRAIS TRAD");
+        seedNode(itm, 1, "1002", "BOUCHERIE / VOLAILLE TRAD");
+        seedNode(itm, 2, "10020200", "VIANDE BOVINE TRAD");
+        seedNode(itm, 3, "100202000001", "VIANDE BOVINE LAIT/STD TRAD");
+        seedNode(itm, 3, "100202000002", "VIANDE BOVINE TRAD");
+        seedNode(itm, 3, "100202000003", "VIANDE BOVINE IMPORT TRAD");
+        seedNode(itm, 2, "10020202", "VEAU TR");
+        seedNode(itm, 3, "100202020001", "VEAU TRAD");
+        seedNode(itm, 2, "10020204", "VIANDE PORCINE TRAD");
+        seedNode(itm, 1, "1004", "CHARCUTERIE TRAD");
+        seedNode(itm, 2, "10040200", "CHARCUTERIE COUPE");
+        seedNode(itm, 3, "100402000001", "JAMBON BLANC COUPE");
+        seedNode(itm, 1, "1006", "TRAITEUR TRAD");
+        seedNode(itm, 0, "20", "FRAIS LS");
+        seedNode(itm, 1, "2020", "CREMERIE LS");
+        seedNode(itm, 2, "20200200", "LAIT");
+        seedNode(itm, 3, "202002000001", "LAIT DEMI-ECREME");
+        seedNode(itm, 1, "2022", "SURGELES LS");
+        seedNode(itm, 0, "40", "SEC LS");
+        seedNode(itm, 1, "4040", "EPICERIE SUCREE");
+        seedNode(itm, 2, "40400200", "BISCUITS");
+        fileSeededArticles();
+    }
+
+    /**
+     * Files a handful of seeded articles under their sous-famille, so the
+     * nomenclature is not only administered but USED.
+     * <p>
+     * Without this the screen shows a classification nothing belongs to, and
+     * the sale line still records the touch group: an article reaches the
+     * register's {@code familyCode} through its membership, not through the
+     * existence of a scheme. These four are the ones whose seeded name matches
+     * a seeded node — a demonstration, not an import.
+     */
+    private void fileSeededArticles() {
+        fileArticle("Lait UHT 1L", "202002000001");
+        fileArticle("Jambon Blanc 100g", "100402000001");
+        fileArticle("Biscuits Chocolat 200g", "40400200");
+        fileArticle("Poulet Rôti 1.2kg", "100202000002");
+    }
+
+    /**
+     * Files one seeded article under one node, by name.
+     *
+     * @param name the seeded article name
+     * @param nodeCode the nomenclature node code
+     */
+    private void fileArticle(String name, String nodeCode) {
+        Product article = Product.find("name", name).firstResult();
+        if (article != null) {
+            ProductFamily.fileUnderNomenclature(article, nodeCode);
+        }
+    }
+
+    /**
+     * Seeds one level of a scheme.
+     *
+     * @param scheme the scheme
+     * @param rank the 0-based rank
+     * @param label the level name
+     * @param codeLength the cumulative code length at this level
+     * @param custom whether a point of sale may redefine it
+     */
+    private void seedLevel(Nomenclature scheme, int rank, String label, int codeLength,
+                           boolean custom) {
+        NomenclatureLevel level = new NomenclatureLevel();
+        level.nomenclature = scheme;
+        level.rank = rank;
+        level.label = label;
+        level.codeLength = codeLength;
+        level.custom = custom;
+        level.persist();
+    }
+
+    /**
+     * Seeds one node of a scheme.
+     *
+     * @param scheme the scheme
+     * @param level the 0-based level
+     * @param code the cumulative node code
+     * @param label the node label
+     */
+    private void seedNode(Nomenclature scheme, int level, String code, String label) {
+        ProductFamily node = new ProductFamily();
+        node.code = code;
+        node.description = label;
+        node.nomenclature = scheme;
+        node.level = level;
+        node.persist();
     }
 
     /**
