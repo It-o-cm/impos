@@ -323,7 +323,8 @@ public class TicketService {
         BigDecimal unitPrice = keyedPrice != null
                 ? keyedPrice
                 : (price != null ? price.priceIncludingTax : BigDecimal.ZERO);
-        BigDecimal vatRate = price != null ? price.vatRate : defaultVatRate;
+        BigDecimal vatRate = price != null && price.vatRate() != null
+                ? price.vatRate() : defaultVatRate;
         if (ProductAttributes.vatExempt(product)) {
             vatRate = BigDecimal.ZERO;
         }
@@ -669,7 +670,8 @@ public class TicketService {
             }
             Price price = Price.findCurrentPrice(p.id);
             BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-            BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+            BigDecimal vatRate = (price != null && price.vatRate() != null)
+                    ? price.vatRate() : defaultVatRate;
             // BO-02-03-26/27: a VAT-exempt article is ventilated at rate 0; the
             // amount due (tax included) is unchanged, only its VAT breakdown.
             if (ProductAttributes.vatExempt(p)) {
@@ -753,7 +755,8 @@ public class TicketService {
             state.ticket.lastRecordedWeight = weight;
             Price price = Price.findCurrentPrice(p.id);
             BigDecimal unitPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-            BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+            BigDecimal vatRate = (price != null && price.vatRate() != null)
+                    ? price.vatRate() : defaultVatRate;
             // BO-02-03-26/27: a VAT-exempt weighed article ventilates at rate 0.
             if (ProductAttributes.vatExempt(p)) {
                 vatRate = BigDecimal.ZERO;

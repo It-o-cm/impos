@@ -1088,7 +1088,7 @@ public class PaymentService {
 
             BigDecimal amountToPay = amount.min(state.getRemaining());
             state.payment.addCreditPayment(amountToPay, customer.accountNumber,
-                    customer.getDisplayName(), overLimit);
+                    customer.getDisplayName(), overLimit, creditTender());
             state.touch();
             savePayment(state, "CREDIT");
             hardwareService.displayMessage(
@@ -1212,6 +1212,12 @@ public class PaymentService {
                         }
                     }
                 }
+                // BO-03-03-25/-29/-30/-31: freeze what the loyalty programme
+                // said about this sale BEFORE the rendering below reads it. The
+                // projection lives in the register's state and dies with the
+                // sale; frozen on the row, a duplicata — here or on the store
+                // node — states what the customer was shown on the day.
+                freezeFidelity(state, ticketId);
                 // LC-08-02-02: freeze the ticket AS PRINTED, here and nowhere
                 // else — this is the only moment the loyalty section of the
                 // rendering still exists, and the only place that knows what
@@ -1250,6 +1256,11 @@ public class PaymentService {
                 // receipt, because it states a PAID sale — the desk hands goods
                 // over against a sale that is over.
                 ticketPrinterService.printCollectionVoucher(ticketId);
+                // BO-03-03-10: a settlement taken on the loyalty balance gets
+                // its own slip, additional to the receipt and after it — the
+                // proof the customer comes back with on a disputed cagnotte
+                // débit. A sale that did not touch the balance prints nothing.
+                ticketPrinterService.printLoyaltyReceipt(ticketId);
                 // LC-08-04-16: the settlement may call for a document of its own —
                 // typically an invoice on a sale paid by customer credit. It is
                 // emitted here, after the receipt, because it states a CLOSED sale
@@ -1285,6 +1296,32 @@ public class PaymentService {
     // --------------------------------------------------
 
     /**
+     * Freezes on the closed ticket what the loyalty programme said about this
+     * sale: the displayed earn, its advantage lines, the balance read when the
+     * card was attached and whether the service answered at all.
+     *
+     * <p>Copied rather than referenced: {@code PosState} is cleared a few lines
+     * later and the projection is not persisted anywhere else, so this is the
+     * last moment the figures exist. A sale made without a card still writes —
+     * it writes nothing but the availability flag, which is exactly what a
+     * receipt printed for a non-holder needs to state (BO-03-03-30).
+     *
+     * @param state the current POS state
+     * @param ticketId the database id of the closed ticket
+     */
+    private void freezeFidelity(PosState state, Long ticketId) {
+        java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine> lines =
+                new java.util.ArrayList<>();
+        for (com.intermarche.pos.ui.fidelity.FidelityState.EarnLine line
+                : state.fidelity.earnEntries) {
+            lines.add(new com.intermarche.pos.domain.sale.TicketFidelityLine(
+                    line.ruleCode, line.label, line.amount));
+        }
+        ticketPersistenceService.storeFidelity(ticketId, state.fidelity.earnTotal,
+                state.fidelity.availableBalance, fidelityService.isUnavailable(), lines);
+    }
+
+    /**
      * Persists the last registered payment entry on the draft ticket.
      *
      * @param state the current POS state
@@ -1298,6 +1335,25 @@ public class PaymentService {
         }
         PaymentState.PaymentEntry lastEntry = state.payment.payments.get(state.payment.payments.size() - 1);
         ticketPersistenceService.addPaymentToTicket(state.payment.ticketDbId, lastEntry);
+    }
+
+    /**
+     * The tender key customer credit is registered under ({@code BO-10-04-09}).
+     *
+     * <p>An administered key the register cannot BUILD is refused here rather
+     * than at the database: the key picks the payment class the ticket line is
+     * persisted as, so an unknown one would not produce a differently-labelled
+     * settlement, it would lose the settlement altogether.
+     *
+     * @return the administered key when the register knows it, CREDIT otherwise
+     */
+    private String creditTender() {
+        String administered = posSettingsService.customerCreditTender();
+        if (com.intermarche.pos.domain.payment.PaymentTypes.forKey(administered) == null) {
+            LOGGER.warnf("Moyen de paiement crédit inconnu (%s), CREDIT appliqué", administered);
+            return "CREDIT";
+        }
+        return administered;
     }
 
     /**

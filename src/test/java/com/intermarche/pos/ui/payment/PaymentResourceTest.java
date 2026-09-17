@@ -100,7 +100,8 @@ class PaymentResourceTest {
      */
     private static final List<String> PAY_DATA_KEYS =
             List.of("offeredTenders", "tenderDefaults", "couponTypes", "currencies",
-                    "backupEndorsement", "digitalPath", "printConditional", "printChoices");
+                    "backupEndorsement", "showCustomerDetails", "showCustomerDiscount",
+                    "digitalPath", "printConditional", "printChoices");
 
     /**
      * Stubs the whole {@code pay} template chain, one link per data key, with

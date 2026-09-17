@@ -149,6 +149,9 @@ public class DrawerOperationsResource {
         return transfer
                 .data("state", state)
                 .data("methods", drawerMethodService.transferable())
+                // BO-05-02-17 : deux listes, parce que ce sont deux droits.
+                .data("sources", drawerMethodService.transferSources())
+                .data("destinations", drawerMethodService.transferDestinations())
                 .data("threshold", posSettingsService.cashMovementEndorsementThreshold().toPlainString())
                 .data("saved", ok != null)
                 .data("error", messageOf(error));
@@ -276,7 +279,10 @@ public class DrawerOperationsResource {
             LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=no-session");
         }
-        if (!drawerMethodService.isTransferable(from) || !drawerMethodService.isTransferable(to)) {
+        // BO-05-02-17: source and destination are administered apart, so the two
+        // ends are checked apart. A tender may be corrected out of and never into.
+        if (!drawerMethodService.isTransferSource(from)
+                || !drawerMethodService.isTransferDestination(to)) {
             LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=bad-method");
         }

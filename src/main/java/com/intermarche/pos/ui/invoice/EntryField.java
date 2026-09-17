@@ -39,7 +39,7 @@ public record EntryField(String name, String label, String keyboard, boolean upp
 
     /** The administered default: every known field, the business name mandatory. */
     public static final String DEFAULT_CUSTOMER_FIELDS =
-            "companyName*;contactName;street;postalCode;city;siret;vatNumber;phone;email";
+            "companyName*;contactName;street;postalCode;city;siret;vatNumber;phone;email;taxId";
 
     /**
      * The customer fields the register knows how to ask for, in catalog order.
@@ -66,6 +66,7 @@ public record EntryField(String name, String label, String keyboard, boolean upp
         catalog.put("vatNumber", new EntryField("vatNumber", "TVA intracom.", "email", true, 20, false, ""));
         catalog.put("phone", new EntryField("phone", "Téléphone", "numpad", false, 30, false, ""));
         catalog.put("email", new EntryField("email", "Courriel", "email", false, 120, false, ""));
+        catalog.put("taxId", new EntryField("taxId", "N° fiscal (NIF)", "email", true, 30, false, ""));
         return catalog;
     }
 
@@ -110,6 +111,28 @@ public record EntryField(String name, String label, String keyboard, boolean upp
                     known.uppercase(), known.maxLength(), required, ""));
         }
         return fields.isEmpty() ? customerFields(DEFAULT_CUSTOMER_FIELDS) : fields;
+    }
+
+    /**
+     * Returns the same mask, each field carrying the value already known
+     * ({@code BO-10-04-03}).
+     *
+     * <p>Correcting a customer at the till means showing what the register holds and
+     * letting the operator overwrite it, not asking for everything again: an empty
+     * mask posted back would silently erase every field the operator did not retype.
+     *
+     * @param fields the administered mask, in entry order
+     * @param values the values known, keyed by field name, missing keys left empty
+     * @return the mask, values filled in, in the same order
+     */
+    public static List<EntryField> filled(List<EntryField> fields, Map<String, String> values) {
+        List<EntryField> filled = new ArrayList<>();
+        for (EntryField field : fields) {
+            String known = values.get(field.name());
+            filled.add(new EntryField(field.name(), field.label(), field.keyboard(),
+                    field.uppercase(), field.maxLength(), field.required(), safe(known)));
+        }
+        return filled;
     }
 
     /**

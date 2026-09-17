@@ -325,10 +325,12 @@ public class PaymentState implements Serializable {
      * @param accountNumber the account number the debt is charged to
      * @param accountName the account name as it stands at sale time
      * @param overLimit true when a supervisor authorized it over the ceiling
+     * @param tenderKey the administered tender key the settlement is registered
+     *        under (BO-10-04-09)
      */
     public void addCreditPayment(BigDecimal amount, String accountNumber, String accountName,
-            boolean overLimit) {
-        PaymentEntry entry = new PaymentEntry("CREDIT", amount);
+            boolean overLimit, String tenderKey) {
+        PaymentEntry entry = new PaymentEntry(tenderKey, amount);
         entry.creditAccountNumber = accountNumber;
         entry.creditAccountName = accountName;
         entry.creditOverLimit = overLimit;

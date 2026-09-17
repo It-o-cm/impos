@@ -91,7 +91,8 @@ public class EanScanHandler implements ScanContext.ScanHandler {
 
                 Price price = Price.findCurrentPrice(p.id);
                 BigDecimal finalPrice = (price != null) ? price.priceIncludingTax : BigDecimal.ZERO;
-                BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+                BigDecimal vatRate = (price != null && price.vatRate() != null)
+                        ? price.vatRate() : defaultVatRate;
                 // BO-02-03-26/27: VAT-exempt article ventilated at rate 0; the
                 // amount due is unchanged, only its VAT breakdown.
                 if (ProductAttributes.vatExempt(p)) {

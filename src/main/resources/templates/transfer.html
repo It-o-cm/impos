@@ -53,14 +53,17 @@
 
         <h2>Transfert de règlement</h2>
 
-        {#if methods.isEmpty}
+        {! BO-05-02-17 : le transfert n'est offert que si un moyen est autorisé en
+         ! source ET un autre en destination — une seule des deux listes vide, il
+         ! n'y a rien à corriger. !}
+        {#if sources.isEmpty || destinations.isEmpty}
           <div class="empty">AUCUN MOYEN DE PAIEMENT PARAMÉTRÉ POUR LE TRANSFERT</div>
         {#else}
           <form id="transferForm" method="post" action="/action/transfer/record">
             <div class="form-row">
               <label for="from">Moyen source</label>
               <select id="from" name="from">
-                {#for method in methods}
+                {#for method in sources}
                   <option value="{method.key}" data-theoretical="{method.amount}">{method.label}</option>
                 {/for}
               </select>
@@ -69,7 +72,7 @@
             <div class="form-row">
               <label for="to">Moyen destination</label>
               <select id="to" name="to">
-                {#for method in methods}
+                {#for method in destinations}
                   <option value="{method.key}">{method.label}</option>
                 {/for}
               </select>
@@ -97,7 +100,7 @@
 
     <div class="bottom-nav">
       <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
-      {#if methods.isEmpty}
+      {#if sources.isEmpty || destinations.isEmpty}
         <span></span>
       {#else}
         <button type="submit" form="transferForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE TRANSFERT</button>

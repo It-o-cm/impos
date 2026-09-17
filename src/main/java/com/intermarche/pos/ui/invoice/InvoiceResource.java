@@ -59,6 +59,10 @@ public class InvoiceResource {
     @Inject
     InvoiceService invoiceService;
 
+    /** The back-office parameters governing what the till may do to a customer. */
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
     /** The screen where the ticket and the customer are named. */
     @Inject
     @Location("invoice-request")
@@ -100,6 +104,11 @@ public class InvoiceResource {
                 .data("state", state)
                 .data("fields", currentFields())
                 .data("formAction", currentAction())
+                // BO-10-04-17 : la liste des pays proposée pour un NIF étranger.
+                .data("taxCountries", invoiceService.foreignTaxCountries())
+                // BO-10-04-03 : le bouton de correction n'apparaît que si le
+                // magasin a ouvert ce droit à la caisse.
+                .data("customerUpdateEnabled", posSettingsService.customerUpdateEnabled())
                 .data("hasDocumentStep", invoiceService.eligibleDocumentTypes().size() > 1);
     }
 
@@ -112,6 +121,9 @@ public class InvoiceResource {
         if (state.invoice.isOnTicketStep()) {
             return EntryField.ticketFields(state.invoice.ticketNumber,
                     state.invoice.ticketDate, state.invoice.ticketTerminal);
+        }
+        if (state.invoice.editingCustomer) {
+            return invoiceService.customerEditFields();
         }
         if (state.invoice.creatingCustomer) {
             return invoiceService.customerFields();
@@ -128,6 +140,9 @@ public class InvoiceResource {
     private String currentAction() {
         if (state.invoice.isOnTicketStep()) {
             return "/invoice/ticket";
+        }
+        if (state.invoice.editingCustomer) {
+            return "/invoice/customer/update";
         }
         return state.invoice.creatingCustomer
                 ? "/invoice/customer/create" : "/invoice/customer/lookup";
@@ -244,9 +259,63 @@ public class InvoiceResource {
     public TemplateInstance newCustomer() {
         LOGGER.info("Entering method newCustomer");
         state.invoice.creatingCustomer = true;
+        state.invoice.editingCustomer = false;
         state.invoice.error = "";
         state.touch();
         LOGGER.info("Exiting method newCustomer");
+        return request();
+    }
+
+    /**
+     * Opens the mask that corrects the named customer ({@code BO-10-04-03}).
+     *
+     * @return the request page, showing the correction form
+     */
+    @GET
+    @jakarta.ws.rs.Path("/customer/edit")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance editCustomer() {
+        LOGGER.info("Entering method editCustomer");
+        invoiceService.editCustomer();
+        LOGGER.info("Exiting method editCustomer");
+        return request();
+    }
+
+    /**
+     * Writes the corrections back onto the named customer ({@code BO-10-04-04}).
+     *
+     * @param companyName the business name
+     * @param contactName the contact's name
+     * @param street      the street line
+     * @param postalCode  the postal code
+     * @param city        the town
+     * @param siret       the SIRET
+     * @param vatNumber   the intra-community VAT number
+     * @param phone       the telephone number
+     * @param email       the electronic address
+     * @param taxId       the fiscal identifier (NIF)
+     * @param taxCountry  the country code picked for a foreign NIF
+     * @return the request page, on the review step when the correction worked
+     */
+    @POST
+    @jakarta.ws.rs.Path("/customer/update")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance updateCustomer(@FormParam("companyName") String companyName,
+            @FormParam("contactName") String contactName,
+            @FormParam("street") String street,
+            @FormParam("postalCode") String postalCode,
+            @FormParam("city") String city,
+            @FormParam("siret") String siret,
+            @FormParam("vatNumber") String vatNumber,
+            @FormParam("phone") String phone,
+            @FormParam("email") String email,
+            @FormParam("taxId") String taxId,
+            @FormParam("taxCountry") String taxCountry) {
+        LOGGER.info("Entering method updateCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
+        invoiceService.updateCustomer(companyName, contactName, street, postalCode, city,
+                siret, vatNumber, phone, email, taxId, taxCountry);
+        LOGGER.info("Exiting method updateCustomer");
         return request();
     }
 
@@ -262,6 +331,8 @@ public class InvoiceResource {
      * @param vatNumber   the intra-community VAT number
      * @param phone       the telephone number
      * @param email       the electronic address
+     * @param taxId       the fiscal identifier (NIF)
+     * @param taxCountry  the country code picked for a foreign NIF
      * @return the request page, on the review step when the creation worked
      */
     @POST
@@ -276,10 +347,12 @@ public class InvoiceResource {
             @FormParam("siret") String siret,
             @FormParam("vatNumber") String vatNumber,
             @FormParam("phone") String phone,
-            @FormParam("email") String email) {
+            @FormParam("email") String email,
+            @FormParam("taxId") String taxId,
+            @FormParam("taxCountry") String taxCountry) {
         LOGGER.info("Entering method createCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
         invoiceService.createCustomer(companyName, contactName, street, postalCode, city,
-                siret, vatNumber, phone, email);
+                siret, vatNumber, phone, email, taxId, taxCountry);
         LOGGER.info("Exiting method createCustomer");
         return request();
     }

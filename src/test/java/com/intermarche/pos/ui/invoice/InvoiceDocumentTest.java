@@ -24,6 +24,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -480,6 +481,9 @@ class InvoiceDocumentTest {
         assertEquals("T-1", head.get("ticketNumber"));
         assertEquals(Boolean.FALSE, head.get("duplicate"));
         assertEquals("0", head.get("duplicateNumber"));
+        // BO-02-04-08: the administered layouts read the due date from the same
+        // description as the two built-in ones — empty when there is none.
+        assertEquals("", head.get("dueDate"));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> seller = (Map<String, Object>) data.get("seller");
@@ -549,5 +553,110 @@ class InvoiceDocumentTest {
         Map<String, Object> head = (Map<String, Object>) data.get("document");
         assertEquals(Boolean.TRUE, head.get("duplicate"));
         assertEquals("2", head.get("duplicateNumber"));
+    }
+
+    /**
+     * A customer carrying administered terms puts the due date in the layout
+     * description and answers {@code hasDueDate}; one carrying none answers the
+     * other way and leaves the field empty — the two arms {@code BO-02-04-08}
+     * turns on, which the three renderings all test.
+     */
+    @Test
+    void theDueDateRidesTheDescriptionOnlyWhenThereIsOne() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T-1";
+        ticket.lines.add(line("A", "3178530403022", "2", "12.90", "25.80", "0.055", null, "EPICERIE"));
+        AccountCustomer customer = fullCustomer();
+        customer.dueDate = java.time.LocalDate.of(2026, 10, 31);
+        InvoiceDocument dated = InvoiceDocument.of(
+                invoice(ticket, customer, "C04-F000042"), ticket, true);
+        assertTrue(dated.hasDueDate());
+        assertEquals("31/10/2026", dated.dueDate);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> head = (Map<String, Object>) dated.asDocumentData().get("document");
+        assertEquals("31/10/2026", head.get("dueDate"));
+        customer.dueDate = null;
+        InvoiceDocument undated = InvoiceDocument.of(
+                invoice(ticket, customer, "C04-F000043"), ticket, true);
+        assertFalse(undated.hasDueDate());
+        assertEquals("", undated.dueDate);
+    }
+
+    /**
+     * The addressee's fiscal identifier travels onto the document as stored when
+     * no wording is named — null and blank wordings both, the two legs of the
+     * guard ({@code BO-10-04-15}).
+     */
+    @Test
+    void printsTheFiscalIdentifierAsStoredWhenNoWordingIsNamed() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        AccountCustomer customer = fullCustomer();
+        customer.taxId = "PT123456789";
+        assertEquals("PT123456789",
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, null)
+                        .customerTaxId);
+        assertEquals("PT123456789",
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, "  ")
+                        .customerTaxId);
+        assertEquals("PT123456789",
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true).customerTaxId);
+    }
+
+    /**
+     * A named wording replaces the digits ({@code BO-10-04-16}).
+     */
+    @Test
+    void printsTheAdministeredWordingInPlaceOfTheDigits() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        AccountCustomer customer = fullCustomer();
+        customer.taxId = "999999990";
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, customer, "N"), ticket,
+                true, "CONSUMIDOR FINAL");
+        assertEquals("CONSUMIDOR FINAL", document.customerTaxId);
+        assertTrue(document.hasCustomerTaxId());
+    }
+
+    /**
+     * A customer carrying no fiscal identifier leaves the line off the paper —
+     * the false arm of {@code hasCustomerTaxId} — and the document block still
+     * carries the key, empty.
+     */
+    @Test
+    void leavesTheFiscalLineOffWhenTheCustomerCarriesNone() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true);
+        assertEquals("", document.customerTaxId);
+        assertFalse(document.hasCustomerTaxId());
+        java.util.Map<String, Object> data = document.asDocumentData();
+        java.util.Map<?, ?> customerData = (java.util.Map<?, ?>) data.get("customer");
+        assertEquals("", customerData.get("taxId"));
+    }
+
+    /**
+     * The administered layouts read the fiscal identifier from the customer block,
+     * where it belongs: the seller never carries one.
+     */
+    @Test
+    void theLayoutsReadTheFiscalIdentifierFromTheCustomerBlock() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        AccountCustomer customer = fullCustomer();
+        customer.taxId = "PT1";
+        java.util.Map<String, Object> data =
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, "ANONYME")
+                        .asDocumentData();
+        java.util.Map<?, ?> customerData = (java.util.Map<?, ?>) data.get("customer");
+        java.util.Map<?, ?> sellerData = (java.util.Map<?, ?>) data.get("seller");
+        assertEquals("ANONYME", customerData.get("taxId"));
+        assertNull(sellerData.get("taxId"));
     }
 }

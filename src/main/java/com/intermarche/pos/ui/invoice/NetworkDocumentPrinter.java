@@ -164,7 +164,12 @@ public class NetworkDocumentPrinter {
         }
         page.append("<p>Date : ").append(escape(document.issueDate))
                 .append(" — Ticket : ").append(escape(document.ticketNumber))
-                .append(" — Caisse : ").append(escape(document.terminal)).append("</p>");
+                .append(" — Caisse : ").append(escape(document.terminal));
+        // BO-02-04-08: l'échéance figure obligatoirement sur le document.
+        if (document.hasDueDate()) {
+            page.append(" — Échéance : ").append(escape(document.dueDate));
+        }
+        page.append("</p>");
         page.append("<div class=\"parties\">");
         party(page, "Vendeur", document.seller);
         party(page, "Client", document.customer);

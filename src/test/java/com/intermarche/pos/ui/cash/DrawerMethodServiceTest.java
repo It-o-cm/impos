@@ -307,4 +307,117 @@ class DrawerMethodServiceTest {
         assertEquals("1,24", new DrawerMethodService.DrawerMethod(
                 "CASH", "Espèces", 1, new BigDecimal("1.235")).getAmountFormatted());
     }
+
+    /**
+     * Builds a tender row of the referential.
+     *
+     * @param code the tender code
+     * @param source whether an amount may be taken out of it
+     * @param destination whether an amount may be moved into it
+     * @return the row
+     */
+    private com.intermarche.pos.domain.payment.TenderDefinition tender(String code,
+            boolean source, boolean destination) {
+        com.intermarche.pos.domain.payment.TenderDefinition tender =
+                new com.intermarche.pos.domain.payment.TenderDefinition();
+        tender.code = code;
+        tender.transferSource = source;
+        tender.transferDestination = destination;
+        return tender;
+    }
+
+    /**
+     * Stubs the referential lookup of one tender code.
+     *
+     * @param panache the active PanacheEntityBase mock
+     * @param code the code looked up
+     * @param found the row to resolve, null when the referential does not know it
+     */
+    @SuppressWarnings("unchecked")
+    private void stubTender(org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache
+            .PanacheEntityBase> panache, String code,
+            com.intermarche.pos.domain.payment.TenderDefinition found) {
+        io.quarkus.hibernate.orm.panache.PanacheQuery<
+                com.intermarche.pos.domain.payment.TenderDefinition> query =
+                org.mockito.Mockito.mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+        org.mockito.Mockito.when(query.firstResult()).thenReturn(found);
+        panache.when(() -> com.intermarche.pos.domain.payment.TenderDefinition
+                .find("code", code)).thenReturn(query);
+    }
+
+    /**
+     * A tender the referential FORBIDS as a source is dropped from the source
+     * list and kept in the destination one ({@code BO-05-02-17}) — the two
+     * flags are two rights, and this is the case that proves it.
+     */
+    @Test
+    void asourceTheReferentialForbidsIsDroppedFromTheSourceListAlone() {
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                org.mockito.Mockito.mockStatic(
+                        io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", tender("CASH", false, true));
+            stubTender(panache, "CHEQUE", tender("CHEQUE", true, true));
+            List<DrawerMethodService.DrawerMethod> sources = service.transferSources();
+            assertEquals(1, sources.size());
+            assertEquals("CHEQUE", sources.get(0).key());
+            assertEquals(2, service.transferDestinations().size());
+            assertFalse(service.isTransferSource("CASH"));
+            assertTrue(service.isTransferDestination("CASH"));
+        }
+    }
+
+    /**
+     * A tender the referential FORBIDS as a destination is dropped from the
+     * destination list and kept in the source one — the mirror case.
+     */
+    @Test
+    void adestinationTheReferentialForbidsIsDroppedFromTheDestinationListAlone() {
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                org.mockito.Mockito.mockStatic(
+                        io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", tender("CASH", true, false));
+            stubTender(panache, "CHEQUE", tender("CHEQUE", true, true));
+            List<DrawerMethodService.DrawerMethod> destinations = service.transferDestinations();
+            assertEquals(1, destinations.size());
+            assertEquals("CHEQUE", destinations.get(0).key());
+            assertEquals(2, service.transferSources().size());
+            assertTrue(service.isTransferSource("CASH"));
+            assertFalse(service.isTransferDestination("CASH"));
+        }
+    }
+
+    /**
+     * A tender the REFERENTIAL DOES NOT KNOW is allowed on both ends: the
+     * administered transfer list is what a shop named on purpose, and a
+     * referential row that was never opened must not quietly cancel it.
+     */
+    @Test
+    void atenderTheReferentialDoesNotKnowIsAllowedOnBothEnds() {
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                org.mockito.Mockito.mockStatic(
+                        io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubTender(panache, "CASH", null);
+            stubTender(panache, "CHEQUE", null);
+            assertEquals(2, service.transferSources().size());
+            assertEquals(2, service.transferDestinations().size());
+            assertTrue(service.isTransferSource("CASH"));
+            assertTrue(service.isTransferDestination("CHEQUE"));
+        }
+    }
+
+    /**
+     * A tender OUTSIDE the administered transfer list is refused at both ends
+     * whatever the referential says: the first leg of each compound guard,
+     * which the flags alone would never reach.
+     */
+    @Test
+    void atenderOutsideTheAdministeredListIsRefusedWhateverTheReferentialSays() {
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                org.mockito.Mockito.mockStatic(
+                        io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubTender(panache, "TR", tender("TR", true, true));
+            assertFalse(service.isTransferSource("TR"));
+            assertFalse(service.isTransferDestination("TR"));
+        }
+    }
 }

@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.scanner;
 import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
@@ -130,7 +131,7 @@ class Gs1ScanHandlerTest {
     private Price newPrice() {
         Price price = new Price();
         price.priceIncludingTax = new BigDecimal("2.00");
-        price.vatRate = new BigDecimal("0.20");
+        price.vat = new VatRate(1, new BigDecimal("0.20"), "Taux normal");
         return price;
     }
 

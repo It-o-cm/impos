@@ -1509,8 +1509,13 @@ class PaymentServiceTest {
     }
 
     /**
-     * WITHOUT a card, the fiscal moment touches nothing loyalty-side: no
-     * lease to confirm, no event to declare.
+     * WITHOUT a card, the fiscal moment declares nothing loyalty-side: no
+     * lease to confirm, no event to enqueue.
+     *
+     * <p>It does still ASK whether the programme was reachable, and freezes the
+     * answer: a receipt printed for a non-holder while the service was silent
+     * carries its own message (BO-03-03-30), so the question is asked on every
+     * sale and not only on the ones that presented a card.
      */
     @Test
     void finalizeTransactionWithoutCardEnqueuesNoLoyaltyEvent() {
@@ -1521,8 +1526,70 @@ class PaymentServiceTest {
             stubNoGiftCards(panache, 9L);
             service.finalizeTransaction(state);
         }
-        verifyNoInteractions(fidelityService);
+        verify(fidelityService).isUnavailable();
+        verify(fidelityService, never()).confirmLease(any(), any());
+        verify(fidelityService, never()).buildTicketClosedPayload(
+                any(), any(), any(), any(), any());
         verifyNoInteractions(fidEventOutboxService);
+    }
+
+    /**
+     * BO-03-03-25/-29/-31: the closing FREEZES the loyalty zone on the sale —
+     * the displayed earn, its advantage lines, the balance read at attachment
+     * and whether the service answered. Frozen here and nowhere else: the
+     * projection is cleared with the state a few lines later.
+     */
+    @Test
+    void finalizeTransactionFreezesTheLoyaltyZoneOnTheSale() {
+        state.payment.ticketDbId = 9L;
+        state.fidelity.assignCard("2990000000019");
+        state.fidelity.earnTotal = new java.math.BigDecimal("1.03");
+        state.fidelity.availableBalance = new java.math.BigDecimal("42.30");
+        state.fidelity.earnEntries.add(
+                new com.intermarche.pos.ui.fidelity.FidelityState.EarnLine(
+                        "SOCLE", "Cagnotte socle", new java.math.BigDecimal("0.28")));
+        when(fidelityService.isUnavailable()).thenReturn(true);
+        com.intermarche.pos.domain.sale.Ticket closed =
+                org.mockito.Mockito.mock(com.intermarche.pos.domain.sale.Ticket.class);
+        closed.ticketNumber = "C04-000003";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L))
+                    .thenReturn(closed);
+            service.finalizeTransaction(state);
+        }
+        org.mockito.ArgumentCaptor<java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine>>
+                frozen = org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(ticketPersistenceService).storeFidelity(eq(9L),
+                eq(new java.math.BigDecimal("1.03")), eq(new java.math.BigDecimal("42.30")),
+                eq(true), frozen.capture());
+        assertEquals(1, frozen.getValue().size());
+        assertEquals("SOCLE", frozen.getValue().get(0).ruleCode);
+        assertEquals("Cagnotte socle", frozen.getValue().get(0).label);
+        assertEquals(new java.math.BigDecimal("0.28"), frozen.getValue().get(0).amount);
+    }
+
+    /**
+     * A sale that displayed NO advantage still writes: an empty list and three
+     * nulls, which is what the zone of a non-holder's receipt states.
+     */
+    @Test
+    void finalizeTransactionFreezesAnEmptyLoyaltyZoneOnAbareSale() {
+        state.payment.ticketDbId = 9L;
+        when(fidelityService.isUnavailable()).thenReturn(false);
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        org.mockito.ArgumentCaptor<java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine>>
+                frozen = org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(ticketPersistenceService).storeFidelity(eq(9L), eq(null), eq(null),
+                eq(false), frozen.capture());
+        assertTrue(frozen.getValue().isEmpty());
     }
 
     /**

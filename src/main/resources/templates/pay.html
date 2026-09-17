@@ -644,9 +644,21 @@
             <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;">
                 <div class="pos-section">{state.payment.creditCustomer.companyName}</div>
                 <div class="pos-row-sub">Compte {state.payment.creditCustomer.accountNumber}</div>
-                {#if state.payment.creditCustomer.address??}
+                {! BO-10-04-02 : les coordonnées ne s'affichent que si le magasin
+                 ! l'a demandé ; le numéro et la raison sociale restent toujours,
+                 ! sans quoi l'hôtesse ne saurait pas qui elle est en train de
+                 ! porter au compte. !}
+                {#if showCustomerDetails && state.payment.creditCustomer.address??}
                 <div class="pos-row-sub">{state.payment.creditCustomer.address.streetLine1 ?: ''}</div>
                 <div class="pos-row-sub">{state.payment.creditCustomer.address.postalCode ?: ''} {state.payment.creditCustomer.address.city ?: ''}</div>
+                {/if}
+                {! BO-10-04-07 et -08 : la remise accordée est annoncée dès que le
+                 ! client est identifié, pour que l'hôtesse puisse la lui dire —
+                 ! mais seulement si le magasin l'a demandé et si le client
+                 ! appartient au segment administré. La décision est prise côté
+                 ! serveur, la page ne fait que l'appliquer. !}
+                {#if showCustomerDiscount}
+                <div class="pos-row-sub" style="color:var(--success); font-weight:bold;">Remise client {state.payment.creditCustomer.discountPercent} %</div>
                 {/if}
                 {#if state.payment.creditCustomer.creditAllowed}
                 <div class="pos-row-sub" style="margin-top:8px;">Encours {state.payment.creditCustomer.creditBalance} €</div>

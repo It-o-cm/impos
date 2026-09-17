@@ -80,6 +80,17 @@ public class InvoiceRepository {
     }
 
     /**
+     * Finds a customer by the fiscal identifier they carry
+     * ({@code BO-10-04-18}).
+     *
+     * @param taxId the fiscal identifier, already trimmed
+     * @return the customer, or null when no customer carries that identifier
+     */
+    public AccountCustomer findCustomerByTaxId(String taxId) {
+        return AccountCustomer.find("taxId", taxId).firstResult();
+    }
+
+    /**
      * Lists the most recently closed tickets.
      *
      * @param limit how many at most

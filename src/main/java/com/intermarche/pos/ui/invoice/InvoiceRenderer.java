@@ -53,9 +53,15 @@ public final class InvoiceRenderer {
         out.add(RULE);
         out.add(pair("N° " + document.title, document.number));
         out.add(pair("Date", document.issueDate));
+        // BO-02-04-08: l'échéance figure obligatoirement sur le document, et
+        // seulement quand le client en porte une — une ligne « Échéance » vide
+        // se lirait comme un paiement immédiat.
+        if (document.hasDueDate()) {
+            out.add(pair("Echeance", document.dueDate));
+        }
         out.add(pair("Ticket", document.ticketNumber));
         out.add(RULE);
-        customer(out, document.customer);
+        customer(out, document.customer, document.hasCustomerTaxId() ? document.customerTaxId : "");
         out.add(RULE);
         articles(out, document.lines);
         out.add(RULE);
@@ -130,8 +136,11 @@ public final class InvoiceRenderer {
      *
      * @param out      the lines being built
      * @param customer who is billed
+     * @param taxId    the fiscal identifier as printed ({@code BO-10-04-15/-16}),
+     *                 empty when the document carries none
      */
-    private static void customer(List<String> out, InvoiceDocument.Party customer) {
+    private static void customer(List<String> out, InvoiceDocument.Party customer,
+            String taxId) {
         out.add("CLIENT");
         if (!customer.accountNumber().isEmpty()) {
             out.add(indented("N° compte : " + customer.accountNumber()));
@@ -148,6 +157,9 @@ public final class InvoiceRenderer {
         }
         if (!customer.vatNumber().isEmpty()) {
             out.add(indented("TVA " + customer.vatNumber()));
+        }
+        if (!taxId.isEmpty()) {
+            out.add(indented("NIF " + taxId));
         }
     }
 

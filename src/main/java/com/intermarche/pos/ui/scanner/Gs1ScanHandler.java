@@ -410,7 +410,8 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
     private void addLine(PosState state, Gs1Message message, Product product,
             BigDecimal count, LocalDate expiry) {
         Price price = Price.findCurrentPrice(product.id);
-        BigDecimal vatRate = price != null ? price.vatRate : defaultVatRate;
+        BigDecimal vatRate = price != null && price.vatRate() != null
+                ? price.vatRate() : defaultVatRate;
         if (ProductAttributes.vatExempt(product)) {
             vatRate = BigDecimal.ZERO;
         }

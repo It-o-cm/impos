@@ -58,6 +58,31 @@ public class AuthState implements Serializable {
     public String scannedBadgeId = null;
 
     /**
+     * The badge PHYSICALLY PRESENTED at this register, kept until the unlock
+     * that follows it.
+     *
+     * <p>Distinct from {@link #scannedBadgeId}, which the lock screen empties
+     * as soon as it has prefilled its field. When the back office lets a badge
+     * open the register on its own (LC-01-01-03), the server has to tell a
+     * SCANNED identifier from a TYPED one, and by then the mailbox above is
+     * already empty — so the proof of the physical gesture is kept here and
+     * consumed by the unlock.
+     */
+    public String presentedBadgeId = null;
+
+    /**
+     * True when the operator in post scanned their OWN badge, which is how a
+     * register is closed without keying anything (LC-01-02-03).
+     *
+     * <p>A one-shot request, not a state: the scan chain raises it, the sale
+     * screen's poll sees it and goes to the closing page, and the closing page
+     * consumes it. Scanning ANOTHER employee's badge never raises it — changing
+     * hands still goes through an explicit close, which is what this flag asks
+     * for in the first place.
+     */
+    public boolean closeRequestedByBadge = false;
+
+    /**
      * Creates the state; the register starts locked.
      */
     public AuthState() {
@@ -77,6 +102,8 @@ public class AuthState implements Serializable {
         this.operatorBadgeId = badgeId;
         this.isLocked = false;
         this.scannedBadgeId = null;
+        this.presentedBadgeId = null;
+        this.closeRequestedByBadge = false;
         this.lastActivityAt = System.currentTimeMillis();
     }
 
@@ -89,6 +116,8 @@ public class AuthState implements Serializable {
         this.operatorId = null; // On nettoie l'ID
         this.operatorBadgeId = null;
         this.scannedBadgeId = null;
+        this.presentedBadgeId = null;
+        this.closeRequestedByBadge = false;
     }
 
     /**
@@ -105,10 +134,35 @@ public class AuthState implements Serializable {
      *
      * @param badge the scanned badge identifier
      */
-    public void setScannedBadge(String badge) { this.scannedBadgeId = badge; }
+    public void setScannedBadge(String badge) {
+        this.scannedBadgeId = badge;
+        this.presentedBadgeId = badge;
+    }
+
+    /**
+     * Consumes the proof that a badge was physically presented.
+     *
+     * @return the presented badge, or null when none is pending
+     */
+    public String takePresentedBadge() {
+        String badge = this.presentedBadgeId;
+        this.presentedBadgeId = null;
+        return badge;
+    }
 
     /**
      * Clears the badge mailbox (called once the lock page consumed it).
      */
     public void clearScannedBadge() { this.scannedBadgeId = null; }
+
+    /**
+     * Consumes the close asked for by a badge scan.
+     *
+     * @return true when the operator scanned their own badge to close
+     */
+    public boolean takeCloseRequest() {
+        boolean requested = this.closeRequestedByBadge;
+        this.closeRequestedByBadge = false;
+        return requested;
+    }
 }

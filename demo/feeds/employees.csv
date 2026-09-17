@@ -1,0 +1,5 @@
+BADGE_ID|LOGIN|PIN|FIRST_NAME|LAST_NAME|EMAIL|ROLE|BACK_OFFICE_PASSWORD|ACTIVE
+00000000|admin|0000|Le|Manager|le.manager@test.com|ADMIN|TonSecret|true
+11111111|mcurie|1111|Marie|Curie|marie.curie@test.com|MANAGER|changeme00|true
+22222222|aeinstein|2222|Albert|Einstein|albert.einstein@test.com|PICKER||true
+12341234|jdupont|1234|Jean|Dupont|jean.dupont@test.com|CASHIER||true

@@ -66,10 +66,6 @@ public class TicketPrinterService {
     @Inject
     TechnicalEventService technicalEventService;
 
-    /** The live register state — carries the loyalty projection at print time. */
-    @Inject
-    com.intermarche.pos.ui.PosState posState;
-
     /**
      * The administered layouts (BO-03-03). Null when this printer was built by
      * hand in a unit test, which simply means "no template, print it our way" —
@@ -93,20 +89,6 @@ public class TicketPrinterService {
             return null;
         }
         return documentTemplateService.render(type, data);
-    }
-
-    /**
-     * The ticket the register is currently on (draft or just closed) — the
-     * only one whose live loyalty projection is meaningful.
-     *
-     * @return that ticket's database id, or null
-     */
-    private Long currentOrLastTicketId() {
-        // No null check on posState: the only call site is guarded by
-        // `posState != null` a few lines above, so this method is never
-        // reached without a state — a guard here could not fire.
-        return posState.payment.ticketDbId != null
-                ? posState.payment.ticketDbId : posState.lastClosedTicketId;
     }
 
     /** French display format for amounts on the receipt. */
@@ -268,23 +250,21 @@ public class TicketPrinterService {
         // Loyalty section (imfid lot 3): the DISPLAYED projection and its rule
         // labels — the only rule data that travels to the POS (spec §3),
         // indicative by doctrine (the ingestion's recomputation prevails).
-        // It is read from the LIVE state, which still holds the projection at
-        // print time; a later DUPLICATA therefore carries no section (the earn
-        // is not persisted — known and accepted gap).
-        // The state is checked for null: this printer is also built BY HAND in
-        // unit tests (no CDI), where only the hardware collaborator is wired —
-        // an absent register state simply means "no loyalty section".
+        // It is read from the TICKET, where the closing froze it, so a
+        // duplicata — here or on the store node — restates the very figures the
+        // customer was shown rather than the projection of whatever sale the
+        // register happens to be on.
         // BO-10-03-15: the advantage section is printed only when the back
         // office activated the fidelity advantages; disabled, no section.
         if (posSettingsService.fidelityAdvantagesEnabled()
-                && posState != null && posState.fidelity.earnTotal != null
-                && posState.fidelity.earnTotal.signum() > 0
-                && ticket.id.equals(currentOrLastTicketId())) {
+                && ticket.fidelityEarnTotal != null
+                && ticket.fidelityEarnTotal.signum() > 0) {
             sb.append(formatLine("CAGNOTTE DU JOUR",
-                    "+" + DF.format(posState.fidelity.earnTotal) + " E"));
-            for (com.intermarche.pos.ui.fidelity.FidelityState.EarnLine earnLine
-                    : posState.fidelity.earnEntries) {
-                sb.append(formatLine("  " + earnLine.label, "+" + DF.format(earnLine.amount) + " E"));
+                    "+" + DF.format(ticket.fidelityEarnTotal) + " E"));
+            for (com.intermarche.pos.domain.sale.TicketFidelityLine earnLine
+                    : ticket.fidelityLines) {
+                sb.append(formatLine("  " + earnLine.getLabel(),
+                        "+" + DF.format(earnLine.amount) + " E"));
             }
         }
         sb.append(formatLine("Dont TVA", DF.format(ticket.totalVat) + " E"));
@@ -611,8 +591,100 @@ public class TicketPrinterService {
         data.put("totals", saleTotals(ticket));
         data.put("vatRows", saleVatRows(ticket));
         data.put("payments", salePayments(ticket));
-        data.put("fidelity", java.util.Map.of("card", safe(ticket.fidelityCard)));
+        data.put("fidelity", fidelityData(ticket));
         return data;
+    }
+
+    /**
+     * Describes the LOYALTY ZONE of a document, from what the closing froze on
+     * the sale (BO-03-03-25, -29, -30, -31, -32).
+     *
+     * <p>Everything a layout may say about the programme is here and nothing
+     * else: the card, whether one was presented, the earn of the day and its
+     * advantage lines, the balance read at attachment, the amount settled on
+     * that balance, and — when the service did not answer — the administered
+     * message, its {@code {carte}} token already replaced. The layout decides
+     * where each goes; it never decides WHAT, and it cannot reach a figure the
+     * register did not vouch for.
+     *
+     * @param ticket the sale to describe
+     * @return the loyalty values, every one of them already formatted
+     */
+    private java.util.Map<String, Object> fidelityData(Ticket ticket) {
+        boolean present = ticket.fidelityCard != null && !ticket.fidelityCard.isBlank();
+        java.util.List<java.util.Map<String, Object>> lines = new java.util.ArrayList<>();
+        for (com.intermarche.pos.domain.sale.TicketFidelityLine line
+                : ticket.fidelityLines == null
+                        ? java.util.List.<com.intermarche.pos.domain.sale.TicketFidelityLine>of()
+                        : ticket.fidelityLines) {
+            lines.add(java.util.Map.of(
+                    "ruleCode", safe(line.ruleCode),
+                    "label", line.getLabel(),
+                    "amount", line.getAmountFormatted()));
+        }
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("card", safe(ticket.fidelityCard));
+        data.put("present", present);
+        data.put("earnTotal", ticket.fidelityEarnTotal == null
+                ? "" : DF.format(ticket.fidelityEarnTotal));
+        data.put("lines", lines);
+        data.put("availableBalance", ticket.fidelityAvailableBalance == null
+                ? "" : DF.format(ticket.fidelityAvailableBalance));
+        data.put("usedAmount", DF.format(loyaltyPaid(ticket)));
+        data.put("unavailable", ticket.fidelityUnavailable);
+        data.put("message", unavailableMessage(ticket, present));
+        return data;
+    }
+
+    /**
+     * The amount this sale settled on the loyalty balance.
+     *
+     * <p>Summed over the settlements rather than read from a column: a sale may
+     * carry several loyalty settlements, and the one figure the customer checks
+     * is what left the cagnotte in total.
+     *
+     * @param ticket the sale
+     * @return the settled amount, zero when none was taken on the balance
+     */
+    private BigDecimal loyaltyPaid(Ticket ticket) {
+        BigDecimal used = BigDecimal.ZERO;
+        if (ticket.payments == null) {
+            return used;
+        }
+        for (TicketPayment payment : ticket.payments) {
+            if (payment instanceof com.intermarche.pos.domain.payment.FidelityPayment
+                    && payment.amount != null) {
+                used = used.add(payment.amount);
+            }
+        }
+        return used;
+    }
+
+    /**
+     * The administered message a receipt carries when the loyalty service did
+     * not answer during the sale (BO-03-03-29, BO-03-03-30).
+     *
+     * <p>Two messages because they say two different things: a holder is told
+     * their advantages will follow, a non-holder is invited to present a card
+     * next time. A shop that clears the parameter says nothing, which is the
+     * historical behaviour and stays available.
+     *
+     * @param ticket the sale
+     * @param present whether a card was presented
+     * @return the resolved message, empty when the service answered or the shop
+     *         administers none
+     */
+    private String unavailableMessage(Ticket ticket, boolean present) {
+        if (!ticket.fidelityUnavailable) {
+            return "";
+        }
+        String message = present
+                ? posSettingsService.fidelityOfflineMessage()
+                : posSettingsService.fidelityOfflineMessageNoCard();
+        if (message == null || message.isBlank()) {
+            return "";
+        }
+        return message.replace("{carte}", safe(ticket.fidelityCard));
     }
 
     /**
@@ -1267,6 +1339,95 @@ public class TicketPrinterService {
         }
         LOGGER.info("Exiting method printCardReceipt");
         return printed;
+    }
+
+    /**
+     * Prints the slip handed over with a settlement taken on the loyalty
+     * balance (BO-03-03-10).
+     *
+     * <p>An ADDITIONAL ticket, emitted after the sale receipt and never instead
+     * of it, exactly like the card slip beside a card payment: it states one
+     * settlement — what was taken, from which card, against which sale — which
+     * is what a customer disputing a cagnotte débit comes back with. A sale
+     * settled without the balance prints nothing, so the caller does not have to
+     * know whether the cagnotte was used.
+     *
+     * @param ticketId the database id of the closed ticket
+     * @return the number of slips printed — zero when the ticket is unknown or
+     *         was settled without the loyalty balance
+     */
+    @Transactional
+    public int printLoyaltyReceipt(Long ticketId) {
+        LOGGER.info("Entering method printLoyaltyReceipt with ticketId: " + ticketId);
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method printLoyaltyReceipt");
+            return 0;
+        }
+        BigDecimal used = loyaltyPaid(ticket);
+        if (used.signum() <= 0) {
+            LOGGER.info("Exiting method printLoyaltyReceipt");
+            return 0;
+        }
+        String administered = administeredLayout(
+                com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.LOYALTY_RECEIPT,
+                loyaltyDocumentData(ticket, used));
+        if (administered != null) {
+            hardwareService.printReceipt(administered);
+            hardwareService.cutPaper();
+            LOGGER.info("Exiting method printLoyaltyReceipt");
+            return 1;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        if (ticket.store != null) {
+            sb.append(center(ticket.store.name, WIDTH)).append("\n");
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("PAIEMENT FIDELITE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(String.format("Ticket : %s%n", safe(ticket.ticketNumber)));
+        if (ticket.terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+        }
+        if (ticket.creationDate != null) {
+            sb.append(String.format("Date   : %s%n",
+                    ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("PAIEMENT TOTAL FID", DF.format(used) + " E"));
+        sb.append(formatLine("CARTE", safe(ticket.fidelityCard)));
+        if (ticket.fidelityAvailableBalance != null) {
+            sb.append(formatLine("SOLDE AVANT", DF.format(ticket.fidelityAvailableBalance) + " E"));
+        }
+        sb.append("\n").append(center("SIGNATURE DU CLIENT", WIDTH)).append("\n\n\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printLoyaltyReceipt");
+        return 1;
+    }
+
+    /**
+     * Builds the loyalty settlement slip as an administered layout sees it
+     * (BO-03-03-10).
+     *
+     * @param ticket the settled sale
+     * @param used the amount taken on the loyalty balance
+     * @return the document values, every figure already formatted
+     */
+    java.util.Map<String, Object> loyaltyDocumentData(Ticket ticket, BigDecimal used) {
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("store", storeData(ticket));
+        data.put("terminal", safe(ticket.terminalId));
+        data.put("operator", ticket.cashier == null ? "" : safe(ticket.cashier.getFullName()));
+        data.put("date", ticket.creationDate == null ? ""
+                : ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        data.put("time", ticket.creationDate == null ? ""
+                : ticket.creationDate.format(DateTimeFormatter.ofPattern("HH:mm")));
+        data.put("document", java.util.Map.of("number", safe(ticket.ticketNumber)));
+        data.put("fidelity", fidelityData(ticket));
+        data.put("settlement", java.util.Map.of("amount", DF.format(used)));
+        return data;
     }
 
     /**

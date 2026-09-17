@@ -26,6 +26,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
+import com.intermarche.pos.domain.sale.TicketFidelityLine;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1177,6 +1179,96 @@ class TicketPersistenceServiceTest {
             service.storeFormattedContent(5L, "Ticket printed");
             assertEquals("Ticket printed", ticket.formattedContent);
             verify(ticket, times(1)).persist();
+        }
+    }
+
+    // --------------------------------------------------
+    // storeFidelity (BO-03-03-25 / -29 / -30 / -31)
+    // --------------------------------------------------
+
+    /**
+     * A null ticket id short-circuits before any Panache access — first leg of
+     * that guard.
+     */
+    @Test
+    void storeFidelityIgnoresAnullTicketId() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeFidelity(null, BigDecimal.ONE, BigDecimal.TEN, false, List.of());
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * A ticket that vanished between the closing and this write freezes nothing
+     * — second leg.
+     */
+    @Test
+    void storeFidelityIgnoresAmissingTicket() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
+            service.storeFidelity(5L, BigDecimal.ONE, BigDecimal.TEN, false, List.of());
+        }
+    }
+
+    /**
+     * The nominal arm: the displayed earn, the balance read at attachment, the
+     * availability flag and the advantage lines are all written on the row, and
+     * the row is persisted.
+     */
+    @Test
+    void storeFidelityFreezesTheZoneAndPersists() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        ticket.fidelityLines = new java.util.ArrayList<>();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeFidelity(5L, new BigDecimal("1.03"), new BigDecimal("42.30"), true,
+                    List.of(new TicketFidelityLine("SOCLE", "Cagnotte socle",
+                            new BigDecimal("0.28"))));
+            assertEquals(new BigDecimal("1.03"), ticket.fidelityEarnTotal);
+            assertEquals(new BigDecimal("42.30"), ticket.fidelityAvailableBalance);
+            assertTrue(ticket.fidelityUnavailable);
+            assertEquals(1, ticket.fidelityLines.size());
+            assertEquals("Cagnotte socle", ticket.fidelityLines.get(0).label);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * A row whose collection was never initialised — a freshly constructed
+     * entity, or one ingested by a node that predates the column — gets one
+     * rather than failing: the null arm of that guard.
+     */
+    @Test
+    void storeFidelityInitialisesAnabsentCollection() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        ticket.fidelityLines = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeFidelity(5L, null, null, false,
+                    List.of(new TicketFidelityLine("SOCLE", "Cagnotte socle",
+                            new BigDecimal("0.28"))));
+            assertEquals(1, ticket.fidelityLines.size());
+        }
+    }
+
+    /**
+     * A second write REPLACES the first: a sale re-frozen must not accumulate
+     * the advantages of the sale before it.
+     */
+    @Test
+    void storeFidelityReplacesWhatWasThereBefore() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        ticket.fidelityLines = new java.util.ArrayList<>();
+        ticket.fidelityLines.add(new TicketFidelityLine("VIEUX", "Ancienne", BigDecimal.ONE));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeFidelity(5L, null, null, false, List.of());
+            assertTrue(ticket.fidelityLines.isEmpty());
         }
     }
 

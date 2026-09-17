@@ -310,7 +310,7 @@ public class BalanceTicketService {
             return line.vatRate;
         }
         Price price = product == null ? null : Price.findCurrentPrice(product.id);
-        return price != null ? price.vatRate : defaultVatRate;
+        return price != null && price.vatRate() != null ? price.vatRate() : defaultVatRate;
     }
 
     /**

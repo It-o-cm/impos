@@ -220,8 +220,12 @@ public class TicketRecoveryService {
                 // The debtor is restored with the line: a recovered credit
                 // settlement that lost its account would print a debt owed by
                 // nobody on the receipt the customer is about to be handed.
+                // The tender key is the one the RECOVERED line carries, never the
+                // one administered today: a recovered sale must come back as it
+                // was registered, even if the shop has since changed the key
+                // customer credit is written under (BO-10-04-09).
                 state.payment.addCreditPayment(credit.amount, credit.accountNumber,
-                        credit.accountName, credit.overLimit);
+                        credit.accountName, credit.overLimit, methodKeyOf(payment));
             } else {
                 state.payment.addPayment(methodKeyOf(payment), payment.amount);
             }

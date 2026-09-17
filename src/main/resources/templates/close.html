@@ -1,0 +1,88 @@
+{!
+ ! FERMETURE DE CAISSE (LC-01-02) — shown ONLY when something stands in the
+ ! way. When the back office asks for neither a password nor an endorsement,
+ ! the key still closes the register straight from /close and this page is
+ ! never drawn: the requirement adds questions, it does not add a step.
+ !
+ ! Two ways through, and they are not the same event. The OPERATOR keys their
+ ! own code; a SUPERVISOR endorses a forced close — the answer to « oubli du
+ ! mot de passe de l'opérateur » — and that forcing is journalled as such.
+ !
+ ! The pending-ticket count is stated rather than hinted: an operator about to
+ ! leave a cart behind has to know how many, and on which register.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fermeture de caisse</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal { grid-template-rows: 3.75rem 1fr; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; }
+    .top-bar .title { color: var(--primary); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
+
+    .work { display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; min-height: 0; overflow: hidden; }
+    .close-state { font-size: var(--fs-section); }
+    .close-warn { border: 2px solid var(--warning); border-radius: 8px; padding: 12px 16px; color: var(--warning); font-size: var(--fs-body); font-weight: bold; }
+    .close-error { border: 2px solid var(--danger); border-radius: 8px; padding: 10px 14px; color: var(--danger); font-size: var(--fs-body); font-weight: bold; }
+    .close-form { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; }
+    .close-form h2 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+    .close-row { display: flex; gap: 10px; align-items: center; }
+    .close-input { flex: 1; font-size: var(--fs-field); background: var(--bg-page); color: var(--primary); border: 2px solid var(--primary); border-radius: 4px; padding: 8px 12px; }
+    .close-actions { display: flex; gap: 10px; margin-top: auto; }
+    .close-actions .btn { flex: 1; height: 3.75rem; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="title">Fermeture de caisse — {state.auth.operatorName}</span>
+    </div>
+
+    <div class="work">
+      {#if error}
+      <div class="close-error">{error}</div>
+      {/if}
+
+      {#if obstacle == 'PENDING_TICKETS'}
+      <div class="close-warn">
+        {pending} ticket(s) en attente n'ont pas été repris sur cette caisse.
+        Une autorisation superviseur est nécessaire pour fermer la session.
+      </div>
+      {#else}
+      <div class="close-state">Saisissez votre code opérateur pour fermer la caisse.</div>
+      {/if}
+
+      {#if obstacle == 'PASSWORD'}
+      <form class="close-form" method="post" action="/action/close">
+        <h2>Code opérateur</h2>
+        <div class="close-row">
+          <input class="close-input" type="password" name="password" inputmode="numeric" autocomplete="off" autofocus>
+          <button class="btn btn-primary" type="submit">FERMER LA CAISSE</button>
+        </div>
+      </form>
+      {/if}
+
+      {! The forced close is offered in BOTH cases: a forgotten password and a
+       ! cart left behind are the two situations the requirement names, and a
+       ! supervisor answers for either. !}
+      <form class="close-form" method="post" action="/action/close">
+        <h2>Fermeture forcée — autorisation superviseur</h2>
+        <div class="close-row">
+          <input class="close-input" type="text" name="supervisor" placeholder="Identifiant superviseur" autocomplete="off">
+          <input class="close-input" type="password" name="supervisorPassword" placeholder="Code" autocomplete="off">
+          <button class="btn btn-danger" type="submit">FORCER LA FERMETURE</button>
+        </div>
+      </form>
+
+      <div class="close-actions">
+        <a class="btn btn-muted" href="/">RETOUR À LA VENTE</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -18,9 +18,11 @@ import static org.mockito.Mockito.when;
  * <p>
  * The handler is the {@code @Priority(0)} link of the scan chain: it
  * recognizes employee badges via the {@code scan.pattern.badge} regex and
- * routes a match into the endorsement mailbox (top precedence) or the lock
- * mailbox, ignoring the badge when an operator is logged in with no modal
- * open. Every collaborator is a Mockito mock: the {@link PosState} whose
+ * routes a match into the endorsement mailbox (top precedence), the lock
+ * mailbox, or — on a register in use — the close request, when and only when
+ * the badge is the one of the operator in post. Every leg of that last test is
+ * exercised: the own badge, another employee's badge, and a register holding no
+ * badge at all. Every collaborator is a Mockito mock: the {@link PosState} whose
  * public {@code endorsement}/{@code auth} sub-states are themselves mocks
  * ({@link EndorsementState}, {@link AuthState}) so their {@code active}
  * field and {@code setScannedBadge}/{@code touch}/{@code isLocked}
@@ -146,12 +148,35 @@ class AuthScanHandlerTest {
     }
 
     /**
-     * A matching badge with no active endorsement and an unlocked register
-     * is deliberately ignored: no mailbox write, no touch, context stays
-     * unhandled.
+     * A matching badge that is NOT the badge of the operator in post, on an
+     * unlocked register with no endorsement, is deliberately ignored: no
+     * mailbox write, no close asked for, no touch, context stays unhandled.
+     * Changing hands goes through a close, never through a scan.
      */
     @Test
-    void matchingBadgeIgnoredWhenUnlockedAndNoEndorsement() {
+    void anotherEmployeeBadgeIsIgnoredOnARegisterInUse() {
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = false;
+        AuthState auth = mock(AuthState.class);
+        auth.operatorBadgeId = "9999";
+        PosState state = newState(endorsement, auth);
+        when(state.isLocked()).thenReturn(false);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        newHandler().handle(ctx);
+        verify(endorsement, never()).setScannedBadge(BADGE_CODE);
+        verify(auth, never()).setScannedBadge(BADGE_CODE);
+        assertFalse(auth.closeRequestedByBadge);
+        verify(state, never()).touch();
+        assertFalse(ctx.handled);
+    }
+
+    /**
+     * A register with no operator badge at all — locked out of step, or an
+     * operator signed in without a badge — ignores the scan rather than
+     * matching null against the code.
+     */
+    @Test
+    void aRegisterWithoutAnOperatorBadgeIgnoresTheScan() {
         EndorsementState endorsement = mock(EndorsementState.class);
         endorsement.active = false;
         AuthState auth = mock(AuthState.class);
@@ -159,10 +184,32 @@ class AuthScanHandlerTest {
         when(state.isLocked()).thenReturn(false);
         ScanContext ctx = new ScanContext(BADGE_CODE, state);
         newHandler().handle(ctx);
-        verify(endorsement, never()).setScannedBadge(BADGE_CODE);
-        verify(auth, never()).setScannedBadge(BADGE_CODE);
+        assertFalse(auth.closeRequestedByBadge);
         verify(state, never()).touch();
         assertFalse(ctx.handled);
+    }
+
+    /**
+     * The operator's OWN badge, scanned on the register they are working at,
+     * asks for the close (LC-01-02-03): the request is raised, the state is
+     * touched so the sale screen's poll sees it, and the badge is consumed
+     * rather than walking on to the catalog.
+     */
+    @Test
+    void theOwnBadgeOfTheOperatorAsksForTheClose() {
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = false;
+        AuthState auth = mock(AuthState.class);
+        auth.operatorBadgeId = BADGE_CODE;
+        PosState state = newState(endorsement, auth);
+        when(state.isLocked()).thenReturn(false);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        newHandler().handle(ctx);
+        assertTrue(auth.closeRequestedByBadge);
+        verify(state).touch();
+        assertTrue(ctx.handled);
+        verify(auth, never()).setScannedBadge(BADGE_CODE);
+        verify(endorsement, never()).setScannedBadge(BADGE_CODE);
     }
 
     /**

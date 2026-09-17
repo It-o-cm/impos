@@ -8,6 +8,7 @@ import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.TicketCounter;
+import com.intermarche.pos.domain.sale.TicketFidelityLine;
 import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.sale.VatBreakdown;
@@ -31,6 +32,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -433,6 +435,47 @@ public class TicketPersistenceService {
         ticket.formattedContent = content;
         ticket.persist();
         LOGGER.info("Exiting method storeFormattedContent");
+    }
+
+    /**
+     * Freezes on the closed ticket what the loyalty programme said about this
+     * sale (BO-03-03-25, -29, -30, -31).
+     *
+     * <p>Written from the register's live projection, which dies with the sale:
+     * this is the last moment the figures exist, and the row is what a
+     * duplicata — here or on the store node — restates afterwards. A sale made
+     * without a card still writes: the availability flag alone is what a
+     * receipt printed for a non-holder needs.
+     *
+     * @param ticketId the database id of the closed ticket, or null
+     * @param earnTotal the earn the sale displayed, or null when it displayed none
+     * @param availableBalance the balance read when the card was attached, or null
+     * @param unavailable whether the loyalty service was unreachable during the sale
+     * @param lines the advantage lines the sale displayed, never null
+     */
+    @Transactional
+    public void storeFidelity(Long ticketId, BigDecimal earnTotal, BigDecimal availableBalance,
+            boolean unavailable, List<TicketFidelityLine> lines) {
+        LOGGER.info("Entering method storeFidelity with ticketId: " + ticketId + ", earnTotal: " + earnTotal + ", availableBalance: " + availableBalance + ", unavailable: " + unavailable + ", lines: " + lines);
+        if (ticketId == null) {
+            LOGGER.info("Exiting method storeFidelity");
+            return;
+        }
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method storeFidelity");
+            return;
+        }
+        ticket.fidelityEarnTotal = earnTotal;
+        ticket.fidelityAvailableBalance = availableBalance;
+        ticket.fidelityUnavailable = unavailable;
+        if (ticket.fidelityLines == null) {
+            ticket.fidelityLines = new java.util.ArrayList<>();
+        }
+        ticket.fidelityLines.clear();
+        ticket.fidelityLines.addAll(lines);
+        ticket.persist();
+        LOGGER.info("Exiting method storeFidelity");
     }
 
     /**

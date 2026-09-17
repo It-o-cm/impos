@@ -113,6 +113,14 @@ class InvoiceServiceTest {
 
         /** {@inheritDoc} */
         @Override
+        public AccountCustomer findCustomerByTaxId(String taxId) {
+            return customers.stream()
+                    .filter(customer -> customer.taxId != null && customer.taxId.equals(taxId))
+                    .findFirst().orElse(null);
+        }
+
+        /** {@inheritDoc} */
+        @Override
         public List<Ticket> recentClosedTickets(int limit) {
             return new ArrayList<>(tickets);
         }
@@ -253,6 +261,51 @@ class InvoiceServiceTest {
         @Override
         public String invoiceAutoPrint() {
             return autoPrint;
+        }
+
+        /** Whether a till may open a customer at all (BO-10-04-01). */
+        private boolean volatileCreation = true;
+
+        /** Whether a till may correct a customer's file (BO-10-04-03). */
+        private boolean updateEnabled = true;
+
+        /** The fiscal identifier proposed by default (BO-10-04-15). */
+        private String defaultTaxId = "";
+
+        /** The wording printed for that default identifier (BO-10-04-16). */
+        private String defaultTaxIdLabel = "";
+
+        /** The country codes offered for a foreign identifier (BO-10-04-17). */
+        private String foreignCountries = "";
+
+        /** {@inheritDoc} */
+        @Override
+        public boolean volatileCustomerCreationEnabled() {
+            return volatileCreation;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public boolean customerUpdateEnabled() {
+            return updateEnabled;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String defaultTaxId() {
+            return defaultTaxId;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String defaultTaxIdLabel() {
+            return defaultTaxIdLabel;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String foreignTaxIdCountries() {
+            return foreignCountries;
         }
     }
 
@@ -599,7 +652,7 @@ class InvoiceServiceTest {
      */
     @Test
     void createCustomerRefusesANullName() {
-        service.createCustomer(null, "", "", "", "", "", "", "", "");
+        service.createCustomer(null, "", "", "", "", "", "", "", "", "", "");
         assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
         assertTrue(repository.savedCustomers.isEmpty());
     }
@@ -609,7 +662,7 @@ class InvoiceServiceTest {
      */
     @Test
     void createCustomerRefusesABlankName() {
-        service.createCustomer("   ", "", "", "", "", "", "", "", "");
+        service.createCustomer("   ", "", "", "", "", "", "", "", "", "", "");
         assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
         assertTrue(repository.savedCustomers.isEmpty());
     }
@@ -621,7 +674,7 @@ class InvoiceServiceTest {
     @Test
     void createCustomerWritesAFullCustomer() {
         service.createCustomer("BOULANGERIE", "Marc VIDAL", "3 place", "92420", "VAUCRESSON",
-                "SIRET", "FR1", "0102", "a@b.c");
+                "SIRET", "FR1", "0102", "a@b.c", "", "");
         assertEquals(1, repository.savedCustomers.size());
         AccountCustomer created = repository.savedCustomers.get(0);
         assertEquals("C04-CLI000001", created.accountNumber);
@@ -644,7 +697,7 @@ class InvoiceServiceTest {
      */
     @Test
     void createCustomerHandlesAOneWordContactAndBlankOptionals() {
-        service.createCustomer("BOULANGERIE", "VIDAL", "", "  ", "", null, "", "", "");
+        service.createCustomer("BOULANGERIE", "VIDAL", "", "  ", "", null, "", "", "", "", "");
         AccountCustomer created = repository.savedCustomers.get(0);
         assertEquals("", created.firstName);
         assertEquals("VIDAL", created.lastName);
@@ -661,7 +714,7 @@ class InvoiceServiceTest {
      */
     @Test
     void createCustomerHandlesAMissingContact() {
-        service.createCustomer("BOULANGERIE", null, "", "", "", "", "", "", "");
+        service.createCustomer("BOULANGERIE", null, "", "", "", "", "", "", "", "", "");
         AccountCustomer created = repository.savedCustomers.get(0);
         assertEquals("", created.firstName);
         assertEquals("", created.lastName);
@@ -1700,7 +1753,7 @@ class InvoiceServiceTest {
     @Test
     void customerFieldsFallBackToTheCatalog() {
         settings.customerFields = "";
-        assertEquals(9, service.customerFields().size());
+        assertEquals(10, service.customerFields().size());
     }
 
     /**
@@ -1723,7 +1776,7 @@ class InvoiceServiceTest {
     @Test
     void createCustomerRefusesAMissingAdministeredField() {
         settings.customerFields = "companyName*;city*";
-        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "");
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "", "");
         assertEquals("VILLE OBLIGATOIRE", state.invoice.error);
         assertTrue(repository.savedCustomers.isEmpty());
     }
@@ -1735,7 +1788,7 @@ class InvoiceServiceTest {
     @Test
     void createCustomerAcceptsABlankOptionalField() {
         settings.customerFields = "companyName*;city";
-        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "");
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "", "");
         assertEquals("", state.invoice.error);
         assertEquals(1, repository.savedCustomers.size());
     }
@@ -1747,7 +1800,7 @@ class InvoiceServiceTest {
     @Test
     void createCustomerAlwaysRefusesAMissingBusinessName() {
         settings.customerFields = "city";
-        service.createCustomer("", "", "", "", "VAUCRESSON", "", "", "", "");
+        service.createCustomer("", "", "", "", "VAUCRESSON", "", "", "", "", "", "");
         assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
         assertTrue(repository.savedCustomers.isEmpty());
     }
@@ -1762,7 +1815,7 @@ class InvoiceServiceTest {
      */
     @Test
     void createCustomerDeclaresItToTheBackOffice() {
-        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "");
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "", "");
         assertEquals(1, outbox.types.size());
         assertEquals(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.CUSTOMER,
                 outbox.types.get(0));
@@ -1777,7 +1830,7 @@ class InvoiceServiceTest {
     @Test
     void createCustomerRefusesANullNameEvenWhenTheMaskDoesNotRequireIt() {
         settings.customerFields = "city";
-        service.createCustomer(null, "", "", "", "VAUCRESSON", "", "", "", "");
+        service.createCustomer(null, "", "", "", "VAUCRESSON", "", "", "", "", "", "");
         assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
         assertTrue(repository.savedCustomers.isEmpty());
     }
@@ -1787,7 +1840,7 @@ class InvoiceServiceTest {
      */
     @Test
     void refusedCreationDeclaresNothing() {
-        service.createCustomer("   ", "", "", "", "", "", "", "", "");
+        service.createCustomer("   ", "", "", "", "", "", "", "", "", "", "");
         assertTrue(outbox.types.isEmpty());
     }
 
@@ -1882,5 +1935,444 @@ class InvoiceServiceTest {
         assertNull(service.documentTemplateService);
         InvoiceDocument document = laidOut();
         assertEquals(InvoiceRenderer.render(document), service.renderLines(document));
+    }
+
+    /**
+     * Builds a customer carrying a full file, for the correction mask to fill.
+     *
+     * @param id its database id
+     * @return the customer
+     */
+    private AccountCustomer fullCustomer(long id) {
+        AccountCustomer customer = customer(id, "BOULANGERIE");
+        customer.firstName = "Marc";
+        customer.lastName = "VIDAL";
+        customer.address = new Address();
+        customer.address.streetLine1 = "3 place";
+        customer.address.postalCode = "92420";
+        customer.address.city = "VAUCRESSON";
+        customer.siret = "SIRET";
+        customer.vatNumber = "FR1";
+        customer.phone = "0102";
+        customer.email = "a@b.c";
+        customer.taxId = "PT1";
+        return customer;
+    }
+
+    /**
+     * A shop that has not opened the right refuses the creation outright, writing
+     * nothing and declaring nothing (BO-10-04-01, false arm).
+     */
+    @Test
+    void aShopThatForbidsItRefusesTheCreation() {
+        settings.volatileCreation = false;
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "", "");
+        assertEquals("CREATION CLIENT NON AUTORISEE EN CAISSE", state.invoice.error);
+        assertTrue(repository.savedCustomers.isEmpty());
+        assertTrue(outbox.types.isEmpty());
+    }
+
+    /**
+     * A customer opened at the till is VOLATILE and carries the fiscal identifier
+     * typed (BO-10-04-01).
+     */
+    @Test
+    void aCustomerOpenedAtTheTillIsVolatile() {
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "PT9", "");
+        AccountCustomer created = repository.savedCustomers.get(0);
+        assertEquals(AccountCustomer.Origin.VOLATILE, created.origin);
+        assertEquals("PT9", created.taxId);
+    }
+
+    /**
+     * A fiscal identifier already carried by another customer refuses the creation
+     * (BO-10-04-18).
+     */
+    @Test
+    void aFiscalIdentifierAlreadyRegisteredRefusesTheCreation() {
+        repository.customers.add(fullCustomer(42L));
+        service.createCustomer("AUTRE", "", "", "", "", "", "", "", "", "PT1", "");
+        assertEquals("N° FISCAL DEJA ENREGISTRE", state.invoice.error);
+        assertTrue(repository.savedCustomers.isEmpty());
+    }
+
+    /**
+     * The picked country code is prefixed to the identifier, and only when it is
+     * not already there (BO-10-04-17, both arms).
+     */
+    @Test
+    void thePickedCountryCodeIsPrefixedOnce() {
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "12345678", "es");
+        assertEquals("ES12345678", repository.savedCustomers.get(0).taxId);
+        service.createCustomer("AUTRE", "", "", "", "", "", "", "", "", "ES9999", "ES");
+        assertEquals("ES9999", repository.savedCustomers.get(1).taxId);
+    }
+
+    /**
+     * No country picked leaves the identifier as typed, and a blank identifier
+     * stays null whatever the country (both null arms of the builder).
+     */
+    @Test
+    void withoutACountryTheIdentifierIsStoredAsTyped() {
+        service.createCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "12345678", "");
+        assertEquals("12345678", repository.savedCustomers.get(0).taxId);
+        service.createCustomer("AUTRE", "", "", "", "", "", "", "", "", "   ", "ES");
+        assertNull(repository.savedCustomers.get(1).taxId);
+    }
+
+    /**
+     * The creation mask proposes the administered default identifier
+     * (BO-10-04-15), and proposes nothing when the shop administers none.
+     */
+    @Test
+    void theCreationMaskProposesTheAdministeredDefaultIdentifier() {
+        settings.defaultTaxId = " 999999990 ";
+        List<EntryField> proposed = service.customerFields();
+        assertEquals("999999990",
+                proposed.get(proposed.size() - 1).value());
+        settings.defaultTaxId = "";
+        List<EntryField> bare = service.customerFields();
+        assertEquals("", bare.get(bare.size() - 1).value());
+    }
+
+    /**
+     * A shop that has not opened the correction right refuses to open the mask
+     * (BO-10-04-03, false arm).
+     */
+    @Test
+    void aShopThatForbidsItRefusesToOpenTheCorrectionMask() {
+        settings.updateEnabled = false;
+        state.invoice.customer = fullCustomer(42L);
+        service.editCustomer();
+        assertEquals("MISE A JOUR CLIENT NON AUTORISEE EN CAISSE", state.invoice.error);
+        assertFalse(state.invoice.editingCustomer);
+    }
+
+    /**
+     * The mask does not open when no customer is named — a mask without a row
+     * behind it could only create a duplicate.
+     */
+    @Test
+    void theCorrectionMaskDoesNotOpenWithoutACustomer() {
+        state.invoice.customer = null;
+        service.editCustomer();
+        assertEquals("AUCUN CLIENT SELECTIONNE", state.invoice.error);
+        assertFalse(state.invoice.editingCustomer);
+    }
+
+    /**
+     * With the right open and a customer named, the mask opens on the customer
+     * step and closes the creation form (BO-10-04-03, true arm).
+     */
+    @Test
+    void theCorrectionMaskOpensOnTheCustomerStep() {
+        state.invoice.customer = fullCustomer(42L);
+        state.invoice.creatingCustomer = true;
+        service.editCustomer();
+        assertTrue(state.invoice.editingCustomer);
+        assertFalse(state.invoice.creatingCustomer);
+        assertEquals(InvoiceState.Step.CUSTOMER, state.invoice.step);
+        assertEquals("", state.invoice.error);
+    }
+
+    /**
+     * The correction mask carries the customer's own values, field by field
+     * (BO-10-04-03).
+     */
+    @Test
+    void theCorrectionMaskCarriesTheCustomersValues() {
+        state.invoice.customer = fullCustomer(42L);
+        List<EntryField> fields = service.customerEditFields();
+        assertEquals("BOULANGERIE", fields.get(0).value());
+        assertEquals("Marc VIDAL", fields.get(1).value());
+        assertEquals("3 place", fields.get(2).value());
+        assertEquals("92420", fields.get(3).value());
+        assertEquals("VAUCRESSON", fields.get(4).value());
+        assertEquals("PT1", fields.get(9).value());
+    }
+
+    /**
+     * A customer with NO address fills the three address entries with nothing —
+     * the null arm of each of the three address guards — and no customer at all
+     * fills nothing, without raising.
+     */
+    @Test
+    void theCorrectionMaskToleratesAMissingAddress() {
+        AccountCustomer bare = customer(43L, "SANS ADRESSE");
+        bare.address = null;
+        state.invoice.customer = bare;
+        List<EntryField> fields = service.customerEditFields();
+        assertEquals("", fields.get(2).value());
+        assertEquals("", fields.get(3).value());
+        assertEquals("", fields.get(4).value());
+        state.invoice.customer = null;
+        for (EntryField field : service.customerEditFields()) {
+            assertEquals("", field.value());
+        }
+    }
+
+    /**
+     * A shop that has not opened the right refuses the correction itself, not only
+     * the mask: a form can be hidden, a POST cannot.
+     */
+    @Test
+    void aShopThatForbidsItRefusesTheCorrection() {
+        settings.updateEnabled = false;
+        state.invoice.customer = fullCustomer(42L);
+        service.updateCustomer("AUTRE", "", "", "", "", "", "", "", "", "", "");
+        assertEquals("MISE A JOUR CLIENT NON AUTORISEE EN CAISSE", state.invoice.error);
+        assertTrue(outbox.types.isEmpty());
+    }
+
+    /**
+     * The correction refuses when no customer is named.
+     */
+    @Test
+    void theCorrectionRefusesWithoutACustomer() {
+        state.invoice.customer = null;
+        service.updateCustomer("AUTRE", "", "", "", "", "", "", "", "", "", "");
+        assertEquals("AUCUN CLIENT SELECTIONNE", state.invoice.error);
+    }
+
+    /**
+     * The correction refuses a blank business name, both as an empty string and as
+     * a null — the two legs of the guard.
+     */
+    @Test
+    void theCorrectionRefusesABlankBusinessName() {
+        state.invoice.customer = fullCustomer(42L);
+        repository.customers.add(state.invoice.customer);
+        service.updateCustomer("   ", "", "", "", "", "", "", "", "", "", "");
+        assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
+        service.updateCustomer(null, "", "", "", "", "", "", "", "", "", "");
+        assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
+    }
+
+    /**
+     * The correction refuses a mandatory administered field left blank, exactly as
+     * the creation does.
+     */
+    @Test
+    void theCorrectionRefusesAMissingMandatoryField() {
+        settings.customerFields = "companyName;city*";
+        state.invoice.customer = fullCustomer(42L);
+        repository.customers.add(state.invoice.customer);
+        service.updateCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "", "");
+        assertEquals("VILLE OBLIGATOIRE", state.invoice.error);
+    }
+
+    /**
+     * A fiscal identifier carried by ANOTHER customer refuses the correction; the
+     * one the customer already carries does not (both arms of the holder test).
+     */
+    @Test
+    void theCorrectionRefusesAnIdentifierHeldByAnotherCustomer() {
+        AccountCustomer corrected = fullCustomer(42L);
+        AccountCustomer other = customer(43L, "AUTRE");
+        other.taxId = "PT7";
+        repository.customers.add(corrected);
+        repository.customers.add(other);
+        state.invoice.customer = corrected;
+        service.updateCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "PT7", "");
+        assertEquals("N° FISCAL DEJA ENREGISTRE", state.invoice.error);
+        service.updateCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "PT1", "");
+        assertEquals("", state.invoice.error);
+    }
+
+    /**
+     * A customer that disappeared between the mask and the POST refuses the
+     * correction rather than writing a row nobody can read back.
+     */
+    @Test
+    void theCorrectionRefusesACustomerThatDisappeared() {
+        state.invoice.customer = fullCustomer(42L);
+        service.updateCustomer("BOULANGERIE", "", "", "", "", "", "", "", "", "", "");
+        assertEquals("CLIENT INTROUVABLE", state.invoice.error);
+    }
+
+    /**
+     * The correction writes every field back, declares the customer to the back
+     * office and returns to the review step (BO-10-04-04).
+     */
+    @Test
+    void theCorrectionWritesDeclaresAndReturnsToTheReview() {
+        AccountCustomer corrected = fullCustomer(42L);
+        repository.customers.add(corrected);
+        state.invoice.customer = corrected;
+        state.invoice.editingCustomer = true;
+        service.updateCustomer("BOULANGERIE BIS", "Luc MARTIN", "5 rue", "75001", "PARIS",
+                "SIR2", "FR2", "0203", "c@d.e", "12345", "ES");
+        assertEquals("", state.invoice.error);
+        assertEquals("BOULANGERIE BIS", corrected.companyName);
+        assertEquals("Luc", corrected.firstName);
+        assertEquals("MARTIN", corrected.lastName);
+        assertEquals("5 rue", corrected.address.streetLine1);
+        assertEquals("75001", corrected.address.postalCode);
+        assertEquals("PARIS", corrected.address.city);
+        assertEquals("SIR2", corrected.siret);
+        assertEquals("FR2", corrected.vatNumber);
+        assertEquals("0203", corrected.phone);
+        assertEquals("c@d.e", corrected.email);
+        assertEquals("ES12345", corrected.taxId);
+        assertEquals(1, repository.savedCustomers.size());
+        assertEquals(com.intermarche.pos.domain.sync.SyncOutbox.EntityType.CUSTOMER,
+                outbox.types.get(0));
+        assertFalse(state.invoice.editingCustomer);
+        assertEquals(InvoiceState.Step.PREVIEW, state.invoice.step);
+    }
+
+    /**
+     * A corrected customer whose stored row carries NO address gets one — the null
+     * arm of the address guard of the correction.
+     */
+    @Test
+    void theCorrectionGivesAnAddressToACustomerThatHadNone() {
+        AccountCustomer bare = customer(44L, "SANS ADRESSE");
+        bare.address = null;
+        repository.customers.add(bare);
+        state.invoice.customer = bare;
+        service.updateCustomer("SANS ADRESSE", "", "9 rue", "59000", "LILLE",
+                "", "", "", "", "", "");
+        assertNotNull(bare.address);
+        assertEquals("9 rue", bare.address.streetLine1);
+    }
+
+    /**
+     * The country list is read from the parameter, upper-cased, de-duplicated and
+     * kept in administered order (BO-10-04-17).
+     */
+    @Test
+    void theCountryListIsReadFromTheParameter() {
+        settings.foreignCountries = " es , FR ,es, ";
+        assertEquals(List.of("ES", "FR"), service.foreignTaxCountries());
+    }
+
+    /**
+     * A shop administering no country offers none, whether the parameter is blank
+     * or null — both arms of the guard.
+     */
+    @Test
+    void aShopAdministeringNoCountryOffersNone() {
+        settings.foreignCountries = "";
+        assertTrue(service.foreignTaxCountries().isEmpty());
+        settings.foreignCountries = null;
+        assertTrue(service.foreignTaxCountries().isEmpty());
+    }
+
+    /**
+     * Going back to the customer step closes the correction mask, like the
+     * creation form: coming back to choose someone else must not reopen a mask the
+     * operator had already left.
+     */
+    @Test
+    void goingBackToTheCustomerStepClosesTheCorrectionMask() {
+        state.invoice.editingCustomer = true;
+        service.backToCustomerStep();
+        assertFalse(state.invoice.editingCustomer);
+    }
+
+    /**
+     * The eco-tax of the billed sale is summed per unit, the cancelled lines bearing
+     * none ({@code BO-10-04-14}).
+     */
+    @Test
+    void theEcoTaxIsSummedPerUnitAndIgnoresTheCancelledLines() {
+        Ticket ticket = ticket(1L, "C04-00000417");
+        com.intermarche.pos.domain.catalog.Product bearing =
+                new com.intermarche.pos.domain.catalog.Product();
+        bearing.attributes.put(
+                com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.ECO_TAX,
+                "0.50");
+        ticket.lines.get(0).product = bearing;
+        ticket.lines.get(0).quantity = new BigDecimal("3");
+        TicketLine cancelled = new TicketLine();
+        cancelled.productLabel = "ANNULE";
+        cancelled.quantity = BigDecimal.ONE;
+        cancelled.unitPrice = new BigDecimal("9.99");
+        cancelled.totalPrice = new BigDecimal("9.99");
+        cancelled.vatRate = new BigDecimal("0.20");
+        cancelled.product = bearing;
+        cancelled.cancelled = true;
+        ticket.lines.add(cancelled);
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        service.issue();
+        assertEquals(new BigDecimal("1.5000"), repository.savedInvoices.get(0).totalEcoTax);
+    }
+
+    /**
+     * A line carrying NO article and NO quantity bears the article's eco-tax once
+     * — the null arms of the two guards of the sum.
+     */
+    @Test
+    void aLineWithoutArticleOrQuantityBearsTheEcoTaxOnce() {
+        Ticket ticket = ticket(1L, "C04-00000417");
+        ticket.lines.get(0).product = null;
+        ticket.lines.get(0).quantity = null;
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        service.issue();
+        assertEquals(new BigDecimal("0.0000"), repository.savedInvoices.get(0).totalEcoTax);
+    }
+
+    /**
+     * A document made out under the administered default identifier prints the
+     * administered wording ({@code BO-10-04-16}, matching arm).
+     */
+    @Test
+    void theDefaultIdentifierIsPrintedUnderItsWording() {
+        settings.defaultTaxId = "999999990";
+        settings.defaultTaxIdLabel = "CONSUMIDOR FINAL";
+        Ticket ticket = ticket(1L, "C04-00000417");
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        customer.taxId = "999999990";
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        assertEquals("CONSUMIDOR FINAL", service.preview().customerTaxId);
+    }
+
+    /**
+     * A customer who gave their OWN identifier is printed with it, and a shop
+     * administering no default never replaces anything — the two non-matching legs.
+     */
+    @Test
+    void anIdentifierThatIsNotTheDefaultIsPrintedAsItIs() {
+        settings.defaultTaxId = "999999990";
+        settings.defaultTaxIdLabel = "CONSUMIDOR FINAL";
+        Ticket ticket = ticket(1L, "C04-00000417");
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        customer.taxId = "PT123456789";
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        assertEquals("PT123456789", service.preview().customerTaxId);
+        settings.defaultTaxId = "";
+        assertEquals("PT123456789", service.preview().customerTaxId);
+    }
+
+    /**
+     * A customer carrying NO identifier is never replaced either — the null arm of
+     * the wording guard.
+     */
+    @Test
+    void aCustomerWithoutAnIdentifierIsNeverReplaced() {
+        settings.defaultTaxId = "999999990";
+        settings.defaultTaxIdLabel = "CONSUMIDOR FINAL";
+        Ticket ticket = ticket(1L, "C04-00000417");
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        assertEquals("", service.preview().customerTaxId);
     }
 }

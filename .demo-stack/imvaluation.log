@@ -1,860 +1,160 @@
-Listening for transport dt_socket at address: 63451
-10:56:07 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-23) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+Listening for transport dt_socket at address: 63793
+16:39:07 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-23) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
 This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
 __  ____  __  _____   ___  __ ____  ______ 
  --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
  -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
 --\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
-10:56:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-10:56:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-10:56:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-10:56:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-10:56:08 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
-10:56:08 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
-10:56:09 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
-10:56:09 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.543s. Listening on: http://localhost:8090
-10:56:09 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
-10:56:09 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
-10:56:10 INFO  [io.sm.health] (vert.x-eventloop-thread-0) SRHCK01001: Reporting health down status: {"status":"DOWN","checks":[{"name":"Database connections health check","status":"UP","data":{"<default>":"UP"}},{"name":"imvaluation-ready","status":"DOWN","data":{"stores":0,"offerSchemas":11,"missing":"stores"}}]}
-10:57:07 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:07 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1, Updated: 0
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 4, Updated: 0
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 312, Updated: 0
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 48 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 48 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
-10:57:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 8 with step 10. Retrying with step 1. Error: SubFamily code 'BOEUF_PORC' not found.
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 45, Updated: 3
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 304, Updated: 0
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 365, Updated: 0
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-10:57:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 22, Updated: 0
-11:01:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-11:01:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: null
-11:01:49 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 0
-11:01:49 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-11:01:49 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-widget - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-11:01:49 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-item-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-11:01:49 WARN  [co.in.va.en.ValuationResource] (executor-thread-1) Rejected valuation request: Error validating offer: $.items: doit avoir au moins 1 éléments mais trouvé 0
-11:01:49 ERROR [or.jb.re.re.i18n] (executor-thread-1) RESTEASY002010: Failed to execute: jakarta.ws.rs.WebApplicationException: Error validating offer: $.items: doit avoir au moins 1 éléments mais trouvé 0
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:101)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-
-15:43:26 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-15:43:26 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-15:43:26 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-15:43:26 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-unit-from - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-15:43:26 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:43:26 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-1: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:43:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-15:43:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-15:43:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-15:43:40 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:43:40 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-2: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:44:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-15:44:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-15:44:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 3
-15:44:17 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:44:17 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-3: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:45:34 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-15:45:34 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-15:45:34 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 3
-15:45:34 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:45:34 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-4: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:45:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-15:45:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-15:45:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 3
-15:45:48 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-15:45:48 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-5: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-16:36:19 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:36:19 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:36:19 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-16:36:19 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000017'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000017'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-16:36:19 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-6: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000017'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000017'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000017'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-16:36:38 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:36:38 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:36:38 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-16:36:38 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-16:36:38 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-7: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000001'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-16:37:07 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-16:37:07 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-16:37:07 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-16:37:07 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
-16:37:07 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: c09df80a-c244-4ac3-855e-5354362baa69-8: org.jboss.resteasy.spi.UnhandledException: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000001'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.RuntimeException: Error building appliers from factory: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:169)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:62)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000001'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:114)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:452)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:42)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:154)
-	... 34 more
-
+16:39:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:39:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:39:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:39:08 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:39:08 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+16:39:08 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+16:39:09 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+16:39:09 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.367s. Listening on: http://localhost:8090
+16:39:09 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+16:39:09 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+16:39:09 INFO  [io.sm.health] (vert.x-eventloop-thread-0) SRHCK01001: Reporting health down status: {"status":"DOWN","checks":[{"name":"Database connections health check","status":"UP","data":{"<default>":"UP"}},{"name":"imvaluation-ready","status":"DOWN","data":{"stores":0,"offerSchemas":17,"missing":"stores"}}]}
+16:40:16 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:16 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1, Updated: 0
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 4, Updated: 0
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 312, Updated: 0
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 48 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 48 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.Product
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 8 with step 10. Retrying with step 1. Error: SubFamily code 'BOEUF_PORC' not found.
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 45, Updated: 3
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 304, Updated: 0
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 365 with step 1000. Retrying with step 100. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 65 with step 100. Retrying with step 10. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.2000: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 5 with step 10. Retrying with step 1. Error: Unknown VAT rate 0.0550: no regime in the referential
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 0, Updated: 0
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:40:17 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 22, Updated: 0
+16:45:18 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-2) Restarting quarkus due to changes in NPlusMOfferFactory$NPlusMOfferApplier.class, TierTable$Slice.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplier.class, TicketDiscountFactory$Contribution.class, GraphQLTrait.class, TicketDiscountFactory$DiscountType.class, ProductFamilyResource.class, VatBreakdown.class, AdvantageApplierFactory.class, DiscountApplication.class, VoucherGrantFactory.class, TieredDiscountFactory$AwardType.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplication.class, ValuationEngine$OfferApplierEvaluator.class, OfferApplier.class, BasketEvaluation$Item.class, ProductCategoryStorage.class, TieredDiscountFactory$Mode.class, OfferApplication.class, AntiWasteDiscountFactory.class, ValuationTrace.class, MixedBundleUpsellAdvantageFactory.class, ReferentialReadinessCheck.class, VatRateCsvResource.class, InstrumentGrantFactory$Scope.class, AmountPerItemDiscountFactory.class, StoreGroup.class, OfferUiResource$Templates.class, VatRefundDiscountFactory$VatRefundDiscountApplication.class, DateTimeProvider.class, UserBootstrap.class, TieredDiscountFactory$TieredDiscountApplier.class, StoreCsvResource.class, VatRate.class, VatRefundDiscountFactory$VatRefundDiscountApplier.class, DeliveryOfferFactory$DeliveryOfferApplier.class, OfferResource.class, ValuationTraceService.class, ProductResource$ProductRecord.class, ImmediateVoucherDiscountFactory.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplication.class, ValuationTraceConfig.class, GenericLineOfferFactory$GenericLineApplication.class, DataInitializer.class, ImportsUiResource$Templates.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplier.class, TieredDiscountFactory$Award.class, StoreGroupResource.class, GiftItemDiscountFactory$Candidate.class, NPlusMUpsellAdvantageFactory.class, AmountEvaluation.class, ImporterCsvResource$Executor.class, EngineTrait.class, VignetteDiscountFactory$DiscountType.class, LookupResource$Suggestion.class, TieredDiscountFactory$TieredDiscountApplier$Result.class, ValuationEngine$ArbitrationConfig.class, InstrumentGrantFactory$Contribution.class, GiftItemDiscountFactory$Selection.class, Basket$Address.class, AdvantageApplication.class, VatRefundDiscountFactory.class, ProductFamily.class, UserUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleConfig.class, NPlusMUpsellAdvantageFactory$NPlusMOfferConfig.class, OfferUiResource.class, VignetteDiscountFactory$VignetteDiscountApplication.class, Adresse.class, ProductFamilyResource$ProductFamilyRecord.class, ItemValuation.class, ImporterCsvResource.class, TriggerResult.class, OfferSchemaRegistry.class, DeliveryOfferFactory$DeliveryTier.class, MinimumQuantityCondition.class, StoreGroupCsvResource.class, ValuationEngine$ArbitrationState.class, InstrumentGrantFactory$InstrumentGrantApplier.class, StoreGroupUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplier.class, TicketDiscountFactory$TicketDiscountApplication.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplication.class, MealVoucherAdvantageFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplier.class, DeliveryOfferFactory$DeliveryApplication.class, TierTable.class, PasswordChangeFilter.class, TriggerCondition.class, StoreGroupUiResource$RejectedHierarchyException.class, DepositBasketOfferFactory.class, VatRefundDiscountFactory$Scope.class, NPlusMOfferFactory.class, ProductCategoryStorageResource$ProductCategoryStorageRecord.class, MixedBundleOfferFactory$MixedBundleApplication.class, StoreResource.class, BasicOfferFactory$BasicApplication.class, ValuationResource.class, StoreGroupUiResource$GroupPayload.class, TieredDiscountFactory$TieredDiscountApplier$1Unit.class, Basket.class, BaseEntity.class, TieredDiscountFactory$Contribution.class, NewPriceDiscountFactory.class, TieredDiscountFactory$Selection.class, ProductCategoryStorageResource.class, Store.class, Offer.class, TieredDiscountFactory$Scope.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplier.class, NewPriceDiscountFactory$NewPriceDiscountApplication.class, BasicOfferFactory$BasicOfferApplier.class, MixedBundleOfferFactory$MixedBundleOfferApplier.class, AdvantageApplier.class, RootResource.class, PasswordResetService.class, ProductType.class, ProductCategoryStorageCsvResource.class, InstrumentGrantFactory$Mode.class, ImmediateVoucherDiscountFactory$DiscountType.class, AuthUiResource.class, Basket$Item.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplier.class, VignetteDiscountFactory.class, StoreGroupResource$StoreGroupRecord.class, InstrumentGrantFactory$Unit.class, LookupResource.class, TieredDiscountFactory$TieredDiscountApplication.class, NewPriceDiscountFactory$NewPriceDiscountApplier.class, FreeDeliveryThresholdDiscountFactory$DiscountTier.class, GiftItemDiscountFactory$GiftItemDiscountApplication.class, OfferGraphQLClient.class, InstrumentGrantFactory.class, MinimumAmountCondition.class, ProductFamilyCsvResource.class, DepositBasketOfferFactory$DepositBasketApplication.class, CurrentUser.class, AuthUiResource$Templates.class, ImporterCsvResource$LineData.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplier.class, AppUser.class, OfferResource$OfferRecord.class, FreeDeliveryThresholdDiscountFactory$DiscountType.class, GenericLineOfferFactory$GenericLineOfferApplier.class, NPlusMOfferFactory$NPlusMApplication.class, ValuationUiResource.class, InstrumentGrantFactory$Metric.class, ProductResource.class, PriceUsage.class, ManualGestureOfferFactory$ManualGestureOfferApplier.class, AlreadyExistsException.class, ProductAwareOfferApplication.class, NPlusMOfferFactory$SelectionStrategy.class, VignetteDiscountFactory$VignetteRule.class, ImportsUiResource.class, DepositBasketOfferFactory$DepositBasketOfferApplier.class, CouponCodeCondition.class, GiftItemDiscountFactory$GiftItemDiscountApplier.class, ManualGestureOfferFactory.class, OfferApplierFactory.class, UserUiResource$Templates.class, OfferCsvResource.class, VignetteDiscountFactory$VignetteDiscountApplier.class, Price.class, TicketDiscountFactory$TicketDiscountApplier.class, MixedBundleUpsellAdvantageFactory$UpsellSuggestion.class, MinimumAmountCondition$Scope.class, PriceResource$PriceRecord.class, Trigger.class, InstrumentGrantFactory$Grant.class, ValuationUiResource$Templates.class, InstrumentGrantFactory$AwardType.class, ValuationEngine.class, StoreGroupUiResource$Templates.class, DeliveryOfferFactory.class, ManualGestureOfferFactory$ManualGestureApplication.class, PriceResource.class, PasswordResetToken.class, PriceCsvResource.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplication.class, TieredDiscountFactory.class, CouponGrantFactory.class, FreeDeliveryThresholdDiscountFactory.class, StoreResource$StoreRecord.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplication.class, Product.class, NPlusMUpsellAdvantageFactory$UpsellSuggestion.class, Basket$Item$SourceLine.class, MixedBundleOfferFactory$BundleComponent.class, StoreGroupUiResource$HierarchyPayload.class, GiftItemDiscountFactory.class, BasicOfferFactory.class, TierTable$Tier.class, MixedBundleOfferFactory.class, InstrumentGrantFactory$Award.class, GenericLineOfferFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplication.class, ProductAwareOfferApplier.class, RejectedHierarchyMapper.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplication.class, InstrumentGrantFactory$InstrumentGrantApplication.class, NPlusMOfferFactory$DiscountType.class, ProductCsvResource.class, ImportsUiResource$ImportUpload.class, BasketEvaluation$VatLine.class, MixedBundleUpsellAdvantageFactory$UpsellBundleComponent.class, VatRefundDiscountFactory$Contribution.class, BasketEvaluation.class, TieredDiscountFactory$Metric.class, ListView.class, TicketDiscountFactory.class.
+16:45:18 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation stopped in 0.013s
+16:45:18 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-6) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
+__  ____  __  _____   ___  __ ____  ______ 
+ --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+ -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+--\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+16:45:19 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:45:19 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:45:19 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:45:19 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:45:19 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+16:45:19 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+16:45:19 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+16:45:19 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 0.623s. Listening on: http://localhost:8090
+16:45:19 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+16:45:19 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+16:45:19 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-2) Live reload total time: 1.025s 
+16:52:03 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-4) Restarting quarkus due to changes in NPlusMOfferFactory$NPlusMOfferApplier.class, TierTable$Slice.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplier.class, TicketDiscountFactory$Contribution.class, GraphQLTrait.class, TicketDiscountFactory$DiscountType.class, ProductFamilyResource.class, VatBreakdown.class, AdvantageApplierFactory.class, DiscountApplication.class, VoucherGrantFactory.class, TieredDiscountFactory$AwardType.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplication.class, ValuationEngine$OfferApplierEvaluator.class, OfferApplier.class, BasketEvaluation$Item.class, ProductCategoryStorage.class, TieredDiscountFactory$Mode.class, OfferApplication.class, AntiWasteDiscountFactory.class, ValuationTrace.class, MixedBundleUpsellAdvantageFactory.class, ReferentialReadinessCheck.class, VatRateCsvResource.class, InstrumentGrantFactory$Scope.class, AmountPerItemDiscountFactory.class, StoreGroup.class, OfferUiResource$Templates.class, VatRefundDiscountFactory$VatRefundDiscountApplication.class, DateTimeProvider.class, UserBootstrap.class, TieredDiscountFactory$TieredDiscountApplier.class, StoreCsvResource.class, VatRate.class, VatRefundDiscountFactory$VatRefundDiscountApplier.class, DeliveryOfferFactory$DeliveryOfferApplier.class, OfferResource.class, ValuationTraceService.class, ProductResource$ProductRecord.class, ImmediateVoucherDiscountFactory.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplication.class, ValuationTraceConfig.class, GenericLineOfferFactory$GenericLineApplication.class, DataInitializer.class, ImportsUiResource$Templates.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplier.class, TieredDiscountFactory$Award.class, StoreGroupResource.class, GiftItemDiscountFactory$Candidate.class, NPlusMUpsellAdvantageFactory.class, AmountEvaluation.class, ImporterCsvResource$Executor.class, EngineTrait.class, VignetteDiscountFactory$DiscountType.class, LookupResource$Suggestion.class, TieredDiscountFactory$TieredDiscountApplier$Result.class, ValuationEngine$ArbitrationConfig.class, InstrumentGrantFactory$Contribution.class, GiftItemDiscountFactory$Selection.class, Basket$Address.class, AdvantageApplication.class, VatRefundDiscountFactory.class, ProductFamily.class, UserUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleConfig.class, NPlusMUpsellAdvantageFactory$NPlusMOfferConfig.class, OfferUiResource.class, VignetteDiscountFactory$VignetteDiscountApplication.class, Adresse.class, ProductFamilyResource$ProductFamilyRecord.class, ItemValuation.class, ImporterCsvResource.class, TriggerResult.class, OfferSchemaRegistry.class, DeliveryOfferFactory$DeliveryTier.class, MinimumQuantityCondition.class, StoreGroupCsvResource.class, ValuationEngine$ArbitrationState.class, InstrumentGrantFactory$InstrumentGrantApplier.class, StoreGroupUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplier.class, TicketDiscountFactory$TicketDiscountApplication.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplication.class, MealVoucherAdvantageFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplier.class, DeliveryOfferFactory$DeliveryApplication.class, TierTable.class, PasswordChangeFilter.class, TriggerCondition.class, StoreGroupUiResource$RejectedHierarchyException.class, DepositBasketOfferFactory.class, VatRefundDiscountFactory$Scope.class, NPlusMOfferFactory.class, ProductCategoryStorageResource$ProductCategoryStorageRecord.class, MixedBundleOfferFactory$MixedBundleApplication.class, StoreResource.class, BasicOfferFactory$BasicApplication.class, ValuationResource.class, StoreGroupUiResource$GroupPayload.class, TieredDiscountFactory$TieredDiscountApplier$1Unit.class, Basket.class, BaseEntity.class, TieredDiscountFactory$Contribution.class, NewPriceDiscountFactory.class, TieredDiscountFactory$Selection.class, ProductCategoryStorageResource.class, Store.class, Offer.class, TieredDiscountFactory$Scope.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplier.class, NewPriceDiscountFactory$NewPriceDiscountApplication.class, BasicOfferFactory$BasicOfferApplier.class, MixedBundleOfferFactory$MixedBundleOfferApplier.class, AdvantageApplier.class, RootResource.class, PasswordResetService.class, ProductType.class, ProductCategoryStorageCsvResource.class, InstrumentGrantFactory$Mode.class, ImmediateVoucherDiscountFactory$DiscountType.class, AuthUiResource.class, Basket$Item.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplier.class, VignetteDiscountFactory.class, StoreGroupResource$StoreGroupRecord.class, InstrumentGrantFactory$Unit.class, LookupResource.class, TieredDiscountFactory$TieredDiscountApplication.class, NewPriceDiscountFactory$NewPriceDiscountApplier.class, FreeDeliveryThresholdDiscountFactory$DiscountTier.class, GiftItemDiscountFactory$GiftItemDiscountApplication.class, OfferGraphQLClient.class, InstrumentGrantFactory.class, MinimumAmountCondition.class, ProductFamilyCsvResource.class, DepositBasketOfferFactory$DepositBasketApplication.class, CurrentUser.class, AuthUiResource$Templates.class, ImporterCsvResource$LineData.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplier.class, AppUser.class, OfferResource$OfferRecord.class, FreeDeliveryThresholdDiscountFactory$DiscountType.class, GenericLineOfferFactory$GenericLineOfferApplier.class, NPlusMOfferFactory$NPlusMApplication.class, ValuationUiResource.class, InstrumentGrantFactory$Metric.class, ProductResource.class, PriceUsage.class, ManualGestureOfferFactory$ManualGestureOfferApplier.class, AlreadyExistsException.class, ProductAwareOfferApplication.class, NPlusMOfferFactory$SelectionStrategy.class, VignetteDiscountFactory$VignetteRule.class, ImportsUiResource.class, DepositBasketOfferFactory$DepositBasketOfferApplier.class, CouponCodeCondition.class, GiftItemDiscountFactory$GiftItemDiscountApplier.class, ManualGestureOfferFactory.class, OfferApplierFactory.class, UserUiResource$Templates.class, OfferCsvResource.class, VignetteDiscountFactory$VignetteDiscountApplier.class, Price.class, TicketDiscountFactory$TicketDiscountApplier.class, MixedBundleUpsellAdvantageFactory$UpsellSuggestion.class, MinimumAmountCondition$Scope.class, PriceResource$PriceRecord.class, Trigger.class, InstrumentGrantFactory$Grant.class, ValuationUiResource$Templates.class, InstrumentGrantFactory$AwardType.class, ValuationEngine.class, StoreGroupUiResource$Templates.class, DeliveryOfferFactory.class, ManualGestureOfferFactory$ManualGestureApplication.class, PriceResource.class, PasswordResetToken.class, PriceCsvResource.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplication.class, TieredDiscountFactory.class, CouponGrantFactory.class, FreeDeliveryThresholdDiscountFactory.class, StoreResource$StoreRecord.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplication.class, Product.class, NPlusMUpsellAdvantageFactory$UpsellSuggestion.class, Basket$Item$SourceLine.class, MixedBundleOfferFactory$BundleComponent.class, StoreGroupUiResource$HierarchyPayload.class, GiftItemDiscountFactory.class, BasicOfferFactory.class, TierTable$Tier.class, MixedBundleOfferFactory.class, InstrumentGrantFactory$Award.class, GenericLineOfferFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplication.class, ProductAwareOfferApplier.class, RejectedHierarchyMapper.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplication.class, InstrumentGrantFactory$InstrumentGrantApplication.class, NPlusMOfferFactory$DiscountType.class, ProductCsvResource.class, ImportsUiResource$ImportUpload.class, BasketEvaluation$VatLine.class, MixedBundleUpsellAdvantageFactory$UpsellBundleComponent.class, VatRefundDiscountFactory$Contribution.class, BasketEvaluation.class, TieredDiscountFactory$Metric.class, ListView.class, TicketDiscountFactory.class.
+16:52:03 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation stopped in 0.017s
+16:52:03 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-16) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
+__  ____  __  _____   ___  __ ____  ______ 
+ --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+ -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+--\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+16:52:04 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:52:04 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:52:04 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:52:04 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:52:04 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+16:52:04 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+16:52:04 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+16:52:04 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 0.678s. Listening on: http://localhost:8090
+16:52:04 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+16:52:04 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+16:52:04 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-4) Live reload total time: 0.706s 
+16:55:40 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-6) Restarting quarkus due to changes in NPlusMOfferFactory$NPlusMOfferApplier.class, TierTable$Slice.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplier.class, TicketDiscountFactory$Contribution.class, GraphQLTrait.class, TicketDiscountFactory$DiscountType.class, ProductFamilyResource.class, VatBreakdown.class, AdvantageApplierFactory.class, DiscountApplication.class, VoucherGrantFactory.class, TieredDiscountFactory$AwardType.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplication.class, ValuationEngine$OfferApplierEvaluator.class, OfferApplier.class, BasketEvaluation$Item.class, ProductCategoryStorage.class, TieredDiscountFactory$Mode.class, OfferApplication.class, AntiWasteDiscountFactory.class, ValuationTrace.class, MixedBundleUpsellAdvantageFactory.class, ReferentialReadinessCheck.class, VatRateCsvResource.class, InstrumentGrantFactory$Scope.class, AmountPerItemDiscountFactory.class, StoreGroup.class, OfferUiResource$Templates.class, VatRefundDiscountFactory$VatRefundDiscountApplication.class, DateTimeProvider.class, UserBootstrap.class, TieredDiscountFactory$TieredDiscountApplier.class, StoreCsvResource.class, VatRate.class, VatRefundDiscountFactory$VatRefundDiscountApplier.class, DeliveryOfferFactory$DeliveryOfferApplier.class, OfferResource.class, ValuationTraceService.class, ProductResource$ProductRecord.class, ImmediateVoucherDiscountFactory.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplication.class, ValuationTraceConfig.class, GenericLineOfferFactory$GenericLineApplication.class, DataInitializer.class, ImportsUiResource$Templates.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplier.class, TieredDiscountFactory$Award.class, StoreGroupResource.class, GiftItemDiscountFactory$Candidate.class, NPlusMUpsellAdvantageFactory.class, AmountEvaluation.class, ImporterCsvResource$Executor.class, EngineTrait.class, VignetteDiscountFactory$DiscountType.class, LookupResource$Suggestion.class, TieredDiscountFactory$TieredDiscountApplier$Result.class, ValuationEngine$ArbitrationConfig.class, InstrumentGrantFactory$Contribution.class, GiftItemDiscountFactory$Selection.class, Basket$Address.class, AdvantageApplication.class, VatRefundDiscountFactory.class, ProductFamily.class, UserUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleConfig.class, NPlusMUpsellAdvantageFactory$NPlusMOfferConfig.class, OfferUiResource.class, VignetteDiscountFactory$VignetteDiscountApplication.class, Adresse.class, ProductFamilyResource$ProductFamilyRecord.class, ItemValuation.class, ImporterCsvResource.class, TriggerResult.class, OfferSchemaRegistry.class, DeliveryOfferFactory$DeliveryTier.class, MinimumQuantityCondition.class, StoreGroupCsvResource.class, ValuationEngine$ArbitrationState.class, InstrumentGrantFactory$InstrumentGrantApplier.class, StoreGroupUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplier.class, TicketDiscountFactory$TicketDiscountApplication.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplication.class, MealVoucherAdvantageFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplier.class, DeliveryOfferFactory$DeliveryApplication.class, TierTable.class, PasswordChangeFilter.class, TriggerCondition.class, StoreGroupUiResource$RejectedHierarchyException.class, DepositBasketOfferFactory.class, VatRefundDiscountFactory$Scope.class, NPlusMOfferFactory.class, ProductCategoryStorageResource$ProductCategoryStorageRecord.class, MixedBundleOfferFactory$MixedBundleApplication.class, StoreResource.class, BasicOfferFactory$BasicApplication.class, ValuationResource.class, StoreGroupUiResource$GroupPayload.class, TieredDiscountFactory$TieredDiscountApplier$1Unit.class, Basket.class, BaseEntity.class, TieredDiscountFactory$Contribution.class, NewPriceDiscountFactory.class, TieredDiscountFactory$Selection.class, ProductCategoryStorageResource.class, Store.class, Offer.class, TieredDiscountFactory$Scope.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplier.class, NewPriceDiscountFactory$NewPriceDiscountApplication.class, BasicOfferFactory$BasicOfferApplier.class, MixedBundleOfferFactory$MixedBundleOfferApplier.class, AdvantageApplier.class, RootResource.class, PasswordResetService.class, ProductType.class, ProductCategoryStorageCsvResource.class, InstrumentGrantFactory$Mode.class, ImmediateVoucherDiscountFactory$DiscountType.class, AuthUiResource.class, Basket$Item.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplier.class, VignetteDiscountFactory.class, StoreGroupResource$StoreGroupRecord.class, InstrumentGrantFactory$Unit.class, LookupResource.class, TieredDiscountFactory$TieredDiscountApplication.class, NewPriceDiscountFactory$NewPriceDiscountApplier.class, FreeDeliveryThresholdDiscountFactory$DiscountTier.class, GiftItemDiscountFactory$GiftItemDiscountApplication.class, OfferGraphQLClient.class, InstrumentGrantFactory.class, MinimumAmountCondition.class, ProductFamilyCsvResource.class, DepositBasketOfferFactory$DepositBasketApplication.class, CurrentUser.class, AuthUiResource$Templates.class, ImporterCsvResource$LineData.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplier.class, AppUser.class, OfferResource$OfferRecord.class, FreeDeliveryThresholdDiscountFactory$DiscountType.class, GenericLineOfferFactory$GenericLineOfferApplier.class, NPlusMOfferFactory$NPlusMApplication.class, ValuationUiResource.class, InstrumentGrantFactory$Metric.class, ProductResource.class, PriceUsage.class, ManualGestureOfferFactory$ManualGestureOfferApplier.class, AlreadyExistsException.class, ProductAwareOfferApplication.class, NPlusMOfferFactory$SelectionStrategy.class, VignetteDiscountFactory$VignetteRule.class, ImportsUiResource.class, DepositBasketOfferFactory$DepositBasketOfferApplier.class, CouponCodeCondition.class, GiftItemDiscountFactory$GiftItemDiscountApplier.class, ManualGestureOfferFactory.class, OfferApplierFactory.class, UserUiResource$Templates.class, OfferCsvResource.class, VignetteDiscountFactory$VignetteDiscountApplier.class, Price.class, TicketDiscountFactory$TicketDiscountApplier.class, MixedBundleUpsellAdvantageFactory$UpsellSuggestion.class, MinimumAmountCondition$Scope.class, PriceResource$PriceRecord.class, Trigger.class, InstrumentGrantFactory$Grant.class, ValuationUiResource$Templates.class, InstrumentGrantFactory$AwardType.class, ValuationEngine.class, StoreGroupUiResource$Templates.class, DeliveryOfferFactory.class, ManualGestureOfferFactory$ManualGestureApplication.class, PriceResource.class, PasswordResetToken.class, PriceCsvResource.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplication.class, TieredDiscountFactory.class, CouponGrantFactory.class, FreeDeliveryThresholdDiscountFactory.class, StoreResource$StoreRecord.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplication.class, Product.class, NPlusMUpsellAdvantageFactory$UpsellSuggestion.class, Basket$Item$SourceLine.class, MixedBundleOfferFactory$BundleComponent.class, StoreGroupUiResource$HierarchyPayload.class, GiftItemDiscountFactory.class, BasicOfferFactory.class, TierTable$Tier.class, MixedBundleOfferFactory.class, InstrumentGrantFactory$Award.class, GenericLineOfferFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplication.class, ProductAwareOfferApplier.class, RejectedHierarchyMapper.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplication.class, InstrumentGrantFactory$InstrumentGrantApplication.class, NPlusMOfferFactory$DiscountType.class, ProductCsvResource.class, ImportsUiResource$ImportUpload.class, BasketEvaluation$VatLine.class, MixedBundleUpsellAdvantageFactory$UpsellBundleComponent.class, VatRefundDiscountFactory$Contribution.class, BasketEvaluation.class, TieredDiscountFactory$Metric.class, ListView.class, TicketDiscountFactory.class.
+16:55:40 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation stopped in 0.009s
+16:55:40 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-10) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
+__  ____  __  _____   ___  __ ____  ______ 
+ --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+ -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+--\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+16:55:40 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:55:40 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:55:40 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:55:40 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:55:40 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+16:55:40 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+16:55:40 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+16:55:40 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 0.530s. Listening on: http://localhost:8090
+16:55:40 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+16:55:40 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+16:55:40 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-6) Live reload total time: 0.550s 
+17:44:43 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-8) Restarting quarkus due to changes in Basket.class, TieredDiscountFactory$Contribution.class, NewPriceDiscountFactory.class, NPlusMOfferFactory$NPlusMOfferApplier.class, TieredDiscountFactory$Selection.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplier.class, TicketDiscountFactory$Contribution.class, Offer.class, TieredDiscountFactory$Scope.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplier.class, NewPriceDiscountFactory$NewPriceDiscountApplication.class, BasicOfferFactory$BasicOfferApplier.class, MixedBundleOfferFactory$MixedBundleOfferApplier.class, TicketDiscountFactory$DiscountType.class, VoucherGrantFactory.class, TieredDiscountFactory$AwardType.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplication.class, ValuationEngine$OfferApplierEvaluator.class, InstrumentGrantFactory$Mode.class, ImmediateVoucherDiscountFactory$DiscountType.class, TieredDiscountFactory$Mode.class, Basket$Item.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplier.class, VignetteDiscountFactory.class, AntiWasteDiscountFactory.class, InstrumentGrantFactory$Unit.class, MixedBundleUpsellAdvantageFactory.class, TieredDiscountFactory$TieredDiscountApplication.class, VatRateCsvResource.class, InstrumentGrantFactory$Scope.class, AmountPerItemDiscountFactory.class, OfferUiResource$Templates.class, VatRefundDiscountFactory$VatRefundDiscountApplication.class, TieredDiscountFactory$TieredDiscountApplier.class, NewPriceDiscountFactory$NewPriceDiscountApplier.class, FreeDeliveryThresholdDiscountFactory$DiscountTier.class, GiftItemDiscountFactory$GiftItemDiscountApplication.class, InstrumentGrantFactory.class, VatRate.class, VatRefundDiscountFactory$VatRefundDiscountApplier.class, DepositBasketOfferFactory$DepositBasketApplication.class, DeliveryOfferFactory$DeliveryOfferApplier.class, OfferResource.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplier.class, OfferResource$OfferRecord.class, FreeDeliveryThresholdDiscountFactory$DiscountType.class, NPlusMOfferFactory$NPlusMApplication.class, ValuationUiResource.class, ImmediateVoucherDiscountFactory.class, InstrumentGrantFactory$Metric.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplication.class, DataInitializer.class, ManualGestureOfferFactory$ManualGestureOfferApplier.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplier.class, NPlusMOfferFactory$SelectionStrategy.class, VignetteDiscountFactory$VignetteRule.class, TieredDiscountFactory$Award.class, DepositBasketOfferFactory$DepositBasketOfferApplier.class, GiftItemDiscountFactory$Candidate.class, NPlusMUpsellAdvantageFactory.class, GiftItemDiscountFactory$GiftItemDiscountApplier.class, ManualGestureOfferFactory.class, AmountEvaluation.class, OfferCsvResource.class, EngineTrait.class, VignetteDiscountFactory$DiscountType.class, TieredDiscountFactory$TieredDiscountApplier$Result.class, VignetteDiscountFactory$VignetteDiscountApplier.class, Price.class, TicketDiscountFactory$TicketDiscountApplier.class, ValuationEngine$ArbitrationConfig.class, MixedBundleUpsellAdvantageFactory$UpsellSuggestion.class, InstrumentGrantFactory$Contribution.class, GiftItemDiscountFactory$Selection.class, Basket$Address.class, PriceResource$PriceRecord.class, InstrumentGrantFactory$Grant.class, VatRefundDiscountFactory.class, ValuationUiResource$Templates.class, InstrumentGrantFactory$AwardType.class, ValuationEngine.class, MixedBundleUpsellAdvantageFactory$MixedBundleConfig.class, NPlusMUpsellAdvantageFactory$NPlusMOfferConfig.class, OfferUiResource.class, VignetteDiscountFactory$VignetteDiscountApplication.class, DeliveryOfferFactory.class, ManualGestureOfferFactory$ManualGestureApplication.class, PriceResource.class, PriceCsvResource.class, DeliveryOfferFactory$DeliveryTier.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplication.class, TieredDiscountFactory.class, ValuationEngine$ArbitrationState.class, InstrumentGrantFactory$InstrumentGrantApplier.class, CouponGrantFactory.class, FreeDeliveryThresholdDiscountFactory.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplication.class, NPlusMUpsellAdvantageFactory$UpsellSuggestion.class, Basket$Item$SourceLine.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplier.class, MixedBundleOfferFactory$BundleComponent.class, GiftItemDiscountFactory.class, BasicOfferFactory.class, MixedBundleOfferFactory.class, InstrumentGrantFactory$Award.class, AntiWasteDiscountFactory$AntiWasteDiscountApplication.class, TicketDiscountFactory$TicketDiscountApplication.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplication.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplication.class, InstrumentGrantFactory$InstrumentGrantApplication.class, MealVoucherAdvantageFactory.class, NPlusMOfferFactory$DiscountType.class, AntiWasteDiscountFactory$AntiWasteDiscountApplier.class, DeliveryOfferFactory$DeliveryApplication.class, DepositBasketOfferFactory.class, VatRefundDiscountFactory$Scope.class, NPlusMOfferFactory.class, MixedBundleUpsellAdvantageFactory$UpsellBundleComponent.class, MixedBundleOfferFactory$MixedBundleApplication.class, BasicOfferFactory$BasicApplication.class, VatRefundDiscountFactory$Contribution.class, TieredDiscountFactory$Metric.class, ValuationResource.class, TicketDiscountFactory.class, TieredDiscountFactory$TieredDiscountApplier$1Unit.class.
+17:44:43 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation stopped in 0.015s
+17:44:43 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-3) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
+__  ____  __  _____   ___  __ ____  ______ 
+ --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+ -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+--\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+17:44:43 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:44:43 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:44:43 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:44:43 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+17:44:43 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+17:44:43 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+17:44:43 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+17:44:43 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 0.594s. Listening on: http://localhost:8090
+17:44:43 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+17:44:43 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+17:44:43 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-8) Live reload total time: 0.625s 

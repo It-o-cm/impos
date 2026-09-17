@@ -126,6 +126,17 @@
             .then(r => r.json())
             .then(data => {
                 if (data.scannedBadge && data.scannedBadge !== "") {
+                    /* LC-01-01-03 : quand le back-office n'exige pas de mot de
+                       passe, le badge scanné ouvre la caisse à lui seul. Le
+                       serveur revérifie la règle ET que le badge a bien été
+                       PRÉSENTÉ : la page ne décide de rien, elle envoie. */
+                    if (data.passwordRequired === false) {
+                        storedLogin = data.scannedBadge;
+                        document.getElementById('inputLogin').value = data.scannedBadge;
+                        document.getElementById('inputPassword').value = '';
+                        document.getElementById('unlockForm').submit();
+                        return;
+                    }
                     handleBadgeDetection(data.scannedBadge);
                 }
             });

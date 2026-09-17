@@ -1,0 +1,313 @@
+EAN|NAME|DESCRIPTION|BRAND|REFERENCE_WEIGHT|REFERENCE_VOLUME|PRODUCT_TYPE|UNIT_NAME|ACTIVE|PLU|ICON|FORBIDDEN_TO_SALE|VARIABLE_WEIGHT
+3000000000014|Pommes Golden|Pommes fraîches bio|Brand A|1.000|2.500|WEIGHT|kg|true|4020|🍎|false|true
+3000000000021|Lait UHT 1L|Lait demi-écrémé|Brand B|1.000|1.000|UNIT|L|true||🥛|false|false
+3000000000038|Baguette Tradition|Pain de tradition|Brand C|0.250|0.600|UNIT|kg|true||🥖|false|false
+3000000000045|Café Grains 500g|Café moulu arabica|Brand D|0.500|1.250|UNIT|kg|true||☕|false|false
+3000000000052|Pâtes Penne 500g|Pâtes alimentaires|Brand E|0.500|1.250|WEIGHT|kg|true|501|🍝|false|false
+3000000000069|Huile d'Olive 1L|Huile vierge extra|Brand F|1.000|1.000|UNIT|L|true||🫒|false|false
+3000000000076|Eau Minérale 1.5L|Eau de source|Brand G|1.500|1.500|UNIT|L|true||💧|false|false
+3000000000083|Jambon Blanc 100g|Tranches de jambon|Brand H|0.100|0.250|WEIGHT|kg|true|210|🥓|false|false
+3000000000090|Beurre Doux 250g|Motte de beurre|Brand I|0.250|0.600|WEIGHT|kg|true|220|🧈|false|false
+3000000000106|Yaourt Nature 4x125g|Pots de yaourt|Brand J|0.500|1.250|UNIT|kg|true||🥛|false|false
+3000000000113|Coca-Cola 1.5L|Boisson gazeuse|Brand K|1.500|1.500|UNIT|L|true||🥤|false|false
+3000000000120|Orangina 1.25L|Boisson aux agrumes|Brand L|1.250|1.250|UNIT|L|true||🥤|false|false
+3000000000137|Biscuits Chocolat 200g|Paquet de biscuits|Brand M|0.200|0.500|UNIT|kg|true||🍪|false|false
+3000000000144|Chips Classiques 150g|Chips de pomme de terre|Brand N|0.150|0.400|UNIT|kg|true||🍟|false|false
+3000000000151|Sauce Tomate 500g|Sauce bolognaise|Brand O|0.500|1.250|UNIT|kg|true||🍅|false|false
+3000000000168|Purée de Pomme de Terre 500g|Purée instantanée|Brand P|0.500|1.250|UNIT|kg|true||🥔|false|false
+3000000000175|Concombre|Légume frais|Brand Q|0.300|0.750|WEIGHT|kg|true|4062|🥒|false|true
+3000000000182|Tomates Cerises 500g|Tomates rondes|Brand R|0.500|1.250|WEIGHT|kg|true|4796|🍅|false|false
+3000000000199|Oeufs Bio 6 unités|Oeufs frais gros|Brand S|0.360|0.900|UNIT|kg|true||🥚|false|false
+3000000000205|Poulet Rôti 1.2kg|Poulet fermier|Brand T|1.200|3.000|WEIGHT|kg|true|230|🍗|false|false
+3000000000212|Saumon Fume 200g|Tranches de saumon|Brand U|0.200|0.500|WEIGHT|kg|true|240|🐟|false|false
+3000000000229|Riz Basmati 1kg|Riz long grain|Brand V|1.000|2.500|UNIT|kg|true||🍚|false|false
+3000000000236|Lentilles Vertes 500g|Légumes secs|Brand W|0.500|1.250|UNIT|kg|true||🫘|false|false
+3000000000243|Miel d'Acacia 500g|Pot de miel|Brand X|0.500|1.250|UNIT|kg|true||🍯|false|false
+3000000000250|Lessive Liquide 1.5L|Lessive linge|Brand Y|1.500|1.500|UNIT|L|true||🧴|false|false
+3000000000267|Eponge Vaisselle 3 unités|Eponges abrasives|Brand Z|0.100|0.250|UNIT|kg|true||🧽|false|false
+3000000000274|Coton Bio 500g|Disques de coton|Brand A1|0.500|1.250|UNIT|kg|true||🧻|false|false
+3000000000281|Piles AA 4 unités|Piles alcalines|Brand B1|0.080|0.200|UNIT|kg|true||🔋|false|false
+3000000000298|Chewing-Gum Menthe|Pommes de menthe|Brand C1|0.050|0.125|UNIT|kg|true||🍬|false|false
+3000000000304|Dentifrice Menthe 100ml|Tube dentifrice|Brand D1|0.100|0.100|UNIT|L|true||🪥|false|false
+3000000000311|Poêle Antiadhésive 28cm|Poêle fonte alum|Tefal|0.800|0.000|UNIT|pcs|true||🍳|false|false
+3000000000328|Casserole Inox 20cm|Casserole acier inox|Staub|1.200|0.000|UNIT|pcs|true||🍲|false|false
+3000000000335|Set de Couteaux Chef|Couteaux acier inox|Sabatier|0.500|0.000|UNIT|pcs|true||🔪|false|false
+4000250000016|Carte Cadeau 25|Carte cadeau Intermarché|Intermarché|0.010|0.010|UNIT|u|true|||false|false
+4000500000018|Carte Cadeau 50|Carte cadeau Intermarché|Intermarché|0.010|0.010|UNIT|u|true|||false|false
+4000180000018|Vin Rouge Bordeaux 75cl|AOC Bordeaux|Château Test|0.750|1.200|UNIT|L|true|||false|false
+4004099000015|Champignon sauvage non contrôlé|Produit test interdit à la vente|Brand E1|0.300|0.750|UNIT|pc|true|||false|false
+6600000999997|Lot rappelé (retrait conso)|Produit test interdit à la vente|Brand F1|0.500|1.250|UNIT|pc|true|||false|false
+3000000010013|Oranges à Jus 1kg|Agrumes — Oranges à Jus 1kg|Maison Dubois|0.914|1.181|WEIGHT|kg|true|4100|🍊|false|true
+3000000010020|Clémentines Corses|Agrumes — Clémentines Corses|Le Verger|1.394|2.371|WEIGHT|kg|true|4101|🍊|false|true
+3000000010037|Citrons Jaunes|Agrumes — Citrons Jaunes|Croq'Frais|0.400|0.533|WEIGHT|kg|true|4102|🍊|false|true
+3000000010044|Citrons Verts|Agrumes — Citrons Verts|Terroir & Co|1.069|1.410|WEIGHT|kg|true|4103|🍊|false|true
+3000000010051|Pamplemousse Rose|Agrumes — Pamplemousse Rose|Prairie|0.198|0.255|WEIGHT|kg|true|4104|🍊|false|true
+3000000010068|Mandarines|Agrumes — Mandarines|Marinella|1.178|1.826|WEIGHT|kg|true|4105|🍊|false|true
+3000000010075|Oranges Sanguines|Agrumes — Oranges Sanguines|Vertfeuille|0.556|1.088|WEIGHT|kg|true|4106|🍊|false|true
+3000000010082|Kumquats 250g|Agrumes — Kumquats 250g|L'Artisan|0.392|0.645|WEIGHT|kg|true|4107|🍊|false|true
+3000000010099|Cédrat|Agrumes — Cédrat|Nordique|0.255|0.570|WEIGHT|kg|true|4108|🍊|false|true
+3000000010105|Bergamotes|Agrumes — Bergamotes|Saveurs d'Ici|1.031|2.396|WEIGHT|kg|true|4109|🍊|false|true
+3000000010112|Fraises Gariguette 500g|Fruits rouges — Fraises Gariguette 500g|Marinella|0.631|1.031|WEIGHT|kg|true|4110|🍓|false|true
+3000000010129|Framboises 125g|Fruits rouges — Framboises 125g|Vertfeuille|1.037|1.047|WEIGHT|kg|true|4111|🍓|false|true
+3000000010136|Myrtilles 125g|Fruits rouges — Myrtilles 125g|L'Artisan|0.849|1.289|WEIGHT|kg|true|4112|🍓|false|true
+3000000010143|Mûres 125g|Fruits rouges — Mûres 125g|Nordique|1.086|1.101|WEIGHT|kg|true|4113|🍓|false|true
+3000000010150|Groseilles 125g|Fruits rouges — Groseilles 125g|Saveurs d'Ici|0.315|0.331|WEIGHT|kg|true|4114|🍓|false|true
+3000000010167|Cassis 125g|Fruits rouges — Cassis 125g|Maison Dubois|0.192|0.235|WEIGHT|kg|true|4115|🍓|false|true
+3000000010174|Cerises Burlat|Fruits rouges — Cerises Burlat|Le Verger|1.120|1.729|WEIGHT|kg|true|4116|🍓|false|true
+3000000010181|Fraises Rondes 250g|Fruits rouges — Fraises Rondes 250g|Croq'Frais|0.765|1.337|WEIGHT|kg|true|4117|🍓|false|true
+3000000010198|Bananes Cavendish|Fruits exotiques — Bananes Cavendish|Saveurs d'Ici|0.536|1.235|WEIGHT|kg|true|4118|🍍|false|true
+3000000010204|Ananas Victoria|Fruits exotiques — Ananas Victoria|Maison Dubois|1.057|1.066|WEIGHT|kg|true|4119|🍍|false|true
+3000000010211|Mangue Kent|Fruits exotiques — Mangue Kent|Le Verger|0.145|0.220|WEIGHT|kg|true|4120|🍍|false|true
+3000000010228|Avocat Hass|Fruits exotiques — Avocat Hass|Croq'Frais|1.326|2.994|WEIGHT|kg|true|4121|🍍|false|true
+3000000010235|Kiwi Vert|Fruits exotiques — Kiwi Vert|Terroir & Co|1.088|2.352|WEIGHT|kg|true|4122|🍍|false|true
+3000000010242|Fruit de la Passion|Fruits exotiques — Fruit de la Passion|Prairie|1.209|1.463|WEIGHT|kg|true|4123|🍍|false|true
+3000000010259|Litchis 400g|Fruits exotiques — Litchis 400g|Marinella|1.210|2.550|WEIGHT|kg|true|4124|🍍|false|true
+3000000010266|Papaye|Fruits exotiques — Papaye|Vertfeuille|0.725|1.692|WEIGHT|kg|true|4125|🍍|false|true
+3000000010273|Noix de Coco|Fruits exotiques — Noix de Coco|L'Artisan|1.440|3.350|WEIGHT|kg|true|4126|🍍|false|true
+3000000010280|Grenade|Fruits exotiques — Grenade|Nordique|0.195|0.355|WEIGHT|kg|true|4127|🍍|false|true
+3000000010297|Poires Conférence|Fruits du verger — Poires Conférence|Prairie|0.591|0.642|WEIGHT|kg|true|4128|🍐|false|true
+3000000010303|Pêches Jaunes|Fruits du verger — Pêches Jaunes|Marinella|1.254|1.424|WEIGHT|kg|true|4129|🍐|false|true
+3000000010310|Nectarines|Fruits du verger — Nectarines|Vertfeuille|0.450|0.588|WEIGHT|kg|true|4130|🍐|false|true
+3000000010327|Abricots|Fruits du verger — Abricots|L'Artisan|1.473|3.464|WEIGHT|kg|true|4131|🍐|false|true
+3000000010334|Prunes Reine-Claude|Fruits du verger — Prunes Reine-Claude|Nordique|0.234|0.463|WEIGHT|kg|true|4132|🍐|false|true
+3000000010341|Raisin Muscat|Fruits du verger — Raisin Muscat|Saveurs d'Ici|0.117|0.228|WEIGHT|kg|true|4133|🍐|false|true
+3000000010358|Pommes Granny Smith|Fruits du verger — Pommes Granny Smith|Maison Dubois|0.742|1.376|WEIGHT|kg|true|4134|🍐|false|true
+3000000010365|Pommes Pink Lady|Fruits du verger — Pommes Pink Lady|Le Verger|0.434|0.612|WEIGHT|kg|true|4135|🍐|false|true
+3000000010372|Brugnons|Fruits du verger — Brugnons|Croq'Frais|0.873|1.574|WEIGHT|kg|true|4136|🍐|false|true
+3000000010389|Coings|Fruits du verger — Coings|Terroir & Co|1.412|2.022|WEIGHT|kg|true|4137|🍐|false|true
+3000000010396|Laitue Batavia|Salades et herbes — Laitue Batavia|Saveurs d'Ici|1.352|2.165|WEIGHT|kg|true|4138|🥬|false|true
+3000000010402|Salade Iceberg|Salades et herbes — Salade Iceberg|Maison Dubois|0.409|0.450|WEIGHT|kg|true|4139|🥬|false|true
+3000000010419|Mâche 150g|Salades et herbes — Mâche 150g|Le Verger|0.269|0.407|WEIGHT|kg|true|4140|🥬|false|true
+3000000010426|Roquette 125g|Salades et herbes — Roquette 125g|Croq'Frais|0.726|1.450|WEIGHT|kg|true|4141|🥬|false|true
+3000000010433|Épinards Frais 500g|Salades et herbes — Épinards Frais 500g|Terroir & Co|1.062|1.642|WEIGHT|kg|true|4142|🥬|false|true
+3000000010440|Persil Plat|Salades et herbes — Persil Plat|Prairie|0.870|1.036|WEIGHT|kg|true|4143|🥬|false|true
+3000000010457|Basilic Frais|Salades et herbes — Basilic Frais|Marinella|0.546|1.100|WEIGHT|kg|true|4144|🥬|false|true
+3000000010464|Coriandre|Salades et herbes — Coriandre|Vertfeuille|0.437|0.722|WEIGHT|kg|true|4145|🥬|false|true
+3000000010471|Menthe Fraîche|Salades et herbes — Menthe Fraîche|L'Artisan|0.516|0.547|WEIGHT|kg|true|4146|🥬|false|true
+3000000010488|Ciboulette|Salades et herbes — Ciboulette|Nordique|1.490|3.144|WEIGHT|kg|true|4147|🥬|false|true
+3000000010495|Carottes des Sables|Légumes anciens — Carottes des Sables|Prairie|1.033|1.450|WEIGHT|kg|true|4148|🥕|false|true
+3000000010501|Panais|Légumes anciens — Panais|Marinella|1.431|3.091|WEIGHT|kg|true|4149|🥕|false|true
+3000000010518|Topinambours|Légumes anciens — Topinambours|Vertfeuille|1.477|3.520|WEIGHT|kg|true|4150|🥕|false|true
+3000000010525|Betteraves Crues|Légumes anciens — Betteraves Crues|L'Artisan|0.677|1.136|WEIGHT|kg|true|4151|🥕|false|true
+3000000010532|Navets Boule d'Or|Légumes anciens — Navets Boule d'Or|Nordique|0.963|1.170|WEIGHT|kg|true|4152|🥕|false|true
+3000000010549|Radis Noir|Légumes anciens — Radis Noir|Saveurs d'Ici|1.301|1.421|WEIGHT|kg|true|4153|🥕|false|true
+3000000010556|Céleri-Rave|Légumes anciens — Céleri-Rave|Maison Dubois|0.472|0.924|WEIGHT|kg|true|4154|🥕|false|true
+3000000010563|Rutabaga|Légumes anciens — Rutabaga|Le Verger|1.467|3.223|WEIGHT|kg|true|4155|🥕|false|true
+3000000010570|Salsifis|Légumes anciens — Salsifis|Croq'Frais|1.122|1.369|WEIGHT|kg|true|4156|🥕|false|true
+3000000010587|Crosnes|Légumes anciens — Crosnes|Terroir & Co|0.684|0.956|WEIGHT|kg|true|4157|🥕|false|true
+3000000010594|Courgettes Vertes|Légumes du soleil — Courgettes Vertes|Saveurs d'Ici|0.403|0.884|WEIGHT|kg|true|4158|🍆|false|true
+3000000010600|Aubergines|Légumes du soleil — Aubergines|Maison Dubois|0.425|0.548|WEIGHT|kg|true|4159|🍆|false|true
+3000000010617|Poivrons Rouges|Légumes du soleil — Poivrons Rouges|Le Verger|1.122|2.110|WEIGHT|kg|true|4160|🍆|false|true
+3000000010624|Poivrons Verts|Légumes du soleil — Poivrons Verts|Croq'Frais|1.360|2.275|WEIGHT|kg|true|4161|🍆|false|true
+3000000010631|Tomates Coeur de Boeuf|Légumes du soleil — Tomates Coeur de Boeuf|Terroir & Co|0.365|0.648|WEIGHT|kg|true|4162|🍆|false|true
+3000000010648|Oignons Jaunes 1kg|Légumes du soleil — Oignons Jaunes 1kg|Prairie|1.386|2.449|WEIGHT|kg|true|4163|🍆|false|true
+3000000010655|Ail Rose de Lautrec|Légumes du soleil — Ail Rose de Lautrec|Marinella|0.930|2.234|WEIGHT|kg|true|4164|🍆|false|true
+3000000010662|Échalotes 500g|Légumes du soleil — Échalotes 500g|Vertfeuille|1.403|3.305|WEIGHT|kg|true|4165|🍆|false|true
+3000000010679|Fenouil|Légumes du soleil — Fenouil|L'Artisan|0.773|0.922|WEIGHT|kg|true|4166|🍆|false|true
+3000000010686|Artichauts Camus|Légumes du soleil — Artichauts Camus|Nordique|0.157|0.301|WEIGHT|kg|true|4167|🍆|false|true
+3000000010693|Lait Entier 1L|Laits et oeufs — Lait Entier 1L|Prairie|1.491|2.838|UNIT|L|true||🥛|false|false
+3000000010709|Lait Écrémé 1L|Laits et oeufs — Lait Écrémé 1L|Marinella|0.664|0.797|UNIT|L|true||🥛|false|false
+3000000010716|Lait Bio Demi-Écrémé 1L|Laits et oeufs — Lait Bio Demi-Écrémé 1L|Vertfeuille|0.504|0.905|UNIT|L|true||🥛|false|false
+3000000010723|Lait d'Amande 1L|Laits et oeufs — Lait d'Amande 1L|L'Artisan|0.516|0.698|UNIT|L|true||🥛|false|false
+3000000010730|Lait d'Avoine 1L|Laits et oeufs — Lait d'Avoine 1L|Nordique|0.644|1.183|UNIT|L|true||🥛|false|false
+3000000010747|Oeufs Plein Air x12|Laits et oeufs — Oeufs Plein Air x12|Saveurs d'Ici|1.295|3.081|UNIT|L|true||🥛|false|false
+3000000010754|Oeufs Label Rouge x6|Laits et oeufs — Oeufs Label Rouge x6|Maison Dubois|1.410|2.113|UNIT|L|true||🥛|false|false
+3000000010761|Crème Fraîche Épaisse 30cl|Laits et oeufs — Crème Fraîche Épaisse 30cl|Le Verger|0.527|1.237|UNIT|L|true||🥛|false|false
+3000000010778|Crème Liquide 25cl|Laits et oeufs — Crème Liquide 25cl|Croq'Frais|0.381|0.467|UNIT|L|true||🥛|false|false
+3000000010785|Lait de Chèvre 1L|Laits et oeufs — Lait de Chèvre 1L|Terroir & Co|0.715|1.708|UNIT|L|true||🥛|false|false
+3000000010792|Yaourts Grecs 4x150g|Yaourts et desserts — Yaourts Grecs 4x150g|Saveurs d'Ici|1.161|2.478|UNIT|kg|true||🍮|false|false
+3000000010808|Yaourts aux Fruits 8x125g|Yaourts et desserts — Yaourts aux Fruits 8x125g|Maison Dubois|1.189|1.589|UNIT|kg|true||🍮|false|false
+3000000010815|Skyr Nature 450g|Yaourts et desserts — Skyr Nature 450g|Le Verger|0.147|0.344|UNIT|kg|true||🍮|false|false
+3000000010822|Fromage Blanc 1kg|Yaourts et desserts — Fromage Blanc 1kg|Croq'Frais|0.930|1.854|UNIT|kg|true||🍮|false|false
+3000000010839|Petits Suisses 12x60g|Yaourts et desserts — Petits Suisses 12x60g|Terroir & Co|1.055|1.639|UNIT|kg|true||🍮|false|false
+3000000010846|Crème Dessert Chocolat 4x125g|Yaourts et desserts — Crème Dessert Chocolat 4x125g|Prairie|1.414|2.723|UNIT|kg|true||🍮|false|false
+3000000010853|Riz au Lait 4x115g|Yaourts et desserts — Riz au Lait 4x115g|Marinella|1.290|1.397|UNIT|kg|true||🍮|false|false
+3000000010860|Mousse au Chocolat 4x60g|Yaourts et desserts — Mousse au Chocolat 4x60g|Vertfeuille|0.228|0.454|UNIT|kg|true||🍮|false|false
+3000000010877|Yaourts à Boire 6x180g|Yaourts et desserts — Yaourts à Boire 6x180g|L'Artisan|1.296|1.383|UNIT|kg|true||🍮|false|false
+3000000010884|Kéfir Nature 500ml|Yaourts et desserts — Kéfir Nature 500ml|Nordique|0.161|0.175|UNIT|kg|true||🍮|false|false
+3000000010891|Camembert de Normandie 250g|Fromages — Camembert de Normandie 250g|Prairie|0.276|0.684|WEIGHT|kg|true|4168|🧀|false|true
+3000000010907|Comté 18 Mois 200g|Fromages — Comté 18 Mois 200g|Marinella|1.384|1.771|WEIGHT|kg|true|4169|🧀|false|true
+3000000010914|Roquefort AOP 150g|Fromages — Roquefort AOP 150g|Vertfeuille|1.213|2.536|WEIGHT|kg|true|4170|🧀|false|true
+3000000010921|Chèvre Bûche 180g|Fromages — Chèvre Bûche 180g|L'Artisan|1.459|3.053|WEIGHT|kg|true|4171|🧀|false|true
+3000000010938|Emmental Râpé 200g|Fromages — Emmental Râpé 200g|Nordique|0.498|0.795|WEIGHT|kg|true|4172|🧀|false|true
+3000000010945|Mozzarella di Bufala 125g|Fromages — Mozzarella di Bufala 125g|Saveurs d'Ici|0.823|1.425|WEIGHT|kg|true|4173|🧀|false|true
+3000000010952|Raclette en Tranches 400g|Fromages — Raclette en Tranches 400g|Maison Dubois|0.689|1.577|WEIGHT|kg|true|4174|🧀|false|true
+3000000010969|Brie de Meaux 200g|Fromages — Brie de Meaux 200g|Le Verger|0.843|1.745|WEIGHT|kg|true|4175|🧀|false|true
+3000000010976|Reblochon Fermier 450g|Fromages — Reblochon Fermier 450g|Croq'Frais|1.075|1.536|WEIGHT|kg|true|4176|🧀|false|true
+3000000010983|Parmesan Reggiano 150g|Fromages — Parmesan Reggiano 150g|Terroir & Co|0.973|1.172|WEIGHT|kg|true|4177|🧀|false|true
+3000000010990|Feta AOP 200g|Fromages — Feta AOP 200g|Prairie|0.440|0.530|WEIGHT|kg|true|4178|🧀|false|true
+3000000011003|Saint-Nectaire 300g|Fromages — Saint-Nectaire 300g|Marinella|0.190|0.219|WEIGHT|kg|true|4179|🧀|false|true
+3000000011010|Filets de Poulet 500g|Volaille — Filets de Poulet 500g|Maison Dubois|0.237|0.429|WEIGHT|kg|true|4180|🍗|false|true
+3000000011027|Cuisses de Poulet 1kg|Volaille — Cuisses de Poulet 1kg|Le Verger|0.735|1.633|WEIGHT|kg|true|4181|🍗|false|true
+3000000011034|Escalopes de Dinde 400g|Volaille — Escalopes de Dinde 400g|Croq'Frais|0.330|0.368|WEIGHT|kg|true|4182|🍗|false|true
+3000000011041|Poulet Fermier Entier|Volaille — Poulet Fermier Entier|Terroir & Co|1.313|2.993|WEIGHT|kg|true|4183|🍗|false|true
+3000000011058|Ailes de Poulet Marinées 800g|Volaille — Ailes de Poulet Marinées 800g|Prairie|0.814|1.984|WEIGHT|kg|true|4184|🍗|false|true
+3000000011065|Magret de Canard 350g|Volaille — Magret de Canard 350g|Marinella|1.168|2.765|WEIGHT|kg|true|4185|🍗|false|true
+3000000011072|Pintade Fermière|Volaille — Pintade Fermière|Vertfeuille|1.138|2.135|WEIGHT|kg|true|4186|🍗|false|true
+3000000011089|Nuggets de Poulet 400g|Volaille — Nuggets de Poulet 400g|L'Artisan|0.458|0.950|WEIGHT|kg|true|4187|🍗|false|true
+3000000011096|Steak Haché 5% 2x125g|Boeuf et porc — Steak Haché 5% 2x125g|Prairie|0.887|1.269|WEIGHT|kg|true|4188|🥩|false|true
+3000000011102|Entrecôte 300g|Boeuf et porc — Entrecôte 300g|Marinella|1.330|3.285|WEIGHT|kg|true|4189|🥩|false|true
+3000000011119|Bavette d'Aloyau 250g|Boeuf et porc — Bavette d'Aloyau 250g|Vertfeuille|1.124|1.271|WEIGHT|kg|true|4190|🥩|false|true
+3000000011126|Rôti de Boeuf 800g|Boeuf et porc — Rôti de Boeuf 800g|L'Artisan|0.883|1.978|WEIGHT|kg|true|4191|🥩|false|true
+3000000011133|Côtes de Porc x2|Boeuf et porc — Côtes de Porc x2|Nordique|0.306|0.535|WEIGHT|kg|true|4192|🥩|false|true
+3000000011140|Filet Mignon de Porc 500g|Boeuf et porc — Filet Mignon de Porc 500g|Saveurs d'Ici|0.297|0.368|WEIGHT|kg|true|4193|🥩|false|true
+3000000011157|Saucisses de Toulouse x4|Boeuf et porc — Saucisses de Toulouse x4|Maison Dubois|1.210|1.521|WEIGHT|kg|true|4194|🥩|false|true
+3000000011164|Lardons Fumés 200g|Boeuf et porc — Lardons Fumés 200g|Le Verger|0.205|0.282|WEIGHT|kg|true|4195|🥩|false|true
+3000000011171|Boeuf Bourguignon 600g|Boeuf et porc — Boeuf Bourguignon 600g|Croq'Frais|0.110|0.163|WEIGHT|kg|true|4196|🥩|false|true
+3000000011188|Rôti de Porc Orloff 900g|Boeuf et porc — Rôti de Porc Orloff 900g|Terroir & Co|0.423|0.986|WEIGHT|kg|true|4197|🥩|false|true
+3000000011195|Jambon de Bayonne 4 Tranches|Charcuterie — Jambon de Bayonne 4 Tranches|Saveurs d'Ici|1.108|2.621|WEIGHT|kg|true|4198|🥓|false|true
+3000000011201|Saucisson Sec Nature|Charcuterie — Saucisson Sec Nature|Maison Dubois|1.308|1.937|WEIGHT|kg|true|4199|🥓|false|true
+3000000011218|Chorizo Doux 225g|Charcuterie — Chorizo Doux 225g|Le Verger|0.913|1.393|WEIGHT|kg|true|4200|🥓|false|true
+3000000011225|Pâté de Campagne 180g|Charcuterie — Pâté de Campagne 180g|Croq'Frais|1.074|1.588|WEIGHT|kg|true|4201|🥓|false|true
+3000000011232|Rillettes du Mans 220g|Charcuterie — Rillettes du Mans 220g|Terroir & Co|0.512|0.731|WEIGHT|kg|true|4202|🥓|false|true
+3000000011249|Mortadelle Pistache 150g|Charcuterie — Mortadelle Pistache 150g|Prairie|1.466|1.813|WEIGHT|kg|true|4203|🥓|false|true
+3000000011256|Coppa 100g|Charcuterie — Coppa 100g|Marinella|1.099|1.117|WEIGHT|kg|true|4204|🥓|false|true
+3000000011263|Andouille de Guémené 200g|Charcuterie — Andouille de Guémené 200g|Vertfeuille|0.710|1.655|WEIGHT|kg|true|4205|🥓|false|true
+3000000011270|Pavés de Saumon x2|Poissonnerie — Pavés de Saumon x2|Terroir & Co|0.451|0.752|WEIGHT|kg|true|4206|🐟|false|true
+3000000011287|Filets de Cabillaud 400g|Poissonnerie — Filets de Cabillaud 400g|Prairie|0.394|0.456|WEIGHT|kg|true|4207|🐟|false|true
+3000000011294|Crevettes Roses 200g|Poissonnerie — Crevettes Roses 200g|Marinella|1.053|2.431|WEIGHT|kg|true|4208|🐟|false|true
+3000000011300|Moules de Bouchot 1.4kg|Poissonnerie — Moules de Bouchot 1.4kg|Vertfeuille|0.116|0.147|WEIGHT|kg|true|4209|🐟|false|true
+3000000011317|Filets de Sole 300g|Poissonnerie — Filets de Sole 300g|L'Artisan|0.934|1.503|WEIGHT|kg|true|4210|🐟|false|true
+3000000011324|Truite Fumée 4 Tranches|Poissonnerie — Truite Fumée 4 Tranches|Nordique|0.962|1.849|WEIGHT|kg|true|4211|🐟|false|true
+3000000011331|Noix de Saint-Jacques 250g|Poissonnerie — Noix de Saint-Jacques 250g|Saveurs d'Ici|0.387|0.906|WEIGHT|kg|true|4212|🐟|false|true
+3000000011348|Dos de Lieu Noir 400g|Poissonnerie — Dos de Lieu Noir 400g|Maison Dubois|1.252|2.721|WEIGHT|kg|true|4213|🐟|false|true
+3000000011355|Croissants Pur Beurre x4|Pains et viennoiseries — Croissants Pur Beurre x4|L'Artisan|0.175|0.271|UNIT|kg|true||🥐|false|false
+3000000011362|Pains au Chocolat x4|Pains et viennoiseries — Pains au Chocolat x4|Nordique|0.381|0.878|UNIT|kg|true||🥐|false|false
+3000000011379|Pain de Campagne 400g|Pains et viennoiseries — Pain de Campagne 400g|Saveurs d'Ici|1.075|1.856|UNIT|kg|true||🥐|false|false
+3000000011386|Pain Complet Tranché 500g|Pains et viennoiseries — Pain Complet Tranché 500g|Maison Dubois|1.233|1.552|UNIT|kg|true||🥐|false|false
+3000000011393|Pain de Mie Nature 550g|Pains et viennoiseries — Pain de Mie Nature 550g|Le Verger|1.162|2.270|UNIT|kg|true||🥐|false|false
+3000000011409|Brioche Tressée 500g|Pains et viennoiseries — Brioche Tressée 500g|Croq'Frais|1.331|1.971|UNIT|kg|true||🥐|false|false
+3000000011416|Baguette Céréales|Pains et viennoiseries — Baguette Céréales|Terroir & Co|0.714|1.465|UNIT|kg|true||🥐|false|false
+3000000011423|Chinois à la Crème|Pains et viennoiseries — Chinois à la Crème|Prairie|0.994|1.721|UNIT|kg|true||🥐|false|false
+3000000011430|Pain aux Noix 300g|Pains et viennoiseries — Pain aux Noix 300g|Marinella|0.612|1.136|UNIT|kg|true||🥐|false|false
+3000000011447|Fougasse aux Olives|Pains et viennoiseries — Fougasse aux Olives|Vertfeuille|0.182|0.398|UNIT|kg|true||🥐|false|false
+3000000011454|Spaghetti N°5 500g|Pâtes, riz et féculents — Spaghetti N°5 500g|Croq'Frais|0.520|0.734|UNIT|kg|true||🍝|false|false
+3000000011461|Coquillettes 500g|Pâtes, riz et féculents — Coquillettes 500g|Terroir & Co|1.281|1.670|UNIT|kg|true||🍝|false|false
+3000000011478|Tagliatelles aux Oeufs 250g|Pâtes, riz et féculents — Tagliatelles aux Oeufs 250g|Prairie|0.823|1.175|UNIT|kg|true||🍝|false|false
+3000000011485|Riz Thaï 1kg|Pâtes, riz et féculents — Riz Thaï 1kg|Marinella|0.914|2.127|UNIT|kg|true||🍝|false|false
+3000000011492|Riz Arborio Risotto 500g|Pâtes, riz et féculents — Riz Arborio Risotto 500g|Vertfeuille|1.069|1.114|UNIT|kg|true||🍝|false|false
+3000000011508|Semoule Fine 500g|Pâtes, riz et féculents — Semoule Fine 500g|L'Artisan|0.681|1.001|UNIT|kg|true||🍝|false|false
+3000000011515|Quinoa Blond 400g|Pâtes, riz et féculents — Quinoa Blond 400g|Nordique|0.897|1.902|UNIT|kg|true||🍝|false|false
+3000000011522|Boulgour 500g|Pâtes, riz et féculents — Boulgour 500g|Saveurs d'Ici|0.812|1.764|UNIT|kg|true||🍝|false|false
+3000000011539|Polenta Instantanée 500g|Pâtes, riz et féculents — Polenta Instantanée 500g|Maison Dubois|1.497|1.550|UNIT|kg|true||🍝|false|false
+3000000011546|Gnocchi à Poêler 400g|Pâtes, riz et féculents — Gnocchi à Poêler 400g|Le Verger|1.255|1.698|UNIT|kg|true||🍝|false|false
+3000000011553|Ravioli Ricotta Épinards 300g|Pâtes, riz et féculents — Ravioli Ricotta Épinards 300g|Croq'Frais|0.339|0.834|UNIT|kg|true||🍝|false|false
+3000000011560|Vermicelles de Riz 200g|Pâtes, riz et féculents — Vermicelles de Riz 200g|Terroir & Co|0.214|0.387|UNIT|kg|true||🍝|false|false
+3000000011577|Thon au Naturel 3x80g|Conserves et bocaux — Thon au Naturel 3x80g|Nordique|0.125|0.166|UNIT|kg|true||🥫|false|false
+3000000011584|Sardines à l'Huile 115g|Conserves et bocaux — Sardines à l'Huile 115g|Saveurs d'Ici|0.840|1.202|UNIT|kg|true||🥫|false|false
+3000000011591|Maïs Doux 2x140g|Conserves et bocaux — Maïs Doux 2x140g|Maison Dubois|0.215|0.325|UNIT|kg|true||🥫|false|false
+3000000011607|Haricots Verts Extra-Fins 440g|Conserves et bocaux — Haricots Verts Extra-Fins 440g|Le Verger|1.254|1.974|UNIT|kg|true||🥫|false|false
+3000000011614|Petits Pois Carottes 400g|Conserves et bocaux — Petits Pois Carottes 400g|Croq'Frais|0.570|0.925|UNIT|kg|true||🥫|false|false
+3000000011621|Champignons Émincés 230g|Conserves et bocaux — Champignons Émincés 230g|Terroir & Co|0.463|0.843|UNIT|kg|true||🥫|false|false
+3000000011638|Tomates Pelées 400g|Conserves et bocaux — Tomates Pelées 400g|Prairie|0.204|0.265|UNIT|kg|true||🥫|false|false
+3000000011645|Cassoulet Toulousain 840g|Conserves et bocaux — Cassoulet Toulousain 840g|Marinella|0.784|0.914|UNIT|kg|true||🥫|false|false
+3000000011652|Olives Vertes Dénoyautées 160g|Conserves et bocaux — Olives Vertes Dénoyautées 160g|Vertfeuille|0.325|0.581|UNIT|kg|true||🥫|false|false
+3000000011669|Cornichons Extra-Fins 220g|Conserves et bocaux — Cornichons Extra-Fins 220g|L'Artisan|1.149|2.554|UNIT|kg|true||🥫|false|false
+3000000011676|Ketchup 560g|Sauces et condiments — Ketchup 560g|Terroir & Co|0.749|1.748|UNIT|kg|true||🧂|false|false
+3000000011683|Mayonnaise à la Moutarde 235g|Sauces et condiments — Mayonnaise à la Moutarde 235g|Prairie|0.570|1.408|UNIT|kg|true||🧂|false|false
+3000000011690|Moutarde de Dijon 265g|Sauces et condiments — Moutarde de Dijon 265g|Marinella|0.320|0.681|UNIT|kg|true||🧂|false|false
+3000000011706|Vinaigre Balsamique 25cl|Sauces et condiments — Vinaigre Balsamique 25cl|Vertfeuille|0.963|1.990|UNIT|kg|true||🧂|false|false
+3000000011713|Sauce Soja 150ml|Sauces et condiments — Sauce Soja 150ml|L'Artisan|1.268|2.641|UNIT|kg|true||🧂|false|false
+3000000011720|Pesto Basilic 190g|Sauces et condiments — Pesto Basilic 190g|Nordique|1.452|3.049|UNIT|kg|true||🧂|false|false
+3000000011737|Sel de Guérande 250g|Sauces et condiments — Sel de Guérande 250g|Saveurs d'Ici|0.145|0.182|UNIT|kg|true||🧂|false|false
+3000000011744|Poivre Noir Moulu 45g|Sauces et condiments — Poivre Noir Moulu 45g|Maison Dubois|1.111|2.663|UNIT|kg|true||🧂|false|false
+3000000011751|Bouillon de Légumes x10|Sauces et condiments — Bouillon de Légumes x10|Le Verger|0.386|0.498|UNIT|kg|true||🧂|false|false
+3000000011768|Sauce Curry Coco 200ml|Sauces et condiments — Sauce Curry Coco 200ml|Croq'Frais|0.646|1.056|UNIT|kg|true||🧂|false|false
+3000000011775|Céréales Chocolat 430g|Petit déjeuner — Céréales Chocolat 430g|Nordique|1.249|2.397|UNIT|kg|true||🥣|false|false
+3000000011782|Muesli Fruits Rouges 500g|Petit déjeuner — Muesli Fruits Rouges 500g|Saveurs d'Ici|1.307|2.807|UNIT|kg|true||🥣|false|false
+3000000011799|Flocons d'Avoine 500g|Petit déjeuner — Flocons d'Avoine 500g|Maison Dubois|0.673|1.214|UNIT|kg|true||🥣|false|false
+3000000011805|Pâte à Tartiner Noisettes 400g|Petit déjeuner — Pâte à Tartiner Noisettes 400g|Le Verger|1.036|2.360|UNIT|kg|true||🥣|false|false
+3000000011812|Confiture de Fraises 370g|Petit déjeuner — Confiture de Fraises 370g|Croq'Frais|0.456|0.842|UNIT|kg|true||🥣|false|false
+3000000011829|Confiture d'Abricots 370g|Petit déjeuner — Confiture d'Abricots 370g|Terroir & Co|0.272|0.315|UNIT|kg|true||🥣|false|false
+3000000011836|Thé Vert Menthe x25|Petit déjeuner — Thé Vert Menthe x25|Prairie|1.417|2.911|UNIT|kg|true||🥣|false|false
+3000000011843|Café Moulu Intense 250g|Petit déjeuner — Café Moulu Intense 250g|Marinella|1.383|2.887|UNIT|kg|true||🥣|false|false
+3000000011850|Chicorée Soluble 200g|Petit déjeuner — Chicorée Soluble 200g|Vertfeuille|0.109|0.160|UNIT|kg|true||🥣|false|false
+3000000011867|Cacao en Poudre 450g|Petit déjeuner — Cacao en Poudre 450g|L'Artisan|0.776|0.919|UNIT|kg|true||🥣|false|false
+3000000011874|Brioche aux Pépites 300g|Petit déjeuner — Brioche aux Pépites 300g|Nordique|0.956|1.875|UNIT|kg|true||🥣|false|false
+3000000011881|Madeleines x12|Petit déjeuner — Madeleines x12|Saveurs d'Ici|0.880|1.029|UNIT|kg|true||🥣|false|false
+3000000011898|Tablette Chocolat Noir 70% 100g|Biscuits et chocolats — Tablette Chocolat Noir 70% 100g|Prairie|1.315|2.994|UNIT|kg|true||🍫|false|false
+3000000011904|Tablette Chocolat Lait Noisettes 200g|Biscuits et chocolats — Tablette Chocolat Lait Noisettes 200g|Marinella|0.439|0.633|UNIT|kg|true||🍫|false|false
+3000000011911|Petits Beurre x24|Biscuits et chocolats — Petits Beurre x24|Vertfeuille|1.200|2.748|UNIT|kg|true||🍫|false|false
+3000000011928|Cookies Pépites Chocolat 200g|Biscuits et chocolats — Cookies Pépites Chocolat 200g|L'Artisan|0.941|2.069|UNIT|kg|true||🍫|false|false
+3000000011935|Galettes Bretonnes 125g|Biscuits et chocolats — Galettes Bretonnes 125g|Nordique|0.269|0.297|UNIT|kg|true||🍫|false|false
+3000000011942|Barres Céréales Chocolat x6|Biscuits et chocolats — Barres Céréales Chocolat x6|Saveurs d'Ici|1.459|3.026|UNIT|kg|true||🍫|false|false
+3000000011959|Bonbons Acidulés 250g|Biscuits et chocolats — Bonbons Acidulés 250g|Maison Dubois|0.654|1.496|UNIT|kg|true||🍫|false|false
+3000000011966|Guimauves 180g|Biscuits et chocolats — Guimauves 180g|Le Verger|0.176|0.388|UNIT|kg|true||🍫|false|false
+3000000011973|Sablés Nappés 195g|Biscuits et chocolats — Sablés Nappés 195g|Croq'Frais|1.102|2.177|UNIT|kg|true||🍫|false|false
+3000000011980|Rochers Coco 180g|Biscuits et chocolats — Rochers Coco 180g|Terroir & Co|0.711|1.001|UNIT|kg|true||🍫|false|false
+3000000011997|Jus d'Orange Pur Jus 1L|Jus et sirops — Jus d'Orange Pur Jus 1L|Saveurs d'Ici|1.188|1.775|UNIT|L|true||🧃|false|false
+3000000012000|Jus de Pomme Trouble 1L|Jus et sirops — Jus de Pomme Trouble 1L|Maison Dubois|0.580|0.962|UNIT|L|true||🧃|false|false
+3000000012017|Nectar d'Abricot 1L|Jus et sirops — Nectar d'Abricot 1L|Le Verger|1.427|2.114|UNIT|L|true||🧃|false|false
+3000000012024|Jus Multifruits 1L|Jus et sirops — Jus Multifruits 1L|Croq'Frais|0.977|1.600|UNIT|L|true||🧃|false|false
+3000000012031|Sirop de Grenadine 75cl|Jus et sirops — Sirop de Grenadine 75cl|Terroir & Co|1.027|1.870|UNIT|L|true||🧃|false|false
+3000000012048|Sirop de Menthe 75cl|Jus et sirops — Sirop de Menthe 75cl|Prairie|0.374|0.813|UNIT|L|true||🧃|false|false
+3000000012055|Limonade Artisanale 1L|Jus et sirops — Limonade Artisanale 1L|Marinella|0.771|1.414|UNIT|L|true||🧃|false|false
+3000000012062|Thé Glacé Pêche 1.5L|Jus et sirops — Thé Glacé Pêche 1.5L|Vertfeuille|0.257|0.434|UNIT|L|true||🧃|false|false
+3000000012079|Eau Gazeuse Citron 1L|Jus et sirops — Eau Gazeuse Citron 1L|L'Artisan|0.487|0.795|UNIT|L|true||🧃|false|false
+3000000012086|Jus de Tomate 75cl|Jus et sirops — Jus de Tomate 75cl|Nordique|0.389|0.789|UNIT|L|true||🧃|false|false
+3000000012093|Bière Blonde 6x25cl|Bières et cidres — Bière Blonde 6x25cl|Prairie|1.427|1.813|UNIT|L|true||🍺|false|false
+3000000012109|Bière IPA 4x33cl|Bières et cidres — Bière IPA 4x33cl|Marinella|0.670|1.268|UNIT|L|true||🍺|false|false
+3000000012116|Bière de Garde 75cl|Bières et cidres — Bière de Garde 75cl|Vertfeuille|0.925|1.609|UNIT|L|true||🍺|false|false
+3000000012123|Bière Blanche 6x25cl|Bières et cidres — Bière Blanche 6x25cl|L'Artisan|1.446|3.189|UNIT|L|true||🍺|false|false
+3000000012130|Cidre Brut 75cl|Bières et cidres — Cidre Brut 75cl|Nordique|1.174|1.237|UNIT|L|true||🍺|false|false
+3000000012147|Cidre Doux 75cl|Bières et cidres — Cidre Doux 75cl|Saveurs d'Ici|1.082|2.584|UNIT|L|true||🍺|false|false
+3000000012154|Panaché 6x25cl|Bières et cidres — Panaché 6x25cl|Maison Dubois|1.095|1.506|UNIT|L|true||🍺|false|false
+3000000012161|Bière Sans Alcool 6x25cl|Bières et cidres — Bière Sans Alcool 6x25cl|Le Verger|0.350|0.355|UNIT|L|true||🍺|false|false
+3000000012178|Côtes du Rhône Rouge 75cl|Vins et spiritueux — Côtes du Rhône Rouge 75cl|Nordique|1.030|1.860|UNIT|L|true||🍷|false|false
+3000000012185|Bordeaux Supérieur 75cl|Vins et spiritueux — Bordeaux Supérieur 75cl|Saveurs d'Ici|1.057|2.294|UNIT|L|true||🍷|false|false
+3000000012192|Chablis 75cl|Vins et spiritueux — Chablis 75cl|Maison Dubois|0.193|0.224|UNIT|L|true||🍷|false|false
+3000000012208|Rosé de Provence 75cl|Vins et spiritueux — Rosé de Provence 75cl|Le Verger|0.287|0.525|UNIT|L|true||🍷|false|false
+3000000012215|Champagne Brut 75cl|Vins et spiritueux — Champagne Brut 75cl|Croq'Frais|0.354|0.618|UNIT|L|true||🍷|false|false
+3000000012222|Muscadet Sur Lie 75cl|Vins et spiritueux — Muscadet Sur Lie 75cl|Terroir & Co|0.124|0.173|UNIT|L|true||🍷|false|false
+3000000012239|Whisky Blended 70cl|Vins et spiritueux — Whisky Blended 70cl|Prairie|1.063|2.608|UNIT|L|true||🍷|true|false
+3000000012246|Rhum Ambré 70cl|Vins et spiritueux — Rhum Ambré 70cl|Marinella|0.786|1.333|UNIT|L|true||🍷|false|false
+3000000012253|Pastis 70cl|Vins et spiritueux — Pastis 70cl|Vertfeuille|0.308|0.750|UNIT|L|true||🍷|false|false
+3000000012260|Vodka Pure Grain 70cl|Vins et spiritueux — Vodka Pure Grain 70cl|L'Artisan|0.910|1.467|UNIT|L|true||🍷|true|false
+3000000012277|Pizza Margherita 390g|Surgelés salés — Pizza Margherita 390g|Terroir & Co|1.333|2.568|UNIT|kg|true||🧊|false|false
+3000000012284|Lasagnes Bolognaise 600g|Surgelés salés — Lasagnes Bolognaise 600g|Prairie|1.433|1.811|UNIT|kg|true||🧊|false|false
+3000000012291|Poêlée de Légumes 750g|Surgelés salés — Poêlée de Légumes 750g|Marinella|1.043|1.426|UNIT|kg|true||🧊|false|false
+3000000012307|Frites Allumettes 1kg|Surgelés salés — Frites Allumettes 1kg|Vertfeuille|1.312|2.313|UNIT|kg|true||🧊|false|false
+3000000012314|Poisson Pané x10|Surgelés salés — Poisson Pané x10|L'Artisan|0.231|0.326|UNIT|kg|true||🧊|false|false
+3000000012321|Épinards Hachés 750g|Surgelés salés — Épinards Hachés 750g|Nordique|1.421|2.209|UNIT|kg|true||🧊|false|false
+3000000012338|Coquilles Saint-Jacques x4|Surgelés salés — Coquilles Saint-Jacques x4|Saveurs d'Ici|0.912|1.894|UNIT|kg|true||🧊|false|false
+3000000012345|Paella Royale 900g|Surgelés salés — Paella Royale 900g|Maison Dubois|0.285|0.678|UNIT|kg|true||🧊|false|false
+3000000012352|Nems au Poulet x8|Surgelés salés — Nems au Poulet x8|Le Verger|0.271|0.332|UNIT|kg|true||🧊|false|false
+3000000012369|Steaks Hachés Surgelés x10|Surgelés salés — Steaks Hachés Surgelés x10|Croq'Frais|0.886|2.119|UNIT|kg|true||🧊|false|false
+3000000012376|Glace Vanille Bac 1L|Surgelés sucrés — Glace Vanille Bac 1L|Nordique|0.869|1.415|UNIT|kg|true||🍨|false|false
+3000000012383|Sorbet Framboise 500ml|Surgelés sucrés — Sorbet Framboise 500ml|Saveurs d'Ici|1.469|2.145|UNIT|kg|true||🍨|false|false
+3000000012390|Cônes Chocolat x6|Surgelés sucrés — Cônes Chocolat x6|Maison Dubois|0.266|0.284|UNIT|kg|true||🍨|false|false
+3000000012406|Bâtonnets Amande x4|Surgelés sucrés — Bâtonnets Amande x4|Le Verger|0.624|1.202|UNIT|kg|true||🍨|false|false
+3000000012413|Tarte Tatin 600g|Surgelés sucrés — Tarte Tatin 600g|Croq'Frais|1.150|2.813|UNIT|kg|true||🍨|false|false
+3000000012420|Profiteroles x8|Surgelés sucrés — Profiteroles x8|Terroir & Co|1.296|1.920|UNIT|kg|true||🍨|false|false
+3000000012437|Macarons Assortis x12|Surgelés sucrés — Macarons Assortis x12|Prairie|0.861|2.148|UNIT|kg|true||🍨|false|false
+3000000012444|Mochis Glacés x6|Surgelés sucrés — Mochis Glacés x6|Marinella|0.182|0.282|UNIT|kg|true||🍨|false|false
+3000000012451|Gel Douche Surgras 250ml|Hygiène et beauté — Gel Douche Surgras 250ml|Croq'Frais|1.056|1.299|UNIT|kg|true||🧼|false|false
+3000000012468|Shampooing Doux 300ml|Hygiène et beauté — Shampooing Doux 300ml|Terroir & Co|0.333|0.589|UNIT|kg|true||🧼|false|false
+3000000012475|Après-Shampooing 200ml|Hygiène et beauté — Après-Shampooing 200ml|Prairie|0.546|0.962|UNIT|kg|true||🧼|false|false
+3000000012482|Savon de Marseille x3|Hygiène et beauté — Savon de Marseille x3|Marinella|0.962|2.021|UNIT|kg|true||🧼|false|false
+3000000012499|Déodorant Bille 50ml|Hygiène et beauté — Déodorant Bille 50ml|Vertfeuille|1.397|1.642|UNIT|kg|true||🧼|false|false
+3000000012505|Brosse à Dents Souple x2|Hygiène et beauté — Brosse à Dents Souple x2|L'Artisan|0.235|0.404|UNIT|kg|true||🧼|false|false
+3000000012512|Bain de Bouche 500ml|Hygiène et beauté — Bain de Bouche 500ml|Nordique|0.378|0.382|UNIT|kg|true||🧼|false|false
+3000000012529|Rasoirs Jetables x10|Hygiène et beauté — Rasoirs Jetables x10|Saveurs d'Ici|0.181|0.352|UNIT|kg|true||🧼|false|false
+3000000012536|Mousse à Raser 200ml|Hygiène et beauté — Mousse à Raser 200ml|Maison Dubois|0.453|0.853|UNIT|kg|true||🧼|false|false
+3000000012543|Coton-Tiges Papier x200|Hygiène et beauté — Coton-Tiges Papier x200|Le Verger|0.714|1.699|UNIT|kg|true||🧼|false|false
+3000000012550|Crème Mains 75ml|Hygiène et beauté — Crème Mains 75ml|Croq'Frais|0.901|1.952|UNIT|kg|true||🧼|false|false
+3000000012567|Papier Toilette x12|Hygiène et beauté — Papier Toilette x12|Terroir & Co|1.261|3.117|UNIT|kg|true||🧼|false|false
+3000000012574|Liquide Vaisselle Citron 500ml|Entretien de la maison — Liquide Vaisselle Citron 500ml|Nordique|0.770|1.568|UNIT|kg|true||🧹|false|false
+3000000012581|Tablettes Lave-Vaisselle x30|Entretien de la maison — Tablettes Lave-Vaisselle x30|Saveurs d'Ici|0.972|1.040|UNIT|kg|true||🧹|false|false
+3000000012598|Nettoyant Multi-Usages 750ml|Entretien de la maison — Nettoyant Multi-Usages 750ml|Maison Dubois|0.955|1.120|UNIT|kg|true||🧹|false|false
+3000000012604|Javel 1.5L|Entretien de la maison — Javel 1.5L|Le Verger|1.461|2.561|UNIT|kg|true||🧹|false|false
+3000000012611|Désodorisant Textile 500ml|Entretien de la maison — Désodorisant Textile 500ml|Croq'Frais|1.273|2.768|UNIT|kg|true||🧹|false|false
+3000000012628|Sacs Poubelle 30L x20|Entretien de la maison — Sacs Poubelle 30L x20|Terroir & Co|0.428|0.471|UNIT|kg|true||🧹|false|false
+3000000012635|Essuie-Tout x3|Entretien de la maison — Essuie-Tout x3|Prairie|0.796|1.523|UNIT|kg|true||🧹|false|false
+3000000012642|Adoucissant Fleur 1.5L|Entretien de la maison — Adoucissant Fleur 1.5L|Marinella|0.739|1.147|UNIT|kg|true||🧹|false|false
+3000000012659|Nettoyant Vitres 500ml|Entretien de la maison — Nettoyant Vitres 500ml|Vertfeuille|0.518|1.169|UNIT|kg|true||🧹|false|false
+3000000012666|Cire pour Parquet 750ml|Entretien de la maison — Cire pour Parquet 750ml|L'Artisan|1.410|2.001|UNIT|kg|true||🧹|false|false
+3000000012673|Couches Taille 4 x44|Bébé et animaux — Couches Taille 4 x44|Terroir & Co|0.782|1.088|UNIT|kg|true||🍼|false|false
+3000000012680|Petits Pots Carotte 2x130g|Bébé et animaux — Petits Pots Carotte 2x130g|Prairie|1.434|2.578|UNIT|kg|true||🍼|false|false
+3000000012697|Lait Infantile 2e Âge 800g|Bébé et animaux — Lait Infantile 2e Âge 800g|Marinella|0.174|0.338|UNIT|kg|true||🍼|false|false
+3000000012703|Lingettes Bébé x72|Bébé et animaux — Lingettes Bébé x72|Vertfeuille|0.113|0.175|UNIT|kg|true||🍼|false|false
+3000000012710|Croquettes Chien Adulte 3kg|Bébé et animaux — Croquettes Chien Adulte 3kg|L'Artisan|0.977|1.468|UNIT|kg|true||🍼|false|false
+3000000012727|Croquettes Chat Saumon 1.5kg|Bébé et animaux — Croquettes Chat Saumon 1.5kg|Nordique|1.475|1.534|UNIT|kg|true||🍼|false|false
+3000000012734|Pâtée Chat Terrine 4x100g|Bébé et animaux — Pâtée Chat Terrine 4x100g|Saveurs d'Ici|0.954|1.440|UNIT|kg|true||🍼|false|false
+3000000012741|Litière Agglomérante 5L|Bébé et animaux — Litière Agglomérante 5L|Maison Dubois|1.225|2.885|UNIT|kg|true||🍼|false|false

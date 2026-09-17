@@ -191,7 +191,7 @@
                     <!-- Déconnexion en bas À GAUCHE : la colonne de droite de la
                          dernière rangée est celle d'ENCAISSER, et on ne met pas une
                          sortie de session sous le doigt qui vise le paiement. -->
-                    <a href="/lock" class="btn btn-muted">DÉCONNEXION</a>
+                    <a href="/close" class="btn btn-muted">DÉCONNEXION</a>
                     {#if state.ticket.totalAmount > 0}
                         <a id="payBtn" href="/pay" class="btn btn-primary">ENCAISSER</a>
                     {#else}
@@ -396,6 +396,14 @@
                 // way — see LockCheckFilter).
                 if (data.locked) {
                     window.location.href = '/lock';
+                    return;
+                }
+                // The operator scanned their own badge: that is the closing
+                // gesture (LC-01-02-03). The closing page decides what it
+                // still has to ask — a badge answers the password, not the
+                // tickets left in attente.
+                if (data.closeRequested) {
+                    window.location.href = '/close';
                     return;
                 }
                 // A parked age check needs the SERVER-RENDERED modal: the

@@ -5,11 +5,13 @@ import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.FidelityPayment;
 import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.domain.sale.RefundLine;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.sale.TicketFidelityLine;
 import com.intermarche.pos.domain.sale.TicketLineValuation;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityState;
@@ -35,12 +37,17 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import com.intermarche.pos.domain.setting.DocumentTemplate;
+import com.intermarche.pos.service.DocumentTemplateService;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
@@ -148,6 +155,7 @@ class TicketPrinterServiceTest {
         ticket.digitalKey = digitalKey;
         ticket.lines = new ArrayList<>();
         ticket.payments = new ArrayList<>();
+        ticket.fidelityLines = new ArrayList<>();
         return ticket;
     }
 
@@ -933,23 +941,21 @@ class TicketPrinterServiceTest {
     // --------------------------------------------------
 
     /**
-     * Wires a live register state carrying a loyalty projection.
+     * Freezes a loyalty projection on a sale, the way the closing does.
      *
-     * @param service the service under test
-     * @param earnTotal the projected earn, or null
-     * @param draftId the draft in progress, or null
-     * @param lastClosedId the last closed ticket, or null
-     * @return the wired state
+     * @param ticket the sale to freeze it on
+     * @param earnTotal the displayed earn, or null when none was displayed
+     * @param labels the advantage labels, each credited one cent more than the
+     *        one before it
      */
-    private PosState wireLiveState(TicketPrinterService service, BigDecimal earnTotal,
-                                   Long draftId, Long lastClosedId) {
-        PosState state = new PosState();
-        state.fidelity.assignCard("2990000000019");
-        state.fidelity.earnTotal = earnTotal;
-        state.payment.ticketDbId = draftId;
-        state.lastClosedTicketId = lastClosedId;
-        service.posState = state;
-        return state;
+    private void freeze(Ticket ticket, BigDecimal earnTotal, String... labels) {
+        ticket.fidelityCard = "2990000000019";
+        ticket.fidelityEarnTotal = earnTotal;
+        ticket.fidelityLines = new ArrayList<>();
+        for (int index = 0; index < labels.length; index++) {
+            ticket.fidelityLines.add(new TicketFidelityLine("R" + index, labels[index],
+                    new BigDecimal("0.2" + index)));
+        }
     }
 
     /**
@@ -993,39 +999,15 @@ class TicketPrinterServiceTest {
     }
 
     /**
-     * WITHOUT a register state the loyalty section is skipped: the printer is
-     * also built by hand in tests and by any caller outside CDI, and an
-     * absent state simply means "no loyalty section" rather than a failure.
+     * The section prints what the CLOSING FROZE on the sale, with its total and
+     * one line per rule — those labels are the only rule data the POS is
+     * allowed to print, and they come from imfid, never invented here.
      */
     @Test
-    void printTicketSkipsTheLoyaltySectionWithoutARegisterState() {
+    void printTicketPrintsTheLoyaltySectionFrozenOnTheSale() {
         TicketPrinterService service = newService();
-        service.posState = null;
         Ticket ticket = ticket(0, null);
-        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
-            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
-                    .thenReturn(new ArrayList<TicketLineValuation>());
-            service.printTicket(1L);
-            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
-        }
-    }
-
-    /**
-     * The section prints on the ticket the register is CURRENTLY on, with its
-     * total and one line per rule — those labels are the only rule data the
-     * POS is allowed to print, and they come from imfid, never invented here.
-     */
-    @Test
-    void printTicketPrintsTheLoyaltySectionOnTheCurrentTicket() {
-        TicketPrinterService service = newService();
-        PosState state = wireLiveState(service, new BigDecimal("1.03"), 1L, null);
-        state.fidelity.earnEntries.add(new FidelityState.EarnLine(
-                "SOCLE", "Cagnotte socle", new BigDecimal("0.28")));
-        state.fidelity.earnEntries.add(new FidelityState.EarnLine(
-                "F&L", "Fruits & legumes", new BigDecimal("0.75")));
-        Ticket ticket = ticket(0, null);
+        freeze(ticket, new BigDecimal("1.03"), "Cagnotte socle", "Fruits & legumes");
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
@@ -1036,100 +1018,45 @@ class TicketPrinterServiceTest {
             assertTrue(out.contains("CAGNOTTE DU JOUR"));
             assertTrue(out.contains("+1,03 E"));
             assertTrue(out.contains("Cagnotte socle"));
-            assertTrue(out.contains("+0,28 E"));
+            assertTrue(out.contains("+0,20 E"));
             assertTrue(out.contains("Fruits & legumes"));
+            assertTrue(out.contains("+0,21 E"));
         }
     }
 
     /**
-     * The section also prints right AFTER the fiscal close, when the draft is
-     * gone and only the last-closed id remains — that is exactly when the
-     * cashier hits IMPRIMER TICKET.
+     * A DUPLICATA carries the section too, which is the whole point of freezing
+     * it: the paper reissued at the welcome desk states the cagnotte the
+     * customer was shown at the till, not the one of whatever sale the register
+     * happens to be on.
      */
     @Test
-    void printTicketPrintsTheLoyaltySectionOnTheLastClosedTicket() {
+    void printTicketPrintsTheLoyaltySectionOnAduplicata() {
         TicketPrinterService service = newService();
-        wireLiveState(service, new BigDecimal("1.03"), null, 1L);
-        Ticket ticket = ticket(0, null);
+        Ticket ticket = ticket(1, null);
+        freeze(ticket, new BigDecimal("1.03"), "Cagnotte socle");
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
             mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
                     .thenReturn(new ArrayList<TicketLineValuation>());
             service.printTicket(1L);
-            assertTrue(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
+            String out = captureReceipt(service);
+            assertTrue(out.contains("DUPLICATA"));
+            assertTrue(out.contains("CAGNOTTE DU JOUR"));
         }
     }
 
     /**
-     * The DRAFT wins over the last closed id when both are set: the register
-     * is on a new sale, and printing an older ticket must not borrow the
-     * current projection.
-     */
-    @Test
-    void printTicketPrefersTheDraftOverTheLastClosedTicket() {
-        TicketPrinterService service = newService();
-        wireLiveState(service, new BigDecimal("1.03"), 2L, 1L);
-        Ticket ticket = ticket(0, null);
-        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
-            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
-                    .thenReturn(new ArrayList<TicketLineValuation>());
-            service.printTicket(1L);
-            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
-        }
-    }
-
-    /**
-     * A DUPLICATA of an older ticket carries NO section: the earn is not
-     * persisted, so borrowing the live projection would print somebody
-     * else's cagnotte on this paper. Known and accepted gap.
-     */
-    @Test
-    void printTicketPrintsNoLoyaltySectionOnAnotherTicket() {
-        TicketPrinterService service = newService();
-        wireLiveState(service, new BigDecimal("1.03"), null, 99L);
-        Ticket ticket = ticket(0, null);
-        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
-            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
-                    .thenReturn(new ArrayList<TicketLineValuation>());
-            service.printTicket(1L);
-            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
-        }
-    }
-
-    /**
-     * With NEITHER a draft NOR a last closed ticket the section is skipped:
-     * there is nothing the projection could belong to.
-     */
-    @Test
-    void printTicketSkipsTheSectionWhenNoTicketIsCurrent() {
-        TicketPrinterService service = newService();
-        wireLiveState(service, new BigDecimal("1.03"), null, null);
-        Ticket ticket = ticket(0, null);
-        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
-            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
-                    .thenReturn(new ArrayList<TicketLineValuation>());
-            service.printTicket(1L);
-            assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
-        }
-    }
-
-    /**
-     * A NULL projection prints no section (second leg of the guard) — the
-     * degraded loyalty display: nothing rather than a figure the register
-     * cannot vouch for.
+     * A sale carrying NO frozen projection prints no section (second leg of the
+     * guard) — the degraded loyalty display: nothing rather than a figure the
+     * register cannot vouch for.
      */
     @Test
     void printTicketPrintsNoSectionWithoutAProjection() {
         TicketPrinterService service = newService();
-        wireLiveState(service, null, 1L, null);
         Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
@@ -1148,8 +1075,8 @@ class TicketPrinterServiceTest {
     @Test
     void printTicketPrintsNoSectionOnAZeroProjection() {
         TicketPrinterService service = newService();
-        wireLiveState(service, BigDecimal.ZERO, 1L, null);
         Ticket ticket = ticket(0, null);
+        freeze(ticket, BigDecimal.ZERO);
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
@@ -1161,14 +1088,14 @@ class TicketPrinterServiceTest {
     }
 
     /**
-     * A projection with NO rule entries prints the total alone: the section
+     * A projection with NO rule lines prints the total alone: the section
      * header exists, the loop simply adds nothing.
      */
     @Test
     void printTicketPrintsTheSectionTotalWithoutRuleLines() {
         TicketPrinterService service = newService();
-        wireLiveState(service, new BigDecimal("1.03"), 1L, null);
         Ticket ticket = ticket(0, null);
+        freeze(ticket, new BigDecimal("1.03"));
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
@@ -1183,15 +1110,15 @@ class TicketPrinterServiceTest {
 
     /**
      * BO-10-03-15: with the fidelity advantages DISABLED, the CAGNOTTE section
-     * is skipped even on a live projection for the current ticket — the
+     * is skipped even on a frozen projection — the
      * {@code fidelityAdvantagesEnabled()} false arm gates the whole section.
      */
     @Test
     void printTicketSkipsTheLoyaltySectionWhenAdvantagesDisabled() {
         TicketPrinterService service = newService();
         when(service.posSettingsService.fidelityAdvantagesEnabled()).thenReturn(false);
-        wireLiveState(service, new BigDecimal("1.03"), 1L, null);
         Ticket ticket = ticket(0, null);
+        freeze(ticket, new BigDecimal("1.03"), "Cagnotte socle");
         ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
@@ -1200,6 +1127,336 @@ class TicketPrinterServiceTest {
             service.printTicket(1L);
             assertFalse(captureReceipt(service).contains("CAGNOTTE DU JOUR"));
         }
+    }
+
+    // --------------------------------------------------
+    // The loyalty zone a layout reads (BO-03-03-25/-29/-30/-31/-32)
+    // --------------------------------------------------
+
+    /**
+     * The zone of a sale made WITH a card states the card, the earn, its lines,
+     * the balance read at attachment and the amount settled on it.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theloyaltyZoneStatesWhatTheProgrammeSaid() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, new BigDecimal("1.03"), "Cagnotte socle");
+        ticket.fidelityAvailableBalance = new BigDecimal("42.30");
+        ticket.payments.add(new FidelityPayment(new BigDecimal("3.00")));
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals("2990000000019", zone.get("card"));
+        assertEquals(true, zone.get("present"));
+        assertEquals("1,03", zone.get("earnTotal"));
+        assertEquals("42,30", zone.get("availableBalance"));
+        assertEquals("3,00", zone.get("usedAmount"));
+        assertEquals(false, zone.get("unavailable"));
+        assertEquals("", zone.get("message"));
+        List<Map<String, Object>> lines = (List<Map<String, Object>>) zone.get("lines");
+        assertEquals(1, lines.size());
+        assertEquals("R0", lines.get(0).get("ruleCode"));
+        assertEquals("Cagnotte socle", lines.get(0).get("label"));
+        assertEquals("0,20", lines.get(0).get("amount"));
+    }
+
+    /**
+     * A sale made WITHOUT a card states an absent card and no figure: the null
+     * arms of the earn, the balance and the card guard, all three at once.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theloyaltyZoneOfAsaleWithoutAcardStatesNothing() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityLines = new ArrayList<>();
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals("", zone.get("card"));
+        assertEquals(false, zone.get("present"));
+        assertEquals("", zone.get("earnTotal"));
+        assertEquals("", zone.get("availableBalance"));
+        assertEquals("0,00", zone.get("usedAmount"));
+        assertTrue(((List<?>) zone.get("lines")).isEmpty());
+    }
+
+    /**
+     * A BLANK card is no card: the second leg of the presence guard, which a
+     * card column emptied by a correction would otherwise pass.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ablankCardIsNoCard() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityCard = "   ";
+        ticket.fidelityLines = new ArrayList<>();
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals(false, zone.get("present"));
+    }
+
+    /**
+     * A sale carrying NO payment list at all settles nothing rather than
+     * exploding — the null arm of the settlement sum, which the store node and
+     * the hand-built printer of these tests both reach.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void asaleWithoutApaymentListSettlesNothing() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.payments = null;
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals("0,00", zone.get("usedAmount"));
+    }
+
+    /**
+     * Several loyalty settlements sum into ONE figure, and a settlement of
+     * another kind is left out — the two arms of the settlement filter, plus
+     * the null-amount arm a half-registered payment would produce.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void severalLoyaltySettlementsSumIntoOneFigure() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.payments.add(new FidelityPayment(new BigDecimal("3.00")));
+        ticket.payments.add(new FidelityPayment(new BigDecimal("1.50")));
+        ticket.payments.add(new FidelityPayment(null));
+        ticket.payments.add(new CashPayment(new BigDecimal("7.50"), new BigDecimal("10.00")));
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals("4,50", zone.get("usedAmount"));
+    }
+
+    /**
+     * BO-03-03-29: a HOLDER's sale made while the loyalty service was silent
+     * carries the administered message, its {@code {carte}} token replaced.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aholderIsToldTheProgrammeWasSilent() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessage())
+                .thenReturn("CARTE {carte} - FIDELITE INDISPONIBLE");
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = true;
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals(true, zone.get("unavailable"));
+        assertEquals("CARTE 2990000000019 - FIDELITE INDISPONIBLE", zone.get("message"));
+    }
+
+    /**
+     * BO-03-03-30: a sale made WITHOUT a card while the service was silent
+     * carries the OTHER message — the two say different things, so they are two
+     * parameters and not one.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void anonHolderIsToldSomethingElse() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessageNoCard())
+                .thenReturn("PRESENTEZ VOTRE CARTE LA PROCHAINE FOIS");
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.fidelityUnavailable = true;
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals("PRESENTEZ VOTRE CARTE LA PROCHAINE FOIS", zone.get("message"));
+    }
+
+    /**
+     * A shop that clears the parameter says nothing, and so does one whose
+     * parameter is absent — the blank and null arms of that guard.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void ashopThatClearsTheMessageSaysNothing() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessage()).thenReturn("   ", (String) null);
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = true;
+        assertEquals("", ((Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity")).get("message"));
+        assertEquals("", ((Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity")).get("message"));
+    }
+
+    /**
+     * A line that carries no label prints an empty one rather than the word
+     * null — the null arm of the label accessor.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void alineWithoutAlabelPrintsAnEmptyOne() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityCard = "2990000000019";
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.fidelityLines.add(new TicketFidelityLine(null, null, null));
+        Map<String, Object> zone = (Map<String, Object>)
+                service.saleDocumentData(ticket, false, 0).get("fidelity");
+        List<Map<String, Object>> lines = (List<Map<String, Object>>) zone.get("lines");
+        assertEquals("", lines.get(0).get("ruleCode"));
+        assertEquals("", lines.get(0).get("label"));
+        assertEquals("0,00", lines.get(0).get("amount"));
+    }
+
+    // --------------------------------------------------
+    // The loyalty settlement slip (BO-03-03-10)
+    // --------------------------------------------------
+
+    /**
+     * An unknown sale prints no slip — the first leg of that guard.
+     */
+    @Test
+    void anunknownSalePrintsNoLoyaltySlip() {
+        TicketPrinterService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(9L)).thenReturn(null);
+            assertEquals(0, service.printLoyaltyReceipt(9L));
+        }
+        verify(service.hardwareService, never()).printReceipt(anyString());
+    }
+
+    /**
+     * A sale settled WITHOUT the loyalty balance prints no slip either — the
+     * second leg: the caller does not have to know whether the cagnotte was
+     * used.
+     */
+    @Test
+    void asaleWithoutAloyaltySettlementPrintsNoSlip() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.payments.add(new CashPayment(new BigDecimal("12.00"), new BigDecimal("12.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(0, service.printLoyaltyReceipt(1L));
+        }
+        verify(service.hardwareService, never()).printReceipt(anyString());
+    }
+
+    /**
+     * A settlement taken on the balance prints ONE slip stating what was taken,
+     * from which card, against which sale, with the balance it was taken from
+     * and a line for the customer to sign.
+     */
+    @Test
+    void aloyaltySettlementPrintsItsSlip() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, new BigDecimal("1.03"));
+        ticket.fidelityAvailableBalance = new BigDecimal("42.30");
+        ticket.payments.add(new FidelityPayment(new BigDecimal("3.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printLoyaltyReceipt(1L));
+        }
+        String out = captureReceipt(service);
+        assertTrue(out.contains("PAIEMENT FIDELITE"));
+        assertTrue(out.contains("PAIEMENT TOTAL FID"));
+        assertTrue(out.contains("3,00 E"));
+        assertTrue(out.contains("2990000000019"));
+        assertTrue(out.contains("C04-00000001"));
+        assertTrue(out.contains("MAGASIN LYON"));
+        assertTrue(out.contains("SOLDE AVANT"));
+        assertTrue(out.contains("42,30 E"));
+        assertTrue(out.contains("SIGNATURE DU CLIENT"));
+        verify(service.hardwareService).cutPaper();
+    }
+
+    /**
+     * A slip for a sale carrying no store, no register, no date and no balance
+     * still comes out — the four null arms of its optional lines, which a sale
+     * ingested from an older register can all present at once.
+     */
+    @Test
+    void aslipPrintsWithoutItsOptionalLines() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.store = null;
+        ticket.terminalId = null;
+        ticket.creationDate = null;
+        ticket.fidelityAvailableBalance = null;
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.payments.add(new FidelityPayment(new BigDecimal("3.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printLoyaltyReceipt(1L));
+        }
+        String out = captureReceipt(service);
+        assertTrue(out.contains("PAIEMENT TOTAL FID"));
+        assertFalse(out.contains("SOLDE AVANT"));
+        assertFalse(out.contains("Caisse :"));
+        assertFalse(out.contains("Date   :"));
+    }
+
+    /**
+     * An ADMINISTERED layout replaces the slip entirely, and the register cuts
+     * the paper all the same — the true arm of that hook.
+     */
+    @Test
+    void anadministeredLayoutReplacesTheSlip() {
+        TicketPrinterService service = newService();
+        service.documentTemplateService = mock(DocumentTemplateService.class);
+        when(service.documentTemplateService.render(
+                eq(DocumentTemplate.DocumentType.LOYALTY_RECEIPT), any()))
+                .thenReturn("MISE EN PAGE MAGASIN");
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.payments.add(new FidelityPayment(new BigDecimal("3.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printLoyaltyReceipt(1L));
+        }
+        assertEquals("MISE EN PAGE MAGASIN", captureReceipt(service));
+        verify(service.hardwareService).cutPaper();
+    }
+
+    /**
+     * The slip a layout reads names the sale, the settled amount and the whole
+     * loyalty zone — the contract the back office's preview pane advertises.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theslipALayoutReadsNamesTheSettlement() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, new BigDecimal("1.03"));
+        Map<String, Object> data = service.loyaltyDocumentData(ticket, new BigDecimal("3.00"));
+        assertEquals("C04-00000001",
+                ((Map<String, Object>) data.get("document")).get("number"));
+        assertEquals("3,00", ((Map<String, Object>) data.get("settlement")).get("amount"));
+        assertEquals("2990000000019",
+                ((Map<String, Object>) data.get("fidelity")).get("card"));
+        assertEquals("Jean Dupont", data.get("operator"));
+        assertEquals("02/08/2026", data.get("date"));
+    }
+
+    /**
+     * The same slip built from a sale carrying no cashier and no date states
+     * empty strings rather than failing — the null arms of those two accessors.
+     */
+    @Test
+    void theslipOfAsaleWithoutAcashierStatesEmptyStrings() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.cashier = null;
+        ticket.creationDate = null;
+        ticket.fidelityLines = new ArrayList<>();
+        Map<String, Object> data = service.loyaltyDocumentData(ticket, new BigDecimal("3.00"));
+        assertEquals("", data.get("operator"));
+        assertEquals("", data.get("date"));
+        assertEquals("", data.get("time"));
     }
 
     /**

@@ -158,18 +158,43 @@
         {#if state.invoice.onCustomerStep}
         <div class="chosen">Ticket : <strong>{state.invoice.ticket.ticketNumber}</strong>{#if hasDocumentStep} · <strong>{state.invoice.documentTitle}</strong>{/if}</div>
 
-        {#if state.invoice.creatingCustomer}
+        {! BO-10-04-03 : le masque de correction est le masque de création, rempli.
+         ! Un seul mécanisme de saisie, deux destinations : une nouvelle ligne ou
+         ! celle du client déjà désigné. !}
+        {#if state.invoice.creatingCustomer || state.invoice.editingCustomer}
         <form class="work" method="post" action="{formAction}" id="entryForm">
             <div class="side">
+                {#if state.invoice.editingCustomer}
+                <div class="side-title">Coordonnées client — touchez un champ</div>
+                {#else}
                 <div class="side-title">Nouveau client — touchez un champ</div>
+                {/if}
                 <div class="fields" id="fieldList"></div>
             </div>
             <div class="entry">
                 <div class="entry-title" id="entryTitle"></div>
                 <input type="text" id="kbDisplay" class="display" readonly value="">
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
+                {! BO-10-04-17 : le NIF étranger se saisit avec son code pays, pris
+                 ! dans la liste administrée. Rien à choisir si le magasin n'en
+                 ! administre aucun. !}
+                {#if taxCountries.size > 0}
+                <div class="hint">
+                    NIF étranger :
+                    <select name="taxCountry" id="taxCountry">
+                        <option value="">National</option>
+                        {#for code in taxCountries}
+                        <option value="{code}">{code}</option>
+                        {/for}
+                    </select>
+                </div>
+                {/if}
                 <div class="actions">
+                    {#if state.invoice.editingCustomer}
+                    <button class="btn btn-success" type="submit">ENREGISTRER ET CONTINUER</button>
+                    {#else}
                     <button class="btn btn-success" type="submit">CRÉER ET CONTINUER</button>
+                    {/if}
                 </div>
             </div>
             {#for f in fields}
@@ -240,7 +265,14 @@
                         <span class="recap-value">{state.invoice.customer.companyName}</span>
                         <span class="recap-label">Compte {state.invoice.customer.accountNumber}</span>
                     </span>
-                    <a class="btn btn-sm btn-muted" href="/invoice/back/customer">CHANGER</a>
+                    <span>
+                        {! BO-10-04-03 : corriger la fiche avant l'impression, si le
+                         ! magasin a ouvert ce droit à la caisse. !}
+                        {#if customerUpdateEnabled}
+                        <a class="btn btn-sm btn-muted" href="/invoice/customer/edit">CORRIGER</a>
+                        {/if}
+                        <a class="btn btn-sm btn-muted" href="/invoice/back/customer">CHANGER</a>
+                    </span>
                 </div>
             </div>
             <a class="btn btn-success" href="/invoice/preview">VOIR LE DOCUMENT</a>

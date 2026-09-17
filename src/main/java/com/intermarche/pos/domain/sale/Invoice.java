@@ -134,6 +134,31 @@ public class Invoice extends BaseEntity {
     @Column(name = "customer_vat_number", length = 20)
     public String customerVatNumber;
 
+    /**
+     * The customer's fiscal identifier (NIF) as printed ({@code BO-02-04-19}).
+     *
+     * <p>Copied onto the document like the SIRET beside it, and for the same
+     * reason: what the back office extracts two years later must be what was
+     * printed that day, not what the customer's file says now.
+     */
+    @Column(name = "customer_tax_id", length = 30)
+    public String customerTaxId;
+
+    /**
+     * The date this document falls due ({@code BO-02-04-08}).
+     *
+     * <p>The requirement asks for it on every invoice and delivery note issued
+     * at the register, so it is COPIED onto the document like the rest of the
+     * customer block: a customer whose terms change next month does not move
+     * the due date of a paper already handed over.
+     *
+     * <p>Null when the commercial management sent none for that customer, and
+     * the document then prints no due-date line at all — an empty « Échéance : »
+     * on an invoice is worse than none, because it reads as immediate.
+     */
+    @Column(name = "customer_due_date")
+    public java.time.LocalDate customerDueDate;
+
     /** The tax-excluded total as printed. */
     @Column(name = "total_ht", nullable = false, precision = 19, scale = 4)
     @NotNull
@@ -148,6 +173,18 @@ public class Invoice extends BaseEntity {
     @Column(name = "total_vat", nullable = false, precision = 19, scale = 4)
     @NotNull
     public BigDecimal totalVat = BigDecimal.ZERO;
+
+    /**
+     * The eco-tax borne by the billed sale ({@code BO-10-04-14}), zero when the
+     * articles carry none.
+     *
+     * <p>Frozen on the document like every other total: the eco-tax of an article
+     * is administered and can be revised, and an extraction produced six months
+     * later must state what was billed, not what the article costs today.
+     */
+    @Column(name = "total_eco_tax", nullable = false, precision = 19, scale = 4)
+    @NotNull
+    public BigDecimal totalEcoTax = BigDecimal.ZERO;
 
     /** How many times it has been printed; the first print is the original. */
     @Column(name = "print_count", nullable = false)
@@ -165,6 +202,8 @@ public class Invoice extends BaseEntity {
         this.customerContact = source.getContactName();
         this.customerSiret = source.siret;
         this.customerVatNumber = source.vatNumber;
+        this.customerTaxId = source.taxId;
+        this.customerDueDate = source.dueDate;
         this.customerAddress = copyOf(source.address);
     }
 
@@ -206,7 +245,7 @@ public class Invoice extends BaseEntity {
     public int getChecksum() {
         return Objects.hash(documentNumber, documentType, terminalId, issueDate, ticketNumber,
                 customerAccountNumber, customerName, customerContact, customerSiret,
-                customerVatNumber,
-                totalExcludingTax, totalIncludingTax, totalVat, printCount);
+                customerVatNumber, customerTaxId, customerDueDate,
+                totalExcludingTax, totalIncludingTax, totalVat, totalEcoTax, printCount);
     }
 }

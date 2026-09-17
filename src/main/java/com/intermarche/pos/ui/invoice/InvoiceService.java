@@ -335,13 +335,25 @@ public class InvoiceService {
      * @param vatNumber   the intra-community VAT number, blank when none
      * @param phone       the telephone number, blank when none
      * @param email       the electronic address, blank when none
+     * @param taxId       the fiscal identifier, blank when the customer gave none
+     * @param taxCountry  the two-letter country code picked for a foreign fiscal
+     *                    identifier, blank for a national one
      */
     @Transactional
     public void createCustomer(String companyName, String contactName, String street,
             String postalCode, String city, String siret, String vatNumber, String phone,
-            String email) {
+            String email, String taxId, String taxCountry) {
         LOGGER.info("Entering method createCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
         state.invoice.error = "";
+        // BO-10-04-01: the shop decides whether a till may open a customer at
+        // all. Refused here and not on the screen: a form can be hidden, a POST
+        // cannot, and this is the only place the row would be written.
+        if (!posSettingsService.volatileCustomerCreationEnabled()) {
+            state.invoice.error = "CREATION CLIENT NON AUTORISEE EN CAISSE";
+            state.touch();
+            LOGGER.info("Exiting method createCustomer");
+            return;
+        }
         java.util.Map<String, String> typed = new java.util.LinkedHashMap<>();
         typed.put("companyName", companyName);
         typed.put("contactName", contactName);
@@ -352,6 +364,7 @@ public class InvoiceService {
         typed.put("vatNumber", vatNumber);
         typed.put("phone", phone);
         typed.put("email", email);
+        typed.put("taxId", taxId);
         String missing = firstMissing(typed);
         if (missing != null) {
             state.invoice.error = missing.toUpperCase() + " OBLIGATOIRE";
@@ -367,7 +380,22 @@ public class InvoiceService {
             LOGGER.info("Exiting method createCustomer");
             return;
         }
+        // BO-10-04-18: the fiscal identifier identifies a person before the shop
+        // has given them a number. Two rows carrying the same one are the same
+        // customer twice, and the second is what makes an extraction by NIF
+        // ambiguous ever after.
+        String fiscal = fiscalIdentifier(taxId, taxCountry);
+        if (fiscal != null && repository.findCustomerByTaxId(fiscal) != null) {
+            state.invoice.error = "N° FISCAL DEJA ENREGISTRE";
+            state.touch();
+            LOGGER.info("Exiting method createCustomer");
+            return;
+        }
         AccountCustomer created = new AccountCustomer();
+        // A customer opened at a till is VOLATILE: a passing customer carrying a
+        // document, never a customer in account (BO-10-04-01/05).
+        created.origin = AccountCustomer.Origin.VOLATILE;
+        created.taxId = fiscal;
         created.accountNumber = ticketNumberService.nextCustomerNumber();
         created.companyName = companyName.trim();
         created.firstName = firstNameOf(contactName);
@@ -394,6 +422,271 @@ public class InvoiceService {
         state.invoice.step = InvoiceState.Step.PREVIEW;
         state.touch();
         LOGGER.info("Exiting method createCustomer");
+    }
+
+    /**
+     * Opens the mask that corrects the named customer ({@code BO-10-04-03}).
+     *
+     * <p>Refused when the shop has not opened the till's right to correct a customer,
+     * and refused when no customer is named: the mask overwrites one row, and a mask
+     * without a row behind it could only create a duplicate.
+     */
+    public void editCustomer() {
+        LOGGER.info("Entering method editCustomer");
+        state.invoice.error = "";
+        if (!posSettingsService.customerUpdateEnabled()) {
+            state.invoice.error = "MISE A JOUR CLIENT NON AUTORISEE EN CAISSE";
+            state.touch();
+            LOGGER.info("Exiting method editCustomer");
+            return;
+        }
+        if (state.invoice.customer == null) {
+            state.invoice.error = "AUCUN CLIENT SELECTIONNE";
+            state.touch();
+            LOGGER.info("Exiting method editCustomer");
+            return;
+        }
+        state.invoice.creatingCustomer = false;
+        state.invoice.editingCustomer = true;
+        state.invoice.step = InvoiceState.Step.CUSTOMER;
+        state.touch();
+        LOGGER.info("Exiting method editCustomer");
+    }
+
+    /**
+     * Writes the corrections back onto the named customer and returns to the review
+     * step ({@code BO-10-04-03} and {@code BO-10-04-04}).
+     *
+     * <p>Written BEFORE the document is laid out, on purpose: {@code BO-10-04-04}
+     * asks that a correction be taken into account by the printing AND kept in the
+     * database, and the review step re-reads the customer from the database — so
+     * saving first is what makes the corrected address the one that gets printed.
+     *
+     * @param companyName the business name, still mandatory
+     * @param contactName the contact's name, blank to clear it
+     * @param street      the street line, blank to clear it
+     * @param postalCode  the postal code, blank to clear it
+     * @param city        the town, blank to clear it
+     * @param siret       the SIRET, blank to clear it
+     * @param vatNumber   the intra-community VAT number, blank to clear it
+     * @param phone       the telephone number, blank to clear it
+     * @param email       the electronic address, blank to clear it
+     * @param taxId       the fiscal identifier, blank to clear it
+     * @param taxCountry  the two-letter country code picked for a foreign fiscal
+     *                    identifier, blank for a national one
+     */
+    @Transactional
+    public void updateCustomer(String companyName, String contactName, String street,
+            String postalCode, String city, String siret, String vatNumber, String phone,
+            String email, String taxId, String taxCountry) {
+        LOGGER.info("Entering method updateCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
+        state.invoice.error = "";
+        if (!posSettingsService.customerUpdateEnabled()) {
+            state.invoice.error = "MISE A JOUR CLIENT NON AUTORISEE EN CAISSE";
+            state.touch();
+            LOGGER.info("Exiting method updateCustomer");
+            return;
+        }
+        AccountCustomer named = state.invoice.customer;
+        if (named == null) {
+            state.invoice.error = "AUCUN CLIENT SELECTIONNE";
+            state.touch();
+            LOGGER.info("Exiting method updateCustomer");
+            return;
+        }
+        java.util.Map<String, String> typed = new java.util.LinkedHashMap<>();
+        typed.put("companyName", companyName);
+        typed.put("contactName", contactName);
+        typed.put("street", street);
+        typed.put("postalCode", postalCode);
+        typed.put("city", city);
+        typed.put("siret", siret);
+        typed.put("vatNumber", vatNumber);
+        typed.put("phone", phone);
+        typed.put("email", email);
+        typed.put("taxId", taxId);
+        String missing = firstMissing(typed);
+        if (missing != null) {
+            state.invoice.error = missing.toUpperCase() + " OBLIGATOIRE";
+            state.touch();
+            LOGGER.info("Exiting method updateCustomer");
+            return;
+        }
+        if (companyName == null || companyName.isBlank()) {
+            state.invoice.error = "RAISON SOCIALE OBLIGATOIRE";
+            state.touch();
+            LOGGER.info("Exiting method updateCustomer");
+            return;
+        }
+        String fiscal = fiscalIdentifier(taxId, taxCountry);
+        // BO-10-04-18 again, on the correction road this time: the same NIF may not
+        // end up on two customers. Carried by THIS customer already, it is not a
+        // duplicate — it is the value that was there before the operator retyped it.
+        if (fiscal != null) {
+            AccountCustomer holder = repository.findCustomerByTaxId(fiscal);
+            if (holder != null && !holder.id.equals(named.id)) {
+                state.invoice.error = "N° FISCAL DEJA ENREGISTRE";
+                state.touch();
+                LOGGER.info("Exiting method updateCustomer");
+                return;
+            }
+        }
+        AccountCustomer persisted = repository.findCustomer(named.id);
+        if (persisted == null) {
+            state.invoice.error = "CLIENT INTROUVABLE";
+            state.touch();
+            LOGGER.info("Exiting method updateCustomer");
+            return;
+        }
+        persisted.companyName = companyName.trim();
+        persisted.firstName = firstNameOf(contactName);
+        persisted.lastName = lastNameOf(contactName);
+        if (persisted.address == null) {
+            persisted.address = new Address();
+        }
+        persisted.address.streetLine1 = blankToNull(street);
+        persisted.address.postalCode = blankToNull(postalCode);
+        persisted.address.city = blankToNull(city);
+        persisted.siret = blankToNull(siret);
+        persisted.vatNumber = blankToNull(vatNumber);
+        persisted.phone = blankToNull(phone);
+        persisted.email = blankToNull(email);
+        persisted.taxId = fiscal;
+        repository.save(persisted);
+        // The back office holds the same file: a correction typed at a till that
+        // never left it would be undone by the next full integration.
+        syncOutboxService.enqueue(
+                com.intermarche.pos.domain.sync.SyncOutbox.EntityType.CUSTOMER, persisted.id);
+        LOGGER.infof("Coordonnées client corrigées en caisse : %s (%s)",
+                persisted.companyName, persisted.accountNumber);
+        state.invoice.customer = persisted;
+        state.invoice.editingCustomer = false;
+        state.invoice.step = InvoiceState.Step.PREVIEW;
+        state.touch();
+        LOGGER.info("Exiting method updateCustomer");
+    }
+
+    /**
+     * Returns the administered mask carrying the named customer's values
+     * ({@code BO-10-04-03}).
+     *
+     * @return the fields to correct, in administered order, never empty
+     */
+    public List<EntryField> customerEditFields() {
+        LOGGER.info("Entering method customerEditFields");
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        AccountCustomer named = state.invoice.customer;
+        if (named != null) {
+            values.put("companyName", safe(named.companyName));
+            values.put("contactName", contactOf(named));
+            values.put("street", named.address == null ? "" : safe(named.address.streetLine1));
+            values.put("postalCode", named.address == null ? "" : safe(named.address.postalCode));
+            values.put("city", named.address == null ? "" : safe(named.address.city));
+            values.put("siret", safe(named.siret));
+            values.put("vatNumber", safe(named.vatNumber));
+            values.put("phone", safe(named.phone));
+            values.put("email", safe(named.email));
+            values.put("taxId", safe(named.taxId));
+        }
+        LOGGER.info("Exiting method customerEditFields");
+        return EntryField.filled(
+                EntryField.customerFields(posSettingsService.invoiceCustomerFields()), values);
+    }
+
+    /**
+     * The country codes offered for a foreign fiscal identifier
+     * ({@code BO-10-04-17}).
+     *
+     * <p>Administered and not hard-coded: the Portuguese NIF follows an algorithm
+     * the register can check, a foreign one does not, and what tells them apart is
+     * the country code the operator picked.
+     *
+     * @return the codes, upper case, in administered order, empty when the shop
+     *         offers none
+     */
+    public List<String> foreignTaxCountries() {
+        LOGGER.info("Entering method foreignTaxCountries");
+        List<String> codes = new java.util.ArrayList<>();
+        String administered = posSettingsService.foreignTaxIdCountries();
+        if (administered != null) {
+            for (String part : administered.split(",")) {
+                String code = part.trim().toUpperCase();
+                if (!code.isEmpty() && !codes.contains(code)) {
+                    codes.add(code);
+                }
+            }
+        }
+        LOGGER.info("Exiting method foreignTaxCountries");
+        return codes;
+    }
+
+    /**
+     * Builds the fiscal identifier actually stored, the picked country code
+     * prefixed to it ({@code BO-10-04-17}).
+     *
+     * <p>The code is prefixed and not stored apart: a foreign NIF is only ever read
+     * back with its country, and one column holding {@code ES12345678} cannot drift
+     * from a second column the way two columns can.
+     *
+     * @param taxId      the identifier as typed, possibly blank
+     * @param taxCountry the country code picked, possibly blank
+     * @return the identifier to store, null when nothing was typed
+     */
+    private String fiscalIdentifier(String taxId, String taxCountry) {
+        String typed = blankToNull(taxId);
+        if (typed == null) {
+            return null;
+        }
+        String country = blankToNull(taxCountry);
+        if (country == null) {
+            return typed;
+        }
+        String code = country.trim().toUpperCase();
+        return typed.toUpperCase().startsWith(code) ? typed : code + typed;
+    }
+
+    /**
+     * Rebuilds the contact line of a customer from the two name columns.
+     *
+     * @param customer the customer, never null
+     * @return the contact's name, empty when the customer carries none
+     */
+    private static String contactOf(AccountCustomer customer) {
+        String first = safe(customer.firstName).trim();
+        String last = safe(customer.lastName).trim();
+        return (first + " " + last).trim();
+    }
+
+    /**
+     * Names the wording the document prints in place of the fiscal identifier
+     * ({@code BO-10-04-16}).
+     *
+     * <p>Only the ADMINISTERED default identifier is replaced: a customer who gave
+     * their own NIF is printed with it, and a shop administering no default — every
+     * shop outside Portugal — never replaces anything.
+     *
+     * @param document the document about to be laid out
+     * @return the wording to print, or null to print the identifier itself
+     */
+    private String taxIdLabel(com.intermarche.pos.domain.sale.Invoice document) {
+        String administered = posSettingsService.defaultTaxId();
+        if (administered == null || administered.isBlank() || document.customerTaxId == null) {
+            return null;
+        }
+        if (!administered.trim().equalsIgnoreCase(document.customerTaxId.trim())) {
+            return null;
+        }
+        return posSettingsService.defaultTaxIdLabel();
+    }
+
+    /**
+     * Turns a missing value into an empty one.
+     *
+     * @param value the value, possibly null
+     * @return the value, or an empty string
+     */
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     /**
@@ -424,7 +717,7 @@ public class InvoiceService {
         }
         Invoice draft = build(ticket, customer, "");
         LOGGER.info("Exiting method preview");
-        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan());
+        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft));
     }
 
     /**
@@ -467,6 +760,7 @@ public class InvoiceService {
         print(document, ticket);
         document.printCount++;
         repository.save(document);
+        declare(document);
         state.invoice.issuedInvoiceId = document.id;
         state.touch();
         LOGGER.info("Exiting method issue");
@@ -492,7 +786,7 @@ public class InvoiceService {
             return null;
         }
         LOGGER.info("Exiting method issued");
-        return InvoiceDocument.of(document, ticket, posSettingsService.showEan());
+        return InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document));
     }
 
     /**
@@ -547,6 +841,7 @@ public class InvoiceService {
         state.invoice.error = "";
         state.invoice.customer = null;
         state.invoice.creatingCustomer = false;
+        state.invoice.editingCustomer = false;
         state.invoice.step = InvoiceState.Step.CUSTOMER;
         state.touch();
         LOGGER.info("Exiting method backToCustomerStep");
@@ -605,15 +900,23 @@ public class InvoiceService {
         document.ticketNumber = ticket.ticketNumber;
         document.addressTo(customer);
         VatBreakdown breakdown = new VatBreakdown();
+        BigDecimal ecoTax = BigDecimal.ZERO;
         for (com.intermarche.pos.domain.sale.TicketLine line : ticket.lines) {
             if (line.cancelled) {
                 continue;
             }
             breakdown.add(line.vatRate, line.totalPrice);
+            // BO-10-04-14: the eco-tax is borne per unit, so a line of three bears
+            // it three times. Cancelled lines bear none, exactly as they bear no
+            // VAT — the same loop decides both, so the two can never disagree.
+            ecoTax = ecoTax.add(com.intermarche.pos.domain.catalog.attribute.ProductAttributes
+                    .ecoTax(line.product).multiply(line.quantity == null
+                            ? BigDecimal.ONE : line.quantity));
         }
         document.totalExcludingTax = breakdown.getTotalExcludingTax();
         document.totalIncludingTax = breakdown.getTotalIncludingTax();
         document.totalVat = breakdown.getTotalVat();
+        document.totalEcoTax = ecoTax.setScale(4, java.math.RoundingMode.HALF_UP);
         return document;
     }
 
@@ -669,7 +972,7 @@ public class InvoiceService {
             Invoice document = build(ticket, customer,
                     ticketNumberService.nextDocumentNumber(kind), kind);
             InvoiceDocument laid =
-                    InvoiceDocument.of(document, ticket, posSettingsService.showEan());
+                    InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document));
             List<String> lines = renderLines(laid);
             if (outputFor(kind) != DocumentOutput.A4 || !networkPrinter.print(laid, lines)) {
                 hardwareService.printReceipt(String.join("\n", lines) + "\n");
@@ -677,6 +980,7 @@ public class InvoiceService {
             }
             document.printCount++;
             repository.save(document);
+            declare(document);
             LOGGER.infof("Document %s émis automatiquement sur le règlement %s du ticket %s",
                     document.documentNumber, payment.getMethodKey(), ticket.ticketNumber);
             LOGGER.info("Exiting method autoPrint");
@@ -684,6 +988,23 @@ public class InvoiceService {
         }
         LOGGER.info("Exiting method autoPrint");
         return null;
+    }
+
+    /**
+     * Declares an issued document to the store node ({@code BO-02-04-19}).
+     *
+     * <p>On the OUTBOX road, like everything else the register has to say: a
+     * node that is down must not lose the declaration, and the back office has
+     * to be able to extract, years later, the documents printed at the tills.
+     * Enqueued at every issue, duplicates included — the node upserts on the
+     * document number, so the reprint that moved the print count is carried
+     * without creating a second document.
+     *
+     * @param document the document just printed
+     */
+    private void declare(Invoice document) {
+        syncOutboxService.enqueue(
+                com.intermarche.pos.domain.sync.SyncOutbox.EntityType.DOCUMENT, document.id);
     }
 
     /**
@@ -730,7 +1051,7 @@ public class InvoiceService {
      * @param ticket   the ticket it states
      */
     private void print(Invoice document, Ticket ticket) {
-        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan());
+        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document));
         List<String> lines = renderLines(laid);
         DocumentOutput target = outputFor(document.documentType);
         if (target.needsInsertion()) {
@@ -801,12 +1122,20 @@ public class InvoiceService {
     /**
      * Returns the administered customer-creation mask ({@code LC-08-04-10}), typed.
      *
+     * <p>The fiscal identifier arrives PRE-FILLED with the administered default
+     * ({@code BO-10-04-15}, {@code LC-08-06-02}): in Portugal every ticket carries a
+     * NIF, and the customer who does not give theirs is billed under the anonymous
+     * one — proposing it is what lets the operator go on without typing anything,
+     * while leaving them free to overwrite it with the customer's own.
+     *
      * @return the fields to ask for, in administered order, never empty
      */
     public List<EntryField> customerFields() {
         LOGGER.info("Entering method customerFields");
         LOGGER.info("Exiting method customerFields");
-        return EntryField.customerFields(posSettingsService.invoiceCustomerFields());
+        return EntryField.filled(
+                EntryField.customerFields(posSettingsService.invoiceCustomerFields()),
+                java.util.Map.of("taxId", safe(posSettingsService.defaultTaxId()).trim()));
     }
 
     /**

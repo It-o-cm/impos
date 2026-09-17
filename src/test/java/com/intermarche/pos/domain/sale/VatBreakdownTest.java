@@ -1,172 +1,159 @@
 package com.intermarche.pos.domain.sale;
 
-import java.math.BigDecimal;
-import java.util.List;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 /**
- * Unit tests for {@link VatBreakdown}, targeting 100% branch coverage.
+ * Unit tests for {@link VatBreakdown}.
  * <p>
- * The class accumulates tax-included totals per VAT rate in a {@link java.util.TreeMap}
- * and derives the HT/VAT split per bucket. Its only branches are the null guard on
- * the rate in {@link VatBreakdown#add} (covered by both a non-null and a null rate)
- * and the iteration of {@link VatBreakdown#getBuckets} (covered by both an empty and
- * a populated breakdown). The remaining coverage exercises the {@code merge}
- * accumulation of two lines under the same rate, the {@code stripTrailingZeros}
- * rate normalization, the HT/VAT derivation, the three totals and the percentage
- * formatting including its 0% form. The class holds no static finder or persist, so
- * no Panache mocking is required. Each test is fully isolated and asserts absolute
- * expected values.
+ * Branch enumeration: {@code add} has both arms of the rate guard (null and
+ * given) and both arms of the amount guard (null and given), plus the
+ * first-value and merge paths of the accumulator. {@code getBuckets} is read on
+ * an empty ventilation and on several rates, and {@code getRateFormatted} on a
+ * rate whose percentage carries decimals. The three totals are read on an empty
+ * ventilation (their reduce identity) and on a filled one.
  */
 class VatBreakdownTest {
 
+    /** The standard French rate. */
+    private static final BigDecimal TWENTY = new BigDecimal("0.2000");
+
+    /** The reduced French rate. */
+    private static final BigDecimal FIVE_FIVE = new BigDecimal("0.0550");
+
     /**
-     * A non-null rate is used as-is (after stripping) as the bucket key.
+     * An empty ventilation has no bucket and totals of zero.
      */
     @Test
-    void addWithNonNullRateKeepsTheRate() {
+    void emptyVentilationTotalsZero() {
+        VatBreakdown breakdown = new VatBreakdown();
+        assertTrue(breakdown.getBuckets().isEmpty());
+        assertEquals(BigDecimal.ZERO, breakdown.getTotalIncludingTax());
+        assertEquals(BigDecimal.ZERO, breakdown.getTotalExcludingTax());
+        assertEquals(BigDecimal.ZERO, breakdown.getTotalVat());
+    }
+
+    /**
+     * Two lines at the same rate land in one bucket, and the tax is derived from
+     * their SUM rather than line by line.
+     */
+    @Test
+    void linesAtTheSameRateShareOneBucket() {
+        VatBreakdown breakdown = new VatBreakdown();
+        breakdown.add(TWENTY, new BigDecimal("10.00"));
+        breakdown.add(TWENTY, new BigDecimal("14.00"));
+        List<VatBreakdown.Bucket> buckets = breakdown.getBuckets();
+        assertEquals(1, buckets.size());
+        assertEquals(0, new BigDecimal("24.00").compareTo(buckets.get(0).totalIncludingTax));
+        assertEquals(0, new BigDecimal("20.00").compareTo(buckets.get(0).totalExcludingTax));
+        assertEquals(0, new BigDecimal("4.00").compareTo(buckets.get(0).vatAmount));
+    }
+
+    /**
+     * A rate written with more decimals lands in the same bucket, because the
+     * key is normalized.
+     */
+    @Test
+    void equivalentRatesShareOneBucket() {
         VatBreakdown breakdown = new VatBreakdown();
         breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
+        breakdown.add(new BigDecimal("0.2000"), new BigDecimal("12.00"));
+        assertEquals(1, breakdown.getBuckets().size());
+    }
+
+    /**
+     * Buckets come back sorted by ascending rate, whatever the order they were
+     * accumulated in.
+     */
+    @Test
+    void bucketsComeBackSortedByRate() {
+        VatBreakdown breakdown = new VatBreakdown();
+        breakdown.add(TWENTY, new BigDecimal("12.00"));
+        breakdown.add(FIVE_FIVE, new BigDecimal("10.55"));
         List<VatBreakdown.Bucket> buckets = breakdown.getBuckets();
-        Assertions.assertEquals(1, buckets.size());
-        Assertions.assertEquals(0, buckets.get(0).rate.compareTo(new BigDecimal("0.2")));
-        Assertions.assertEquals(new BigDecimal("12.00"), buckets.get(0).totalIncludingTax);
+        assertEquals(2, buckets.size());
+        assertTrue(buckets.get(0).rate.compareTo(buckets.get(1).rate) < 0);
     }
 
     /**
-     * A null rate falls back to the zero rate, landing in the 0% bucket.
+     * A null rate is accumulated at zero percent, where the tax-excluded total
+     * equals the tax-included one.
      */
     @Test
-    void addWithNullRateFallsBackToZero() {
+    void nullRateIsAccumulatedAtZeroPercent() {
         VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(null, new BigDecimal("5.00"));
-        List<VatBreakdown.Bucket> buckets = breakdown.getBuckets();
-        Assertions.assertEquals(1, buckets.size());
-        Assertions.assertEquals(0, buckets.get(0).rate.compareTo(BigDecimal.ZERO));
-        Assertions.assertEquals(new BigDecimal("5.00"), buckets.get(0).totalIncludingTax);
-    }
-
-    /**
-     * Two lines with the same rate accumulate into a single bucket (merge branch).
-     */
-    @Test
-    void addAccumulatesSameRateIntoOneBucket() {
-        VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("6.00"));
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("6.00"));
-        List<VatBreakdown.Bucket> buckets = breakdown.getBuckets();
-        Assertions.assertEquals(1, buckets.size());
-        Assertions.assertEquals(new BigDecimal("12.00"), buckets.get(0).totalIncludingTax);
-    }
-
-    /**
-     * Rates differing only by trailing zeros (0.20 vs 0.2000) land in the same bucket.
-     */
-    @Test
-    void addNormalizesTrailingZeros() {
-        VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("3.00"));
-        breakdown.add(new BigDecimal("0.2000"), new BigDecimal("3.00"));
-        List<VatBreakdown.Bucket> buckets = breakdown.getBuckets();
-        Assertions.assertEquals(1, buckets.size());
-        Assertions.assertEquals(new BigDecimal("6.00"), buckets.get(0).totalIncludingTax);
-    }
-
-    /**
-     * An empty breakdown yields no buckets (the loop iterates zero times).
-     */
-    @Test
-    void getBucketsIsEmptyWhenNothingAdded() {
-        VatBreakdown breakdown = new VatBreakdown();
-        Assertions.assertTrue(breakdown.getBuckets().isEmpty());
-    }
-
-    /**
-     * The HT is derived as TTC / (1 + rate) rounded to the cent, and the VAT as TTC minus HT.
-     */
-    @Test
-    void getBucketsDerivesHtAndVat() {
-        VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
+        breakdown.add(null, new BigDecimal("7.30"));
         VatBreakdown.Bucket bucket = breakdown.getBuckets().get(0);
-        Assertions.assertEquals(new BigDecimal("10.00"), bucket.totalExcludingTax);
-        Assertions.assertEquals(new BigDecimal("2.00"), bucket.vatAmount);
+        assertEquals(0, BigDecimal.ZERO.compareTo(bucket.rate));
+        assertEquals(0, new BigDecimal("7.30").compareTo(bucket.totalExcludingTax));
+        assertEquals(0, BigDecimal.ZERO.compareTo(bucket.vatAmount));
     }
 
     /**
-     * Buckets are returned sorted by ascending rate.
+     * A NULL AMOUNT contributes nothing instead of taking the ventilation down.
+     * <p>
+     * This is the defect the guard was added for: {@code Map.merge} throws on a
+     * null value, so one line without a total used to raise a
+     * {@code NullPointerException} in the middle of a ticket.
      */
     @Test
-    void getBucketsAreSortedByAscendingRate() {
+    void nullAmountContributesNothing() {
         VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
-        breakdown.add(new BigDecimal("0.055"), new BigDecimal("10.55"));
-        List<VatBreakdown.Bucket> buckets = breakdown.getBuckets();
-        Assertions.assertEquals(2, buckets.size());
-        Assertions.assertEquals(0, buckets.get(0).rate.compareTo(new BigDecimal("0.055")));
-        Assertions.assertEquals(0, buckets.get(1).rate.compareTo(new BigDecimal("0.2")));
+        breakdown.add(TWENTY, null);
+        assertEquals(1, breakdown.getBuckets().size());
+        assertEquals(0, BigDecimal.ZERO.compareTo(breakdown.getTotalIncludingTax()));
     }
 
     /**
-     * getTotalIncludingTax sums the tax-included totals of every bucket.
+     * A null amount arriving on a rate that already carries lines leaves the
+     * bucket untouched (the merge path of the guard, not just the first-value
+     * path).
      */
     @Test
-    void getTotalIncludingTaxSumsAllBuckets() {
+    void nullAmountOnAnExistingBucketChangesNothing() {
         VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
-        breakdown.add(new BigDecimal("0.055"), new BigDecimal("10.55"));
-        Assertions.assertEquals(new BigDecimal("22.55"), breakdown.getTotalIncludingTax());
+        breakdown.add(TWENTY, new BigDecimal("18.00"));
+        breakdown.add(TWENTY, null);
+        assertEquals(0, new BigDecimal("18.00").compareTo(breakdown.getTotalIncludingTax()));
     }
 
     /**
-     * getTotalIncludingTax returns zero when the breakdown is empty.
+     * A null rate AND a null amount together are accumulated as a zero line at
+     * zero percent.
      */
     @Test
-    void getTotalIncludingTaxIsZeroWhenEmpty() {
+    void nullRateAndNullAmountAreBothAbsorbed() {
         VatBreakdown breakdown = new VatBreakdown();
-        Assertions.assertEquals(0, breakdown.getTotalIncludingTax().compareTo(BigDecimal.ZERO));
+        breakdown.add(null, null);
+        assertEquals(1, breakdown.getBuckets().size());
+        assertEquals(0, BigDecimal.ZERO.compareTo(breakdown.getTotalVat()));
     }
 
     /**
-     * getTotalExcludingTax sums the per-bucket HT amounts.
+     * The three totals add their buckets up.
      */
     @Test
-    void getTotalExcludingTaxSumsBucketHt() {
+    void totalsAddTheBucketsUp() {
         VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
-        breakdown.add(new BigDecimal("0.055"), new BigDecimal("10.55"));
-        Assertions.assertEquals(new BigDecimal("20.00"), breakdown.getTotalExcludingTax());
+        breakdown.add(TWENTY, new BigDecimal("24.00"));
+        breakdown.add(FIVE_FIVE, new BigDecimal("10.55"));
+        assertEquals(0, new BigDecimal("34.55").compareTo(breakdown.getTotalIncludingTax()));
+        assertEquals(0, new BigDecimal("30.00").compareTo(breakdown.getTotalExcludingTax()));
+        assertEquals(0, new BigDecimal("4.55").compareTo(breakdown.getTotalVat()));
     }
 
     /**
-     * getTotalVat sums the per-bucket VAT amounts.
+     * A rate is shown as a French percentage with two decimals.
      */
     @Test
-    void getTotalVatSumsBucketVat() {
+    void rateIsShownAsAFrenchPercentage() {
         VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
-        breakdown.add(new BigDecimal("0.055"), new BigDecimal("10.55"));
-        Assertions.assertEquals(new BigDecimal("2.55"), breakdown.getTotalVat());
-    }
-
-    /**
-     * getRateFormatted renders the rate as a French-formatted percentage.
-     */
-    @Test
-    void getRateFormattedRendersPercentage() {
-        VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(new BigDecimal("0.20"), new BigDecimal("12.00"));
-        Assertions.assertEquals("20,00%", breakdown.getBuckets().get(0).getRateFormatted());
-    }
-
-    /**
-     * getRateFormatted renders the zero rate as "0,00%".
-     */
-    @Test
-    void getRateFormattedRendersZeroRate() {
-        VatBreakdown breakdown = new VatBreakdown();
-        breakdown.add(null, new BigDecimal("5.00"));
-        Assertions.assertEquals("0,00%", breakdown.getBuckets().get(0).getRateFormatted());
+        breakdown.add(FIVE_FIVE, new BigDecimal("10.55"));
+        assertEquals("5,50%", breakdown.getBuckets().get(0).getRateFormatted());
     }
 }

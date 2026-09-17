@@ -149,6 +149,10 @@ public class HomeResource {
         // poll is how an already-open screen learns that the register locked
         // and must navigate to /lock (see LockCheckFilter).
         result.put("locked", state.isLocked());
+        // The close asked for by a badge scan rides the same way, and for the
+        // same reason: the gesture happens on the scan bus, far from the page,
+        // and only this poll can send the screen to the closing (LC-01-02-03).
+        result.put("closeRequested", state.auth.closeRequestedByBadge);
         // Payability rides along for the same reason: the ENCAISSER control
         // is server-rendered OUTSIDE the polled fragment, so a cart filled
         // through the scan bus (hardware scanner, simulator) would leave the

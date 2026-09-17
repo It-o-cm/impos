@@ -133,6 +133,52 @@ class DrawerOperationsResourceTest {
         public List<String[]> transactionsOf(String key) {
             return List.of(new String[] {"T-1", "40,00 E"}, new String[] {"T-2", "40,00 E"});
         }
+
+        /**
+         * Answers the administered list alone ({@code BO-05-02-17}).
+         *
+         * <p>The narrowing by the tender referential asks a Panache static, which
+         * a plain unit test of the SCREEN has no business booting: what the two
+         * flags do is proved on {@link DrawerMethodService} itself.
+         *
+         * @param key the tender key
+         * @return true when the shop administered it as transferable
+         */
+        @Override
+        public boolean isTransferSource(String key) {
+            return isTransferable(key);
+        }
+
+        /**
+         * Answers the administered list alone ({@code BO-05-02-17}).
+         *
+         * @param key the tender key
+         * @return true when the shop administered it as transferable
+         */
+        @Override
+        public boolean isTransferDestination(String key) {
+            return isTransferable(key);
+        }
+
+        /**
+         * Answers the administered list alone, for the screen's two selects.
+         *
+         * @return the administered transfer list
+         */
+        @Override
+        public List<DrawerMethodService.DrawerMethod> transferSources() {
+            return transferable();
+        }
+
+        /**
+         * Answers the administered list alone, for the screen's two selects.
+         *
+         * @return the administered transfer list
+         */
+        @Override
+        public List<DrawerMethodService.DrawerMethod> transferDestinations() {
+            return transferable();
+        }
     }
 
     /** A movement service that records what it was asked to write, and writes nothing. */

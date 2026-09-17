@@ -36,6 +36,8 @@ class InvoiceTest {
         source.lastName = "Dupont";
         source.siret = "12345678900011";
         source.vatNumber = "FR12345678900";
+        source.taxId = "PT123456789";
+        source.dueDate = java.time.LocalDate.of(2026, 10, 31);
         source.address = address;
         return source;
     }
@@ -130,6 +132,12 @@ class InvoiceTest {
         Assertions.assertEquals("Jean Dupont", invoice.customerContact);
         Assertions.assertEquals("12345678900011", invoice.customerSiret);
         Assertions.assertEquals("FR12345678900", invoice.customerVatNumber);
+        // The NIF is copied onto the document like the SIRET beside it: what
+        // the back office extracts must be what was printed (BO-02-04-19).
+        Assertions.assertEquals("PT123456789", invoice.customerTaxId);
+        // BO-02-04-08: the due date is copied onto the document too, because
+        // the paper must carry it and the customer's terms may change later.
+        Assertions.assertEquals(java.time.LocalDate.of(2026, 10, 31), invoice.customerDueDate);
     }
 
     /**
@@ -211,14 +219,18 @@ class InvoiceTest {
         invoice.customerContact = "Jean Dupont";
         invoice.customerSiret = "12345678900011";
         invoice.customerVatNumber = "FR12345678900";
+        invoice.customerTaxId = "PT123456789";
+        invoice.customerDueDate = java.time.LocalDate.of(2026, 10, 31);
         invoice.totalExcludingTax = new BigDecimal("8.3333");
         invoice.totalIncludingTax = new BigDecimal("10.0000");
         invoice.totalVat = new BigDecimal("1.6667");
+        invoice.totalEcoTax = new BigDecimal("0.4000");
         invoice.printCount = 2;
         int expected = Objects.hash("C04-F000123", DocumentType.FACTURE, "C04", now,
                 "C04-T000045", "ACC-001", "ACME SARL", "Jean Dupont", "12345678900011",
-                "FR12345678900", new BigDecimal("8.3333"), new BigDecimal("10.0000"),
-                new BigDecimal("1.6667"), 2);
+                "FR12345678900", "PT123456789", java.time.LocalDate.of(2026, 10, 31),
+                new BigDecimal("8.3333"), new BigDecimal("10.0000"),
+                new BigDecimal("1.6667"), new BigDecimal("0.4000"), 2);
         Assertions.assertEquals(expected, invoice.getChecksum());
     }
 

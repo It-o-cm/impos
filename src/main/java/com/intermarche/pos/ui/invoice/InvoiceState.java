@@ -126,6 +126,17 @@ public class InvoiceState implements Serializable {
     /** True while the operator is filling in a new customer rather than picking one. */
     public boolean creatingCustomer = false;
 
+    /**
+     * True while the operator is correcting the coordinates of the named customer
+     * ({@code BO-10-04-03}).
+     *
+     * <p>Held apart from {@link #creatingCustomer} although both show the same
+     * administered mask: the one writes a new row, the other overwrites an existing
+     * one, and a screen that could not tell them apart would create a duplicate the
+     * day the operator meant to fix a street name.
+     */
+    public boolean editingCustomer = false;
+
     /** The database id of the issued document, null until it is issued. */
     public Long issuedInvoiceId;
 
@@ -162,6 +173,7 @@ public class InvoiceState implements Serializable {
         searched = false;
         customer = null;
         creatingCustomer = false;
+        editingCustomer = false;
         issuedInvoiceId = null;
         slipPages = Collections.emptyList();
         slipPrinted = 0;

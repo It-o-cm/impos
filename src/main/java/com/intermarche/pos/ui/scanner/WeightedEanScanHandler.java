@@ -137,7 +137,8 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         }
 
         Price price = Price.findCurrentPrice(product.id);
-        BigDecimal vatRate = (price != null) ? price.vatRate : defaultVatRate;
+        BigDecimal vatRate = (price != null && price.vatRate() != null)
+                ? price.vatRate() : defaultVatRate;
         // BO-02-03-26/27: VAT-exempt article ventilated at rate 0.
         if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.vatExempt(product)) {
             vatRate = BigDecimal.ZERO;

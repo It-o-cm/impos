@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +59,11 @@ class InvoiceResourceTest {
         resource.state = mock(PosState.class);
         resource.state.invoice = mock(InvoiceState.class);
         resource.invoiceService = mock(InvoiceService.class);
+        // BO-10-04-03: every display of the request page asks the parameters
+        // whether the correction button is offered, so the collaborator belongs
+        // to the fixture and not to a single test.
+        resource.posSettingsService =
+                mock(com.intermarche.pos.service.PosSettingsService.class);
         resource.requestPage = mock(Template.class);
         resource.documentPage = mock(Template.class);
         return resource;
@@ -242,9 +248,9 @@ class InvoiceResourceTest {
         InvoiceResource resource = newResource();
         TemplateInstance view = stubRequest(resource);
         assertSame(view, resource.createCustomer("BOULANGERIE", "Marc VIDAL", "3 place",
-                "92420", "VAUCRESSON", "SIRET", "FR1", "0102", "a@b.c"));
+                "92420", "VAUCRESSON", "SIRET", "FR1", "0102", "a@b.c", "", ""));
         verify(resource.invoiceService).createCustomer("BOULANGERIE", "Marc VIDAL", "3 place",
-                "92420", "VAUCRESSON", "SIRET", "FR1", "0102", "a@b.c");
+                "92420", "VAUCRESSON", "SIRET", "FR1", "0102", "a@b.c", "", "");
     }
 
     // --- preview: document null versus non-null, first-page pagination ---
@@ -427,5 +433,68 @@ class InvoiceResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
         verify(resource.invoiceService).abandon();
+    }
+
+    /**
+     * {@code newCustomer()} closes the correction mask when it was open: the two
+     * masks share one entry mechanism, and leaving both flags on would post a
+     * creation to the correction road ({@code BO-10-04-03}).
+     */
+    @Test
+    void newCustomerClosesTheCorrectionMask() {
+        InvoiceResource resource = newResource();
+        stubRequest(resource);
+        resource.state.invoice.editingCustomer = true;
+        resource.newCustomer();
+        assertEquals(false, resource.state.invoice.editingCustomer);
+    }
+
+    /**
+     * {@code editCustomer()} delegates to the service and renders the request page
+     * ({@code BO-10-04-03}).
+     */
+    @Test
+    void editCustomerDelegatesAndRendersRequest() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        assertSame(view, resource.editCustomer());
+        verify(resource.invoiceService).editCustomer();
+    }
+
+    /**
+     * {@code updateCustomer()} passes every posted field to the service and renders
+     * the request page ({@code BO-10-04-04}).
+     */
+    @Test
+    void updateCustomerDelegatesAllFieldsAndRendersRequest() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        assertSame(view, resource.updateCustomer("BOULANGERIE", "Marc VIDAL", "3 place",
+                "92420", "VAUCRESSON", "SIRET", "FR1", "0102", "a@b.c", "PT1", "ES"));
+        verify(resource.invoiceService).updateCustomer("BOULANGERIE", "Marc VIDAL", "3 place",
+                "92420", "VAUCRESSON", "SIRET", "FR1", "0102", "a@b.c", "PT1", "ES");
+    }
+
+    /**
+     * On the correction mask the page carries the FILLED fields and posts to the
+     * correction road — the editing arm of {@code currentFields} and
+     * {@code currentAction}, which wins over the creation arm.
+     */
+    @Test
+    void theCorrectionMaskCarriesTheFilledFieldsAndItsOwnAction() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        when(resource.state.invoice.isOnTicketStep()).thenReturn(false);
+        resource.state.invoice.editingCustomer = true;
+        resource.state.invoice.creatingCustomer = true;
+        java.util.List<EntryField> filled =
+                java.util.List.of(new EntryField("companyName", "Raison sociale", "alpha",
+                        true, 120, false, "ACME"));
+        when(resource.invoiceService.customerEditFields()).thenReturn(filled);
+        assertSame(view, resource.editCustomer());
+        verify(resource.requestPage).data("state", resource.state);
+        verify(view).data("fields", filled);
+        verify(view).data("formAction", "/invoice/customer/update");
+        verify(resource.invoiceService, never()).customerFields();
     }
 }

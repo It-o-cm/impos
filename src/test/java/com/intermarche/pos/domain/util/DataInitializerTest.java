@@ -3,6 +3,7 @@ package com.intermarche.pos.domain.util;
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.domain.store.Store;
@@ -40,7 +41,7 @@ import static org.mockito.ArgumentMatchers.eq;
  * mock constructor bypasses field initializers and the seeder wires the family
  * tree through those sets. A single end-to-end {@code onStart} run exercises
  * every line and every private helper; the assertions pin the absolute number
- * of persisted rows per entity type, the five table wipes, Marie's light
+ * of persisted rows per entity type, the eight table wipes, Marie's light
  * theme override and the admin account's exemption from the forced password
  * change. The class carries 0 branches, so branch coverage is 0/0.
  */
@@ -63,7 +64,7 @@ class DataInitializerTest {
     /**
      * Drives {@code onStart} through a fully mocked Panache layer and verifies
      * that every entity type is constructed and persisted in the exact expected
-     * quantity, that the five referential tables are wiped once, and that
+     * quantity, that the eight referential tables are wiped once, and that
      * Marie's cashier-level light-theme preference is applied, and that the
      * Intermarché nomenclature is seeded with its levels and its nodes.
      */
@@ -82,6 +83,7 @@ class DataInitializerTest {
                      });
              MockedConstruction<Product> products = mockConstruction(Product.class);
              MockedConstruction<Price> prices = mockConstruction(Price.class);
+             MockedConstruction<VatRate> vatRates = mockConstruction(VatRate.class);
              MockedConstruction<CouponType> couponTypes = mockConstruction(CouponType.class);
              MockedConstruction<Store> stores = mockConstruction(Store.class);
              MockedConstruction<Nomenclature> schemes = mockConstruction(Nomenclature.class);
@@ -99,7 +101,7 @@ class DataInitializerTest {
             PanacheQuery<Employee> adminQuery = employeeQuery(admin);
             panache.when(() -> Employee.find("loginName", "admin")).thenReturn(adminQuery);
             initializer.onStart(null);
-            panache.verify(() -> Employee.deleteAll(), times(7));
+            panache.verify(() -> Employee.deleteAll(), times(8));
             assertEquals(4, employees.constructed().size());
             // Ten touch groups plus the twenty-one seeded nomenclature nodes.
             assertEquals(31, families.constructed().size());
@@ -108,6 +110,9 @@ class DataInitializerTest {
             assertEquals(4, levels.constructed().size());
             assertEquals(38, products.constructed().size());
             assertEquals(41, prices.constructed().size());
+            // The five regimes of the French referential, written once before
+            // any price names one.
+            assertEquals(5, vatRates.constructed().size());
             assertEquals(8, couponTypes.constructed().size());
             assertEquals(1, stores.constructed().size());
             for (Employee employee : employees.constructed()) {
@@ -126,6 +131,9 @@ class DataInitializerTest {
             }
             for (Price price : prices.constructed()) {
                 verify(price).persist();
+            }
+            for (VatRate rate : vatRates.constructed()) {
+                verify(rate).persist();
             }
             for (CouponType couponType : couponTypes.constructed()) {
                 verify(couponType).persist();

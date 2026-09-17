@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.scanner;
 
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -214,7 +215,7 @@ class EanScanHandlerTest {
         Product p = newProduct(false);
         Price price = new Price();
         price.priceIncludingTax = new BigDecimal("1.5000");
-        price.vatRate = new BigDecimal("0.0550");
+        price.vat = new VatRate(1, new BigDecimal("0.0550"), "Taux normal");
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {
@@ -456,7 +457,7 @@ class EanScanHandlerTest {
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
         Price price = new Price();
         price.priceIncludingTax = new BigDecimal("1.5000");
-        price.vatRate = new BigDecimal("0.0550");
+        price.vat = new VatRate(1, new BigDecimal("0.0550"), "Taux normal");
         ScanContext ctx = new ScanContext(CODE, state);
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<Price> prices = mockStatic(Price.class)) {

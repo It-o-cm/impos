@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
@@ -55,6 +56,29 @@ class NetworkDocumentPrinterTest {
         store.address.streetLine1 = "12 rue A";
         store.address.postalCode = "92420";
         store.address.city = "VAUCRESSON";
+        Ticket ticket = new Ticket();
+        ticket.store = store;
+        ticket.ticketNumber = "C04-000123";
+        ticket.terminalId = "C04";
+        ticket.creationDate = LocalDateTime.of(2026, 9, 15, 11, 24);
+        Invoice invoice = new Invoice();
+        invoice.documentNumber = "C04-F000042";
+        invoice.issueDate = LocalDateTime.of(2026, 9, 15, 11, 24);
+        invoice.customerName = "SARL DUPONT";
+        invoice.customerDueDate = java.time.LocalDate.of(2026, 10, 31);
+        return InvoiceDocument.of(invoice, ticket, false);
+    }
+
+    /**
+     * Builds the same document WITHOUT administered terms, for the silent arm
+     * of the due-date line.
+     *
+     * @return the document
+     */
+    private InvoiceDocument withoutDueDate() {
+        Store store = new Store();
+        store.name = "MAGASIN";
+        store.address = new Address();
         Ticket ticket = new Ticket();
         ticket.store = store;
         ticket.ticketNumber = "C04-000123";
@@ -133,6 +157,21 @@ class NetworkDocumentPrinterTest {
         String page = printer.page(document);
         assertEquals(NetworkDocumentPrinter.html(document), page);
         assertTrue(page.startsWith("<!DOCTYPE html>"));
+    }
+
+    /**
+     * The hand-built page carries the ÉCHÉANCE when the customer has terms, and
+     * carries no such mention when they have none — the two arms of
+     * {@code BO-02-04-08} on the A4 output.
+     */
+    @Test
+    void theHandBuiltPageCarriesTheDueDateOnlyWhenThereIsOne() {
+        String withTerms = NetworkDocumentPrinter.html(laidOut());
+        assertTrue(withTerms.contains("Échéance : 31/10/2026"),
+                () -> "no due date on the page: " + withTerms);
+        String without = NetworkDocumentPrinter.html(withoutDueDate());
+        assertFalse(without.contains("Échéance"),
+                () -> "a due date was printed for a customer without terms: " + without);
     }
 
     /**

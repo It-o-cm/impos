@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.auth;
 
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -52,6 +53,10 @@ public class AuthService {
 
     @Inject
     TechnicalEventService technicalEventService;
+
+    /** The administered parameters governing how the register opens. */
+    @Inject
+    PosSettingsService posSettingsService;
 
     /** Outcome of a login attempt. */
     public enum LoginResult {
@@ -153,6 +158,18 @@ public class AuthService {
      */
     public LoginResult login(PosState state, String loginInfo, String rawPassword) {
         LOGGER.info("Entering method login with state: " + state + ", loginInfo: " + loginInfo + ", rawPassword: ***");
+        if (badgeOpensAlone(state, loginInfo, rawPassword)) {
+            Employee employee = Employee.findActiveLogin(loginInfo);
+            if (employee != null) {
+                state.auth.login(employee.id, employee.getFullName(), employee.badgeId);
+                technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
+                        null, employee.badgeId);
+                LOGGER.info("Exiting method login");
+                return LoginResult.SUCCESS;
+            }
+            LOGGER.info("Exiting method login");
+            return LoginResult.INVALID;
+        }
         CredentialStatus status = checkCredentials(loginInfo, rawPassword);
         if (status.isSuccess()) {
             state.auth.login(status.employee.id, status.employee.getFullName(),
@@ -166,6 +183,36 @@ public class AuthService {
         return status.locked ? LoginResult.LOCKED : LoginResult.INVALID;
     }
 
+
+    /**
+     * Whether this attempt is a badge opening the register on its own
+     * (LC-01-01-03).
+     *
+     * <p>THREE conditions, all of them: the back office must have turned the
+     * opening password off, no password may have been keyed, and the presented
+     * identifier must be the badge this register PHYSICALLY READ — the marker
+     * {@code AuthState} kept from the scan. Without that third condition the
+     * parameter would turn every badge number into a password, and a badge
+     * number is printed on the badge.
+     *
+     * <p>The marker is consumed whatever the outcome: a presented badge opens
+     * one attempt, not a window.
+     *
+     * @param state the current register state
+     * @param loginInfo the presented identifier
+     * @param rawPassword the keyed password, expected to be empty here
+     * @return true when the badge alone may open the register
+     */
+    boolean badgeOpensAlone(PosState state, String loginInfo, String rawPassword) {
+        if (rawPassword != null && !rawPassword.isBlank()) {
+            return false;
+        }
+        if (posSettingsService.passwordRequiredOnOpen()) {
+            return false;
+        }
+        String presented = state.auth.takePresentedBadge();
+        return presented != null && presented.equals(loginInfo);
+    }
     /**
      * Logs the current operator out and clears the ticket.
      *

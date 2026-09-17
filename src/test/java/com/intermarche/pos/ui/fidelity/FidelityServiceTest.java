@@ -1843,4 +1843,49 @@ class FidelityServiceTest {
         assertNull(state.fidelity.holderLastName);
         assertEquals("jean@example.org", state.fidelity.holderEmail);
     }
+
+    // --- isUnavailable (BO-03-03-29 / BO-03-03-30) ---
+
+    /**
+     * A shop that never configured the loyalty service is NOT unavailable:
+     * there is nothing to reach, and a receipt apologizing for a programme the
+     * shop does not run would be a defect. First leg of that guard.
+     */
+    @Test
+    void anunconfiguredProgrammeIsNotUnavailable() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        assertFalse(service.isUnavailable());
+    }
+
+    /**
+     * A configured service that has not failed is available: the breaker is
+     * shut, so the closing freezes nothing on the sale. Second leg, false arm.
+     */
+    @Test
+    void aconfiguredProgrammeThatAnswersIsAvailable() {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(true);
+        assertFalse(service.isUnavailable());
+    }
+
+    /**
+     * A configured service whose last call FAILED is unavailable for the
+     * breaker window: that is how a register learns the programme is down, and
+     * how the tickets that follow — with or without a card — carry their
+     * administered message. Second leg, true arm.
+     */
+    @Test
+    void aconfiguredProgrammeThatFailedIsUnavailable() throws Exception {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(true);
+        when(service.imfidClient.earn(any(), any())).thenThrow(new java.io.IOException("down"));
+        PosState state = new PosState();
+        state.fidelity.assignCard("2990000000019");
+        service.onValuation(state, "{}", "{}");
+        assertTrue(service.isUnavailable());
+    }
 }

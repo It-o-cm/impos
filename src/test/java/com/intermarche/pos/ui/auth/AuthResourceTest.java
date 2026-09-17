@@ -14,6 +14,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,6 +59,9 @@ class AuthResourceTest {
         // The drawer-open-on-login rule defaults to ON, the pre-existing
         // pulse behavior the success cases rely on (BO-10-02-25).
         resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        resource.sessionCloseService = mock(SessionCloseService.class);
+        resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
+        resource.close = mock(Template.class);
         when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(true);
         // The hardware gate defaults to ALL UP, the state every pre-existing
         // success case runs under; the gate tests override it device by device.
@@ -340,5 +346,102 @@ class AuthResourceTest {
         Response response = resource.unlock("alice", "1234");
         assertEquals("/lock?error=true", response.getLocation().toString());
         verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    // --- closePage ---
+
+    /**
+     * Stubs the {@code close} template's fluent chain so the closing page is a
+     * recognizable view.
+     *
+     * @param resource the resource whose {@code close} template is stubbed
+     * @return the final view the chain will return
+     */
+    private TemplateInstance stubClose(AuthResource resource) {
+        TemplateInstance step = mock(TemplateInstance.class);
+        when(resource.close.data(eq("state"), any())).thenReturn(step);
+        when(step.data(anyString(), any())).thenReturn(step);
+        return step;
+    }
+
+    /**
+     * {@code closePage()} on a register holding no operator goes back to the
+     * lock screen without closing anything.
+     */
+    @Test
+    void closePageOnALockedRegisterGoesToTheLockScreen() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = null;
+        Response response = resource.closePage();
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code closePage()} with nothing in the way closes the register — the
+     * historical behaviour of the DÉCONNEXION key, and still the default.
+     */
+    @Test
+    void closePageWithoutObstacleClosesTheRegister() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.NONE);
+        Response response = resource.closePage();
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService).close(resource.state, null);
+    }
+
+    /**
+     * {@code closePage()} with a password demanded and NO badge presented
+     * renders the closing page instead of closing.
+     */
+    @Test
+    void closePageAsksForThePasswordWhenNoBadgeWasScanned() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.state.auth.takeCloseRequest()).thenReturn(false);
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PASSWORD);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closePage();
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code closePage()} reached by a BADGE SCAN closes without asking for the
+     * password: the badge is the credential (LC-01-02-03).
+     */
+    @Test
+    void closePageByBadgeAnswersThePassword() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.state.auth.takeCloseRequest()).thenReturn(true);
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PASSWORD);
+        Response response = resource.closePage();
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService).close(resource.state, null);
+    }
+
+    /**
+     * A badge scan does NOT sweep away the tickets left in attente: that
+     * obstacle is not about proving who is standing at the register, so the
+     * page still asks for the supervisor's endorsement (LC-01-02-10).
+     */
+    @Test
+    void closePageByBadgeStillStopsOnPendingTickets() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.state.auth.takeCloseRequest()).thenReturn(true);
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closePage();
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(resource.sessionCloseService, never()).close(any(), any());
     }
 }

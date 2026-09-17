@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.balance;
 
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncPayloads;
@@ -355,7 +356,7 @@ class BalanceTicketServiceTest {
         ticket.items.add(new TicketState.TicketItem(EAN, "1234", "X",
                 BigDecimal.ONE, BigDecimal.ONE, DEFAULT_VAT));
         Price price = new Price();
-        price.vatRate = new BigDecimal("0.10");
+        price.vat = new VatRate(1, new BigDecimal("0.10"), "Taux normal");
         BalanceTicketService service = newService(serving(oneLine("ROTI", null, "5.00", null)));
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
              MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {
@@ -462,7 +463,7 @@ class BalanceTicketServiceTest {
         when(service.posSettingsService.balanceCounterPrice()).thenReturn(false);
         Price price = new Price();
         price.priceIncludingTax = new BigDecimal("20.00");
-        price.vatRate = new BigDecimal("0.055");
+        price.vat = new VatRate(1, new BigDecimal("0.055"), "Taux normal");
         ArgumentCaptor<BigDecimal> booked = ArgumentCaptor.forClass(BigDecimal.class);
         try (MockedStatic<Product> products = org.mockito.Mockito.mockStatic(Product.class);
              MockedStatic<Price> prices = org.mockito.Mockito.mockStatic(Price.class)) {

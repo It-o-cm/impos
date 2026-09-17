@@ -40,6 +40,33 @@ public class FidelityService {
     private static final int RETRY_SECONDS = 10;
 
     /**
+     * Whether the loyalty service is CURRENTLY unreachable, as this register
+     * knows it (BO-03-03-29, BO-03-03-30).
+     *
+     * <p>The answer is the breaker, not a fresh call: asking imfid whether imfid
+     * answers would tax the closing with the very timeout the breaker exists to
+     * avoid. A register therefore learns the service is down from the last call
+     * that failed, and says so on the tickets that follow within the breaker
+     * window — including the ones made without a card, which is what
+     * BO-03-03-30 needs.
+     *
+     * <p>A shop that never configured the loyalty service is NOT unavailable:
+     * there is nothing to reach, and a receipt apologizing for a programme the
+     * shop does not run would be a defect.
+     *
+     * @return true when the service is configured and the breaker is open
+     */
+    public boolean isUnavailable() {
+        LOGGER.info("Entering method isUnavailable");
+        if (!imfidClient.isConfigured()) {
+            LOGGER.info("Exiting method isUnavailable");
+            return false;
+        }
+        LOGGER.info("Exiting method isUnavailable");
+        return System.currentTimeMillis() < fidSkipUntil;
+    }
+
+    /**
      * Announces the loyalty wiring once at boot, like the valuation engine.
      *
      * @param event the startup event

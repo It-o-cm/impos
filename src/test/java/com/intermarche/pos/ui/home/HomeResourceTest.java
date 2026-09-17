@@ -62,6 +62,10 @@ class HomeResourceTest {
         // is open, so it reads the prompt on every answer. A pristine prompt is the
         // ordinary case — nothing suspended — and keeps that read from hitting a null.
         resource.state.entryPrompt = new PosState.EntryPromptState();
+        // LC-01-02-03: the poll also carries the close asked for by a badge
+        // scan, so it reads the auth state on every answer. A pristine state
+        // asks for nothing, which is the ordinary case.
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
         resource.homeService = mock(HomeService.class);
         resource.ticketService = mock(TicketService.class);
         resource.hardwareService = mock(HardwareService.class);
@@ -249,7 +253,24 @@ class HomeResourceTest {
         // included: they are how an open page learns it must reload.
         assertEquals(false, result.get("locked"));
         assertEquals(false, result.get("payable"));
+        assertEquals(false, result.get("closeRequested"));
         verifyNoInteractions(resource.ticket);
+    }
+
+    /**
+     * {@code getTicketFragment()} carries the close asked for by a badge scan
+     * on a version match too: that is how the sale screen learns the operator
+     * scanned their own badge and must go to the closing (LC-01-02-03).
+     */
+    @Test
+    void getTicketFragmentCarriesTheCloseAskedForByABadge() {
+        HomeResource resource = newResource();
+        resource.state.version = 7L;
+        resource.state.auth.closeRequestedByBadge = true;
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(7L);
+        assertEquals(false, result.get("changed"));
+        assertEquals(true, result.get("closeRequested"));
     }
 
     /**

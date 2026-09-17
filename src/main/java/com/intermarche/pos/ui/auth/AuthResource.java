@@ -49,6 +49,15 @@ public class AuthResource {
     @io.quarkus.qute.Location("hardware-unavailable.html")
     Template hardwareUnavailable;
     @Inject AuthService authService;
+
+    /** The supervisor endorsement, used by a forced close (LC-01-02-06). */
+    @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
+
+    /** The closing rules: what has to be true before the register closes. */
+    @Inject SessionCloseService sessionCloseService;
+
+    /** The closing page, shown only when something stands in the way. */
+    @Inject @io.quarkus.qute.Location("close") Template close;
     @Inject HardwareService hardwareService;
     @Inject com.intermarche.pos.service.CashSessionService cashSessionService;
 
@@ -96,7 +105,8 @@ public class AuthResource {
         String badge = state.auth.scannedBadgeId;
         if (badge != null) state.auth.clearScannedBadge();
         LOGGER.info("Exiting method getLockData");
-        return Map.of("scannedBadge", badge != null ? badge : "");
+        return Map.of("scannedBadge", badge != null ? badge : "",
+                "passwordRequired", posSettingsService.passwordRequiredOnOpen());
     }
 
     /**
@@ -128,6 +138,7 @@ public class AuthResource {
             // where the register still asks. The operator is NOT logged back
             // out: only an authenticated entry may take the override.
             // Leaving the page by RETRY goes through /lock, which logs out.
+            sessionCloseService.printOpening(state);
             java.util.List<HardwareService.DeviceStatus> devices = hardwareService.probeDevices();
             boolean allAvailable = devices.stream().allMatch(HardwareService.DeviceStatus::available);
             state.touch();
@@ -195,5 +206,120 @@ public class AuthResource {
             return Response.seeOther(URI.create("/session")).build();
         }
         return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Closes the register, or shows what stands in the way (LC-01-02-01).
+     *
+     * <p>A GET, because it is reached from a key on the sale screen; it either
+     * closes straight away — the historical behaviour, and still the default —
+     * or renders the page that asks for what the back office demanded.
+     *
+     * <p>Reached the other way too: the operator scans their own badge and the
+     * sale screen sends them here. The badge IS the credential, so it answers
+     * the password the back office may demand (LC-01-02-03) — and only that.
+     * Tickets left in attente still stop the close and still ask for the
+     * supervisor's endorsement, because that question is not about proving who
+     * is standing at the register.
+     *
+     * @return a redirect to the lock screen, or the closing page
+     */
+    @GET
+    @Path("/close")
+    @Produces(MediaType.TEXT_HTML)
+    @DrawerMayBeOpen
+    public Response closePage() {
+        LOGGER.info("Entering method closePage");
+        if (state.auth.operatorBadgeId == null) {
+            LOGGER.info("Exiting method closePage");
+            return Response.seeOther(URI.create("/lock")).build();
+        }
+        boolean byBadge = state.auth.takeCloseRequest();
+        SessionCloseService.Obstacle obstacle = sessionCloseService.obstacle();
+        if (byBadge && obstacle == SessionCloseService.Obstacle.PASSWORD) {
+            obstacle = SessionCloseService.Obstacle.NONE;
+        }
+        if (obstacle == SessionCloseService.Obstacle.NONE) {
+            sessionCloseService.close(state, null);
+            LOGGER.info("Exiting method closePage");
+            return Response.seeOther(URI.create("/lock")).build();
+        }
+        LOGGER.info("Exiting method closePage");
+        return Response.ok(closeView(obstacle, null), MediaType.TEXT_HTML).build();
+    }
+
+    /**
+     * Carries out a close the closing page asked the operator to justify
+     * (LC-01-02-02/06/10).
+     *
+     * <p>Two ways through, and they are not the same event. The OPERATOR keys
+     * their own password; a SUPERVISOR endorses a forced close, which is what
+     * the requirement asks for when the password is forgotten, and which the
+     * journal records as a forcing.
+     *
+     * @param password the operator's password, or null on a forced close
+     * @param supervisor the supervisor's identifier on a forced close
+     * @param supervisorPassword the supervisor's password on a forced close
+     * @return a redirect to the lock screen, or the page again with its refusal
+     */
+    @POST
+    @Path("/action/close")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    @DrawerMayBeOpen
+    public Response closeRegister(@FormParam("password") String password,
+                                  @FormParam("supervisor") String supervisor,
+                                  @FormParam("supervisorPassword") String supervisorPassword) {
+        LOGGER.info("Entering method closeRegister");
+        if (state.auth.operatorBadgeId == null) {
+            LOGGER.info("Exiting method closeRegister");
+            return Response.seeOther(URI.create("/lock")).build();
+        }
+        SessionCloseService.Obstacle obstacle = sessionCloseService.obstacle();
+        if (supervisor != null && !supervisor.isBlank()) {
+            if (endorsementService.authorize(supervisor, supervisorPassword,
+                    SessionCloseService.FORCE_CLOSE_ACTION)) {
+                sessionCloseService.close(state, "superviseur en caisse");
+                LOGGER.info("Exiting method closeRegister");
+                return Response.seeOther(URI.create("/lock")).build();
+            }
+            LOGGER.info("Exiting method closeRegister");
+            return Response.ok(closeView(obstacle, "Autorisation superviseur refusée."),
+                    MediaType.TEXT_HTML).build();
+        }
+        if (obstacle == SessionCloseService.Obstacle.PASSWORD
+                && sessionCloseService.passwordMatches(state, password)) {
+            sessionCloseService.close(state, null);
+            LOGGER.info("Exiting method closeRegister");
+            return Response.seeOther(URI.create("/lock")).build();
+        }
+        LOGGER.info("Exiting method closeRegister");
+        return Response.ok(closeView(obstacle, message(obstacle)), MediaType.TEXT_HTML).build();
+    }
+
+    /**
+     * Builds the closing page.
+     *
+     * @param obstacle what stands in the way
+     * @param error the refusal to show, or null
+     * @return the page instance
+     */
+    private io.quarkus.qute.TemplateInstance closeView(SessionCloseService.Obstacle obstacle, String error) {
+        return close.data("state", state)
+                .data("obstacle", obstacle.name())
+                .data("pending", sessionCloseService.pendingCount())
+                .data("error", error);
+    }
+
+    /**
+     * Names the refusal that matches an obstacle.
+     *
+     * @param obstacle what stood in the way
+     * @return the message shown to the operator
+     */
+    private String message(SessionCloseService.Obstacle obstacle) {
+        return obstacle == SessionCloseService.Obstacle.PASSWORD
+                ? "Code opérateur incorrect."
+                : "Des tickets en attente exigent une autorisation superviseur.";
     }
 }

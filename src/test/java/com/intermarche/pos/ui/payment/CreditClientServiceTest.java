@@ -811,4 +811,98 @@ class CreditClientServiceTest {
         when(missing.posSettingsService.customerAccountPattern()).thenReturn(null);
         assertTrue(missing.matchesAccountRange("n'importe quoi"));
     }
+
+    /**
+     * Builds an account carrying a discount and a segment.
+     *
+     * @param percent the discount, null when the account carries none
+     * @param segment the segment, null when the account belongs to none
+     * @return the assembled account
+     */
+    private AccountCustomer discounted(String percent, String segment) {
+        AccountCustomer customer = new AccountCustomer();
+        customer.accountNumber = NUMBER;
+        customer.companyName = NAME;
+        customer.discountPercent = percent == null ? null : new BigDecimal(percent);
+        customer.segment = segment;
+        return customer;
+    }
+
+    /**
+     * A shop that has not asked for the announcement never makes it, whatever the
+     * account carries (first leg, false arm).
+     */
+    @Test
+    void aShopThatRefusesTheAnnouncementNeverMakesIt() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(false);
+        assertFalse(service.discountAnnounced(discounted("5.00", null)));
+    }
+
+    /**
+     * With the announcement on and NO segment administered, a discount is announced
+     * (third leg, blank arm) — and the same account announces nothing when the
+     * account itself is missing (second leg, null arm).
+     */
+    @Test
+    void withoutAnAdministeredSegmentEveryDiscountIsAnnounced() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(true);
+        when(service.posSettingsService.customerDiscountSegment()).thenReturn("");
+        assertTrue(service.discountAnnounced(discounted("5.00", null)));
+        assertFalse(service.discountAnnounced(null));
+    }
+
+    /**
+     * A NULL administered segment behaves like a blank one — the leg a blank check
+     * alone would miss.
+     */
+    @Test
+    void aNullAdministeredSegmentAnnouncesEveryDiscount() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(true);
+        when(service.posSettingsService.customerDiscountSegment()).thenReturn(null);
+        assertTrue(service.discountAnnounced(discounted("5.00", "PRO")));
+    }
+
+    /**
+     * An account carrying NO discount announces nothing (second leg, null
+     * discount), and neither does one carrying a zero discount (second leg,
+     * non-positive) — a zero per cent read out to a customer is worse than
+     * silence.
+     */
+    @Test
+    void anAccountWithoutADiscountAnnouncesNothing() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(true);
+        when(service.posSettingsService.customerDiscountSegment()).thenReturn("");
+        assertFalse(service.discountAnnounced(discounted(null, "PRO")));
+        assertFalse(service.discountAnnounced(discounted("0.00", "PRO")));
+    }
+
+    /**
+     * With a segment administered, the discount is announced to an account of THAT
+     * segment, case ignored and padding trimmed, and to no other (both arms of the
+     * comparison).
+     */
+    @Test
+    void anAdministeredSegmentNarrowsTheAnnouncement() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(true);
+        when(service.posSettingsService.customerDiscountSegment()).thenReturn("  pro  ");
+        assertTrue(service.discountAnnounced(discounted("5.00", " PRO ")));
+        assertFalse(service.discountAnnounced(discounted("5.00", "ASSOC")));
+    }
+
+    /**
+     * An account belonging to NO segment is not of the administered one — the null
+     * arm of the segment guard, which must not throw.
+     */
+    @Test
+    void anAccountWithoutASegmentIsNotOfTheAdministeredOne() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.showCustomerDiscount()).thenReturn(true);
+        when(service.posSettingsService.customerDiscountSegment()).thenReturn("PRO");
+        assertFalse(service.discountAnnounced(discounted("5.00", null)));
+    }
 }

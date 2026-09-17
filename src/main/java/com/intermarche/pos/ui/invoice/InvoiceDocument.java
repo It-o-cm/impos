@@ -176,6 +176,28 @@ public final class InvoiceDocument {
     /** The tenders, joined, for the metadata block. */
     public final String paymentMethods;
 
+    /**
+     * The date the document falls due ({@code BO-02-04-08}), EMPTY when the
+     * customer carries none.
+     *
+     * <p>Empty and not null, like every other text of this layout: the three
+     * renderings test it and print the line only when there is a date, because
+     * an « Échéance : » with nothing after it reads as due immediately.
+     */
+    public final String dueDate;
+
+    /**
+     * The addressee's fiscal identifier AS PRINTED ({@code BO-10-04-15} and
+     * {@code BO-10-04-16}), EMPTY when the document carries none.
+     *
+     * <p>As printed, not as stored: a document made out under the anonymous NIF
+     * shows the administered wording — {@code CONSUMIDOR FINAL} in Portugal — and
+     * not nine identical digits nobody reads. The substitution is decided once, by
+     * the caller that holds the parameters, so the three renderings and the
+     * administered layouts all print the same thing.
+     */
+    public final String customerTaxId;
+
     /** The legal identity of the operating company, for the page footer. */
     public final String legalFooter;
 
@@ -215,12 +237,15 @@ public final class InvoiceDocument {
      * @param totalIncludingTax the tax-included total
      * @param paymentMethods    the tenders, joined, for the metadata block
      * @param legalFooter       the legal identity of the operating company
+     * @param dueDate           when the document falls due, empty when it has none
+     * @param customerTaxId     the addressee's fiscal identifier as printed, empty
+     *                          when the document carries none
      */
     private InvoiceDocument(String title, String number, String issueDate, String ticketNumber,
             String saleDate, String terminal, int duplicateNumber, Party seller, Party customer,
             List<Line> lines, List<VatRow> vatRows, List<Tender> tenders,
             String totalExcludingTax, String totalVat, String totalIncludingTax,
-            String paymentMethods, String legalFooter) {
+            String paymentMethods, String legalFooter, String dueDate, String customerTaxId) {
         this.title = title;
         this.number = number;
         this.issueDate = issueDate;
@@ -238,6 +263,8 @@ public final class InvoiceDocument {
         this.totalIncludingTax = totalIncludingTax;
         this.paymentMethods = paymentMethods;
         this.legalFooter = legalFooter;
+        this.dueDate = dueDate;
+        this.customerTaxId = customerTaxId;
     }
 
     /**
@@ -249,6 +276,23 @@ public final class InvoiceDocument {
      * @return the laid-out document
      */
     public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan) {
+        return of(invoice, ticket, showEan, null);
+    }
+
+    /**
+     * Lays out a document, the addressee's fiscal identifier printed under the
+     * administered wording ({@code BO-10-04-16}).
+     *
+     * @param invoice    the document, carrying its number, its addressee and its
+     *                   frozen totals
+     * @param ticket     the closed ticket it states
+     * @param showEan    whether the article codes are printed ({@code BO-03-03-03})
+     * @param taxIdLabel the wording to print in place of the digits, null or blank
+     *                   to print the identifier itself
+     * @return the laid-out document
+     */
+    public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
+            String taxIdLabel) {
         List<Tender> tenders = tendersOf(ticket);
         return new InvoiceDocument(
                 invoice.documentType.getTitle(),
@@ -267,7 +311,10 @@ public final class InvoiceDocument {
                 DF.format(invoice.totalVat),
                 DF.format(invoice.totalIncludingTax),
                 joinTenders(tenders),
-                legalFooterOf(ticket.store));
+                legalFooterOf(ticket.store),
+                invoice.customerDueDate == null ? "" : invoice.customerDueDate.format(DATE),
+                taxIdLabel == null || taxIdLabel.isBlank()
+                        ? text(invoice.customerTaxId) : taxIdLabel);
     }
 
     /**
@@ -334,6 +381,29 @@ public final class InvoiceDocument {
     }
 
     /**
+     * Tells whether this document carries a due date ({@code BO-02-04-08}).
+     *
+     * <p>A method and not a test on the text in each layout: the three
+     * renderings must agree on when the line is printed, and a customer without
+     * administered terms must see no due-date line rather than an empty one.
+     *
+     * @return true when a due date was administered for this customer
+     */
+    public boolean hasDueDate() {
+        return dueDate != null && !dueDate.isEmpty();
+    }
+
+    /**
+     * Tells whether the document carries a fiscal identifier to print
+     * ({@code BO-10-04-15}).
+     *
+     * @return true when the line is printed
+     */
+    public boolean hasCustomerTaxId() {
+        return customerTaxId != null && !customerTaxId.isEmpty();
+    }
+
+    /**
      * Restates this document as MAPS, LISTS AND STRINGS, for an administered
      * layout to read (BO-03-03).
      *
@@ -354,22 +424,30 @@ public final class InvoiceDocument {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("store", partyData(seller));
         data.put("seller", partyData(seller));
-        data.put("customer", partyData(customer));
+        // BO-10-04-15/-16 : le NIF n'appartient qu'à l'adressé, jamais au vendeur ;
+        // il est donc ajouté au bloc client et non à la description d'une partie.
+        Map<String, Object> customerData = new LinkedHashMap<>(partyData(customer));
+        customerData.put("taxId", nullToEmpty(customerTaxId));
+        data.put("customer", customerData);
         data.put("terminal", nullToEmpty(terminal));
         data.put("operator", "");
         data.put("date", nullToEmpty(issueDate));
         data.put("time", "");
-        data.put("document", Map.of(
-                "title", nullToEmpty(title),
-                "number", nullToEmpty(number),
-                "issueDate", nullToEmpty(issueDate),
-                "saleDate", nullToEmpty(saleDate),
-                "ticketNumber", nullToEmpty(ticketNumber),
-                "duplicate", isDuplicate(),
-                "duplicateNumber", String.valueOf(duplicateNumber),
-                "legalFooter", nullToEmpty(legalFooter),
-                "legalMentions", nullToEmpty(getLegalMentions()),
-                "logo", nullToEmpty(getLogo())));
+        // A LinkedHashMap and no longer Map.of: the due date of BO-02-04-08 is
+        // the eleventh entry, one past what Map.of takes.
+        Map<String, Object> documentData = new LinkedHashMap<>();
+        documentData.put("title", nullToEmpty(title));
+        documentData.put("number", nullToEmpty(number));
+        documentData.put("issueDate", nullToEmpty(issueDate));
+        documentData.put("saleDate", nullToEmpty(saleDate));
+        documentData.put("ticketNumber", nullToEmpty(ticketNumber));
+        documentData.put("duplicate", isDuplicate());
+        documentData.put("duplicateNumber", String.valueOf(duplicateNumber));
+        documentData.put("dueDate", nullToEmpty(dueDate));
+        documentData.put("legalFooter", nullToEmpty(legalFooter));
+        documentData.put("legalMentions", nullToEmpty(getLegalMentions()));
+        documentData.put("logo", nullToEmpty(getLogo()));
+        data.put("document", documentData);
         List<Map<String, Object>> articleRows = new ArrayList<>();
         for (Line line : lines) {
             articleRows.add(Map.of(

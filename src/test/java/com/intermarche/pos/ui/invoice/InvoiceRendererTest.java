@@ -103,6 +103,8 @@ class InvoiceRendererTest {
         customer.lastName = "VIDAL";
         customer.siret = "SIRET2";
         customer.vatNumber = "FR2";
+        customer.dueDate = java.time.LocalDate.of(2026, 10, 31);
+        customer.taxId = "PT123456789";
         customer.address = new Address();
         customer.address.streetLine1 = "3 place";
         customer.address.postalCode = "92420";
@@ -322,6 +324,31 @@ class InvoiceRendererTest {
     }
 
     /**
+     * A customer carrying administered terms sees the ÉCHÉANCE line on the
+     * paper, which is what {@code BO-02-04-08} demands of every invoice and
+     * delivery note issued at a register.
+     */
+    @Test
+    void theDueDateIsPrintedWhenTheCustomerCarriesOne() {
+        List<String> lines = InvoiceRenderer.render(full(0));
+        assertTrue(lines.stream().anyMatch(line -> line.contains("Echeance")),
+                () -> "no due-date line in " + lines);
+        assertTrue(lines.stream().anyMatch(line -> line.contains("31/10/2026")),
+                () -> "the due date is not the one administered: " + lines);
+    }
+
+    /**
+     * A customer carrying NO terms sees no due-date line at all: an « Échéance »
+     * with nothing after it would read as a payment due immediately.
+     */
+    @Test
+    void noDueDateLineWhenTheCustomerCarriesNone() {
+        List<String> lines = InvoiceRenderer.render(bare());
+        assertTrue(lines.stream().noneMatch(line -> line.contains("Echeance")),
+                () -> "a due-date line was printed for a customer without terms: " + lines);
+    }
+
+    /**
      * The sheets are copies: printing one must not be able to change the document it
      * came from, nor the next sheet.
      */
@@ -331,5 +358,18 @@ class InvoiceRendererTest {
         List<List<String>> pages = InvoiceRenderer.paginate(source, 2);
         pages.get(0).set(0, "CHANGED");
         assertEquals("a", source.get(0));
+    }
+
+    /**
+     * The addressee's fiscal identifier is printed under the customer block when
+     * the document carries one, and the line is absent when it carries none —
+     * both arms of the guard ({@code BO-10-04-15}).
+     */
+    @Test
+    void printsTheFiscalIdentifierOnlyWhenTheDocumentCarriesOne() {
+        assertTrue(InvoiceRenderer.render(full(0)).stream()
+                .anyMatch(line -> line.contains("NIF PT123456789")));
+        assertFalse(InvoiceRenderer.render(bare()).stream()
+                .anyMatch(line -> line.contains("NIF ")));
     }
 }

@@ -23,7 +23,7 @@ class EntryFieldTest {
     @Test
     void blankMaskFallsBackToTheCatalog() {
         List<EntryField> fields = EntryField.customerFields("");
-        assertEquals(9, fields.size());
+        assertEquals(10, fields.size());
         assertEquals("companyName", fields.get(0).name());
         assertTrue(fields.get(0).required());
     }
@@ -33,7 +33,7 @@ class EntryFieldTest {
      */
     @Test
     void missingMaskFallsBackToTheCatalog() {
-        assertEquals(9, EntryField.customerFields(null).size());
+        assertEquals(10, EntryField.customerFields(null).size());
     }
 
     /**
@@ -41,7 +41,7 @@ class EntryFieldTest {
      */
     @Test
     void whitespaceMaskFallsBackToTheCatalog() {
-        assertEquals(9, EntryField.customerFields("   ").size());
+        assertEquals(10, EntryField.customerFields("   ").size());
     }
 
     /**
@@ -94,7 +94,7 @@ class EntryFieldTest {
      */
     @Test
     void maskOfUnknownNamesFallsBackToTheCatalog() {
-        assertEquals(9, EntryField.customerFields("planete;galaxie").size());
+        assertEquals(10, EntryField.customerFields("planete;galaxie").size());
     }
 
     /**
@@ -171,5 +171,40 @@ class EntryFieldTest {
         for (EntryField field : EntryField.customerLookupFields(null, null)) {
             assertEquals("", field.value());
         }
+    }
+
+    /**
+     * {@code filled} carries a known value onto its field and leaves a field the
+     * map does not name empty — both arms of the lookup ({@code BO-10-04-03}).
+     */
+    @Test
+    void filledCarriesTheKnownValuesAndEmptiesTheRest() {
+        java.util.List<EntryField> mask = EntryField.customerFields("companyName*;city");
+        java.util.List<EntryField> filled = EntryField.filled(mask,
+                java.util.Map.of("companyName", "ACME"));
+        assertEquals(2, filled.size());
+        assertEquals("ACME", filled.get(0).value());
+        assertEquals("", filled.get(1).value());
+        assertEquals("companyName", filled.get(0).name());
+        assertTrue(filled.get(0).required());
+        assertFalse(filled.get(1).required());
+    }
+
+    /**
+     * {@code filled} preserves every property of the field it copies — the label,
+     * the keyboard, the capitalisation and the length cap are the field's own and
+     * must survive the filling.
+     */
+    @Test
+    void filledPreservesTheFieldsOwnProperties() {
+        java.util.List<EntryField> mask = EntryField.customerFields("postalCode");
+        EntryField before = mask.get(0);
+        EntryField after = EntryField.filled(mask,
+                java.util.Map.of("postalCode", "92420")).get(0);
+        assertEquals(before.label(), after.label());
+        assertEquals(before.keyboard(), after.keyboard());
+        assertEquals(before.uppercase(), after.uppercase());
+        assertEquals(before.maxLength(), after.maxLength());
+        assertEquals("92420", after.value());
     }
 }

@@ -86,6 +86,11 @@ public class PaymentResource {
                 .data("couponTypes", CouponType.listActivePaymentTypes())
                 .data("currencies", foreignCurrencyService.listCurrencies())
                 .data("backupEndorsement", posSettingsService.backupManualEndorsement())
+                // BO-10-04-02 et -08 : le panneau crédit montre les coordonnées
+                // du client et lui annonce sa remise, ou non, selon le magasin.
+                .data("showCustomerDetails", posSettingsService.showCustomerDetails())
+                .data("showCustomerDiscount",
+                        creditClientService.discountAnnounced(state.payment.creditCustomer))
                 .data("digitalPath", digitalPath())
                 .data("printConditional", printPolicy.isConditionalEnabled())
                 .data("printChoices",

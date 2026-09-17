@@ -51,11 +51,20 @@ public class CreditClientService {
     /** Refusal shown when no account has been named yet. */
     static final String NO_ACCOUNT = "COMPTE CLIENT NON IDENTIFIE";
 
-    /** Refusal shown when the client referential is too old to be trusted. */
+    /**
+     * Refusal shown when the client referential is too old to be trusted.
+     *
+     * <p>Kept as the fallback of the administered message ({@code BO-10-04-12}):
+     * a shop that empties the parameter must still see a refusal, not a blank
+     * panel that looks like nothing happened.
+     */
     static final String DEGRADED = "REFERENTIEL CLIENT NON A JOUR - CREDIT REFUSE";
 
     /** The action code journalled when a supervisor allows the ceiling to be passed. */
     static final String OVER_LIMIT_ACTION = "CREDIT_OVER_LIMIT";
+
+    /** Refusal shown when the shop does not accept a partial credit settlement. */
+    static final String PARTIAL_REFUSED = "PAIEMENT PARTIEL EN CREDIT CLIENT NON AUTORISE";
 
     /** Registers the settlement once this service has allowed it. */
     @Inject
@@ -266,7 +275,7 @@ public class CreditClientService {
             return false;
         }
         if (isDegraded()) {
-            state.payment.creditError = DEGRADED;
+            state.payment.creditError = offlineMessage();
             state.touch();
             LOGGER.info("Exiting method processCredit");
             return false;
@@ -277,13 +286,21 @@ public class CreditClientService {
             LOGGER.info("Exiting method processCredit");
             return false;
         }
+        // BO-10-04-10: a shop may refuse PARTIAL settlement on credit. Asking for
+        // less than what is left is then not a small payment, it is a payment the
+        // shop has not authorised — and saying so before the account is charged is
+        // the only moment where it costs nothing.
+        if (!posSettingsService.partialCreditAllowed() && asked.compareTo(state.getRemaining()) < 0) {
+            state.payment.creditError = PARTIAL_REFUSED;
+            state.touch();
+            LOGGER.info("Exiting method processCredit");
+            return false;
+        }
         if (exceedsCeiling(customer, asked)) {
             // HELD BACK, not refused: LC-07-09-04 lets a supervisor allow it, and
             // the amount must survive until they answer or the operator gives up.
             state.payment.creditPendingAmount = asked;
-            state.payment.creditError = String.format(
-                    "PLAFOND DEPASSE - ENCOURS %s / PLAFOND %s - AUTORISATION REQUISE",
-                    plain(customer.creditBalance), plain(customer.creditLimit));
+            state.payment.creditError = overLimitMessage(customer);
             state.touch();
             LOGGER.info("Exiting method processCredit");
             return false;
@@ -437,6 +454,82 @@ public class CreditClientService {
         }
         return lastPull.isBefore(
                 LocalDateTime.now().minusMinutes(posSettingsService.creditDegradedAfterMinutes()));
+    }
+
+    /**
+     * Tells whether the discount of the named account is announced to the operator
+     * ({@code BO-10-04-07} and {@code BO-10-04-08}).
+     *
+     * <p>Two administered decisions, not one. The shop first says whether a discount
+     * is announced at all; it then names the SEGMENT whose discounts are announced.
+     * A shop naming no segment announces every account's discount, which is what a
+     * shop that has never segmented its customers expects. A shop that names one is
+     * saying that the other segments' discounts are settled in the commercial
+     * management and have no business being read out at the till.
+     *
+     * @param customer the account named on the panel, null when none is
+     * @return true when the panel shows the discount
+     */
+    public boolean discountAnnounced(AccountCustomer customer) {
+        LOGGER.info("Entering method discountAnnounced with customer: " + customer);
+        boolean announced = announces(customer);
+        LOGGER.info("Exiting method discountAnnounced");
+        return announced;
+    }
+
+    /**
+     * Decides the announcement, guard by guard.
+     *
+     * @param customer the account named on the panel, null when none is
+     * @return true when the panel shows the discount
+     */
+    private boolean announces(AccountCustomer customer) {
+        if (!posSettingsService.showCustomerDiscount()) {
+            return false;
+        }
+        if (customer == null || customer.discountPercent == null
+                || customer.discountPercent.signum() <= 0) {
+            return false;
+        }
+        String administered = posSettingsService.customerDiscountSegment();
+        if (administered == null || administered.isBlank()) {
+            return true;
+        }
+        String segment = customer.segment == null ? "" : customer.segment.trim();
+        return administered.trim().equalsIgnoreCase(segment);
+    }
+
+    /**
+     * Builds the offline alert ({@code BO-10-04-12}).
+     *
+     * @return the administered message, or the built-in refusal when the
+     *         parameter was emptied
+     */
+    private String offlineMessage() {
+        String administered = posSettingsService.customerOfflineMessage();
+        return administered == null || administered.isBlank() ? DEGRADED : administered;
+    }
+
+    /**
+     * Builds the ceiling alert, its two tokens replaced by the figures
+     * ({@code BO-10-04-13}).
+     *
+     * <p>Tokens and not a positional format: a shop rewriting the sentence must
+     * be able to put the ceiling before the balance, or to name only one of
+     * them, without the message turning into an exception.
+     *
+     * @param customer the account whose ceiling would be passed
+     * @return the message shown to the operator
+     */
+    private String overLimitMessage(AccountCustomer customer) {
+        String administered = posSettingsService.customerOverLimitMessage();
+        if (administered == null || administered.isBlank()) {
+            administered = "PLAFOND DEPASSE - ENCOURS {encours} / PLAFOND {plafond}"
+                    + " - AUTORISATION REQUISE";
+        }
+        return administered
+                .replace("{encours}", plain(customer.creditBalance))
+                .replace("{plafond}", plain(customer.creditLimit));
     }
 
     /**

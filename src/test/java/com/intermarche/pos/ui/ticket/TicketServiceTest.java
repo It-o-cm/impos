@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.ticket;
 import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
@@ -171,7 +172,7 @@ class TicketServiceTest {
     private Price price(String incTax, String vat) {
         Price pr = new Price();
         pr.priceIncludingTax = new BigDecimal(incTax);
-        pr.vatRate = new BigDecimal(vat);
+        pr.vat = new VatRate(1, new BigDecimal(vat), "Taux normal");
         return pr;
     }
 

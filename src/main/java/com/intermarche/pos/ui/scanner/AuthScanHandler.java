@@ -11,12 +11,12 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
  * Recognizes employee badges ({@code scan.pattern.badge}), first in the
  * chain: a badge must never fall through to the catalog.
  * <p>
- * Two mailboxes, one precedence: an ACTIVE ENDORSEMENT modal wins over the
- * lock screen (the manager badging over the cashier's shoulder is the more
- * immediate gesture), the lock screen comes second — and a badge scanned
- * while an operator is logged in and no modal is open is deliberately
- * IGNORED: no automatic operator switch, changing hands goes through an
- * explicit lock first.
+ * Three destinations, one precedence: an ACTIVE ENDORSEMENT modal wins over
+ * the lock screen (the manager badging over the cashier's shoulder is the more
+ * immediate gesture), the lock screen comes second, and on a register in use
+ * the operator's OWN badge asks for the close (LC-01-02-03). Any OTHER badge
+ * scanned there is deliberately IGNORED: no automatic operator switch,
+ * changing hands goes through a close first.
  */
 @ApplicationScoped
 @Priority(0) // Priorité maximale
@@ -57,7 +57,17 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
                 state.touch();
                 ctx.handled = true;
             }
-            // 3. Sinon on ignore le badge (pas de changement d'opérateur auto)
+            // 3. Sinon : le badge de l'opérateur EN POSTE ferme la caisse
+            // (LC-01-02-03). Le badge est la preuve d'identité, donc aucun mot
+            // de passe n'est demandé ; la fermeture elle-même reste soumise à
+            // ses propres contrôles (tickets en attente), que la page de
+            // fermeture applique.
+            else if (ctx.code.equals(state.auth.operatorBadgeId)) {
+                state.auth.closeRequestedByBadge = true;
+                state.touch();
+                ctx.handled = true;
+            }
+            // 4. Sinon on ignore le badge (pas de changement d'opérateur auto)
         }
     }
 }

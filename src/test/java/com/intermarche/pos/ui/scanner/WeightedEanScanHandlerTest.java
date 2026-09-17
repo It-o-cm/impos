@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.scanner;
 
 import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -129,7 +130,7 @@ class WeightedEanScanHandlerTest {
     private Price newPrice(String including, String vat) {
         Price price = new Price();
         price.priceIncludingTax = new BigDecimal(including);
-        price.vatRate = new BigDecimal(vat);
+        price.vat = new VatRate(1, new BigDecimal(vat), "Taux normal");
         return price;
     }
 

@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.cash;
 
+import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.service.CashSessionService;
@@ -291,5 +292,93 @@ public class DrawerMethodService {
         }
         LOGGER.info("Exiting method isTransferable");
         return false;
+    }
+
+    /**
+     * The tenders an amount may be taken FROM ({@code BO-05-02-17}).
+     *
+     * @return the administered transfer list, narrowed to the tenders the
+     *         referential allows as a source
+     */
+    public List<DrawerMethod> transferSources() {
+        LOGGER.info("Entering method transferSources");
+        List<DrawerMethod> allowed = new ArrayList<>();
+        for (DrawerMethod method : transferable()) {
+            if (allowedAsSource(method.key())) {
+                allowed.add(method);
+            }
+        }
+        LOGGER.info("Exiting method transferSources");
+        return allowed;
+    }
+
+    /**
+     * The tenders an amount may be moved INTO ({@code BO-05-02-17}).
+     *
+     * @return the administered transfer list, narrowed to the tenders the
+     *         referential allows as a destination
+     */
+    public List<DrawerMethod> transferDestinations() {
+        LOGGER.info("Entering method transferDestinations");
+        List<DrawerMethod> allowed = new ArrayList<>();
+        for (DrawerMethod method : transferable()) {
+            if (allowedAsDestination(method.key())) {
+                allowed.add(method);
+            }
+        }
+        LOGGER.info("Exiting method transferDestinations");
+        return allowed;
+    }
+
+    /**
+     * Tells whether an amount may be taken from a tender ({@code BO-05-02-17}).
+     *
+     * @param key the tender key posted by the screen
+     * @return true when the tender is transferable AND allowed as a source
+     */
+    public boolean isTransferSource(String key) {
+        LOGGER.info("Entering method isTransferSource with key: " + key);
+        boolean allowed = isTransferable(key) && allowedAsSource(key);
+        LOGGER.info("Exiting method isTransferSource");
+        return allowed;
+    }
+
+    /**
+     * Tells whether an amount may be moved into a tender ({@code BO-05-02-17}).
+     *
+     * @param key the tender key posted by the screen
+     * @return true when the tender is transferable AND allowed as a destination
+     */
+    public boolean isTransferDestination(String key) {
+        LOGGER.info("Entering method isTransferDestination with key: " + key);
+        boolean allowed = isTransferable(key) && allowedAsDestination(key);
+        LOGGER.info("Exiting method isTransferDestination");
+        return allowed;
+    }
+
+    /**
+     * Reads the SOURCE flag of the tender referential.
+     *
+     * <p>A tender the referential does not know is allowed: the transfer list of
+     * {@code drawer.transfer-methods} is what a shop administered on purpose, and
+     * a referential row that was never opened must not quietly cancel it.
+     *
+     * @param key the tender key
+     * @return true when nothing forbids taking an amount from it
+     */
+    private boolean allowedAsSource(String key) {
+        TenderDefinition definition = TenderDefinition.findByCode(key);
+        return definition == null || definition.transferSource;
+    }
+
+    /**
+     * Reads the DESTINATION flag of the tender referential.
+     *
+     * @param key the tender key
+     * @return true when nothing forbids moving an amount into it
+     */
+    private boolean allowedAsDestination(String key) {
+        TenderDefinition definition = TenderDefinition.findByCode(key);
+        return definition == null || definition.transferDestination;
     }
 }

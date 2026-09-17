@@ -1,0 +1,305 @@
+EAN|LEVEL1|LEVEL2|LEVEL3|LEVEL4|LEVEL5
+3000000000014|Food|Fresh|Fruits & Vegetables|Local|Organic
+3000000000021|Food|Fresh|Fruits & Vegetables|Local|Organic
+3000000000038|Food|Fresh|Bakery|Traditional|Baguettes
+3000000000045|Food|Pantry|Beverages|Hot|Coffee
+3000000000052|Food|Pantry|Groceries|Pasta|Italy
+3000000000069|Food|Pantry|Oils & Vinegars|Olive|Extra Virgin
+3000000000076|Food|Pantry|Beverages|Cold|Water
+3000000000083|Food|Fresh|Deli|Meats|Hams
+3000000000090|Food|Fresh|Dairy|Butter|Spreadable
+3000000000106|Food|Fresh|Dairy|Yogurts|Fruit
+3000000000113|Food|Pantry|Beverages|Sodas|Cola
+3000000000120|Food|Pantry|Beverages|Sodas|Orange Juice
+3000000000137|Food|Pantry|Snacks|Biscuits|Chocolate
+3000000000144|Food|Pantry|Snacks|Crisps|Classic
+3000000000151|Food|Pantry|Sauces|Tomato|Bolognaise
+3000000000168|Food|Pantry|Groceries|Potatoes|Flakes
+3000000000175|Food|Fresh|Fruits & Vegetables|Vegetables|Cucumber
+3000000000182|Food|Fresh|Fruits & Vegetables|Vegetables|Tomatoes
+3000000000199|Food|Fresh|Dairy|Eggs|Farm
+3000000000205|Food|Fresh|Meat|Poultry|Roasted
+3000000000212|Food|Fresh|Seafood|Fish|Smoked
+3000000000229|Food|Pantry|Groceries|Rice|Long Grain
+3000000000236|Food|Pantry|Groceries|Legumes|Green
+3000000000243|Food|Pantry|Groceries|Honey|Acacia
+3000000000250|Household|Cleaning|Liquids|Detergent|
+3000000000267|Household|Cleaning|Sponges|Kitchen|
+3000000000274|Health & Beauty|Hair|Accessories|Cotton|Pads
+3000000000281|Electronics|Small Appliances|Batteries|AA|
+3000000000298|Food|Pantry|Confectionery|Gum|Mint
+3000000000304|Health & Beauty|Toothpaste|Oral Care|Mint|
+3000000010013|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010020|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010037|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010044|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010051|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010068|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010075|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010082|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010099|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010105|Food|Fresh|Fruits & Vegetables|Citrus|
+3000000010112|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010129|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010136|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010143|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010150|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010167|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010174|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010181|Food|Fresh|Fruits & Vegetables|Berries|
+3000000010198|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010204|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010211|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010228|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010235|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010242|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010259|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010266|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010273|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010280|Food|Fresh|Fruits & Vegetables|Exotic|
+3000000010297|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010303|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010310|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010327|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010334|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010341|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010358|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010365|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010372|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010389|Food|Fresh|Fruits & Vegetables|Orchard|
+3000000010396|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010402|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010419|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010426|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010433|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010440|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010457|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010464|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010471|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010488|Food|Fresh|Fruits & Vegetables|Salads|
+3000000010495|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010501|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010518|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010525|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010532|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010549|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010556|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010563|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010570|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010587|Food|Fresh|Fruits & Vegetables|Heritage|
+3000000010594|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010600|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010617|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010624|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010631|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010648|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010655|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010662|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010679|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010686|Food|Fresh|Fruits & Vegetables|Mediterranean|
+3000000010693|Food|Fresh|Dairy|Milk & Eggs|
+3000000010709|Food|Fresh|Dairy|Milk & Eggs|
+3000000010716|Food|Fresh|Dairy|Milk & Eggs|
+3000000010723|Food|Fresh|Dairy|Milk & Eggs|
+3000000010730|Food|Fresh|Dairy|Milk & Eggs|
+3000000010747|Food|Fresh|Dairy|Milk & Eggs|
+3000000010754|Food|Fresh|Dairy|Milk & Eggs|
+3000000010761|Food|Fresh|Dairy|Milk & Eggs|
+3000000010778|Food|Fresh|Dairy|Milk & Eggs|
+3000000010785|Food|Fresh|Dairy|Milk & Eggs|
+3000000010792|Food|Fresh|Dairy|Yogurts|
+3000000010808|Food|Fresh|Dairy|Yogurts|
+3000000010815|Food|Fresh|Dairy|Yogurts|
+3000000010822|Food|Fresh|Dairy|Yogurts|
+3000000010839|Food|Fresh|Dairy|Yogurts|
+3000000010846|Food|Fresh|Dairy|Yogurts|
+3000000010853|Food|Fresh|Dairy|Yogurts|
+3000000010860|Food|Fresh|Dairy|Yogurts|
+3000000010877|Food|Fresh|Dairy|Yogurts|
+3000000010884|Food|Fresh|Dairy|Yogurts|
+3000000010891|Food|Fresh|Dairy|Cheese|
+3000000010907|Food|Fresh|Dairy|Cheese|
+3000000010914|Food|Fresh|Dairy|Cheese|
+3000000010921|Food|Fresh|Dairy|Cheese|
+3000000010938|Food|Fresh|Dairy|Cheese|
+3000000010945|Food|Fresh|Dairy|Cheese|
+3000000010952|Food|Fresh|Dairy|Cheese|
+3000000010969|Food|Fresh|Dairy|Cheese|
+3000000010976|Food|Fresh|Dairy|Cheese|
+3000000010983|Food|Fresh|Dairy|Cheese|
+3000000010990|Food|Fresh|Dairy|Cheese|
+3000000011003|Food|Fresh|Dairy|Cheese|
+3000000011010|Food|Fresh|Meat|Poultry|
+3000000011027|Food|Fresh|Meat|Poultry|
+3000000011034|Food|Fresh|Meat|Poultry|
+3000000011041|Food|Fresh|Meat|Poultry|
+3000000011058|Food|Fresh|Meat|Poultry|
+3000000011065|Food|Fresh|Meat|Poultry|
+3000000011072|Food|Fresh|Meat|Poultry|
+3000000011089|Food|Fresh|Meat|Poultry|
+3000000011096|Food|Fresh|Meat|Beef & Pork|
+3000000011102|Food|Fresh|Meat|Beef & Pork|
+3000000011119|Food|Fresh|Meat|Beef & Pork|
+3000000011126|Food|Fresh|Meat|Beef & Pork|
+3000000011133|Food|Fresh|Meat|Beef & Pork|
+3000000011140|Food|Fresh|Meat|Beef & Pork|
+3000000011157|Food|Fresh|Meat|Beef & Pork|
+3000000011164|Food|Fresh|Meat|Beef & Pork|
+3000000011171|Food|Fresh|Meat|Beef & Pork|
+3000000011188|Food|Fresh|Meat|Beef & Pork|
+3000000011195|Food|Fresh|Meat|Deli|
+3000000011201|Food|Fresh|Meat|Deli|
+3000000011218|Food|Fresh|Meat|Deli|
+3000000011225|Food|Fresh|Meat|Deli|
+3000000011232|Food|Fresh|Meat|Deli|
+3000000011249|Food|Fresh|Meat|Deli|
+3000000011256|Food|Fresh|Meat|Deli|
+3000000011263|Food|Fresh|Meat|Deli|
+3000000011270|Food|Fresh|Seafood|Fish|
+3000000011287|Food|Fresh|Seafood|Fish|
+3000000011294|Food|Fresh|Seafood|Fish|
+3000000011300|Food|Fresh|Seafood|Fish|
+3000000011317|Food|Fresh|Seafood|Fish|
+3000000011324|Food|Fresh|Seafood|Fish|
+3000000011331|Food|Fresh|Seafood|Fish|
+3000000011348|Food|Fresh|Seafood|Fish|
+3000000011355|Food|Fresh|Bakery|Breads|
+3000000011362|Food|Fresh|Bakery|Breads|
+3000000011379|Food|Fresh|Bakery|Breads|
+3000000011386|Food|Fresh|Bakery|Breads|
+3000000011393|Food|Fresh|Bakery|Breads|
+3000000011409|Food|Fresh|Bakery|Breads|
+3000000011416|Food|Fresh|Bakery|Breads|
+3000000011423|Food|Fresh|Bakery|Breads|
+3000000011430|Food|Fresh|Bakery|Breads|
+3000000011447|Food|Fresh|Bakery|Breads|
+3000000011454|Food|Grocery|Savoury|Pasta & Rice|
+3000000011461|Food|Grocery|Savoury|Pasta & Rice|
+3000000011478|Food|Grocery|Savoury|Pasta & Rice|
+3000000011485|Food|Grocery|Savoury|Pasta & Rice|
+3000000011492|Food|Grocery|Savoury|Pasta & Rice|
+3000000011508|Food|Grocery|Savoury|Pasta & Rice|
+3000000011515|Food|Grocery|Savoury|Pasta & Rice|
+3000000011522|Food|Grocery|Savoury|Pasta & Rice|
+3000000011539|Food|Grocery|Savoury|Pasta & Rice|
+3000000011546|Food|Grocery|Savoury|Pasta & Rice|
+3000000011553|Food|Grocery|Savoury|Pasta & Rice|
+3000000011560|Food|Grocery|Savoury|Pasta & Rice|
+3000000011577|Food|Grocery|Savoury|Canned|
+3000000011584|Food|Grocery|Savoury|Canned|
+3000000011591|Food|Grocery|Savoury|Canned|
+3000000011607|Food|Grocery|Savoury|Canned|
+3000000011614|Food|Grocery|Savoury|Canned|
+3000000011621|Food|Grocery|Savoury|Canned|
+3000000011638|Food|Grocery|Savoury|Canned|
+3000000011645|Food|Grocery|Savoury|Canned|
+3000000011652|Food|Grocery|Savoury|Canned|
+3000000011669|Food|Grocery|Savoury|Canned|
+3000000011676|Food|Grocery|Savoury|Condiments|
+3000000011683|Food|Grocery|Savoury|Condiments|
+3000000011690|Food|Grocery|Savoury|Condiments|
+3000000011706|Food|Grocery|Savoury|Condiments|
+3000000011713|Food|Grocery|Savoury|Condiments|
+3000000011720|Food|Grocery|Savoury|Condiments|
+3000000011737|Food|Grocery|Savoury|Condiments|
+3000000011744|Food|Grocery|Savoury|Condiments|
+3000000011751|Food|Grocery|Savoury|Condiments|
+3000000011768|Food|Grocery|Savoury|Condiments|
+3000000011775|Food|Grocery|Sweet|Breakfast|
+3000000011782|Food|Grocery|Sweet|Breakfast|
+3000000011799|Food|Grocery|Sweet|Breakfast|
+3000000011805|Food|Grocery|Sweet|Breakfast|
+3000000011812|Food|Grocery|Sweet|Breakfast|
+3000000011829|Food|Grocery|Sweet|Breakfast|
+3000000011836|Food|Grocery|Sweet|Breakfast|
+3000000011843|Food|Grocery|Sweet|Breakfast|
+3000000011850|Food|Grocery|Sweet|Breakfast|
+3000000011867|Food|Grocery|Sweet|Breakfast|
+3000000011874|Food|Grocery|Sweet|Breakfast|
+3000000011881|Food|Grocery|Sweet|Breakfast|
+3000000011898|Food|Grocery|Sweet|Biscuits|
+3000000011904|Food|Grocery|Sweet|Biscuits|
+3000000011911|Food|Grocery|Sweet|Biscuits|
+3000000011928|Food|Grocery|Sweet|Biscuits|
+3000000011935|Food|Grocery|Sweet|Biscuits|
+3000000011942|Food|Grocery|Sweet|Biscuits|
+3000000011959|Food|Grocery|Sweet|Biscuits|
+3000000011966|Food|Grocery|Sweet|Biscuits|
+3000000011973|Food|Grocery|Sweet|Biscuits|
+3000000011980|Food|Grocery|Sweet|Biscuits|
+3000000011997|Beverages|Soft|Juices|Ambient|
+3000000012000|Beverages|Soft|Juices|Ambient|
+3000000012017|Beverages|Soft|Juices|Ambient|
+3000000012024|Beverages|Soft|Juices|Ambient|
+3000000012031|Beverages|Soft|Juices|Ambient|
+3000000012048|Beverages|Soft|Juices|Ambient|
+3000000012055|Beverages|Soft|Juices|Ambient|
+3000000012062|Beverages|Soft|Juices|Ambient|
+3000000012079|Beverages|Soft|Juices|Ambient|
+3000000012086|Beverages|Soft|Juices|Ambient|
+3000000012093|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012109|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012116|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012123|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012130|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012147|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012154|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012161|Beverages|Alcohol|Beer & Cider|Ambient|
+3000000012178|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012185|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012192|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012208|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012215|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012222|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012239|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012246|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012253|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012260|Beverages|Alcohol|Wine & Spirits|Ambient|
+3000000012277|Food|Frozen|Savoury|Meals|
+3000000012284|Food|Frozen|Savoury|Meals|
+3000000012291|Food|Frozen|Savoury|Meals|
+3000000012307|Food|Frozen|Savoury|Meals|
+3000000012314|Food|Frozen|Savoury|Meals|
+3000000012321|Food|Frozen|Savoury|Meals|
+3000000012338|Food|Frozen|Savoury|Meals|
+3000000012345|Food|Frozen|Savoury|Meals|
+3000000012352|Food|Frozen|Savoury|Meals|
+3000000012369|Food|Frozen|Savoury|Meals|
+3000000012376|Food|Frozen|Sweet|Desserts|
+3000000012383|Food|Frozen|Sweet|Desserts|
+3000000012390|Food|Frozen|Sweet|Desserts|
+3000000012406|Food|Frozen|Sweet|Desserts|
+3000000012413|Food|Frozen|Sweet|Desserts|
+3000000012420|Food|Frozen|Sweet|Desserts|
+3000000012437|Food|Frozen|Sweet|Desserts|
+3000000012444|Food|Frozen|Sweet|Desserts|
+3000000012451|Non-Food|Care|Personal|Hygiene|
+3000000012468|Non-Food|Care|Personal|Hygiene|
+3000000012475|Non-Food|Care|Personal|Hygiene|
+3000000012482|Non-Food|Care|Personal|Hygiene|
+3000000012499|Non-Food|Care|Personal|Hygiene|
+3000000012505|Non-Food|Care|Personal|Hygiene|
+3000000012512|Non-Food|Care|Personal|Hygiene|
+3000000012529|Non-Food|Care|Personal|Hygiene|
+3000000012536|Non-Food|Care|Personal|Hygiene|
+3000000012543|Non-Food|Care|Personal|Hygiene|
+3000000012550|Non-Food|Care|Personal|Hygiene|
+3000000012567|Non-Food|Care|Personal|Hygiene|
+3000000012574|Non-Food|Care|Household|Cleaning|
+3000000012581|Non-Food|Care|Household|Cleaning|
+3000000012598|Non-Food|Care|Household|Cleaning|
+3000000012604|Non-Food|Care|Household|Cleaning|
+3000000012611|Non-Food|Care|Household|Cleaning|
+3000000012628|Non-Food|Care|Household|Cleaning|
+3000000012635|Non-Food|Care|Household|Cleaning|
+3000000012642|Non-Food|Care|Household|Cleaning|
+3000000012659|Non-Food|Care|Household|Cleaning|
+3000000012666|Non-Food|Care|Household|Cleaning|
+3000000012673|Non-Food|Family|Baby & Pets|Mixed|
+3000000012680|Non-Food|Family|Baby & Pets|Mixed|
+3000000012697|Non-Food|Family|Baby & Pets|Mixed|
+3000000012703|Non-Food|Family|Baby & Pets|Mixed|
+3000000012710|Non-Food|Family|Baby & Pets|Mixed|
+3000000012727|Non-Food|Family|Baby & Pets|Mixed|
+3000000012734|Non-Food|Family|Baby & Pets|Mixed|
+3000000012741|Non-Food|Family|Baby & Pets|Mixed|

@@ -169,6 +169,14 @@
         <td class="k">Point de vente</td><td class="v">Caisse {document.terminal}</td>
         <td class="k2">Moyen de paiement</td><td>{document.paymentMethods}</td>
       </tr>
+      {! BO-02-04-08 : l'échéance figure obligatoirement sur la facture et le
+       ! bon de livraison, et seulement quand le client en porte une. !}
+      {#if document.hasDueDate}
+      <tr>
+        <td class="k">Échéance</td><td class="v">{document.dueDate}</td>
+        <td class="k2"></td><td></td>
+      </tr>
+      {/if}
     </table>
     </div>
   </div>
