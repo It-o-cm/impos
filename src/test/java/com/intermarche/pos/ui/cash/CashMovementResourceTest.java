@@ -14,6 +14,7 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
@@ -247,7 +248,7 @@ class CashMovementResourceTest {
     void recordTrainingModeBlocked() {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = true;
-        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null, null, null),
+        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null),
                 "/cash-movement?error=training");
         verifyNoInteractions(resource.cashSessionService);
         verifyNoInteractions(resource.cashMovementService);
@@ -262,7 +263,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
-        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null, null, null),
+        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null),
                 "/cash-movement?error=no-session");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -276,7 +277,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record(null, "10", "Coffre", null, null, null),
+        assertRedirect(resource.record(null, "10", "Coffre", null),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -290,7 +291,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("BOGUS", "10", "Coffre", null, null, null),
+        assertRedirect(resource.record("BOGUS", "10", "Coffre", null),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -316,7 +317,7 @@ class CashMovementResourceTest {
                 eq("Coffre"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("WITHDRAWAL", "30,00", "Coffre", null, null, null),
+            assertRedirect(resource.record("WITHDRAWAL", "30,00", "Coffre", null),
                     "/cash-movement?ok=1");
         }
         verify(resource.state).touch();
@@ -341,7 +342,7 @@ class CashMovementResourceTest {
                 eq("Coffre"), eq(null), eq("CHEQUE"), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", "CHEQUE", null, null),
+            assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", "CHEQUE"),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
@@ -367,7 +368,7 @@ class CashMovementResourceTest {
                 eq("Coffre"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", "   ", null, null),
+            assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", "   "),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
@@ -396,15 +397,15 @@ class CashMovementResourceTest {
                 eq("Apport"), eq("M1"), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("DEPOSIT", null, "Apport", null, null, null),
+            assertRedirect(resource.record("DEPOSIT", null, "Apport", null),
                     "/cash-movement?ok=1");
         }
         verify(resource.endorsementService, never()).authorize(any(), any(), any());
     }
 
     /**
-     * An above-threshold record endorsed by a manager credential writes with the
-     * presented badge ({@code resolveEndorsement} authorized arm); the blank
+     * A movement the shared modal has authorized is written with the endorsing
+     * badge ({@code performEndorsed} replaying the parked form); the blank
      * amount exercises the {@code parseAmount} blank branch.
      */
     @Test
@@ -417,33 +418,64 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(session);
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        when(resource.endorsementService.authorize("22222222", "1111", "CASH_MOVEMENT"))
-                .thenReturn(true);
         when(resource.cashMovementService.record(eq(session), eq(cashier),
                 eq(CashMovement.MovementType.EXPENSE), eq(BigDecimal.ZERO),
                 eq("Pharmacie"), eq("22222222"), eq(null), eq(null), eq(null))).thenReturn(recorded);
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("type", "EXPENSE");
+        parked.put("amount", "   ");
+        parked.put("reason", "Pharmacie");
+        parked.put("paymentMethod", null);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("EXPENSE", "   ", "Pharmacie", null, "22222222", "1111"),
+            assertRedirect(resource.performEndorsed(parked, "22222222"),
                     "/cash-movement?ok=1");
         }
     }
 
     /**
-     * An above-threshold record refused by the manager redirects with
-     * {@code endorsement} ({@code resolveEndorsement} refused arm, so
-     * {@code endorsedBy == null} true arm); nothing is written and no cashier is
-     * resolved.
+     * An above-threshold record with no supervisor logged PARKS the form and
+     * opens the shared modal instead of writing: the screen redirects to itself,
+     * the endorsement request carries the four typed fields and the return path,
+     * and nothing reaches the movement service.
      */
     @Test
-    void recordAboveThresholdRefusedRedirects() {
+    void recordAboveThresholdParksTheFormAndAsksTheModal() {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        when(resource.endorsementService.authorize(any(), any(), any())).thenReturn(false);
-        assertRedirect(resource.record("WITHDRAWAL", "150", "Coffre", null, "x", "y"),
+        assertRedirect(resource.record("WITHDRAWAL", "150", "Coffre", null),
+                "/cash-movement");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Map<String, String>> form = ArgumentCaptor.forClass(java.util.Map.class);
+        verify(resource.endorsementService).requestAuthorization(eq(resource.state),
+                eq("CASH_MOVEMENT"), form.capture(), eq("/cash-movement"));
+        assertEquals("WITHDRAWAL", form.getValue().get("type"));
+        assertEquals("150", form.getValue().get("amount"));
+        assertEquals("Coffre", form.getValue().get("reason"));
+        assertEquals("", form.getValue().get("paymentMethod"));
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A movement replayed WITHOUT an endorsing badge — the modal was dismissed
+     * and the form reached {@code perform} anyway — is refused rather than
+     * written ({@code endorsedBy == null} arm of the guard).
+     */
+    @Test
+    void replayWithoutBadgeIsRefused() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("type", "WITHDRAWAL");
+        parked.put("amount", "150");
+        parked.put("reason", "Coffre");
+        parked.put("paymentMethod", null);
+        assertRedirect(resource.performEndorsed(parked, null),
                 "/cash-movement?error=endorsement");
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -465,7 +497,7 @@ class CashMovementResourceTest {
         when(resource.cashMovementService.record(eq(session), eq(null),
                 eq(CashMovement.MovementType.DECLARATION), eq(BigDecimal.ZERO),
                 eq("Comptage"), eq(null), eq(null), eq(null), eq(null))).thenReturn(null);
-        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null, null, null),
+        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null),
                 "/cash-movement?error=endorsement");
         verify(resource.state).touch();
     }

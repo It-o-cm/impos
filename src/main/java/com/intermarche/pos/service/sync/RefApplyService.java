@@ -1,5 +1,6 @@
 package com.intermarche.pos.service.sync;
 
+import jakarta.inject.Inject;
 import com.intermarche.pos.domain.barcode.AlertLevel;
 import com.intermarche.pos.domain.barcode.CouponControl;
 import com.intermarche.pos.domain.barcode.CouponField;
@@ -229,6 +230,83 @@ public class RefApplyService {
         }
         LOGGER.infof("Référentiel TVA remplacé: %d régime(s)", dtos.size());
         LOGGER.info("Exiting method applyVatRates");
+    }
+
+    /** Imports the PRODUCTS file the way the store node imports it. */
+    @Inject
+    com.intermarche.pos.imports.ProductCsvResource productImporter;
+
+    /** Imports the FAMILIES file the way the store node imports it. */
+    @Inject
+    com.intermarche.pos.imports.ProductFamilyCsvResource familyImporter;
+
+    /** Imports the PRICES file the way the store node imports it. */
+    @Inject
+    com.intermarche.pos.imports.PriceCsvResource priceImporter;
+
+    /**
+     * Reads the verbatim file of one engine feed this register holds.
+     *
+     * <p>It lives here, and not in the pull loop that needs it, because that
+     * loop runs on its own thread where neither a transaction nor a CDI
+     * request context is active: a Panache lookup issued from there fails
+     * outright. It is also kept APART from
+     * {@link #applyFromFile(String, String)} on purpose — that one must not
+     * open a transaction of its own, the importer opening one per chunk.
+     *
+     * @param domain the feed code, which is also the referential domain
+     * @return the raw file, or null when this register holds no such feed
+     */
+    @Transactional
+    public String feedContent(String domain) {
+        LOGGER.info("Entering method feedContent with domain: " + domain);
+        com.intermarche.pos.domain.sync.EngineFeed feed =
+                com.intermarche.pos.domain.sync.EngineFeed.<com.intermarche.pos.domain.sync.EngineFeed>
+                        find("code", domain).firstResult();
+        LOGGER.info("Exiting method feedContent");
+        return feed == null ? null : feed.content;
+    }
+
+    /**
+     * Applies one of the three big shared referentials from the RAW FILE the
+     * register already holds, instead of from a snapshot of payload rows.
+     *
+     * <p>Why the file and not the pages. The register pulls the verbatim feeds
+     * anyway — it is what it delivers to the valuation engine — so the catalogue
+     * is already on its disk, header line included. Applying it through the
+     * SAME importer the store node uses buys three things the payload path did
+     * not have: the work is cut into transactions of a thousand rows instead of
+     * one transaction for a hundred thousand; nothing is accumulated in memory;
+     * and a row whose checksum has not moved costs nothing, where the payload
+     * path wiped the table and rewrote it whole.
+     *
+     * <p>A failure inside a chunk is not a failure of the pull: the importer
+     * falls back 1000 → 100 → 10 → 1 and isolates the offending rows, exactly
+     * as it does at the node. What comes back is a count, and the caller records
+     * the fingerprint on it.
+     *
+     * @param domain the domain being applied, which names the importer
+     * @param content the raw CSV, verbatim
+     * @return true when the domain is one this path serves
+     */
+    @jakarta.enterprise.context.control.ActivateRequestContext
+    public boolean applyFromFile(String domain, String content) {
+        LOGGER.info("Entering method applyFromFile with domain: " + domain);
+        java.io.InputStream stream = new java.io.ByteArrayInputStream(
+                content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        jakarta.ws.rs.core.Response answer = switch (domain) {
+            case "PRODUCTS" -> productImporter.importProducts(stream);
+            case "FAMILIES" -> familyImporter.importProductFamilies(stream);
+            case "PRICES" -> priceImporter.importPrices(stream);
+            default -> null;
+        };
+        if (answer == null) {
+            LOGGER.info("Exiting method applyFromFile: domaine non servi par cette voie");
+            return false;
+        }
+        LOGGER.infof("Référentiel %s appliqué depuis le fichier: %s", domain, answer.getEntity());
+        LOGGER.info("Exiting method applyFromFile");
+        return true;
     }
 
     /**

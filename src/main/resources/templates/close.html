@@ -33,6 +33,8 @@
     .close-form h2 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
     .close-row { display: flex; gap: 10px; align-items: center; }
     .close-input { flex: 1; font-size: var(--fs-field); background: var(--bg-page); color: var(--primary); border: 2px solid var(--primary); border-radius: 4px; padding: 8px 12px; }
+    .close-input.active { box-shadow: 0 0 0 2px var(--primary) inset; }
+    .close-keyboard { max-width: 34rem; align-self: center; width: 100%; }
     .close-actions { display: flex; gap: 10px; margin-top: auto; }
     .close-actions .btn { flex: 1; height: 3.75rem; display: flex; align-items: center; justify-content: center; }
   </style>
@@ -61,7 +63,8 @@
       <form class="close-form" method="post" action="/action/close">
         <h2>Code opérateur</h2>
         <div class="close-row">
-          <input class="close-input" type="password" name="password" inputmode="numeric" autocomplete="off" autofocus>
+          <input class="close-input" type="text" id="dispPassword" value="" readonly onclick="activateField('password')">
+          <input type="hidden" name="password" id="valPassword" value="">
           <button class="btn btn-primary" type="submit">FERMER LA CAISSE</button>
         </div>
       </form>
@@ -73,16 +76,62 @@
       <form class="close-form" method="post" action="/action/close">
         <h2>Fermeture forcée — autorisation superviseur</h2>
         <div class="close-row">
-          <input class="close-input" type="text" name="supervisor" placeholder="Identifiant superviseur" autocomplete="off">
-          <input class="close-input" type="password" name="supervisorPassword" placeholder="Code" autocomplete="off">
+          <input class="close-input" type="text" id="dispSupervisor" placeholder="Identifiant superviseur" value="" readonly onclick="activateField('supervisor')">
+          <input type="hidden" name="supervisor" id="valSupervisor" value="">
+          <input class="close-input" type="text" id="dispSupervisorPin" placeholder="Code" value="" readonly onclick="activateField('supervisorPin')">
+          <input type="hidden" name="supervisorPassword" id="valSupervisorPin" value="">
           <button class="btn btn-danger" type="submit">FORCER LA FERMETURE</button>
         </div>
       </form>
+
+      {! UN seul pave pour les trois champs de la page: PosInput est un
+       ! singleton, et de toute facon l'operateur ne remplit qu'un champ a la
+       ! fois. Un clic sur un champ rebranche le pave dessus, en restaurant ce
+       ! qui y avait deja ete saisi — meme geste que l'ecran de changement de
+       ! PIN. L'identifiant prend un clavier alphabetique, les deux codes un
+       ! pave numerique masque. !}
+      <div class="close-keyboard" id="closeKbArea"></div>
 
       <div class="close-actions">
         <a class="btn btn-muted" href="/">RETOUR À LA VENTE</a>
       </div>
     </div>
   </div>
+
+  {#include keyboard-lib /}
+
+  <script>
+    /* Chaque champ dit quel pave il veut: l'identifiant se tape en lettres,
+       les codes en chiffres et masques. */
+    const CLOSE_FIELDS = {
+        password:      { display: 'dispPassword',      hidden: 'valPassword',      type: 'numpad', mode: 'pin',  max: 8 },
+        supervisor:    { display: 'dispSupervisor',    hidden: 'valSupervisor',    type: 'alpha',  mode: 'text', max: 32 },
+        supervisorPin: { display: 'dispSupervisorPin', hidden: 'valSupervisorPin', type: 'numpad', mode: 'pin',  max: 8 }
+    };
+
+    function activateField(name) {
+        const field = CLOSE_FIELDS[name];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        Object.values(CLOSE_FIELDS).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('active'); }
+        });
+        document.getElementById(field.display).classList.add('active');
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'closeKbArea',
+            keyboardType: field.type,
+            mode: field.mode,
+            uppercase: false,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    }
+
+    /* Le champ qui s'ouvre en premier est celui que la page demande: le code
+       operateur quand il est reclame, sinon l'identifiant du superviseur. */
+    activateField(document.getElementById('valPassword') ? 'password' : 'supervisor');
+  </script>
 </body>
 </html>

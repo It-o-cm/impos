@@ -41,7 +41,6 @@ public class AuthResource {
     private static final org.jboss.logging.Logger LOGGER =
             org.jboss.logging.Logger.getLogger(AuthResource.class);
 
-    @Inject Template main;
     @Inject Template lock;
 
     /** The blocking hardware-status page shown when a peripheral is down. */

@@ -63,7 +63,7 @@ public class DrawerOperationsResource {
     private static final Logger LOGGER = Logger.getLogger(DrawerOperationsResource.class);
 
     /** Action code journaled when a manager endorses a drawer operation. */
-    static final String ENDORSEMENT_ACTION = "DRAWER_OPERATION";
+    public static final String ENDORSEMENT_ACTION = "DRAWER_OPERATION";
 
     /** The withdrawal screen. */
     @Inject @Location("withdrawal") Template withdrawal;
@@ -192,8 +192,6 @@ public class DrawerOperationsResource {
      * @param method the tender key chosen on the screen
      * @param amountStr the counted total, for cash only (French comma tolerated)
      * @param detail the per-denomination JSON of a cash count, or null
-     * @param managerLogin the endorsing manager's badge or login, or null
-     * @param managerPin the endorsing manager's PIN, or null
      * @return a redirect back to the withdrawal screen carrying the outcome
      */
     @POST
@@ -201,10 +199,8 @@ public class DrawerOperationsResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response recordWithdrawal(@FormParam("method") String method,
                                      @FormParam("amount") String amountStr,
-                                     @FormParam("detail") String detail,
-                                     @FormParam("managerLogin") String managerLogin,
-                                     @FormParam("managerPin") String managerPin) {
-        LOGGER.info("Entering method recordWithdrawal with method: " + method + ", amountStr: " + amountStr + ", detail: " + detail + ", managerLogin: " + managerLogin + ", managerPin: ***");
+                                     @FormParam("detail") String detail) {
+        LOGGER.info("Entering method recordWithdrawal with method: " + method + ", amountStr: " + amountStr + ", detail: " + detail);
         if (state.trainingMode) {
             LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=training");
@@ -224,13 +220,17 @@ public class DrawerOperationsResource {
             LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=amount&method=" + method);
         }
-        String endorsedBy = null;
-        if (cashMovementService.requiresEndorsement(amount)) {
-            endorsedBy = resolveEndorsement(managerLogin, managerPin);
-            if (endorsedBy == null) {
-                LOGGER.info("Exiting method recordWithdrawal");
-                return redirect("/withdrawal?error=endorsement&method=" + method);
-            }
+        String endorsedBy = supervisorBadge();
+        if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
+            java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+            form.put("op", "withdrawal");
+            form.put("method", method == null ? "" : method);
+            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("detail", detail == null ? "" : detail);
+            endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form,
+                    "/withdrawal?method=" + method);
+            LOGGER.info("Exiting method recordWithdrawal: aval demande");
+            return redirect("/withdrawal?method=" + method);
         }
         String label = drawerMethodService.labelOf(method);
         CashMovement recorded = cashMovementService.record(session, cashierOf(),
@@ -257,8 +257,6 @@ public class DrawerOperationsResource {
      * @param from the source tender key
      * @param to the destination tender key
      * @param amountStr the amount to move (French comma tolerated)
-     * @param managerLogin the endorsing manager's badge or login, or null
-     * @param managerPin the endorsing manager's PIN, or null
      * @return a redirect back to the transfer screen carrying the outcome
      */
     @POST
@@ -266,10 +264,8 @@ public class DrawerOperationsResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response recordTransfer(@FormParam("from") String from,
                                    @FormParam("to") String to,
-                                   @FormParam("amount") String amountStr,
-                                   @FormParam("managerLogin") String managerLogin,
-                                   @FormParam("managerPin") String managerPin) {
-        LOGGER.info("Entering method recordTransfer with from: " + from + ", to: " + to + ", amountStr: " + amountStr + ", managerLogin: " + managerLogin + ", managerPin: ***");
+                                   @FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method recordTransfer with from: " + from + ", to: " + to + ", amountStr: " + amountStr);
         if (state.trainingMode) {
             LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=training");
@@ -299,13 +295,16 @@ public class DrawerOperationsResource {
             LOGGER.info("Exiting method recordTransfer");
             return redirect("/transfer?error=insufficient");
         }
-        String endorsedBy = null;
-        if (cashMovementService.requiresEndorsement(amount)) {
-            endorsedBy = resolveEndorsement(managerLogin, managerPin);
-            if (endorsedBy == null) {
-                LOGGER.info("Exiting method recordTransfer");
-                return redirect("/transfer?error=endorsement");
-            }
+        String endorsedBy = supervisorBadge();
+        if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
+            java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+            form.put("op", "transfer");
+            form.put("from", from == null ? "" : from);
+            form.put("to", to == null ? "" : to);
+            form.put("amount", amountStr == null ? "" : amountStr);
+            endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/transfer");
+            LOGGER.info("Exiting method recordTransfer: aval demande");
+            return redirect("/transfer");
         }
         String fromLabel = drawerMethodService.labelOf(from);
         String toLabel = drawerMethodService.labelOf(to);
@@ -379,16 +378,64 @@ public class DrawerOperationsResource {
      *
      * @param login the presented badge or login, or null
      * @param pin the presented PIN, or null
-     * @return the endorsing manager's badge, or null when unauthorized
+     * @return the endorsing manager's badge, or null when none endorses
      */
-    private String resolveEndorsement(String login, String pin) {
+    private String supervisorBadge() {
+        if (endorsedByOverride != null) {
+            return endorsedByOverride;
+        }
         if (endorsementService.operatorIsSupervisor(state)) {
             return state.auth.operatorBadgeId;
         }
-        if (endorsementService.authorize(login, pin, ENDORSEMENT_ACTION)) {
-            return login;
-        }
         return null;
+    }
+
+    /**
+     * The manager the shared modal just validated, while a parked operation is
+     * being replayed; null the rest of the time.
+     *
+     * <p>Held on the request-scoped resource and cleared in a {@code finally}
+     * so a replay cannot leak its authority into the next request. It exists
+     * because a replay re-enters the SAME record method — the parked form goes
+     * back through every guard, which is the point — and that method must then
+     * see the endorsement as already granted instead of asking for it again.
+     */
+    private String endorsedByOverride = null;
+
+    /**
+     * Replays a parked withdrawal once the shared modal validated a manager.
+     *
+     * @param form the parked form fields
+     * @param endorsedBy the endorsing manager's badge or login
+     * @return a redirect back to the withdrawal screen carrying the outcome
+     */
+    public Response performEndorsedWithdrawal(java.util.Map<String, String> form, String endorsedBy) {
+        LOGGER.info("Entering method performEndorsedWithdrawal with endorsedBy: " + endorsedBy);
+        endorsedByOverride = endorsedBy;
+        try {
+            LOGGER.info("Exiting method performEndorsedWithdrawal");
+            return recordWithdrawal(form.get("method"), form.get("amount"), form.get("detail"));
+        } finally {
+            endorsedByOverride = null;
+        }
+    }
+
+    /**
+     * Replays a parked transfer once the shared modal validated a manager.
+     *
+     * @param form the parked form fields
+     * @param endorsedBy the endorsing manager's badge or login
+     * @return a redirect back to the transfer screen carrying the outcome
+     */
+    public Response performEndorsedTransfer(java.util.Map<String, String> form, String endorsedBy) {
+        LOGGER.info("Entering method performEndorsedTransfer with endorsedBy: " + endorsedBy);
+        endorsedByOverride = endorsedBy;
+        try {
+            LOGGER.info("Exiting method performEndorsedTransfer");
+            return recordTransfer(form.get("from"), form.get("to"), form.get("amount"));
+        } finally {
+            endorsedByOverride = null;
+        }
     }
 
     /**

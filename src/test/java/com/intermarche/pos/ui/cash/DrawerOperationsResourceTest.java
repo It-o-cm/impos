@@ -232,6 +232,15 @@ class DrawerOperationsResourceTest {
         /** Whether the presented credentials are accepted. */
         private boolean authorized = false;
 
+        /** The action code of the last parked request, or null when none. */
+        private String parkedAction;
+
+        /** The form of the last parked request, or null when none. */
+        private java.util.Map<String, String> parkedForm;
+
+        /** The return path of the last parked request, or null when none. */
+        private String parkedReturnPath;
+
         /** {@inheritDoc} */
         @Override
         public boolean operatorIsSupervisor(PosState state) {
@@ -242,6 +251,15 @@ class DrawerOperationsResourceTest {
         @Override
         public boolean authorize(String login, String password, String actionCode) {
             return authorized;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public void requestAuthorization(PosState state, String actionCode,
+                java.util.Map<String, String> form, String returnPath) {
+            this.parkedAction = actionCode;
+            this.parkedForm = form;
+            this.parkedReturnPath = returnPath;
         }
     }
 
@@ -372,7 +390,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aWithdrawalIsRefusedInTrainingMode() {
         state.trainingMode = true;
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
         assertEquals("/withdrawal?error=training", target(response));
         assertNull(movements.recorded);
     }
@@ -383,7 +401,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aWithdrawalIsRefusedWithoutAnOpenSession() {
         sessions.open = null;
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
         assertEquals("/withdrawal?error=no-session", target(response));
         assertNull(movements.recorded);
     }
@@ -394,7 +412,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aWithdrawalIsRefusedForATenderTheShopDoesNotOffer() {
-        Response response = resource.recordWithdrawal("TR", "50", null, null, null);
+        Response response = resource.recordWithdrawal("TR", "50", null);
         assertEquals("/withdrawal?error=bad-method", target(response));
         assertNull(movements.recorded);
     }
@@ -405,7 +423,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aCashWithdrawalOfNothingIsRefused() {
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "0", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "0", "{}");
         assertEquals("/withdrawal?error=amount&method=CASH", target(response));
         assertNull(movements.recorded);
     }
@@ -415,7 +433,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aCashWithdrawalOfAnUnreadableAmountIsRefused() {
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "abc", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "abc", "{}");
         assertEquals("/withdrawal?error=amount&method=CASH", target(response));
     }
 
@@ -424,7 +442,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aCashWithdrawalOfABlankAmountIsRefused() {
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "  ", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "  ", "{}");
         assertEquals("/withdrawal?error=amount&method=CASH", target(response));
     }
 
@@ -434,7 +452,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aWithdrawalOfATenderTheDrawerHoldsNoneOfIsRefused() {
         methods.totals = Map.of(CashMovement.CASH, new BigDecimal("200.00"));
-        Response response = resource.recordWithdrawal("CHEQUE", "80", null, null, null);
+        Response response = resource.recordWithdrawal("CHEQUE", "80", null);
         assertEquals("/withdrawal?error=amount&method=CHEQUE", target(response));
     }
 
@@ -444,7 +462,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aCashWithdrawalWritesTheCountedTotalWithItsDetail() {
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "50,50", "{\"b50\":1}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "50,50", "{\"b50\":1}");
         assertEquals("/withdrawal?ok=1", target(response));
         assertNotNull(movements.recorded);
         assertEquals(CashMovement.MovementType.WITHDRAWAL, movements.recorded.type);
@@ -462,7 +480,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aNonCashWithdrawalTakesTheTheoreticalAndIgnoresThePostedAmount() {
-        Response response = resource.recordWithdrawal("CHEQUE", "5000", "{\"b50\":1}", null, null);
+        Response response = resource.recordWithdrawal("CHEQUE", "5000", "{\"b50\":1}");
         assertEquals("/withdrawal?ok=1", target(response));
         assertEquals(new BigDecimal("80.00"), movements.recorded.amount);
         assertEquals("CHEQUE", movements.recorded.paymentMethod);
@@ -470,14 +488,22 @@ class DrawerOperationsResourceTest {
     }
 
     /**
-     * Above the threshold with no manager at all, the withdrawal is refused and the
-     * screen comes back on the tender.
+     * Above the threshold with no supervisor logged, the withdrawal is PARKED and
+     * the shared modal is asked for: the screen comes back on the tender, the
+     * request carries the three typed fields and the return path, and nothing is
+     * written yet.
      */
     @Test
-    void anAboveThresholdWithdrawalWithoutAManagerIsRefused() {
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "150", "{}", "9", "0000");
-        assertEquals("/withdrawal?error=endorsement&method=CASH", target(response));
+    void anAboveThresholdWithdrawalWithoutAManagerIsParked() {
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "150", "{}");
+        assertEquals("/withdrawal?method=CASH", target(response));
         assertNull(movements.recorded);
+        assertEquals("DRAWER_OPERATION", endorsements.parkedAction);
+        assertEquals("/withdrawal?method=CASH", endorsements.parkedReturnPath);
+        assertEquals("withdrawal", endorsements.parkedForm.get("op"));
+        assertEquals(CashMovement.CASH, endorsements.parkedForm.get("method"));
+        assertEquals("150", endorsements.parkedForm.get("amount"));
+        assertEquals("{}", endorsements.parkedForm.get("detail"));
     }
 
     /**
@@ -488,21 +514,44 @@ class DrawerOperationsResourceTest {
     void aSupervisorEndorsesTheirOwnWithdrawal() {
         endorsements.supervisor = true;
         state.auth.operatorBadgeId = "11111111";
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "150", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "150", "{}");
         assertEquals("/withdrawal?ok=1", target(response));
         assertEquals("11111111", movements.recorded.endorsedBy);
     }
 
     /**
-     * A manager presenting accepted credentials endorses the withdrawal, and their
-     * login stands as the badge.
+     * A withdrawal the shared modal authorized is replayed and written with the
+     * endorsing badge; the replay goes back through every guard of the record
+     * method, which is why it re-enters it instead of a shortcut.
      */
     @Test
     void anAuthorizedManagerEndorsesTheWithdrawal() {
-        endorsements.authorized = true;
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "150", "{}", "22222222", "1234");
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("op", "withdrawal");
+        parked.put("method", CashMovement.CASH);
+        parked.put("amount", "150");
+        parked.put("detail", "{}");
+        Response response = resource.performEndorsedWithdrawal(parked, "22222222");
         assertEquals("/withdrawal?ok=1", target(response));
         assertEquals("22222222", movements.recorded.endorsedBy);
+    }
+
+    /**
+     * The endorsing badge does not survive the replay: the next withdrawal above
+     * the threshold is parked again instead of riding the previous authority.
+     */
+    @Test
+    void theEndorsementDoesNotLeakIntoTheNextWithdrawal() {
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("op", "withdrawal");
+        parked.put("method", CashMovement.CASH);
+        parked.put("amount", "150");
+        parked.put("detail", "{}");
+        resource.performEndorsedWithdrawal(parked, "22222222");
+        movements.recorded = null;
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "150", "{}");
+        assertEquals("/withdrawal?method=CASH", target(response));
+        assertNull(movements.recorded);
     }
 
     /**
@@ -511,7 +560,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aWithdrawalAtTheThresholdAsksNoManager() {
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "100", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "100", "{}");
         assertEquals("/withdrawal?ok=1", target(response));
         assertNull(movements.endorsedBy);
     }
@@ -523,7 +572,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aRefusedWithdrawalIsNotAnnouncedAsRecorded() {
         movements.refuse = true;
-        Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}", null, null);
+        Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
         assertEquals("/withdrawal?error=endorsement&method=CASH", target(response));
     }
 
@@ -533,7 +582,7 @@ class DrawerOperationsResourceTest {
     @Test
     void noWithdrawalTicketIsPrintedWhenTheShopSwitchedItOff() {
         settings.withdrawalPrint = false;
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\":1}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\":1}");
         assertNull(printer.withdrawalLabel);
     }
 
@@ -544,7 +593,7 @@ class DrawerOperationsResourceTest {
     @Test
     void theCashWithdrawalTicketListsTheDenominations() {
         settings.withdrawalPrint = true;
-        resource.recordWithdrawal(CashMovement.CASH, "70", "{\"b50\":1,\"c1\":20}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "70", "{\"b50\":1,\"c1\":20}");
         assertEquals("Espèces", printer.withdrawalLabel);
         assertEquals(new BigDecimal("70"), printer.withdrawalAmount);
         assertEquals(2, printer.withdrawalLines.size());
@@ -560,7 +609,7 @@ class DrawerOperationsResourceTest {
     @Test
     void theCashWithdrawalTicketValuesARollWhole() {
         settings.withdrawalPrint = true;
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"r2\":1}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"r2\":1}");
         assertEquals("Rouleau 2€ (50€) x1", printer.withdrawalLines.get(0)[0]);
         assertEquals("50,00 E", printer.withdrawalLines.get(0)[1]);
     }
@@ -574,17 +623,17 @@ class DrawerOperationsResourceTest {
     @Test
     void theCashWithdrawalTicketDropsWhatItCannotRead() {
         settings.withdrawalPrint = true;
-        resource.recordWithdrawal(CashMovement.CASH, "50", null, null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", null);
         assertTrue(printer.withdrawalLines.isEmpty());
-        resource.recordWithdrawal(CashMovement.CASH, "50", "  ", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "  ");
         assertTrue(printer.withdrawalLines.isEmpty());
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\"}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\"}");
         assertTrue(printer.withdrawalLines.isEmpty());
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\":x}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\":x}");
         assertTrue(printer.withdrawalLines.isEmpty());
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\":0}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b50\":0}");
         assertTrue(printer.withdrawalLines.isEmpty());
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b1000\":1}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{\"b1000\":1}");
         assertTrue(printer.withdrawalLines.isEmpty());
     }
 
@@ -596,7 +645,7 @@ class DrawerOperationsResourceTest {
     @Test
     void theNonCashWithdrawalTicketListsTheTransactions() {
         settings.withdrawalPrint = true;
-        resource.recordWithdrawal("CHEQUE", null, null, null, null);
+        resource.recordWithdrawal("CHEQUE", null, null);
         assertEquals("Chèques", printer.withdrawalLabel);
         assertEquals(2, printer.withdrawalLines.size());
         assertEquals("T-1", printer.withdrawalLines.get(0)[0]);
@@ -610,7 +659,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aTransferIsRefusedInTrainingMode() {
         state.trainingMode = true;
-        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "10", null, null);
+        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "10");
         assertEquals("/transfer?error=training", target(response));
         assertNull(movements.recorded);
     }
@@ -621,7 +670,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aTransferIsRefusedWithoutAnOpenSession() {
         sessions.open = null;
-        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "10", null, null);
+        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "10");
         assertEquals("/transfer?error=no-session", target(response));
     }
 
@@ -630,7 +679,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aTransferFromATenderTheShopDoesNotOfferIsRefused() {
-        Response response = resource.recordTransfer("TR", "CHEQUE", "10", null, null);
+        Response response = resource.recordTransfer("TR", "CHEQUE", "10");
         assertEquals("/transfer?error=bad-method", target(response));
     }
 
@@ -640,7 +689,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aTransferToATenderTheShopDoesNotOfferIsRefused() {
-        Response response = resource.recordTransfer(CashMovement.CASH, "TR", "10", null, null);
+        Response response = resource.recordTransfer(CashMovement.CASH, "TR", "10");
         assertEquals("/transfer?error=bad-method", target(response));
     }
 
@@ -650,7 +699,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aTransferOntoItselfIsRefused() {
-        Response response = resource.recordTransfer(CashMovement.CASH, CashMovement.CASH, "10", null, null);
+        Response response = resource.recordTransfer(CashMovement.CASH, CashMovement.CASH, "10");
         assertEquals("/transfer?error=same-method", target(response));
     }
 
@@ -660,11 +709,11 @@ class DrawerOperationsResourceTest {
     @Test
     void aTransferOfNothingIsRefused() {
         assertEquals("/transfer?error=amount",
-                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", "0", null, null)));
+                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", "0")));
         assertEquals("/transfer?error=amount",
-                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", "abc", null, null)));
+                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", "abc")));
         assertEquals("/transfer?error=amount",
-                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", null, null, null)));
+                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", null)));
     }
 
     /**
@@ -673,7 +722,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aTransferAboveTheTheoreticalIsRefused() {
-        Response response = resource.recordTransfer("CHEQUE", CashMovement.CASH, "80,01", null, null);
+        Response response = resource.recordTransfer("CHEQUE", CashMovement.CASH, "80,01");
         assertEquals("/transfer?error=insufficient", target(response));
         assertNull(movements.recorded);
     }
@@ -685,7 +734,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aTransferOfExactlyTheTheoreticalPasses() {
-        Response response = resource.recordTransfer("CHEQUE", CashMovement.CASH, "80,00", null, null);
+        Response response = resource.recordTransfer("CHEQUE", CashMovement.CASH, "80,00");
         assertEquals("/transfer?ok=1", target(response));
         assertEquals(new BigDecimal("80.00"), movements.recorded.amount);
     }
@@ -696,7 +745,7 @@ class DrawerOperationsResourceTest {
      */
     @Test
     void aTransferNamesBothEnds() {
-        Response response = resource.recordTransfer("CHEQUE", CashMovement.CASH, "20", null, null);
+        Response response = resource.recordTransfer("CHEQUE", CashMovement.CASH, "20");
         assertEquals("/transfer?ok=1", target(response));
         assertEquals(CashMovement.MovementType.TRANSFER, movements.recorded.type);
         assertEquals("CHEQUE", movements.recorded.paymentMethod);
@@ -706,13 +755,21 @@ class DrawerOperationsResourceTest {
     }
 
     /**
-     * Above the threshold with no manager at all, the transfer is refused.
+     * Above the threshold with no supervisor logged, the transfer is PARKED and
+     * the shared modal is asked for: nothing is written, and the request carries
+     * the two tenders, the amount and the return path.
      */
     @Test
-    void anAboveThresholdTransferWithoutAManagerIsRefused() {
-        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "150", "9", "0000");
-        assertEquals("/transfer?error=endorsement", target(response));
+    void anAboveThresholdTransferWithoutAManagerIsParked() {
+        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "150");
+        assertEquals("/transfer", target(response));
         assertNull(movements.recorded);
+        assertEquals("DRAWER_OPERATION", endorsements.parkedAction);
+        assertEquals("/transfer", endorsements.parkedReturnPath);
+        assertEquals("transfer", endorsements.parkedForm.get("op"));
+        assertEquals(CashMovement.CASH, endorsements.parkedForm.get("from"));
+        assertEquals("CHEQUE", endorsements.parkedForm.get("to"));
+        assertEquals("150", endorsements.parkedForm.get("amount"));
     }
 
     /**
@@ -722,20 +779,43 @@ class DrawerOperationsResourceTest {
     void aSupervisorEndorsesTheirOwnTransfer() {
         endorsements.supervisor = true;
         state.auth.operatorBadgeId = "11111111";
-        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "150", null, null);
+        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "150");
         assertEquals("/transfer?ok=1", target(response));
         assertEquals("11111111", movements.recorded.endorsedBy);
     }
 
     /**
-     * A manager presenting accepted credentials endorses the transfer.
+     * A transfer the shared modal authorized is replayed and written with the
+     * endorsing badge.
      */
     @Test
     void anAuthorizedManagerEndorsesTheTransfer() {
-        endorsements.authorized = true;
-        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "150", "22222222", "1234");
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("op", "transfer");
+        parked.put("from", CashMovement.CASH);
+        parked.put("to", "CHEQUE");
+        parked.put("amount", "150");
+        Response response = resource.performEndorsedTransfer(parked, "22222222");
         assertEquals("/transfer?ok=1", target(response));
         assertEquals("22222222", movements.recorded.endorsedBy);
+    }
+
+    /**
+     * The endorsing badge does not survive the replay: the next transfer above
+     * the threshold is parked again instead of riding the previous authority.
+     */
+    @Test
+    void theEndorsementDoesNotLeakIntoTheNextTransfer() {
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("op", "transfer");
+        parked.put("from", CashMovement.CASH);
+        parked.put("to", "CHEQUE");
+        parked.put("amount", "150");
+        resource.performEndorsedTransfer(parked, "22222222");
+        movements.recorded = null;
+        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "150");
+        assertEquals("/transfer", target(response));
+        assertNull(movements.recorded);
     }
 
     /**
@@ -744,7 +824,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aRefusedTransferIsNotAnnouncedAsRecorded() {
         movements.refuse = true;
-        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "20", null, null);
+        Response response = resource.recordTransfer(CashMovement.CASH, "CHEQUE", "20");
         assertEquals("/transfer?error=endorsement", target(response));
     }
 
@@ -755,10 +835,10 @@ class DrawerOperationsResourceTest {
     @Test
     void theTransferTicketFollowsTheAdministeredRule() {
         settings.transferPrint = false;
-        resource.recordTransfer("CHEQUE", CashMovement.CASH, "20", null, null);
+        resource.recordTransfer("CHEQUE", CashMovement.CASH, "20");
         assertNull(printer.transferFrom);
         settings.transferPrint = true;
-        resource.recordTransfer("CHEQUE", CashMovement.CASH, "20", null, null);
+        resource.recordTransfer("CHEQUE", CashMovement.CASH, "20");
         assertEquals("Chèques", printer.transferFrom);
         assertEquals("Espèces", printer.transferTo);
     }
@@ -771,9 +851,9 @@ class DrawerOperationsResourceTest {
     void theTransferListIsWhatDecidesTheTwoEnds() {
         settingsList("CASH:Espèces;CHEQUE:Chèques", "CHEQUE:Chèques;TR:Titres");
         assertEquals("/transfer?error=bad-method",
-                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", "10", null, null)));
+                target(resource.recordTransfer(CashMovement.CASH, "CHEQUE", "10")));
         assertEquals("/transfer?ok=1",
-                target(resource.recordTransfer("CHEQUE", "TR", "10", null, null)));
+                target(resource.recordTransfer("CHEQUE", "TR", "10")));
     }
 
     // ------------------------------------------------------------------ PAGES
@@ -816,7 +896,7 @@ class DrawerOperationsResourceTest {
     @Test
     void aRecordedWithdrawalTouchesTheState() {
         long before = state.version;
-        resource.recordWithdrawal(CashMovement.CASH, "50", "{}", null, null);
+        resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
         assertFalse(state.version == before);
     }
 }

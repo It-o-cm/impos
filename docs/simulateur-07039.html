@@ -1,0 +1,1839 @@
+<!--
+  Hardware simulator — STATIC dev tool opened directly in a browser (not
+  served by Qute: HTML comments are fine here, Qute {! !} would not be
+  stripped). Talks to the register at hardcoded http://localhost:8080.
+  Modules and their endpoints: scanner → POST /api/pos/scan ; scale →
+  POST /weight ; 2x label builder (price/weight prefixes + checksum) ;
+  traditional counter (LC-06-01) → composes weighed lines, POSTs them to the
+  STORE NODE (POST {store}/api/sync/balance-ticket), then scans the 27-prefixed
+  reference at the register — the counter ticket is the one flow where the
+  simulator talks to two machines, because that is exactly what it simulates:
+  a scale that pushes to the shop and a till that picks up from it ;
+  virtual TPE (phase 6) → polls GET /api/hardware/tpe every 1s, decides via
+  POST /api/hardware/tpe/{accept|refuse} (409 when no pending request) ;
+  line display / drawer / printer mirrors → poll the /api/hardware/*
+  state endpoints. The simulator is one implementation of the HTTP hardware
+  boundary — a real bridge replaces it by serving the same paths.
+
+  NO PLU MODULE, deliberately: this page simulates HARDWARE. A PLU is typed
+  by the cashier on the sale screen's own keypad — adding a remote control
+  for a button that sits right there would duplicate the UI, not a device.
+  Weighed produce is exercised here through the SCALE (arm a weight, then
+  type the PLU on the register) and through the 2x label, which is a real
+  barcode.
+-->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulateur Matériel POS — flux 07039</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f6f8;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .main-wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .module {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .module-double-width {
+            grid-column: span 2;
+        }
+
+        /* A module taller than its neighbours claims its own rows instead of
+           inflating theirs: without the span, one 900px module stretches every
+           card on its line to 900px of white. */
+        .module-triple-height {
+            grid-row: span 3;
+        }
+
+        h1 { text-align: center; color: #333; margin-bottom: 20px; }
+        h3 { margin-top: 0; color: #555; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
+        input[type="text"], select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; box-sizing: border-box; font-size: 16px; }
+        select { background-color: white; cursor: pointer; }
+
+        button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; transition: background 0.2s; margin-top: auto; }
+        button:hover { background-color: #0056b3; }
+        button.btn-plu { background-color: #28a745; } button.btn-plu:hover { background-color: #218838; }
+        button.btn-ean { background-color: #fd7e14; } button.btn-ean:hover { background-color: #dc6502; }
+        button.btn-badge { background-color: #6f42c1; } button.btn-badge:hover { background-color: #5a32a3; }
+        button.btn-fid { background-color: #17a2b8; } button.btn-fid:hover { background-color: #117a8b; }
+        button.btn-voucher { background-color: #7B1FA2; } button.btn-voucher:hover { background-color: #6a1b8f; }
+        button.btn-secondary { background-color: #6c757d; } button.btn-secondary:hover { background-color: #5a6268; }
+        button.btn-danger { background-color: #dc3545; } button.btn-danger:hover { background-color: #c82333; }
+
+        /* ECRAN CLIENT */
+        .lcd-outer-container {
+            width: 100%;
+            margin-bottom: 30px;
+        }
+        .lcd-screen {
+            background-color: #2c3e50;
+            color: #a0f0a0;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 25px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 2.5em;
+            font-weight: bold;
+            border: 8px solid #34495e;
+            text-shadow: 0 0 8px #a0f0a0;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            word-break: break-all;
+        }
+        .lcd-screen.error {
+            color: #ff4d4d;
+            text-shadow: 0 0 8px #ff4d4d;
+            border-color: #661a1a;
+            background-color: #2a1a1a;
+        }
+
+        /* IMPRIMANTE TICKET */
+        .printer-output-container {
+            background-color: #e9ecef;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .paper-roll {
+            background-color: #fff;
+            color: #000;
+            width: 42ch;
+            padding: 15px 5px;
+
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            line-height: 1.2;
+
+            border: 4px double #000;
+
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .paper-roll.empty {
+            color: #ccc;
+            text-align: center;
+            font-style: italic;
+            border-style: dashed;
+        }
+
+        .drawer-container {
+            display: flex; justify-content: center; align-items: center;
+            min-height: 120px; background-color: #f8f9fa;
+            border-radius: 4px; margin-bottom: 10px; border: 1px solid #ddd;
+            overflow: hidden;
+        }
+
+        .status { margin-top: 15px; padding: 10px; border-radius: 4px; text-align: center; font-size: 0.9em; background-color: #f8f9fa; color: #666; }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .info { font-size: 0.85em; color: #888; margin-bottom: 10px; }
+
+        @keyframes printMove {
+            0% { transform: translateY(-10px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        .paper-roll { animation: printMove 0.2s ease-in; }
+        .paper-text { white-space: pre-wrap; }
+        .paper-raster { display: block; margin: 4px auto; max-width: 100%; image-rendering: pixelated; }
+        .paper-barcode { text-align: center; margin: 6px 0; }
+        .paper-barcode-bars { letter-spacing: 3px; font-size: .7rem; color: #555; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 10px 0; }
+        .paper-barcode-hri { font-size: .8rem; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="main-wrapper">
+    <h1>Simulateur Périphériques POS <small style="font-size:14px;font-weight:normal;">— échantillon du flux 07039</small></h1>
+
+    <div class="lcd-outer-container">
+        <div id="lcdScreen" class="lcd-screen">CONNEXION EN COURS...</div>
+    </div>
+
+    <div class="container">
+
+        <!-- IMPRIMANTE (DOUBLE LARGEUR) -->
+        <div class="module module-double-width">
+            <h3>🖨️ Imprimante Ticket</h3>
+            <div class="info">Simulation ticket 80mm (42 car.). La coupe laisse le ticket visible.</div>
+
+            <div class="printer-output-container">
+                <div id="paperOutput" class="paper-roll empty">En attente d'impression...</div>
+            </div>
+
+            <div style="display:flex; gap:5px; margin-bottom:10px;">
+                <button onclick="cutPaper()" class="btn-secondary" style="font-size:12px; margin-top:0; width: 50%;">Couper Papier</button>
+                <button onclick="clearPaper()" class="btn-danger" style="font-size:12px; margin-top:0; width: 50%;">Effacer Écran</button>
+            </div>
+
+            <div style="display:flex; gap:5px;">
+                <button onclick="togglePaper()" id="btnPaperStatus" class="btn-danger" style="font-size:12px; margin-top:0;">Simuler Panne Papier</button>
+            </div>
+
+            <div id="printerStatus" class="status">Etat : OK</div>
+        </div>
+
+        <!-- Tiroir Caisse (SVG) -->
+        <div class="module">
+            <h3>💰 Tiroir Caisse</h3>
+            <div class="info">Cliquez pour fermer.</div>
+
+            <div class="drawer-container">
+                <svg id="drawer-closed" width="160" height="100" viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+                    <rect x="10" y="20" width="140" height="60" rx="5" fill="#555" stroke="#333" stroke-width="2"/>
+                    <rect x="15" y="25" width="130" height="50" rx="3" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="1"/>
+                    <rect x="15" y="25" width="130" height="25" rx="3" fill="#ecf0f1" opacity="0.3"/>
+                    <rect x="60" y="40" width="40" height="10" rx="5" fill="#5d6d7e" stroke="#2c3e50" stroke-width="1"/>
+                    <circle cx="110" cy="45" r="3" fill="#2c3e50"/>
+                </svg>
+
+                <svg id="drawer-open" width="160" height="100" viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg" style="display:none;">
+                    <rect x="10" y="20" width="140" height="60" rx="5" fill="#444" stroke="#222" stroke-width="2"/>
+                    <rect x="15" y="25" width="130" height="50" fill="#2c3e50"/>
+                    <g transform="translate(30, 0)">
+                        <rect x="0" y="25" width="100" height="50" fill="#34495e" stroke="#2c3e50"/>
+                        <rect x="100" y="25" width="30" height="50" fill="#bdc3c7" stroke="#7f8c8d"/>
+                        <rect x="100" y="25" width="30" height="15" fill="#ecf0f1" opacity="0.3"/>
+                        <rect x="10" y="30" width="20" height="40" fill="#27ae60" transform="rotate(-5 20 50)"/>
+                        <rect x="35" y="35" width="20" height="40" fill="#2980b9" transform="rotate(5 45 55)"/>
+                        <rect x="60" y="32" width="15" height="40" fill="#e67e22" transform="rotate(-3 67 52)"/>
+                        <rect x="107" y="40" width="16" height="10" rx="4" fill="#5d6d7e"/>
+                    </g>
+                </svg>
+            </div>
+
+            <button onclick="closeDrawer()" id="btnCloseDrawer" style="display:none; background-color: #dc3545;">Simuler fermeture manuelle</button>
+        </div>
+
+        <div class="module">
+            <h3>🆔 Badge Employé</h3>
+            <label for="badgeList">Employé :</label>
+            <select id="badgeList">
+                <option value="">-- Sélectionner --</option>
+                <option value="11111111">11111111 - Marie Curie (MANAGER)</option>
+                <option value="22222222">22222222 - Albert Einstein (PICKER)</option>
+                <option value="00000000">00000000 - Le Manager (ADMIN)</option>
+                <option value="12341234">12341234 - Jean Dupont (CASHIER)</option>
+            </select>
+            <button class="btn-badge" onclick="sendBadge()">Scanner Badge</button>
+            <div id="badgeStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>💳 Carte Fidélité</h3>
+            <!-- These cards MIRROR the imfid seed: a 299 number the loyalty
+                 service never issued answers "CARTE FIDÉLITÉ INCONNUE", which
+                 reads as a broken link rather than an unknown customer. Each
+                 one exercises a different corner of the programme. -->
+            <label for="fidelityId">Carte du programme :</label>
+            <select id="fidelityId">
+                <option value="2990000000019">2990000000019 — Historique riche (ACTIVE)</option>
+                <option value="2990000000026">2990000000026 — Communauté Bébés (ACTIVE)</option>
+                <option value="2990000000033">2990000000033 — Étudiants, adhésion expirée</option>
+                <option value="2990000000040">2990000000040 — EN ATTENTE D'ACTIVATION (gagne, ne dépense pas)</option>
+                <option value="2990000000057">2990000000057 — Solde NÉGATIF (reprise sur retour)</option>
+                <option value="2990000000064">2990000000064 — Carte PERDUE (résiliée, solde transféré)</option>
+                <option value="2990000000071">2990000000071 — Carte SUCCESSEUR (solde reçu)</option>
+                <option value="2990000000088">2990000000088 — Bail ACTIF sur une autre caisse</option>
+                <option value="2990000000095">2990000000095 — Annulée par le batch CGU (résiliée)</option>
+                <option value="2990000000404">2990000000404 — INCONNUE au programme (test du refus)</option>
+            </select>
+            <button class="btn-fid" onclick="sendFidelity()" style="margin-top:5px;">Scanner Fidélité</button>
+            <div id="fidelityStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>💳 TPE Virtuel</h3>
+            <div id="tpeAmount" style="font-size: 1.4em; font-weight: bold; text-align: center; padding: 8px; background: #f0f0f0; border-radius: 6px;">Aucune demande</div>
+            <button class="btn-plu" id="tpeAccept" onclick="tpeDecide('accept')" disabled>Accepter</button>
+            <button class="btn-danger" id="tpeRefuse" onclick="tpeDecide('refuse')" disabled>Refuser</button>
+            <div id="tpeStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>🏷️ Étiquette Balance (EAN 2x)</h3>
+            <label for="scalePlu">Article balance :</label>
+            <!-- Remplie par loadCatalog() avec les seuls articles PORTANT UN
+                 PLU : l'étiquette 2x cite un PLU, pas un EAN, et proposer un
+                 article qui n'en a pas fabrique une étiquette bien formée que
+                 la caisse refusera par « ARTICLE BALANCE INTROUVABLE ». -->
+            <select id="scalePlu">
+                <option value="">-- Caisse injoignable --</option>
+            </select>
+            <label for="scaleMode">Type d'étiquette :</label>
+            <select id="scaleMode">
+                <option value="21">Prix embarqué (préfixe 21, valeur en €)</option>
+                <option value="23">Poids embarqué (préfixe 23, valeur en kg)</option>
+            </select>
+            <label for="scaleValue">Valeur (€ ou kg) :</label>
+            <input type="text" id="scaleValue" placeholder="Ex: 3.42 ou 1.250">
+            <button class="btn-plu" onclick="sendScaleLabel()">Scanner l'étiquette</button>
+            <div id="scaleLabelStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module module-triple-height">
+            <h3>🥩 Comptoir Traditionnel (LC-06-01)</h3>
+            <!-- Two machines, deliberately. The counter scale PUSHES to the store
+                 node because at weighing time nobody knows which lane the customer
+                 will walk to; the register PULLS when the paper is finally
+                 presented. Emitting without scanning, or scanning twice, are the
+                 two cases worth exercising here. -->
+            <label for="counterStoreUrl">Nœud magasin :</label>
+            <input type="text" id="counterStoreUrl" value="http://localhost:8070">
+            <label for="counterToken">Jeton de synchronisation (vide = aucun) :</label>
+            <input type="text" id="counterToken" placeholder="X-Sync-Token">
+            <label for="counterLabel">Comptoir :</label>
+            <select id="counterLabel">
+                <option value="BOUCHERIE">Boucherie</option>
+                <option value="FROMAGE">Fromagerie</option>
+                <option value="TRAITEUR">Traiteur</option>
+            </select>
+            <label for="counterReference">Référence imprimée (10 chiffres) :</label>
+            <input type="text" id="counterReference" value="">
+            <label for="counterEan">Article pesé :</label>
+            <select id="counterEan">
+                <option value="">-- Caisse injoignable --</option>
+            </select>
+            <label for="counterWeight">Poids (kg) :</label>
+            <input type="text" id="counterWeight" placeholder="Ex: 0.752">
+            <label for="counterTotal">Montant TTC (€) :</label>
+            <input type="text" id="counterTotal" placeholder="Ex: 13.54">
+            <button class="btn-plu" onclick="addCounterLine()">Ajouter la ligne</button>
+            <div id="counterLines" class="status">Aucune ligne</div>
+            <button class="btn-ean" onclick="emitCounterTicket()" style="margin-top:8px;">Émettre vers le magasin</button>
+            <button class="btn-fid" onclick="scanCounterTicket()">Scanner le ticket en caisse</button>
+            <button class="btn-danger" onclick="resetCounterTicket()">Nouveau ticket</button>
+            <div id="counterStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>barcode EAN-13 (Codes Longs)</h3>
+            <div id="catalogNote" class="status">Lecture du catalogue…</div>
+            <button class="btn-ean" onclick="loadCatalog()" style="margin-bottom:6px;">Recharger l'échantillon</button>
+            <label for="eanList">Produits scannables :</label>
+            <!-- Variante 07039 : ÉCHANTILLON FIGÉ, et UNIQUEMENT des articles
+                 à code-barres de marque. Les fruits et légumes au poids n'y
+                 sont pas : ils s'obtiennent au module balance, par leur PLU.
+                 Voir EVERYDAY_07039 / CATALOG_07039 plus bas. -->
+            <select id="eanList">
+                <option value="">-- Caisse injoignable --</option>
+            </select>
+            <button class="btn-ean" onclick="sendEan()">Scanner cet EAN</button>
+            <div id="eanStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>🎟️ Bons d'achat (Codes-barres)</h3>
+            <label for="voucherList">Bons scannables :</label>
+            <select id="voucherList">
+                <option value="">-- Sélectionner --</option>
+                <optgroup label="Chèque cadeau (montant encodé)">
+                    <option value="1434212500">Chèque cadeau 25,00 €</option>
+                    <option value="1434211000">Chèque cadeau 10,00 €</option>
+                </optgroup>
+                <optgroup label="Bon enseigne (montant encodé)">
+                    <option value="50000000001500">Bon enseigne 15,00 €</option>
+                </optgroup>
+                <optgroup label="Chèque fidélité (montant encodé)">
+                    <option value="789000000000750">Chèque fidélité 7,50 €</option>
+                </optgroup>
+                <optgroup label="Catalina (montant à saisir en caisse)">
+                    <option value="04829115308821">Catalina (sans montant)</option>
+                </optgroup>
+                <optgroup label="Bon de consigne (ligne négative, hors paiement)">
+                    <option value="2980000010150">Bon de consigne 1,50 €</option>
+                    <option value="2980000020045">Bon de consigne 0,45 €</option>
+                    <option value="2980000030620">Bon de consigne 6,20 €</option>
+                </optgroup>
+            </select>
+            <button class="btn-voucher" onclick="sendVoucher()">Scanner ce bon</button>
+            <div id="voucherStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>🔍 Scanner Manuel</h3>
+            <label for="scanCode">Code libre :</label>
+            <input type="text" id="scanCode" placeholder="Ex: 1234567890123">
+            <button onclick="sendManualScan()">Simuler Scan</button>
+            <div id="scanStatus" class="status">En attente...</div>
+        </div>
+
+        <div class="module">
+            <h3>⚖️ Balance (Simulateur)</h3>
+            <label for="weightValue">Poids (kg) :</label>
+            <input type="text" id="weightValue" placeholder="Ex: 1.250">
+            <button onclick="sendWeight()">Définir ce poids</button>
+            <div id="weightStatus" class="status">En attente...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /*
+     * Draws a print body the way the hardware bridge does.
+     *
+     * The print contract is plain text with two directives on lines of their own:
+     * [[IMAGE width height base64]] carries a packed 1-bit raster (8 dots per byte,
+     * most significant bit leftmost, rows padded to whole bytes) and [[BARCODE value]]
+     * carries a value the printer encodes itself. The bridge turns them into GS v 0 and
+     * GS k 73; this simulator has to do the same job, otherwise the operator reads a wall
+     * of base64 where a logo belongs -- which is exactly what it used to show.
+     */
+    function renderReceipt(target, content) {
+        target.innerHTML = "";
+        let buffer = [];
+        const flush = () => {
+            if (!buffer.length) return;
+            const block = document.createElement("div");
+            block.className = "paper-text";
+            block.innerText = buffer.join("\n");
+            target.appendChild(block);
+            buffer = [];
+        };
+        for (const line of content.split("\n")) {
+            const image = line.match(/^\s*\[\[IMAGE (\d+) (\d+) (\S+)\]\]\s*$/);
+            if (image) { flush(); target.appendChild(rasterCanvas(+image[1], +image[2], image[3])); continue; }
+            const barcode = line.match(/^\s*\[\[BARCODE (.+)\]\]\s*$/);
+            if (barcode) { flush(); target.appendChild(barcodeBand(barcode[1])); continue; }
+            buffer.push(line);
+        }
+        flush();
+    }
+
+    /* Paints a packed 1-bit raster onto a canvas, one dot per pixel. */
+    function rasterCanvas(width, height, base64) {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.className = "paper-raster";
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, width, height);
+        let bytes;
+        try {
+            const raw = atob(base64);
+            bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        } catch (e) {
+            context.fillStyle = "#900";
+            context.fillText("image illisible", 4, 12);
+            return canvas;
+        }
+        const bytesPerRow = Math.ceil(width / 8);
+        context.fillStyle = "#000";
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const byte = bytes[y * bytesPerRow + (x >> 3)];
+                if (byte === undefined) continue;
+                if (byte & (0x80 >> (x & 7))) context.fillRect(x, y, 1, 1);
+            }
+        }
+        return canvas;
+    }
+
+    /*
+     * Shows a barcode directive as the band the printer would encode, with its value
+     * underneath. Deliberately NOT a real CODE 128 rendering: a barcode drawn here could
+     * never be scanned, and one that merely looked scannable would mislead.
+     */
+    function barcodeBand(value) {
+        const band = document.createElement("div");
+        band.className = "paper-barcode";
+        band.innerHTML = '<div class="paper-barcode-bars">CODE 128</div><div class="paper-barcode-hri"></div>';
+        band.querySelector(".paper-barcode-hri").innerText = value;
+        return band;
+    }
+
+    // --- POLLING ---
+    async function refreshHardwareState() {
+        try {
+            const [displayResp, drawerResp, printerResp, paperResp] = await Promise.all([
+                fetch('http://localhost:8080/api/hardware/display'),
+                fetch('http://localhost:8080/api/hardware/drawer/status'),
+                fetch('http://localhost:8080/api/hardware/printer/content'),
+                fetch('http://localhost:8080/api/hardware/printer/status')
+            ]);
+
+            const screen = document.getElementById('lcdScreen');
+            if (displayResp.ok) {
+                const text = await displayResp.text();
+                screen.innerText = text || " ";
+                screen.classList.remove("error");
+            } else { throw new Error("Erreur serveur display"); }
+
+            if (drawerResp.ok) {
+                const status = await drawerResp.text();
+                const closedSvg = document.getElementById('drawer-closed');
+                const openSvg = document.getElementById('drawer-open');
+                const btn = document.getElementById('btnCloseDrawer');
+
+                if (status === 'OPEN') {
+                    closedSvg.style.display = "none"; openSvg.style.display = "block"; btn.style.display = "block";
+                } else {
+                    closedSvg.style.display = "block"; openSvg.style.display = "none"; btn.style.display = "none";
+                }
+            } else { throw new Error("Erreur serveur drawer"); }
+
+            if (printerResp.ok && paperResp.ok) {
+                const content = await printerResp.text();
+                const status = await paperResp.text();
+                const outputDiv = document.getElementById('paperOutput');
+                const statusDiv = document.getElementById('printerStatus');
+                const btnPaper = document.getElementById('btnPaperStatus');
+
+                if (content && content.trim() !== "") {
+                    renderReceipt(outputDiv, content);
+                    outputDiv.classList.remove("empty");
+                } else {
+                    outputDiv.innerText = "En attente d'impression...";
+                    outputDiv.classList.add("empty");
+                }
+
+                if (status === "OK") {
+                    statusDiv.innerText = "Etat : OK";
+                    statusDiv.className = "status success";
+                    btnPaper.innerText = "Simuler Panne Papier";
+                } else {
+                    statusDiv.innerText = "Etat : PAS DE PAPIER";
+                    statusDiv.className = "status error";
+                    btnPaper.innerText = "Remettre du papier";
+                }
+            }
+
+        } catch (error) {
+            console.error("Erreur de polling matériel:", error);
+            const screen = document.getElementById('lcdScreen');
+            screen.innerText = "ERREUR CONNEXION SERVEUR";
+            screen.classList.add("error");
+        }
+    }
+
+    setInterval(refreshHardwareState, 500);
+    refreshHardwareState();
+
+    /* ---------------- Le catalogue, FIGÉ, tiré du flux 07039 ----------
+       Variante 07039 du simulateur. Le simulateur ordinaire lit le catalogue
+       SUR LA CAISSE, ce qui est la bonne réponse quand il tient dans une liste
+       déroulante. Le flux du magasin 07039 en porte 109 204, et l'appel rend
+       les 300 premiers EAN par ordre croissant — donc les codes courts, qui
+       sont justement ceux qu'on n'obtient PAS en scannant. D'où l'échantillon.
+
+       Trois listes, et elles ne se recouvrent pas, parce que les trois
+       périphériques ne donnent pas accès aux mêmes articles :
+
+         · SCAN EAN-13 — ce qui porte un code-barres de marque. Uniquement des
+           EAN 13 chiffres hors plages internes (les 0xx sont les codes courts
+           des pesés, les 2xx les étiquettes magasin à prix inclus) et portant
+           un prix non nul. En tête, les courses du quotidien regroupées par ce
+           qu'on cherche — lait, yaourt, chocolat, soupe, café… — puis un
+           article par famille pour que le reste du magasin reste atteignable.
+           Aucun fruit ni légume au poids ici : ils s'obtiennent à la balance,
+           les mettre dans cette liste ne servirait à rien.
+
+         · BALANCE (PLU) — les 356 articles pesés, dont 349 fruits et légumes.
+           C'est la seule liste où ils ont leur place.
+
+         · INTERDITS — les 45 articles que la caisse doit refuser, qui sont le
+           cas que la démonstration vient montrer.
+
+       Figée, cette liste périme le jour où le référentiel du magasin change.
+       Un « CODE INCONNU » sur un de ces EAN veut dire que la caisse ne porte
+       pas ce flux-là, pas que le simulateur est cassé. */
+    const EVERYDAY_07039 = [
+        {ean:"3259426032387",label:"12 CREPES PUR BEURRE AU L",rayon:"BOUL PAT TRAD",price:"4.99",plu:null,keyword:"BEURRE"},
+        {ean:"3392440000526",label:"CARAMEL AU BEURRE SALE",rayon:"BOUL PAT TRAD",price:"6.99",plu:null,keyword:"BEURRE"},
+        {ean:"3199241000041",label:"ECHIRE BEURRE DOUX 100GR",rayon:"CREMERIE LS",price:"2.02",plu:null,keyword:"BEURRE"},
+        {ean:"3254550025984",label:"ISIGNY BEURRE BARATTE DX",rayon:"CREMERIE LS",price:"3.53",plu:null,keyword:"BEURRE"},
+        {ean:"4260744953529",label:"NU3 BEURRE AMANDE CAR.BIO",rayon:"EPICERIE SUCREE",price:"12.59",plu:null,keyword:"BEURRE"},
+        {ean:"3155251212973",label:"PDT BEURRE GASTRON.DOUX 5",rayon:"CREMERIE LS",price:"6.22",plu:null,keyword:"BEURRE"},
+        {ean:"3080216059488",label:"1664 BIERE BLANCHE 5D 50C",rayon:"LIQUIDES",price:"2.07",plu:null,keyword:"BIERE"},
+        {ean:"3278721100034",label:"BIERE BLANCHE BLLE 5o 33c",rayon:"EPICERIE SALEE",price:"3.26",plu:null,keyword:"BIERE"},
+        {ean:"3760029980222",label:"BIERE NINKASI BLONDE 4D 7",rayon:"LIQUIDES",price:"5.41",plu:null,keyword:"BIERE"},
+        {ean:"3272460124689",label:"CH'TI BIERE BLD ORIG.6.8D",rayon:"LIQUIDES",price:"3.34",plu:null,keyword:"BIERE"},
+        {ean:"5410228326458",label:"KARMELIET BIERE BLONDE 8D",rayon:"LIQUIDES",price:"3.28",plu:null,keyword:"BIERE"},
+        {ean:"3156140736013",label:"METEOR BIERE SANS ALCOOL6",rayon:"LIQUIDES",price:"4.25",plu:null,keyword:"BIERE"},
+        {ean:"3546941101385",label:"35G MEL SPECULOS BISCUITS",rayon:"FRUITS ET LEGUMES",price:"3.39",plu:null,keyword:"BISCUIT"},
+        {ean:"8001311090058",label:"BISCUITS CANISTRELLI - 12",rayon:"EPICERIE SALEE",price:"2.91",plu:null,keyword:"BISCUIT"},
+        {ean:"3229820112046",label:"BJORG BISCUIT DE NATTY 15",rayon:"EPICERIE SUCREE",price:"4.32",plu:null,keyword:"BISCUIT"},
+        {ean:"3435070021780",label:"FOSSIER BISCUIT ROSE REIM",rayon:"EPICERIE SUCREE",price:"5.42",plu:null,keyword:"BISCUIT"},
+        {ean:"3175681308190",label:"GRB BISCUIT SESAME 230G",rayon:"EPICERIE SUCREE",price:"1.62",plu:null,keyword:"BISCUIT"},
+        {ean:"3701239904592",label:"M.AUG.BISCUIT APERIT SAIS",rayon:"EPICERIE SALEE",price:"3.13",plu:null,keyword:"BISCUIT"},
+        {ean:"8801566035275",label:"BONBON AU GINSENG 20/280G",rayon:"EPICERIE SALEE",price:"5.12",plu:null,keyword:"BONBON"},
+        {ean:"3330720012333",label:"BONBONS AROME ORANGE CITR",rayon:"EPICERIE SUCREE",price:"2.56",plu:null,keyword:"BONBON"},
+        {ean:"3330720012241",label:"BONBONS MIEL AROME SEVE D",rayon:"EPICERIE SUCREE",price:"2.56",plu:null,keyword:"BONBON"},
+        {ean:"3250390748861",label:"ELODIE BONBON SEVE DE PIN",rayon:"EPICERIE SUCREE",price:"1.79",plu:null,keyword:"BONBON"},
+        {ean:"3456300009125",label:"JBV Bonbons de chocolat n",rayon:"EPICERIE SUCREE",price:"18.63",plu:null,keyword:"BONBON"},
+        {ean:"7610700015483",label:"RICOLA BONBON CASSIS S/SU",rayon:"EPICERIE SUCREE",price:"1.79",plu:null,keyword:"BONBON"},
+        {ean:"3700214617106",label:"A.ECO CAFE ETHIOPIE BIO 2",rayon:"EPICERIE SUCREE",price:"5.32",plu:null,keyword:"CAFE"},
+        {ean:"8004769000532",label:"CAFE MUSETTI DOSETTE - MU",rayon:"EPICERIE SALEE",price:"11.20",plu:null,keyword:"CAFE"},
+        {ean:"3456580981562",label:"ECLAIRS CAFE 90G X4 - SUR",rayon:"BOUL PAT TRAD",price:"5.79",plu:null,keyword:"CAFE"},
+        {ean:"3700009282618",label:"M.BUFFET CAFE GRM CAPRIX9",rayon:"SURGELES",price:"7.22",plu:null,keyword:"CAFE"},
+        {ean:"7613036303033",label:"NESCAFE DG.CAPUCINO15CAP3",rayon:"EPICERIE SUCREE",price:"9.41",plu:null,keyword:"CAFE"},
+        {ean:"8710103968894",label:"PHILIPS CAFETIERE SENSEO",rayon:"BAZAR TECHNIQUE",price:"79.09",plu:null,keyword:"CAFE"},
+        {ean:"3288131500171",label:"3 Cereales & Plantes - M",rayon:"EPICERIE SUCREE",price:"8.77",plu:null,keyword:"CEREALE"},
+        {ean:"3700233738745",label:"BOL A CEREALE PORC.BL",rayon:"BAZAR LEGER",price:"1.92",plu:null,keyword:"CEREALE"},
+        {ean:"3250392262051",label:"CHAB COEUR MIE CEREALE 50",rayon:"PAIN PAT LS INDUS",price:"2.80",plu:null,keyword:"CEREALE"},
+        {ean:"3456300009194",label:"JB Muesli Cereales germee",rayon:"EPICERIE SUCREE",price:"5.10",plu:null,keyword:"CEREALE"},
+        {ean:"4713072173294",label:"MOCHI AUX 5 CEREALES 12/1",rayon:"EPICERIE SALEE",price:"5.02",plu:null,keyword:"CEREALE"},
+        {ean:"3387390330014",label:"NESTLE NESQUIK CEREALES37",rayon:"EPICERIE SUCREE",price:"2.87",plu:null,keyword:"CEREALE"},
+        {ean:"3760094310221",label:"A&O CHIPS BIO LENTILLES 6",rayon:"EPICERIE SUCREE",price:"3.44",plu:null,keyword:"CHIPS"},
+        {ean:"3497917000136",label:"BRETS CHIPS PAYSANNE 250G",rayon:"EPICERIE SALEE",price:"2.58",plu:null,keyword:"CHIPS"},
+        {ean:"3760419620219",label:"CHIPS FEVES SALEES 100G",rayon:"EPICERIE SALEE",price:"2.79",plu:null,keyword:"CHIPS"},
+        {ean:"3250392275471",label:"IDS PANE FACON FISH&CHIPS",rayon:"SAURISSERIE",price:"4.11",plu:null,keyword:"CHIPS"},
+        {ean:"3168930179689",label:"LAYS CHIPS ONDUL.PAPRIKA",rayon:"EPICERIE SALEE",price:"1.75",plu:null,keyword:"CHIPS"},
+        {ean:"5056051802266",label:"TYR.CHIPS PDT TRUF.NOIRE",rayon:"EPICERIE SALEE",price:"3.45",plu:null,keyword:"CHIPS"},
+        {ean:"3664346306027",label:"1848 POUDRE CHOCOLATEE 45",rayon:"EPICERIE SUCREE",price:"5.07",plu:null,keyword:"CHOCOLAT"},
+        {ean:"3760091726414",label:"CHOCOLAT LAIT 53% CACAO E",rayon:"EPICERIE SUCREE",price:"3.60",plu:null,keyword:"CHOCOLAT"},
+        {ean:"3162050019863",label:"COPEAUX DE CHOCOLAT NOIR",rayon:"EPICERIE SUCREE",price:"3.69",plu:null,keyword:"CHOCOLAT"},
+        {ean:"3478820052511",label:"JBE Chocolat Noir 70% Sai",rayon:"EPICERIE SUCREE",price:"3.16",plu:null,keyword:"CHOCOLAT"},
+        {ean:"3364699129242",label:"MOCHI GLACE CHOCOLAT 210G",rayon:"EPICERIE SALEE",price:"9.43",plu:null,keyword:"CHOCOLAT"},
+        {ean:"9120060950716",label:"REALMIX DUBAI CHOCOLATE 1",rayon:"EPICERIE SUCREE",price:"11.28",plu:null,keyword:"CHOCOLAT"},
+        {ean:"3045320517101",label:"ANDROS COMPOTE POMME ALL",rayon:"EPICERIE SUCREE",price:"1.46",plu:null,keyword:"COMPOTE"},
+        {ean:"3324492501843",label:"COMPOTE DE CASSIS BIO",rayon:"EPICERIE SUCREE",price:"6.89",plu:null,keyword:"COMPOTE"},
+        {ean:"3330720254955",label:"COMPOTE POIRE POMME DOME",rayon:"EPICERIE SUCREE",price:"1.61",plu:null,keyword:"COMPOTE"},
+        {ean:"3330720315267",label:"COMPOTE POMME PRUNEAUX 2X",rayon:"EPICERIE SUCREE",price:"1.84",plu:null,keyword:"COMPOTE"},
+        {ean:"3700723801713",label:"COMPOTEE DE POMMES ET BAI",rayon:"EPICERIE SALEE",price:"13.55",plu:null,keyword:"COMPOTE"},
+        {ean:"3324492501416",label:"Compote de Figues",rayon:"EPICERIE SUCREE",price:"5.63",plu:null,keyword:"COMPOTE"},
+        {ean:"3250393126215",label:"ABRICOT A CONFITURE PLATE",rayon:"FRUITS ET LEGUMES",price:"11.49",plu:null,keyword:"CONFITURE"},
+        {ean:"3324490000201",label:"CONFITURE D'ABRICOTS AUX",rayon:"EPICERIE SUCREE",price:"3.70",plu:null,keyword:"CONFITURE"},
+        {ean:"3324490003165",label:"CONFITURE DE PECHES NECTA",rayon:"EPICERIE SUCREE",price:"3.89",plu:null,keyword:"CONFITURE"},
+        {ean:"3330720257543",label:"CONFITURE EXTRA DE QUETSC",rayon:"EPICERIE SUCREE",price:"4.16",plu:null,keyword:"CONFITURE"},
+        {ean:"3760091724311",label:"CONFITURE GROSEILLES MONT",rayon:"EPICERIE SUCREE",price:"5.43",plu:null,keyword:"CONFITURE"},
+        {ean:"3324498004645",label:"Confiture d'Abricots & am",rayon:"EPICERIE SUCREE",price:"7.52",plu:null,keyword:"CONFITURE"},
+        {ean:"3286010060112",label:"BIOLANE COUCHE ECO JUMBO",rayon:"D.P.H.",price:"21.13",plu:null,keyword:"COUCHE"},
+        {ean:"3286010060082",label:"BIOLANE COUCHES JUMBO T3",rayon:"D.P.H.",price:"20.32",plu:null,keyword:"COUCHE"},
+        {ean:"3700653802989",label:"COUCHES T2 (3-6 KG) 56 CO",rayon:"D.P.H.",price:"18.66",plu:null,keyword:"COUCHE"},
+        {ean:"5029053567570",label:"HUGGIES MOVERS COUCHES T3",rayon:"D.P.H.",price:"21.57",plu:null,keyword:"COUCHE"},
+        {ean:"3760303887605",label:"JOONE COUCHES T6 SINGLE X",rayon:"D.P.H.",price:"12.32",plu:null,keyword:"COUCHE"},
+        {ean:"3700668700157",label:"LOVE & GREEN COUCHES T4+",rayon:"D.P.H.",price:"19.16",plu:null,keyword:"COUCHE"},
+        {ean:"3770008346307",label:"DENTIFRICE - MENTHE POIVR",rayon:"EPICERIE SALEE",price:"15.53",plu:null,keyword:"DENTIFRICE"},
+        {ean:"4030200011243",label:"DENTIFRICE A LA MENTHE PO",rayon:"EPICERIE SALEE",price:"60.21",plu:null,keyword:"DENTIFRICE"},
+        {ean:"3664437000254",label:"DENTIFRICE MENTHE 18G",rayon:"EPICERIE SALEE",price:"6.03",plu:null,keyword:"DENTIFRICE"},
+        {ean:"3770013899058",label:"DENTIFRICE MENTHE GIVREE",rayon:"EPICERIE SALEE",price:"13.80",plu:null,keyword:"DENTIFRICE"},
+        {ean:"4030200011250",label:"DENTIFRICE NEUTRE POUDRE",rayon:"EPICERIE SALEE",price:"47.67",plu:null,keyword:"DENTIFRICE"},
+        {ean:"3517360020250",label:"DENTIFRICE SOIN HOMeO-COM",rayon:"D.P.H.",price:"6.48",plu:null,keyword:"DENTIFRICE"},
+        {ean:"3250390050179",label:"AIX LES BAINS EAU MIN",rayon:"LIQUIDES",price:"0.79",plu:null,keyword:"EAU MIN"},
+        {ean:"3700088921118",label:"EAU MINERALE GAZEUSE OREZ",rayon:"LIQUIDES",price:"13.93",plu:null,keyword:"EAU MIN"},
+        {ean:"3534290920214",label:"LUTECIA EAU MIN NATUREL 6",rayon:"LIQUIDES",price:"3.72",plu:null,keyword:"EAU MIN"},
+        {ean:"3250392927912",label:"NATIVE EAU MINERALE 12X33",rayon:"LIQUIDES",price:"0.67",plu:null,keyword:"EAU MIN"},
+        {ean:"3162850012019",label:"ST AMAND EAU MINER 6X1L5",rayon:"LIQUIDES",price:"2.79",plu:null,keyword:"EAU MIN"},
+        {ean:"3179732326911",label:"VITTEL EAU MINERALE 50CL",rayon:"LIQUIDES",price:"1.39",plu:null,keyword:"EAU MIN"},
+        {ean:"3700854601053",label:"BAG A BASE FARINE L.ROUGE",rayon:"BOUL PAT TRAD",price:"1.09",plu:null,keyword:"FARINE"},
+        {ean:"3162780048577",label:"FARINE BLE IDF T65 1KG",rayon:"EPICERIE SALEE",price:"1.67",plu:null,keyword:"FARINE"},
+        {ean:"4030200000490",label:"FARINE DE SARRASIN COMPLE",rayon:"EPICERIE SALEE",price:"5.86",plu:null,keyword:"FARINE"},
+        {ean:"8009550004300",label:"FARINE TYPE  00  SACHET -",rayon:"EPICERIE SALEE",price:"6.94",plu:null,keyword:"FARINE"},
+        {ean:"3478820047845",label:"JBE FARINE DE BLE BLANCHE",rayon:"EPICERIE SUCREE",price:"2.97",plu:null,keyword:"FARINE"},
+        {ean:"3760274680045",label:"MOUL.V FARINE GRUAU RG T5",rayon:"EPICERIE SALEE",price:"2.99",plu:null,keyword:"FARINE"},
+        {ean:"3336413247303",label:"2 CREPES JAMBON FROMAGE 2",rayon:"CHARCUTERIE TRAITEUR LS",price:"4.18",plu:null,keyword:"FROMAGE"},
+        {ean:"3760043160808",label:"FAYES FROMAGE BLANC 0%MG",rayon:"CREMERIE LS",price:"6.20",plu:null,keyword:"FROMAGE"},
+        {ean:"3760112650360",label:"FE ROULEE FROMAGE JBN X16",rayon:"FROMAGE TRAD",price:"3.20",plu:null,keyword:"FROMAGE"},
+        {ean:"3770000451788",label:"Fromage blanc Bio",rayon:"CREMERIE LS",price:"4.24",plu:null,keyword:"FROMAGE"},
+        {ean:"8004673110174",label:"MIX DE FROMAGE RAPEE 1KG",rayon:"CHARCUTERIE TRAITEUR LS",price:"23.93",plu:null,keyword:"FROMAGE"},
+        {ean:"3228024050178",label:"PSDT RAPE 3 FROMAGES 200G",rayon:"CREMERIE LS",price:"3.32",plu:null,keyword:"FROMAGE"},
+        {ean:"5012594330031",label:"3 EN 1 HUILE BURETTE 100M",rayon:"BAZAR LEGER",price:"4.46",plu:null,keyword:"HUILE"},
+        {ean:"8414139005423",label:"Chips huile d'olive et se",rayon:"EPICERIE SUCREE",price:"4.04",plu:null,keyword:"HUILE"},
+        {ean:"4030200003309",label:"HUILE D'OLIVE FRANCE BAST",rayon:"EPICERIE SALEE",price:"31.99",plu:null,keyword:"HUILE"},
+        {ean:"3517360015638",label:"HUILE VeGeTALE PaQUERETTE",rayon:"D.P.H.",price:"12.22",plu:null,keyword:"HUILE"},
+        {ean:"3549620005851",label:"LPO SAV HUILE OLIVE 3X100",rayon:"D.P.H.",price:"4.32",plu:null,keyword:"HUILE"},
+        {ean:"3517360018653",label:"SOBIO HUILE COCO BIO 50ML",rayon:"D.P.H.",price:"6.28",plu:null,keyword:"HUILE"},
+        {ean:"5411431119240",label:"'HALAL'  JAMBON DE DINDE",rayon:"CHARCUTERIE TRAITEUR LS",price:"5.45",plu:null,keyword:"JAMBON"},
+        {ean:"3449865420016",label:"COCHONOU JAMBON CRU  4T 6",rayon:"CHARCUTERIE TRAITEUR LS",price:"1.89",plu:null,keyword:"JAMBON"},
+        {ean:"3302740047121",label:"FM JAMBON SB SC 6T 240G",rayon:"CHARCUTERIE TRAITEUR LS",price:"2.86",plu:null,keyword:"JAMBON"},
+        {ean:"8008410737228",label:"JAMBON CUIT PRAGA 1878",rayon:"CHARCUTERIE TRAITEUR LS",price:"3.74",plu:null,keyword:"JAMBON"},
+        {ean:"8008410590250",label:"JAMBONCUIT1878",rayon:"CHARCUTERIE TRAITEUR LS",price:"5.00",plu:null,keyword:"JAMBON"},
+        {ean:"3250391882960",label:"RANOU DES DE JAMBON CHOIX",rayon:"CHARCUTERIE TRAITEUR LS",price:"4.46",plu:null,keyword:"JAMBON"},
+        {ean:"3288131211602",label:"100% Pur Jus - Ananas",rayon:"EPICERIE SUCREE",price:"6.26",plu:null,keyword:"JUS"},
+        {ean:"3250393441431",label:"IDS PUR JUS RAISIN BLANC",rayon:"LIQUIDES",price:"3.59",plu:null,keyword:"JUS"},
+        {ean:"3770000495010",label:"JUS DE CANNE  KANASAO  50",rayon:"EPICERIE SALEE",price:"3.60",plu:null,keyword:"JUS"},
+        {ean:"3260112210118",label:"Jus de pomme  EDITION LIM",rayon:"FRUITS ET LEGUMES",price:"4.44",plu:null,keyword:"JUS"},
+        {ean:"8400080060079",label:"ORANGE A JUS BIO 1.5KG",rayon:"FRUITS ET LEGUMES",price:"5.19",plu:null,keyword:"JUS"},
+        {ean:"3760033152424",label:"PUR JUS GOLDEN / CANNELLE",rayon:"FRUITS ET LEGUMES",price:"5.33",plu:null,keyword:"JUS"},
+        {ean:"3587226022360",label:"10 PAINS AU LAIT",rayon:"BOUL PAT TRAD",price:"3.39",plu:null,keyword:"LAIT"},
+        {ean:"3250392232290",label:"CHABRIOR 20 PAINS AU LAIT",rayon:"PAIN PAT LS INDUS",price:"2.63",plu:null,keyword:"LAIT"},
+        {ean:"3700286922108",label:"HALLOUMMI 3 LAIT 225G",rayon:"CREMERIE LS",price:"5.64",plu:null,keyword:"LAIT"},
+        {ean:"8851613101385",label:"LAIT NOIX COCO AROY-D 24/",rayon:"EPICERIE SALEE",price:"3.24",plu:null,keyword:"LAIT"},
+        {ean:"5000159555715",label:"MALTESERS BILLES CH.LAIT",rayon:"EPICERIE SUCREE",price:"1.49",plu:null,keyword:"LAIT"},
+        {ean:"3329770065901",label:"PERLE LAIT S/LIT MARR.4X1",rayon:"CREMERIE LS",price:"2.75",plu:null,keyword:"LAIT"},
+        {ean:"3450601036811",label:"A.VERT LESSIVE BEBE 1.2L",rayon:"D.P.H.",price:"7.45",plu:null,keyword:"LESSIVE"},
+        {ean:"3250392924324",label:"APTA LESSIVE LIQUIDE BEBE",rayon:"D.P.H.",price:"5.42",plu:null,keyword:"LESSIVE"},
+        {ean:"3760348970171",label:"FRIXY LESSIVE FEUILLE X20",rayon:"D.P.H.",price:"4.46",plu:null,keyword:"LESSIVE"},
+        {ean:"3517360013740",label:"LESSIVE CONCENTReE. a L'H",rayon:"D.P.H.",price:"9.87",plu:null,keyword:"LESSIVE"},
+        {ean:"3517360029604",label:"LESSIVE FEUILLE FRAICHEUR",rayon:"D.P.H.",price:"8.60",plu:null,keyword:"LESSIVE"},
+        {ean:"3700593603905",label:"PERSAVON LESSIVE SENSIT 1",rayon:"D.P.H.",price:"7.23",plu:null,keyword:"LESSIVE"},
+        {ean:"3273050302838",label:"10 OEUFS FERMIER BIO MOY/",rayon:"CREMERIE LS",price:"5.92",plu:null,keyword:"OEUF"},
+        {ean:"8424863056042",label:"CHIFFONNADE DE BOEUF SeCH",rayon:"CHARCUTERIE TRAITEUR LS",price:"8.65",plu:null,keyword:"OEUF"},
+        {ean:"3095753020013",label:"FM ROTI DE BOEUF CUITX4T",rayon:"CHARCUTERIE TRAITEUR LS",price:"4.31",plu:null,keyword:"OEUF"},
+        {ean:"3251320081249",label:"LOUE 12 OEUFS FERMIER PA",rayon:"CREMERIE LS",price:"4.92",plu:null,keyword:"OEUF"},
+        {ean:"3700029201088",label:"OEUFS DE SAUMON",rayon:"BOUL PAT TRAD",price:"9.79",plu:null,keyword:"OEUF"},
+        {ean:"3242272922056",label:"SOD SDW MEGAV TH/OEUF 270",rayon:"CHARCUTERIE TRAITEUR LS",price:"1.84",plu:null,keyword:"OEUF"},
+        {ean:"3760349111474",label:"25 PAILLES EN PAPIER (COL",rayon:"BAZAR LEGER",price:"1.69",plu:null,keyword:"PAPIER"},
+        {ean:"3250391175512",label:"APTA PAPIER SULFURISE  8M",rayon:"D.P.H.",price:"1.22",plu:null,keyword:"PAPIER"},
+        {ean:"3250392939236",label:"DOM 25 PAILLES PAPIER",rayon:"BAZAR LEGER",price:"1.24",plu:null,keyword:"PAPIER"},
+        {ean:"3040690922883",label:"PAILLES PAPIER X25",rayon:"BAZAR LEGER",price:"3.18",plu:null,keyword:"PAPIER"},
+        {ean:"3701714800852",label:"PAPIER CUISSON AIR FRYER",rayon:"BAZAR LEGER",price:"7.99",plu:null,keyword:"PAPIER"},
+        {ean:"3266790236815",label:"PAPIER KDO PREMIUM 0,7X2M",rayon:"BAZAR LEGER",price:"2.15",plu:null,keyword:"PAPIER"},
+        {ean:"3252971762211",label:"4 PAT PATES ET VIANDES 4K",rayon:"ALIMENTS POUR ANIMAUX",price:"10.20",plu:null,keyword:"PATES"},
+        {ean:"3288131510606",label:"BB PATES BOLOGN.VEG.BIO40",rayon:"EPICERIE SUCREE",price:"4.09",plu:null,keyword:"PATES"},
+        {ean:"8000139004872",label:"GAROFALO PATES RADIATORI",rayon:"EPICERIE SALEE",price:"2.77",plu:null,keyword:"PATES"},
+        {ean:"3250393436369",label:"P&C PATES AUX CREVETTES 6",rayon:"PRODUITS DE LA MER TRAD",price:"7.99",plu:null,keyword:"PATES"},
+        {ean:"3330720007247",label:"PATES DE FRUIT COF 280G C",rayon:"EPICERIE SUCREE",price:"13.05",plu:null,keyword:"PATES"},
+        {ean:"8436048071467",label:"PROF PATES CREV AIL HERB",rayon:"PRODUITS DE LA MER TRAD",price:"6.99",plu:null,keyword:"PATES"},
+        {ean:"3579630303395",label:"BAGUETTE PIZZA ROYALE/ 17",rayon:"BOUL PAT TRAD",price:"2.99",plu:null,keyword:"PIZZA"},
+        {ean:"3276770250410",label:"FE 9 MINI MUFFINS PIZZA 1",rayon:"TRAITEUR TRAD",price:"4.80",plu:null,keyword:"PIZZA"},
+        {ean:"3250391402922",label:"FIOR PIZZA FROMAGE 200G",rayon:"CHARCUTERIE TRAITEUR LS",price:"1.34",plu:null,keyword:"PIZZA"},
+        {ean:"8015673032441",label:"ITALPIZZA MINI FROMAGGI 2",rayon:"SURGELES",price:"3.50",plu:null,keyword:"PIZZA"},
+        {ean:"8000308000506",label:"MOZZARELLA A PIZZA - 1.5",rayon:"CHARCUTERIE TRAITEUR LS",price:"30.18",plu:null,keyword:"PIZZA"},
+        {ean:"8008698018620",label:"Pizza Veggie",rayon:"SURGELES",price:"7.17",plu:null,keyword:"PIZZA"},
+        {ean:"3250393212093",label:"8 CHORIZO A GRILLER",rayon:"BOUCHERIE LS",price:"4.35",plu:null,keyword:"RIZ"},
+        {ean:"3700653802347",label:"CEREALES RIZ-VANILLE",rayon:"EPICERIE SUCREE",price:"4.99",plu:null,keyword:"RIZ"},
+        {ean:"3302740484100",label:"FM CHILI CON CARNE&RIZ 30",rayon:"CHARCUTERIE TRAITEUR LS",price:"3.67",plu:null,keyword:"RIZ"},
+        {ean:"3188720000221",label:"LCO.ROUGAIL SAUCISSES RIZ",rayon:"EPICERIE SALEE",price:"3.31",plu:null,keyword:"RIZ"},
+        {ean:"3250393215292",label:"RANOU SALADE RIZ NICOIS 3",rayon:"CHARCUTERIE TRAITEUR LS",price:"2.78",plu:null,keyword:"RIZ"},
+        {ean:"3250390257219",label:"ST ELOI RIZ BASMATI CELLO",rayon:"EPICERIE SALEE",price:"1.53",plu:null,keyword:"RIZ"},
+        {ean:"5414480002709",label:"2X5 L SAVON ANTISEPTIQUE",rayon:"NON COMMERCIALE",price:"31.08",plu:null,keyword:"SAVON"},
+        {ean:"3661551670226",label:"BoÃ®te fer vintage savon 1",rayon:"D.P.H.",price:"4.94",plu:null,keyword:"SAVON"},
+        {ean:"3162982340424",label:"LEVAS.PORTE SAVON JUNGLE",rayon:"BAZAR LEGER",price:"5.49",plu:null,keyword:"SAVON"},
+        {ean:"3700593604193",label:"PERSAVON ASSOUP BB ABRIC",rayon:"D.P.H.",price:"3.29",plu:null,keyword:"SAVON"},
+        {ean:"3517360017908",label:"SPRAY SAVON NOIR",rayon:"D.P.H.",price:"4.49",plu:null,keyword:"SAVON"},
+        {ean:"3760171054826",label:"Savon masque a l'huile de",rayon:"D.P.H.",price:"7.17",plu:null,keyword:"SAVON"},
+        {ean:"3180194062118",label:"7H.SHAMPOO ISF ANTI-ODEUR",rayon:"ALIMENTS POUR ANIMAUX",price:"10.07",plu:null,keyword:"SHAMPO"},
+        {ean:"3517360019926",label:"APReS-SHAMPOOING. SUBLIM'",rayon:"D.P.H.",price:"11.19",plu:null,keyword:"SHAMPO"},
+        {ean:"8700216207911",label:"H&S SHAMPOING 2EN1 CITRUS",rayon:"D.P.H.",price:"5.93",plu:null,keyword:"SHAMPO"},
+        {ean:"3031445711401",label:"SHAMPOING SNEAKERS 75 ML",rayon:"D.P.H.",price:"9.49",plu:null,keyword:"SHAMPO"},
+        {ean:"3517360016154",label:"SHAMPOOING HUILE ARGAN ET",rayon:"D.P.H.",price:"5.04",plu:null,keyword:"SHAMPO"},
+        {ean:"3517360016147",label:"SHAMPOOING INFUSION TILLE",rayon:"D.P.H.",price:"5.04",plu:null,keyword:"SHAMPO"},
+        {ean:"8050327350038",label:"CRODO LEMON SODA",rayon:"EPICERIE SALEE",price:"1.31",plu:null,keyword:"SODA"},
+        {ean:"3292090000221",label:"ROYAL SODA BANANE BOUTEIL",rayon:"EPICERIE SALEE",price:"5.90",plu:null,keyword:"SODA"},
+        {ean:"3292090000207",label:"ROYAL SODA ORANGE BOUTEIL",rayon:"EPICERIE SALEE",price:"5.90",plu:null,keyword:"SODA"},
+        {ean:"7290119792542",label:"SODA GOURDE FIZZXGO EA MI",rayon:"BAZAR TECHNIQUE",price:"33.89",plu:null,keyword:"SODA"},
+        {ean:"7290119792818",label:"SODASTREAM BOUTEILLE 1L P",rayon:"BAZAR TECHNIQUE",price:"19.20",plu:null,keyword:"SODA"},
+        {ean:"8718692616301",label:"SODASTREAM CONCENTRE LIM.",rayon:"BAZAR TECHNIQUE",price:"6.77",plu:null,keyword:"SODA"},
+        {ean:"3534542154107",label:"ASS. A SOUPE 24 CM",rayon:"BAZAR LEGER",price:"4.18",plu:null,keyword:"SOUPE"},
+        {ean:"4902663019275",label:"HIKARI M SOUPE MISO THAI5",rayon:"EPICERIE SALEE",price:"3.96",plu:null,keyword:"SOUPE"},
+        {ean:"8720182691835",label:"KNORR SOUPE DESH.CHINOISE",rayon:"EPICERIE SALEE",price:"1.85",plu:null,keyword:"SOUPE"},
+        {ean:"3700749302171",label:"MARC.BIO SOUPE 7 LEG.BIO4",rayon:"EPICERIE SUCREE",price:"4.89",plu:null,keyword:"SOUPE"},
+        {ean:"3760350900715",label:"SOUPE DE LEGUMES (POMME D",rayon:"FRUITS ET LEGUMES",price:"4.74",plu:null,keyword:"SOUPE"},
+        {ean:"3250393458637",label:"ST ELOI SOUPE TOM/VERMIC.",rayon:"EPICERIE SALEE",price:"2.14",plu:null,keyword:"SOUPE"},
+        {ean:"3370620000900",label:"6 CREPES BEURRE SUCRE",rayon:"BOUL PAT TRAD",price:"3.75",plu:null,keyword:"SUCRE"},
+        {ean:"3250392947026",label:"CHABRIOR SUCRE EN POUDRE7",rayon:"EPICERIE SUCREE",price:"1.71",plu:null,keyword:"SUCRE"},
+        {ean:"3162050029046",label:"FLEURS EN SUCRE & AZYME",rayon:"EPICERIE SUCREE",price:"2.50",plu:null,keyword:"SUCRE"},
+        {ean:"3760018853520",label:"MOVI POPCORN SUCREMICROON",rayon:"FRUITS ET LEGUMES",price:"1.57",plu:null,keyword:"SUCRE"},
+        {ean:"3760018855036",label:"POP CORN SEAU SUCRE CARTO",rayon:"BOUL PAT TRAD",price:"4.99",plu:null,keyword:"SUCRE"},
+        {ean:"5035139218458",label:"SUCRE DE COCO BIO 450g",rayon:"EPICERIE SALEE",price:"10.75",plu:null,keyword:"SUCRE"},
+        {ean:"3574313401160",label:"90G RILL THON",rayon:"FRUITS ET LEGUMES",price:"3.73",plu:null,keyword:"THON"},
+        {ean:"3181580287467",label:"FE CAKE THON TOMATE 230G",rayon:"TRAITEUR TRAD",price:"5.50",plu:null,keyword:"THON"},
+        {ean:"3188720000948",label:"LES DIEUX TART. THON OLIV",rayon:"EPICERIE SALEE",price:"2.09",plu:null,keyword:"THON"},
+        {ean:"3760298512872",label:"PASO MIN BURGERS THON X8",rayon:"CHARCUTERIE TRAITEUR LS",price:"4.35",plu:null,keyword:"THON"},
+        {ean:"3019081239640",label:"PN THON NAT DEMARC RESP 9",rayon:"EPICERIE SALEE",price:"1.64",plu:null,keyword:"THON"},
+        {ean:"3165950225686",label:"SAUP.THON MORC.H TOURN.16",rayon:"EPICERIE SALEE",price:"2.53",plu:null,keyword:"THON"},
+        {ean:"3250393475238",label:"ADELIE CONE YAOURT FR X6",rayon:"SURGELES",price:"3.27",plu:null,keyword:"YAOURT"},
+        {ean:"3700009260777",label:"FE SLD CONCOMBR YAOURT 30",rayon:"TRAITEUR TRAD",price:"2.30",plu:null,keyword:"YAOURT"},
+        {ean:"3384079998121",label:"FE YAOURT ENTIER VANILLE",rayon:"FROMAGE TRAD",price:"1.50",plu:null,keyword:"YAOURT"},
+        {ean:"3760059040903",label:"LABNe  Yaourt a la Grecqu",rayon:"CHARCUTERIE TRAITEUR LS",price:"3.38",plu:null,keyword:"YAOURT"},
+        {ean:"3760074380954",label:"PETIT SA.YAOURT VANILL X4",rayon:"CREMERIE LS",price:"2.97",plu:null,keyword:"YAOURT"},
+        {ean:"3278699005010",label:"YAOURT LAIT PAST NATURE4*",rayon:"CREMERIE LS",price:"1.99",plu:null,keyword:"YAOURT"}
+    ];
+
+    const CATALOG_07039 = [
+        {ean:"8422175510801",label:"GANT POUR ANIMAUX 24 X 17",rayon:"ALIMENTS POUR ANIMAUX",price:"2.99",plu:null},
+        {ean:"3428170006191",label:"7VETO CT PIPET.ANTIPAR 4X",rayon:"ALIMENTS POUR ANIMAUX",price:"11.06",plu:null},
+        {ean:"3428170004821",label:"7VETO SHAMP ANTIDEM 300ML",rayon:"ALIMENTS POUR ANIMAUX",price:"8.76",plu:null},
+        {ean:"3271767110487",label:"ALIM.POULE PONDEUSE 5KG",rayon:"ALIMENTS POUR ANIMAUX",price:"6.87",plu:null},
+        {ean:"7613034940377",label:"ONE SCHT FRAIC.CHAT STER.",rayon:"ALIMENTS POUR ANIMAUX",price:"2.37",plu:null},
+        {ean:"5998749128176",label:"PED SA REC MIN BOU BF FRO",rayon:"ALIMENTS POUR ANIMAUX",price:"2.03",plu:null},
+        {ean:"3250391112746",label:"CANAIL MELANGE TOURTERELL",rayon:"ALIMENTS POUR ANIMAUX",price:"2.67",plu:null},
+        {ean:"4004218739901",label:"7TETRA GOLDFISH GRANULES2",rayon:"ALIMENTS POUR ANIMAUX",price:"5.92",plu:null},
+        {ean:"4008239250186",label:"7VITAK.KRACKER MIEL EPEA.",rayon:"ALIMENTS POUR ANIMAUX",price:"2.42",plu:null},
+        {ean:"5060775670391",label:"KatKin Scoop Health Litte",rayon:"ALIMENTS POUR ANIMAUX",price:"15.05",plu:null},
+        {ean:"5054903936244",label:"*PLAT RECTANG VERRE 3,4LC",rayon:"ANIMATION BAZAR",price:"28.25",plu:null},
+        {ean:"3666085207313",label:"FIL POLYESTER 200M BEIGE",rayon:"BAZAR LEGER",price:"3.90",plu:null},
+        {ean:"3467935803132",label:"GELCO ANNEAUX CLIP BLANC",rayon:"BAZAR LEGER",price:"2.25",plu:null},
+        {ean:"8711500622716",label:"FLUO T8 58W G13 840 B1",rayon:"BAZAR LEGER",price:"14.49",plu:null},
+        {ean:"5411708188016",label:"BOUGIE LEMON BREEZE CITRO",rayon:"BAZAR LEGER",price:"8.49",plu:null},
+        {ean:"3031440031252",label:"G 3125 - CERCLE COLLECTI",rayon:"BAZAR LEGER",price:"4.27",plu:null},
+        {ean:"3543534950139",label:"ELEPH SERPILLIERE XXL",rayon:"BAZAR LEGER",price:"4.40",plu:null},
+        {ean:"8718158911841",label:"PANIER A FRITES INOX",rayon:"BAZAR LEGER",price:"4.12",plu:null},
+        {ean:"4549526620690",label:"*CAS V ALCULATRICE COLLEG",rayon:"BAZAR LEGER",price:"18.90",plu:null},
+        {ean:"3760095492582",label:"BUCHETTE ALLUM FEU 4,5 DM",rayon:"BAZAR LEGER",price:"4.62",plu:null},
+        {ean:"3760077441805",label:"Carte toutes occasions",rayon:"BAZAR LEGER",price:"3.64",plu:null},
+        {ean:"3045050055522",label:"ELBA CHEMISE SCOOL A4 CAR",rayon:"BAZAR LEGER",price:"1.91",plu:null},
+        {ean:"4026700363951",label:"*UHU ROLLAFIX DEV 25M + 5",rayon:"BAZAR LEGER",price:"2.56",plu:null},
+        {ean:"3039660002847",label:"LE PARF BOCAUX 1L X6",rayon:"BAZAR LEGER",price:"18.63",plu:null},
+        {ean:"3760349116776",label:"MOULE EN SILICONE POUR AI",rayon:"BAZAR LEGER",price:"3.99",plu:null},
+        {ean:"3509031017959",label:"KSK GANTS MI SAIS CLASS M",rayon:"BAZAR LEGER",price:"39.44",plu:null},
+        {ean:"3560231114824",label:"*FEERIC BOULE NOEL H18 LE",rayon:"BAZAR LEGER",price:"8.95",plu:null},
+        {ean:"3040698912046",label:"JOUET VIBRANT GARFIELD",rayon:"BAZAR LEGER",price:"5.90",plu:null},
+        {ean:"8711500639523",label:"FLUO T5 16MM 35W G5 840 1",rayon:"BAZAR LEGER",price:"25.61",plu:null},
+        {ean:"3250391994243",label:"DOMEDIA 2 ROLLERS DE COLL",rayon:"BAZAR LEGER",price:"4.07",plu:null},
+        {ean:"3250399881460",label:"LUMICAR.CLE.VIDANG.CARR.8",rayon:"BAZAR LEGER",price:"5.77",plu:null},
+        {ean:"4006508231195",label:"MELITTA FILTRES 102 BLANC",rayon:"BAZAR LEGER",price:"2.51",plu:null},
+        {ean:"3250392048594",label:"DOMEDIA SERFOUETTE FORGEE",rayon:"BAZAR LEGER",price:"14.68",plu:null},
+        {ean:"4895217557487",label:"*VEHICULE OOGIE BOOGIE",rayon:"BAZAR LEGER",price:"7.73",plu:null},
+        {ean:"8001011260829",label:"*STITCH BIOBALL STITCH 22",rayon:"BAZAR LEGER",price:"3.99",plu:null},
+        {ean:"3700249000508",label:"Article a 5â‚¬",rayon:"BAZAR LEGER",price:"6.27",plu:null},
+        {ean:"5011987067691",label:"SHELL ADVANCE VSX 2T 1L",rayon:"BAZAR LEGER",price:"13.45",plu:null},
+        {ean:"3219110586893",label:"DEL.DITA TROL 56,5 CAB 4R",rayon:"BAZAR LEGER",price:"123.09",plu:null},
+        {ean:"3700366911206",label:"Article a 12 â‚¬",rayon:"BAZAR LEGER",price:"15.05",plu:null},
+        {ean:"3250390764380",label:"DOMEDIA CAH.PIQUE 96P 5X5",rayon:"BAZAR LEGER",price:"1.41",plu:null},
+        {ean:"3250393025143",label:"DOM.PLAT TARTE 29CM CERAM",rayon:"BAZAR LEGER",price:"10.16",plu:null},
+        {ean:"3178041305884",label:"PATTEX.PATE.A.REPARER.64G",rayon:"BAZAR LEGER",price:"12.71",plu:null},
+        {ean:"7638900436402",label:"ENR PILE ALCA POWER LR6 X",rayon:"BAZAR LEGER",price:"12.26",plu:null},
+        {ean:"3250392350024",label:"DOM.BOITE MICRO ONDE 5.1L",rayon:"BAZAR LEGER",price:"6.77",plu:null},
+        {ean:"3617090006835",label:"*SET 9PCS COMPACT ACIER R",rayon:"BAZAR LEGER",price:"329.99",plu:null},
+        {ean:"3250391669479",label:"DOM SAC SOUS VIDE 54X85 C",rayon:"BAZAR LEGER",price:"5.64",plu:null},
+        {ean:"3450652070703",label:"GYMSPACE TAPIS DE SOL VIO",rayon:"BAZAR LEGER",price:"17.97",plu:null},
+        {ean:"3250393427671",label:"DOM P40 SERV CELI 38X38 T",rayon:"BAZAR LEGER",price:"2.71",plu:null},
+        {ean:"8003512791000",label:"DISNEY BTE REPAS MINNIE C",rayon:"BAZAR LEGER",price:"3.96",plu:null},
+        {ean:"8412765849558",label:"Clipper - Mini Tube",rayon:"BAZAR LEGER",price:"3.12",plu:null},
+        {ean:"3420743380035",label:"MET. CBL TV 9.52 M/F 2M",rayon:"BAZAR TECHNIQUE",price:"4.41",plu:null},
+        {ean:"3420743950603",label:"MET.ADAPTATEUR USB-C 7 EN",rayon:"BAZAR TECHNIQUE",price:"39.44",plu:null},
+        {ean:"3770024338201",label:"KONYKS DETECTEUR FUMEE CO",rayon:"BAZAR TECHNIQUE",price:"45.09",plu:null},
+        {ean:"3031449563198",label:"D319 - ORNEMENT MODE",rayon:"BAZAR TECHNIQUE",price:"5.25",plu:null},
+        {ean:"8715946666365",label:"EPSON CART ETOILE MER 603",rayon:"BAZAR TECHNIQUE",price:"36.05",plu:null},
+        {ean:"3700410345803",label:"LINETECH CUISINIERE MIXT",rayon:"BAZAR TECHNIQUE",price:"337.87",plu:null},
+        {ean:"3045387296018",label:"MLX COOKEO INFINITY CE972",rayon:"BAZAR TECHNIQUE",price:"451.99",plu:null},
+        {ean:"7290113769007",label:"SODA CONCENT PEPSI ZERO 4",rayon:"BAZAR TECHNIQUE",price:"7.22",plu:null},
+        {ean:"3760240788072",label:"LITTLE BALANCE NETTOYEUR",rayon:"BAZAR TECHNIQUE",price:"112.99",plu:null},
+        {ean:"3121040086605",label:"CALOR FER VAPEUR FV8062CO",rayon:"BAZAR TECHNIQUE",price:"129.94",plu:null},
+        {ean:"8806091728166",label:"LG REFRIG 2 PORTES 335L",rayon:"BAZAR TECHNIQUE",price:"676.87",plu:null},
+        {ean:"3264772576607",label:"TMS LECTEUR DVD NOIR",rayon:"BAZAR TECHNIQUE",price:"45.19",plu:null},
+        {ean:"8715946702780",label:"EPSON IMPRIMANTE XP-2200",rayon:"BAZAR TECHNIQUE",price:"67.69",plu:null},
+        {ean:"3665257791513",label:"LAVE VAISSELLE 12 COUVERT",rayon:"BAZAR TECHNIQUE",price:"258.77",plu:null},
+        {ean:"8806095541723",label:"SAMSUNG MONITEUR 24 ODYS",rayon:"BAZAR TECHNIQUE",price:"180.79",plu:null},
+        {ean:"3045387290412",label:"MLX CAFETIERE PROG MORNIN",rayon:"BAZAR TECHNIQUE",price:"48.58",plu:null},
+        {ean:"3045380016620",label:"MLX  MINI HACHOIR DPA110",rayon:"BAZAR TECHNIQUE",price:"73.44",plu:null},
+        {ean:"3304490424191",label:"D2 DECODEUR TNT HD",rayon:"BAZAR TECHNIQUE",price:"33.79",plu:null},
+        {ean:"4006508186556",label:"HANDY BAG 4 SACS PH86 PHI",rayon:"BAZAR TECHNIQUE",price:"9.93",plu:null},
+        {ean:"4975769482175",label:"JVC ECOUT SS FIL NP1T",rayon:"BAZAR TECHNIQUE",price:"146.79",plu:null},
+        {ean:"8719274665380",label:"PHILIPS CLE USB 128G FM12",rayon:"BAZAR TECHNIQUE",price:"67.79",plu:null},
+        {ean:"3666417029484",label:"LM BRUME PARFUMEE",rayon:"BAZAR TECHNIQUE",price:"9.99",plu:null},
+        {ean:"8429160260291",label:"VENTILATEUR DE TABLE 30 C",rayon:"BAZAR TECHNIQUE",price:"49.99",plu:null},
+        {ean:"3266980028503",label:"SAVF AUTRUCH BOX RILL 300",rayon:"BOUCHERIE / VOLAILLE TRAD",price:"1695.00",plu:null},
+        {ean:"3302520000759",label:"COTE DE PORC SANS OS *2",rayon:"BOUCHERIE / VOLAILLE TRAD",price:"21.34",plu:null},
+        {ean:"3250391535163",label:"JR PAUPIETTE MELON PORC X",rayon:"BOUCHERIE / VOLAILLE TRAD",price:"14.90",plu:null},
+        {ean:"3230890105173",label:"6ESCALOP CORDON BLEU POUL",rayon:"BOUCHERIE / VOLAILLE TRAD",price:"17.90",plu:null},
+        {ean:"3181688101351",label:"MACQ VO MERGUEZ 300G",rayon:"BOUCHERIE FRAIS EMB.",price:"4.60",plu:null},
+        {ean:"3250390952657",label:"*JR TRIPES TOMATE 500G",rayon:"BOUCHERIE FRAIS EMB.",price:"4.29",plu:null},
+        {ean:"3250392878795",label:"ITM VB RUMSTECK 3* 140G",rayon:"BOUCHERIE FRAIS EMB.",price:"3.95",plu:null},
+        {ean:"3250393447556",label:"ITM VP COTE ECHIN MER X2",rayon:"BOUCHERIE FRAIS EMB.",price:"4.15",plu:null},
+        {ean:"3250392878917",label:"JROZE BLANQUETTE VEAU***",rayon:"BOUCHERIE FRAIS EMB.",price:"19.90",plu:null},
+        {ean:"3181232172165",label:"CHAR SAUCE ROQUEFORT 120G",rayon:"BOUCHERIE LS",price:"2.00",plu:null},
+        {ean:"3039050047953",label:"DAB HACHE 15% HAL 650G",rayon:"BOUCHERIE LS",price:"13.10",plu:null},
+        {ean:"3181232220538",label:"CHAR SH 15% HEBDO 2X130G",rayon:"BOUCHERIE LS",price:"6.50",plu:null},
+        {ean:"3760325840213",label:"MY PIE PIZZA REGINA 190G",rayon:"BOUL PAT TRAD",price:"2.50",plu:null},
+        {ean:"3770034599197",label:"PAIN DE COMPLET DE 250 GR",rayon:"BOUL PAT TRAD",price:"2.47",plu:null},
+        {ean:"3582730003300",label:"MINI COFFRET 230G",rayon:"BOUL PAT TRAD",price:"3.99",plu:null},
+        {ean:"3456580500121",label:"HAFN.ECLAIRS AU CHOCOLAT2",rayon:"BOUL PAT TRAD",price:"2.99",plu:null},
+        {ean:"3250393478437",label:"MIGNARD. GOURM. S.A X16 2",rayon:"BOUL PAT TRAD",price:"9.49",plu:null},
+        {ean:"3760036358113",label:"Mangue lamelles 120 g",rayon:"BOUL PAT TRAD",price:"3.01",plu:null},
+        {ean:"3259426045745",label:"GAUFRE FINE POMME CANNELL",rayon:"BOUL PAT TRAD",price:"5.49",plu:null},
+        {ean:"3251750140127",label:"CRAQUELINS GOURMANDS",rayon:"BOUL PAT TRAD",price:"5.15",plu:null},
+        {ean:"3339720414765",label:"FE JBN SEC LR 6T 100G",rayon:"CHARCUTERIE TRAD",price:"4.40",plu:null},
+        {ean:"3498301004822",label:"SAUCISSON ARDECHE IGP 280",rayon:"CHARCUTERIE TRAD",price:"7.40",plu:null},
+        {ean:"3512690006370",label:"ID PETITS SECS A CROQUER",rayon:"CHARCUTERIE TRAITEUR LS",price:"6.89",plu:null},
+        {ean:"3498940012691",label:"GOURM DUO SAUCISSON MIMO",rayon:"CHARCUTERIE TRAITEUR LS",price:"6.07",plu:null},
+        {ean:"3250391502806",label:"MONIQUE RANOU LE MATHURIN",rayon:"CHARCUTERIE TRAITEUR LS",price:"3.49",plu:null},
+        {ean:"8032591011341",label:"LunaDiMandorlaAmandePista",rayon:"CHARCUTERIE TRAITEUR LS",price:"4.09",plu:null},
+        {ean:"3252920015580",label:"LE GALL.BARATTE BIO DX 25",rayon:"CREMERIE LS",price:"4.78",plu:null},
+        {ean:"3324976120140",label:"LA MOTTE CREME CRUE FERM",rayon:"CREMERIE LS",price:"2.49",plu:null},
+        {ean:"3254550007010",label:"ISIGNY CREME SS PRES 20%",rayon:"CREMERIE LS",price:"3.01",plu:null},
+        {ean:"3250393450686",label:"LES CREA BURRATA TRUFFE 1",rayon:"CREMERIE LS",price:"3.72",plu:null},
+        {ean:"5038862433600",label:"INNOCENT JUS TUTTI FRUTTI",rayon:"CREMERIE LS",price:"4.27",plu:null},
+        {ean:"3428273240096",label:"LACTEL LAIT ENTIER 6X50CL",rayon:"CREMERIE LS",price:"1.36",plu:null},
+        {ean:"3155250364772",label:"PRIMEVERE TART/CUIS 63% 2",rayon:"CREMERIE LS",price:"2.42",plu:null},
+        {ean:"3700864005209",label:"ODNV ELEV.ENG.OEUFS PPA X",rayon:"CREMERIE LS",price:"5.23",plu:null},
+        {ean:"3456770033446",label:"M.NOVA CR.GDE VAN.BOURB.2",rayon:"CREMERIE LS",price:"1.92",plu:null},
+        {ean:"3031440040704",label:"G 4070 - PIERRE PONCE",rayon:"D.P.H.",price:"6.46",plu:null},
+        {ean:"3450270016725",label:"LOUA MASQUES PIEDS EXFOLI",rayon:"D.P.H.",price:"5.04",plu:null},
+        {ean:"3760071142913",label:"PIMA SPRAY SOMMEIL 200ML",rayon:"D.P.H.",price:"11.09",plu:null},
+        {ean:"3178041362627",label:"GLISS SERUM ANTI FOURCHE",rayon:"D.P.H.",price:"8.36",plu:null},
+        {ean:"3250393445217",label:"LABELL COTON HYDROPHILE 1",rayon:"D.P.H.",price:"1.02",plu:null},
+        {ean:"3250390664185",label:"LABELL BAD KIDS 2/6 PANDA",rayon:"D.P.H.",price:"0.53",plu:null},
+        {ean:"3250392263393",label:"LABELL EAU COLOGNE LAVAND",rayon:"D.P.H.",price:"3.32",plu:null},
+        {ean:"3250391962358",label:"APTA SAC POUB HTE LC 50LX",rayon:"D.P.H.",price:"2.24",plu:null},
+        {ean:"3250390751700",label:"DOMEDIA ALL FEU CUBE X40",rayon:"D.P.H.",price:"2.75",plu:null},
+        {ean:"3250390736806",label:"LABELL LOTION AP/RAS.SPOR",rayon:"D.P.H.",price:"2.51",plu:null},
+        {ean:"3574661853765",label:"LPM GDCHE EX.DX GRENADE 3",rayon:"D.P.H.",price:"3.04",plu:null},
+        {ean:"3600551136844",label:"MIXA LING LAIT TOILETTE X",rayon:"D.P.H.",price:"3.07",plu:null},
+        {ean:"8006530257213",label:"ALWS.DISCR CULOTTE FTE L",rayon:"D.P.H.",price:"11.57",plu:null},
+        {ean:"8006530192675",label:"DASH LESS LQ 2E1 JSM RSE1",rayon:"D.P.H.",price:"15.75",plu:null},
+        {ean:"3031449042204",label:"MD 220 - ULTRA GLOSS + HY",rayon:"D.P.H.",price:"6.82",plu:null},
+        {ean:"5029054046357",label:"KLEENEX ORIGINAL ETUIS MI",rayon:"D.P.H.",price:"2.66",plu:null},
+        {ean:"3250392936839",label:"LABELL PH HUMIDE X50 ALOE",rayon:"D.P.H.",price:"1.30",plu:null},
+        {ean:"3031443122919",label:"SAI 291 - LOTION REPULSI",rayon:"D.P.H.",price:"10.85",plu:null},
+        {ean:"3059944027014",label:"VEET CIRE SUCRE MI.ARGAN",rayon:"D.P.H.",price:"5.84",plu:null},
+        {ean:"3517360025101",label:"BICARBONATE DE SOUDE",rayon:"D.P.H.",price:"4.49",plu:null},
+        {ean:"8711252260310",label:"*SND/100PIQUE BROCHET 25X",rayon:"DESTOCKAGE BAZAR",price:"0.89",plu:null},
+        {ean:"3667332441313",label:"*SND/EVE EBL TEESHIRT+SHO",rayon:"DESTOCKAGE TEXTILE",price:"9.99",plu:null},
+        {ean:"3770034105398",label:"*SND/GLACE POP-IN MANGUE",rayon:"DESTOCKAGE/ANIMATION FRAIS LS",price:"3.49",plu:null},
+        {ean:"4001686323106",label:"*DES/HARIBO BONBONS OURSO",rayon:"DESTOCKAGE/ANIMATION SEC LS",price:"0.79",plu:null},
+        {ean:"3168930179948",label:"LAYS  CHIPS OND.CROQU.MR",rayon:"EPICERIE SALEE",price:"1.76",plu:null},
+        {ean:"3330720633057",label:"DELICE DE FOIE GRAS AUX F",rayon:"EPICERIE SALEE",price:"7.28",plu:null},
+        {ean:"3017800513743",label:"DAUCY.POIS CHICHE BIO2X13",rayon:"EPICERIE SALEE",price:"2.63",plu:null},
+        {ean:"3250391324385",label:"ODYSSEE FLT SARD H.OLIVE",rayon:"EPICERIE SALEE",price:"1.55",plu:null},
+        {ean:"3021210021903",label:"HENAFF PATE CAMPAGNE 3X78",rayon:"EPICERIE SALEE",price:"2.62",plu:null},
+        {ean:"3162050049266",label:"DUO DE POIVRES BLACK AND",rayon:"EPICERIE SALEE",price:"4.37",plu:null},
+        {ean:"3456300014501",label:"ILN Boulgour a la marocai",rayon:"EPICERIE SALEE",price:"4.20",plu:null},
+        {ean:"3265479556008",label:"LESIEUR H.DE TOURNESOL MI",rayon:"EPICERIE SALEE",price:"2.31",plu:null},
+        {ean:"4030200014688",label:"DEMI MELON GROS",rayon:"EPICERIE SALEE",price:"2.13",plu:null},
+        {ean:"3770002165270",label:"Fusilli au ble dur",rayon:"EPICERIE SALEE",price:"7.40",plu:null},
+        {ean:"3250390102557",label:"M.RANOU SAUCIS LENTILLES",rayon:"EPICERIE SALEE",price:"1.36",plu:null},
+        {ean:"3036811460396",label:"LIEB VEL POT&CAROT BIO BT",rayon:"EPICERIE SALEE",price:"3.74",plu:null},
+        {ean:"3661945250287",label:"MEI ASIA SAUCE HUITRE 330",rayon:"EPICERIE SALEE",price:"3.34",plu:null},
+        {ean:"3502793904321",label:"Calissons BoÃ®te FenÃªtre B",rayon:"EPICERIE SALEE",price:"16.13",plu:null},
+        {ean:"8001420003406",label:"RISO GALLO RIZ TRADITION",rayon:"EPICERIE SALEE",price:"3.38",plu:null},
+        {ean:"8009490003357",label:"FDC.CONDI.JUS DE CITRON 5",rayon:"EPICERIE SALEE",price:"1.98",plu:null},
+        {ean:"3038359010507",label:"PANZANI CARBONARA 370G",rayon:"EPICERIE SALEE",price:"3.41",plu:null},
+        {ean:"3183280000520",label:"LA BALEINE SEL MER FIN SA",rayon:"EPICERIE SALEE",price:"4.45",plu:null},
+        {ean:"3011360011657",label:"KNORR SCE ECHALOTE SHT 33",rayon:"EPICERIE SALEE",price:"0.89",plu:null},
+        {ean:"3165350350063",label:"M/POURET VINAIGRE ESTRAGO",rayon:"EPICERIE SALEE",price:"5.86",plu:null},
+        {ean:"3700146209424",label:"RIZ ROND BLANC BIO",rayon:"EPICERIE SALEE",price:"5.13",plu:null},
+        {ean:"3700146213735",label:"MELANGE GRILLE AUX 2 POIV",rayon:"EPICERIE SALEE",price:"35.80",plu:null},
+        {ean:"3278584155097",label:"GOUSSE DE VANILLE BOURBON",rayon:"EPICERIE SUCREE",price:"4.40",plu:null},
+        {ean:"3760269314863",label:"GOOD GOUT MANGUE BIO 120G",rayon:"EPICERIE SUCREE",price:"1.83",plu:null},
+        {ean:"3478820003186",label:"J.BIO DBLE CONCEN.TOMATE",rayon:"EPICERIE SUCREE",price:"2.02",plu:null},
+        {ean:"7311070032574",label:"KRISPROLLS DORES 240G",rayon:"EPICERIE SUCREE",price:"2.07",plu:null},
+        {ean:"3250390121381",label:"CHABRIOR TH CH/LT POCK 25",rayon:"EPICERIE SUCREE",price:"2.57",plu:null},
+        {ean:"8000070072558",label:"LVZ CAFE GRAIN ROMA 250G",rayon:"EPICERIE SUCREE",price:"6.80",plu:null},
+        {ean:"5059320001537",label:"KELL.BARR.AVOINE/MIEL X4",rayon:"EPICERIE SUCREE",price:"2.43",plu:null},
+        {ean:"3456300002997",label:"KA Soupe Coupe-faim au Ko",rayon:"EPICERIE SUCREE",price:"10.90",plu:null},
+        {ean:"8000500157985",label:"*KINDER SURPRISE LAPIN 75",rayon:"EPICERIE SUCREE",price:"3.69",plu:null},
+        {ean:"3760020504953",label:"JBV Lentilles corail",rayon:"EPICERIE SUCREE",price:"5.46",plu:null},
+        {ean:"3103220061718",label:"Fraizibus 100g haribo",rayon:"EPICERIE SUCREE",price:"1.75",plu:null},
+        {ean:"3421371530373",label:"*LCD.COFRT VINTGE ASS CHO",rayon:"EPICERIE SUCREE",price:"20.15",plu:null},
+        {ean:"3250392397029",label:"IVORIA PATE A TARTINER 20",rayon:"EPICERIE SUCREE",price:"1.80",plu:null},
+        {ean:"3609200011549",label:"JOYF CHOCLAIT CACH.CARAME",rayon:"EPICERIE SUCREE",price:"3.19",plu:null},
+        {ean:"3175680906779",label:"GERLI SUB REPAS VAN CARAX",rayon:"EPICERIE SUCREE",price:"5.20",plu:null},
+        {ean:"3456300021141",label:"JBE PUREE DE SESAME COMPL",rayon:"EPICERIE SUCREE",price:"3.75",plu:null},
+        {ean:"3043936011037",label:"REGIL.TUBE LT CONC.CHOCO",rayon:"EPICERIE SUCREE",price:"3.11",plu:null},
+        {ean:"8445290133403",label:"NESTLE NESQUICK  300G",rayon:"EPICERIE SUCREE",price:"3.06",plu:null},
+        {ean:"3165433704011",label:"DADDY SUCRE PDRE BIO BTRV",rayon:"EPICERIE SUCREE",price:"3.80",plu:null},
+        {ean:"3456300012583",label:"JBE DESSERT BIOFRUITS  PO",rayon:"EPICERIE SUCREE",price:"4.98",plu:null},
+        {ean:"3770020542176",label:"CUILLERE VANILLE",rayon:"EPICERIE SUCREE",price:"0.99",plu:null},
+        {ean:"3770023027267",label:"*H.MATE VERT BIO 100G",rayon:"EPICERIE SUCREE",price:"8.29",plu:null},
+        {ean:"3700146201282",label:"PROTEINES DE SOJA BIO",rayon:"EPICERIE SUCREE",price:"15.00",plu:null},
+        {ean:"3250393451935",label:"VRAC CHABRIOR BILLE O'CAC",rayon:"EPICERIE SUCREE",price:"5.65",plu:null},
+        {ean:"3920203120022",label:"BULLE + SAC 12 TIGES PARI",rayon:"FLEURS ET PLANTES",price:"12.53",plu:null},
+        {ean:"3436900234745",label:"ERABLE JAPONAIS POT 3 L",rayon:"FLEURS ET PLANTES",price:"25.08",plu:null},
+        {ean:"3940341803878",label:"KALANCHOE CACHE POT POT 1",rayon:"FLEURS ET PLANTES",price:"10.07",plu:null},
+        {ean:"3252950008781",label:"PONT L'EVEQUE  GRAINDORGE",rayon:"FROMAGE TRAD",price:"3.75",plu:null},
+        {ean:"3250393468629",label:"FE ITM COMTE AOP 6M 220G",rayon:"FROMAGE TRAD",price:"4.38",plu:null},
+        {ean:"8018731006064",label:"BURRATA NATURE DELIZIOSA",rayon:"FROMAGE TRAD",price:"4.49",plu:null},
+        {ean:"4008258042007",label:"GRAINES DE COURGE GRILL.",rayon:"FRUITS ET LEGUMES",price:"4.36",plu:null},
+        {ean:"3280220821006",label:"FLORETTE LAITUE SACHET 20",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:null},
+        {ean:"3280222411144",label:"F.FLORETTE WOK DE LEGUME",rayon:"FRUITS ET LEGUMES",price:"3.69",plu:null},
+        {ean:"3760350900081",label:"MANGUE AVION",rayon:"FRUITS ET LEGUMES",price:"5.39",plu:null},
+        {ean:"8414870089713",label:"MANDARINE FILET 3KG",rayon:"FRUITS ET LEGUMES",price:"4.49",plu:null},
+        {ean:"3662093010198",label:"OIGNON JAUNE FILET 1KG CQ",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"3250390031536",label:"IDS PINEAU BLANC 17D75CL",rayon:"LIQUIDES",price:"9.41",plu:null},
+        {ean:"3250390811268",label:"MESCAT. ON/OFF ROS 14.4D",rayon:"LIQUIDES",price:"5.83",plu:null},
+        {ean:"3770019694244",label:"MODERATO ROSE 0  75CL",rayon:"LIQUIDES",price:"9.03",plu:null},
+        {ean:"5410228332114",label:"FLYING F.B.AR.CIT.5.9D12X",rayon:"LIQUIDES",price:"16.17",plu:null},
+        {ean:"3211209269434",label:"BABV VERYLY CASSIS 75CL",rayon:"LIQUIDES",price:"3.49",plu:null},
+        {ean:"3168930175742",label:"LIPTON B.PETILLANT PECHE",rayon:"LIQUIDES",price:"1.85",plu:null},
+        {ean:"3760091330055",label:"CHAMP. LAMIRAULT BRUT PRE",rayon:"LIQUIDES",price:"26.54",plu:null},
+        {ean:"5010327705453",label:"HENDRIC.GIN NEPTUNIA43.4D",rayon:"LIQUIDES",price:"46.83",plu:null},
+        {ean:"3250390146322",label:"ONDINE E.DE SOURCE 6X1L5",rayon:"LIQUIDES",price:"1.68",plu:null},
+        {ean:"3760133810477",label:"*AOP MOULIS RG18 CH.POMEY",rayon:"LIQUIDES",price:"12.95",plu:null},
+        {ean:"3045710046839",label:"IGP OC BL MISS ANAIS BIB",rayon:"LIQUIDES",price:"12.03",plu:null},
+        {ean:"3250390576624",label:"PAQUITO ABC ORANGE BK 1L",rayon:"LIQUIDES",price:"1.77",plu:null},
+        {ean:"3250391599257",label:"CREMANT BRUT EXPERT CLUB",rayon:"LIQUIDES",price:"5.64",plu:null},
+        {ean:"3250392994266",label:"PAQUITO BIO SIROP FRAISE",rayon:"LIQUIDES",price:"2.64",plu:null},
+        {ean:"3250391353835",label:"IGP OC CHARDONNAY BL E.CL",rayon:"LIQUIDES",price:"3.22",plu:null},
+        {ean:"3175529631732",label:"LA VILLAGEOISE ROUGE 11",rayon:"LIQUIDES",price:"4.12",plu:null},
+        {ean:"3211209133483",label:"AOP HT MEDOC RG CH BARREY",rayon:"LIQUIDES",price:"28.14",plu:null},
+        {ean:"3701600810187",label:"400 BARQ IMIT.BOIS 190X14",rayon:"NON COMMERCIALE",price:"51.32",plu:null},
+        {ean:"3250399800195",label:"*ANIM. BORNE 2025 - PAQUE",rayon:"NON COMMERCIALE",price:"0.15",plu:null},
+        {ean:"3228857001606",label:"HARRYS BRIOCHE BURGER NAT",rayon:"PAIN PAT LS INDUS",price:"2.51",plu:null},
+        {ean:"8032591011327",label:"LUNE D'AMENDES",rayon:"PAIN PAT LS INDUS",price:"4.38",plu:null},
+        {ean:"3700157500244",label:"COLIBRI MADEL COEUR FRAMB",rayon:"PAIN PAT LS INDUS",price:"5.03",plu:null},
+        {ean:"3162150031413",label:"3CH 6BOUCHEES FEUILLETEES",rayon:"PAIN PAT LS INDUS",price:"1.96",plu:null},
+        {ean:"3279130920015",label:"MANNELE MOULAGE au chocol",rayon:"PAIN PAT LS INDUS",price:"4.12",plu:null},
+        {ean:"3608117730284",label:"SMART CARTE CADO FELICITA",rayon:"PRESTATION DE SERVICE",price:"29.90",plu:null},
+        {ean:"3760226395942",label:"TICKBOX CENTER PARC DUO 3",rayon:"PRESTATION DE SERVICE",price:"399.90",plu:null},
+        {ean:"3250392001582",label:"NOUVELLE CARTE DE FIDELIT",rayon:"PRESTATION DE SERVICE",price:"6.27",plu:null},
+        {ean:"3250392804596",label:"LITrueSON  E-COM TARIF PR",rayon:"PRESTATION DE SERVICE",price:"0.02",plu:null},
+        {ean:"3355527913935",label:"SAC ISOTHERME 40 LITRES N",rayon:"PRESTATION DE SERVICE",price:"1.51",plu:null},
+        {ean:"4961818039773",label:"NINT CAMERA PLANTE PIRANH",rayon:"PRODUITS CULTURELS",price:"45.09",plu:null},
+        {ean:"9782215203124",label:"LES PIRATES",rayon:"PRODUITS CULTURELS",price:"5.95",plu:null},
+        {ean:"9782012248236",label:"*SDD HAC MADAME RANGE-TOU",rayon:"PRODUITS CULTURELS",price:"2.90",plu:null},
+        {ean:"9782494678378",label:"BD MORTELLE ADELE - TOME",rayon:"PRODUITS CULTURELS",price:"11.50",plu:null},
+        {ean:"3760325553830",label:"*AMSTRAD CONSOLE  TRANS 3",rayon:"PRODUITS CULTURELS",price:"299.70",plu:null},
+        {ean:"9782047406960",label:"LES CAHIERS BORDAS - MON",rayon:"PRODUITS CULTURELS",price:"5.40",plu:null},
+        {ean:"5051889751014",label:"*SDD DS LEGO BATMAN PS",rayon:"PRODUITS CULTURELS",price:"64.99",plu:null},
+        {ean:"3780082500000",label:"L'EQUIPE JOURNAL",rayon:"PRODUITS CULTURELS",price:"1.76",plu:null},
+        {ean:"9782290383841",label:"*SDD DNL SMYTHE-SMITH T1",rayon:"PRODUITS CULTURELS",price:"15.90",plu:null},
+        {ean:"9782290426029",label:"*SDD DNL PARIS-HOLLYWOOD",rayon:"PRODUITS CULTURELS",price:"8.90",plu:null},
+        {ean:"9782809694925",label:"LES INCOLLABLES - 180 QUI",rayon:"PRODUITS CULTURELS",price:"6.90",plu:null},
+        {ean:"9791098323706",label:"*SDD DNL LE LIVRE DE JEUX",rayon:"PRODUITS CULTURELS",price:"14.90",plu:null},
+        {ean:"3250391889495",label:"ITM QUEUE CREV AIOLI 130G",rayon:"PRODUITS DE LA MER TRAD",price:"4.99",plu:null},
+        {ean:"3475070000026",label:"Bche HuÃ®tre fine Bret.N3-",rayon:"PRODUITS DE LA MER TRAD",price:"6.99",plu:null},
+        {ean:"3760350682093",label:"ONIGIRI POULET",rayon:"PRODUITS DE LA MER TRAD",price:"3.40",plu:null},
+        {ean:"3760253461641",label:"DIIP.HOUM.LJ/CAROT/COR.BI",rayon:"SAURISSERIE",price:"4.35",plu:null},
+        {ean:"3760032004939",label:"POMBISTRO WEDGES GR.CNRD",rayon:"SURGELES",price:"4.18",plu:null},
+        {ean:"3760282770004",label:"MARES NOIX ST JACQUES MSC",rayon:"SURGELES",price:"11.55",plu:null},
+        {ean:"7613034975416",label:"EXTREM CONE CHOCO X6 426G",rayon:"SURGELES",price:"4.25",plu:null},
+        {ean:"3250393445422",label:"IDS BOEUF FROMAGE X6 226G",rayon:"SURGELES",price:"7.13",plu:null},
+        {ean:"3250392644673",label:"J.ROZE  SH BIO 15% X8 800",rayon:"SURGELES",price:"16.44",plu:null},
+        {ean:"8426342000010",label:"glacon sac 2kg",rayon:"SURGELES",price:"8.51",plu:null},
+        {ean:"3231760434010",label:"GANTS ULTRA CHAUD CONFORT",rayon:"TEXTILE",price:"30.09",plu:null},
+        {ean:"3231760802017",label:"BOTTILLONS ZIP GARCON - M",rayon:"TEXTILE",price:"12.99",plu:null},
+        {ean:"3676982041514",label:"GEMO EG S GENE NAVY FOOT",rayon:"TEXTILE",price:"11.29",plu:null},
+        {ean:"3231760787864",label:"MOCASSIN CONFORT_BALLERIN",rayon:"TEXTILE",price:"37.62",plu:null},
+        {ean:"3231760814348",label:"MULES - JERSEY_ATHENA_HOM",rayon:"TEXTILE",price:"19.99",plu:null},
+        {ean:"3676982047363",label:"GEMO BB CHO7 X3 ECRU 18/2",rayon:"TEXTILE",price:"5.64",plu:null},
+        {ean:"3174551524418",label:"W1192 BEIGE MEDI T 3",rayon:"TEXTILE",price:"5.94",plu:null},
+        {ean:"3616594124892",label:"P1 CAD DB  BLANC COEURS 1",rayon:"TEXTILE",price:"11.19",plu:null},
+        {ean:"3676980700178",label:"**GEMO EF PANTCRT DENIM 7",rayon:"TEXTILE",price:"9.99",plu:null},
+        {ean:"3676980666085",label:"**GEMO EF TS MC ECRU 5A",rayon:"TEXTILE",price:"5.99",plu:null},
+        {ean:"3616592883517",label:"P1 CAD F JEAN REG BRUT 46",rayon:"TEXTILE",price:"18.07",plu:null},
+        {ean:"3616593678297",label:"P1 CAD H JEAN REG STONE 4",rayon:"TEXTILE",price:"25.75",plu:null},
+        {ean:"3664267470883",label:"*FFF T SHIRT ENFANT DEMBE",rayon:"TEXTILE",price:"13.99",plu:null},
+        {ean:"3250392976897",label:"POMMETTE CHAISE HAUTE GRI",rayon:"TEXTILE",price:"107.34",plu:null},
+        {ean:"3086124101622",label:"*BIC BRIQUET MAXI J26 PSG",rayon:"TEXTILE",price:"3.75",plu:null},
+        {ean:"3760349110743",label:"KIT DE COUTURE",rayon:"TEXTILE",price:"3.49",plu:null},
+        {ean:"3250393466069",label:"DOM HOUSSE COUETTE240 LAV",rayon:"TEXTILE",price:"28.24",plu:null},
+        {ean:"3250393315442",label:"DOMEDIA DRAP DOUCHE CORAI",rayon:"TEXTILE",price:"14.58",plu:null},
+        {ean:"3031446642162",label:"FIL COT EPAIS MARINE 100M",rayon:"TEXTILE",price:"5.32",plu:null},
+        {ean:"3250393107580",label:"POMMETTE 5CUILLERES COLOR",rayon:"TEXTILE",price:"5.64",plu:null},
+        {ean:"4008402824459",label:"KIWI CUIR EXCELLENT  44-4",rayon:"TEXTILE",price:"12.63",plu:null},
+        {ean:"3676980769069",label:"PPGEM EF SLIP X5 COEURS 1",rayon:"TEXTILE",price:"5.64",plu:null},
+        {ean:"3230890760013",label:"JUS CUISSON POUR PLET ROT",rayon:"TRAITEUR TRAD",price:"2.30",plu:null},
+        {ean:"3250393458736",label:"FE ITM PARMENTIER BOEUF 7",rayon:"TRAITEUR TRAD",price:"8.49",plu:null},
+        {ean:"3760278132618",label:"INVOLTINI FROM VACH SPECK",rayon:"TRAITEUR TRAD",price:"21.28",plu:null},
+        {ean:"3700009274620",label:"CP SLD BAR KIT FOURCHETTE",rayon:"TRAITEUR TRAD",price:"1.30",plu:null},
+        {ean:"3266980382155",label:"LG SOTLYLAIS DIND CONFSV2",rayon:"VOLAILLE LS",price:"5.25",plu:null}
+    ];
+
+    const WEIGHED_07039 = [
+        {ean:"0000000009116",label:"RIZ ROND BLANC",rayon:"EPICERIE SALEE",price:"5.13",plu:"9116"},
+        {ean:"0000000009133",label:"CARRE FOURRE JAUNE BIO",rayon:"EPICERIE SUCREE",price:"12.75",plu:"9133"},
+        {ean:"0000000009904",label:"MINI TOASTS GRILLES AUX C",rayon:"EPICERIE SUCREE",price:"4.24",plu:"9904"},
+        {ean:"0000000006012",label:"NOIX DE CAJOU CRUES",rayon:"EPICERIE SUCREE",price:"23.50",plu:"6012"},
+        {ean:"0000000009108",label:"PROTEINES DE SOJA",rayon:"EPICERIE SUCREE",price:"15.00",plu:"9108"},
+        {ean:"0000000004218",label:"ABRICOT VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4218"},
+        {ean:"0000000003401",label:"AIL BLANC VRAC",rayon:"FRUITS ET LEGUMES",price:"13.89",plu:"3401"},
+        {ean:"0000000009001",label:"AIL SEC SEMOULE",rayon:"FRUITS ET LEGUMES",price:"36.30",plu:"9001"},
+        {ean:"0000000003399",label:"AIL VERT VRAC",rayon:"FRUITS ET LEGUMES",price:"11.49",plu:"3399"},
+        {ean:"0000000009004",label:"AMANDES . GRILLEES  A SEC",rayon:"FRUITS ET LEGUMES",price:"19.90",plu:"9004"},
+        {ean:"0000000006001",label:"AMANDES DECORTIQUEES BIO",rayon:"FRUITS ET LEGUMES",price:"19.90",plu:"6001"},
+        {ean:"0000000009002",label:"AMANDES EMONDEES BIO",rayon:"FRUITS ET LEGUMES",price:"24.59",plu:"9002"},
+        {ean:"0000000009009",label:"AMANDES EMONDEES GRILLEES",rayon:"FRUITS ET LEGUMES",price:"24.59",plu:"9009"},
+        {ean:"0000000009011",label:"ANANAS SECHES",rayon:"FRUITS ET LEGUMES",price:"32.90",plu:"9011"},
+        {ean:"0000000003392",label:"ASPERGE BLANCHE/VIOLETTE",rayon:"FRUITS ET LEGUMES",price:"8.99",plu:"3392"},
+        {ean:"0000000004080",label:"ASPERGE VERTE VRAC",rayon:"FRUITS ET LEGUMES",price:"11.99",plu:"4080"},
+        {ean:"0000000004522",label:"ASPERGE VIOLETTE",rayon:"FRUITS ET LEGUMES",price:"5.80",plu:"4522"},
+        {ean:"0000000001212",label:"ASSORTIMENT FRUITS SECS",rayon:"FRUITS ET LEGUMES",price:"7.99",plu:"1212"},
+        {ean:"0000000009500",label:"AUBERGINE NATURE URBAINE",rayon:"FRUITS ET LEGUMES",price:"3.90",plu:"9500"},
+        {ean:"0000000003089",label:"AUBERGINE VIOLETTE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:"3089"},
+        {ean:"0000000004600",label:"AUBERGINE VIOLETTE VRAC C",rayon:"FRUITS ET LEGUMES",price:"3.19",plu:"4600"},
+        {ean:"0000000004226",label:"AVOCAT COCKTAIL VRAC",rayon:"FRUITS ET LEGUMES",price:"12.69",plu:"4226"},
+        {ean:"0000000009000",label:"Abricots seches",rayon:"FRUITS ET LEGUMES",price:"18.90",plu:"9000"},
+        {ean:"0000000009903",label:"Amandes Caramelisees Bio",rayon:"FRUITS ET LEGUMES",price:"13.43",plu:"9903"},
+        {ean:"0000000009902",label:"Amandes barbecue Bio",rayon:"FRUITS ET LEGUMES",price:"35.66",plu:"9902"},
+        {ean:"0000000009901",label:"Amandes emondees Bio",rayon:"FRUITS ET LEGUMES",price:"27.50",plu:"9901"},
+        {ean:"0000000006004",label:"BANANE CHIPS BIO",rayon:"FRUITS ET LEGUMES",price:"12.30",plu:"6004"},
+        {ean:"0000000004230",label:"BANANE PLANTAIN VRAC",rayon:"FRUITS ET LEGUMES",price:"3.95",plu:"4230"},
+        {ean:"0000000006969",label:"BANANE PLANTAIN VRAC",rayon:"FRUITS ET LEGUMES",price:"3.45",plu:"6969"},
+        {ean:"0000000004231",label:"BANANE VERTE VRAC",rayon:"FRUITS ET LEGUMES",price:"1.85",plu:"4231"},
+        {ean:"0000000004011",label:"BANANE VRAC",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:"4011"},
+        {ean:"0000000004540",label:"BETTERAVE ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"4540"},
+        {ean:"0000000009015",label:"BOULGOUR BIO",rayon:"FRUITS ET LEGUMES",price:"3.95",plu:"9015"},
+        {ean:"0000000009438",label:"BROCOLI",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"9438"},
+        {ean:"0000000003082",label:"BROCOLI VRAC",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"3082"},
+        {ean:"0000000003177",label:"BUTTERNUT TRANCHE ITM",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"3177"},
+        {ean:"0000000009017",label:"CACAHETES COQUES BIO",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9017"},
+        {ean:"0000000009058",label:"CACAHUETTES GRILLEES SALE",rayon:"FRUITS ET LEGUMES",price:"14.91",plu:"9058"},
+        {ean:"0000000009022",label:"CAFE ARABICA ROBUSTA",rayon:"FRUITS ET LEGUMES",price:"20.81",plu:"9022"},
+        {ean:"0000000009023",label:"CANISTRELLI CITRON",rayon:"FRUITS ET LEGUMES",price:"23.50",plu:"9023"},
+        {ean:"0000000004507",label:"CAROTTE COULEUR MIXTE VRA",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"4507"},
+        {ean:"0000000007070",label:"CAROTTE JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"7070"},
+        {ean:"0000000003080",label:"CAROTTE MIXTE",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"3080"},
+        {ean:"0000000024562",label:"CAROTTE MOCHE",rayon:"FRUITS ET LEGUMES",price:"0.29",plu:"24562"},
+        {ean:"0000000005002",label:"CAROTTE VRAC",rayon:"FRUITS ET LEGUMES",price:"1.89",plu:"5002"},
+        {ean:"0000000004560",label:"CAROTTE VRAC STANDARD",rayon:"FRUITS ET LEGUMES",price:"1.69",plu:"4560"},
+        {ean:"0000000009025",label:"CARRES FOURRES FRAMBOISE",rayon:"FRUITS ET LEGUMES",price:"12.75",plu:"9025"},
+        {ean:"0000000005001",label:"CEDRAT VRAC",rayon:"FRUITS ET LEGUMES",price:"6.99",plu:"5001"},
+        {ean:"0000000004583",label:"CELERI BRANCHE VERT VRAC",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:"4583"},
+        {ean:"0000000003357",label:"CERISE VRAC STANDARD",rayon:"FRUITS ET LEGUMES",price:"8.99",plu:"3357"},
+        {ean:"0000000006005",label:"CERNEAUX DE NOIX BIO",rayon:"FRUITS ET LEGUMES",price:"22.90",plu:"6005"},
+        {ean:"0000000004085",label:"CHAMPIGNON BLANC GEANT VR",rayon:"FRUITS ET LEGUMES",price:"4.79",plu:"4085"},
+        {ean:"0000000004646",label:"CHAMPIGNON BLOND",rayon:"FRUITS ET LEGUMES",price:"6.29",plu:"4646"},
+        {ean:"0000000005005",label:"CHAMPIGNON BLOND GEANT VR",rayon:"FRUITS ET LEGUMES",price:"6.89",plu:"5005"},
+        {ean:"0000000004649",label:"CHAMPIGNON CEPE VRAC",rayon:"FRUITS ET LEGUMES",price:"39.99",plu:"4649"},
+        {ean:"0000000004650",label:"CHAMPIGNON CHANTERELLE GR",rayon:"FRUITS ET LEGUMES",price:"18.13",plu:"4650"},
+        {ean:"0000000003000",label:"CHAMPIGNON CHANTERELLE JA",rayon:"FRUITS ET LEGUMES",price:"24.99",plu:"3000"},
+        {ean:"0000000005004",label:"CHAMPIGNON CHANTERELLE JA",rayon:"FRUITS ET LEGUMES",price:"32.09",plu:"5004"},
+        {ean:"0000000004645",label:"CHAMPIGNON DE PARIS VRAC",rayon:"FRUITS ET LEGUMES",price:"6.29",plu:"4645"},
+        {ean:"0000000004651",label:"CHAMPIGNON GIROLLE VRAC",rayon:"FRUITS ET LEGUMES",price:"42.99",plu:"4651"},
+        {ean:"0000000004653",label:"CHAMPIGNON MOUSSERON VRAC",rayon:"FRUITS ET LEGUMES",price:"29.00",plu:"4653"},
+        {ean:"0000000003102",label:"CHAMPIGNON PIED DE MOUTON",rayon:"FRUITS ET LEGUMES",price:"21.99",plu:"3102"},
+        {ean:"0000000004040",label:"CHAMPIGNON PIED DE MOUTON",rayon:"FRUITS ET LEGUMES",price:"18.99",plu:"4040"},
+        {ean:"0000000004647",label:"CHAMPIGNON PLEUROTTE VRAC",rayon:"FRUITS ET LEGUMES",price:"7.99",plu:"4647"},
+        {ean:"0000000004648",label:"CHAMPIGNON SHI TAKE VRAC",rayon:"FRUITS ET LEGUMES",price:"13.99",plu:"4648"},
+        {ean:"0000000003103",label:"CHAMPIGNON TROMPETTE VRAC",rayon:"FRUITS ET LEGUMES",price:"27.39",plu:"3103"},
+        {ean:"0000000001004",label:"CHAYOTTE",rayon:"FRUITS ET LEGUMES",price:"3.79",plu:"1004"},
+        {ean:"0000000004761",label:"CHAYOTTE PIECE",rayon:"FRUITS ET LEGUMES",price:"3.79",plu:"4761"},
+        {ean:"0000000009027",label:"CHOCO BALLS",rayon:"FRUITS ET LEGUMES",price:"8.42",plu:"9027"},
+        {ean:"0000000009028",label:"CHOCO RICE CRISPIES",rayon:"FRUITS ET LEGUMES",price:"7.58",plu:"9028"},
+        {ean:"0000000009029",label:"CHOUCHOUS DU SOLEIL BIO",rayon:"FRUITS ET LEGUMES",price:"10.80",plu:"9029"},
+        {ean:"0000000004060",label:"CHOUX DE BRUXELLE",rayon:"FRUITS ET LEGUMES",price:"4.20",plu:"4060"},
+        {ean:"0000000004033",label:"CITRON JAUNE FEUILLE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"4033"},
+        {ean:"0000000004958",label:"CITRON JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.79",plu:"4958"},
+        {ean:"0000000005028",label:"CITRON JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.85",plu:"5028"},
+        {ean:"0000000007083",label:"CITROUILLE D'ETAMPES",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"7083"},
+        {ean:"0000000003384",label:"CLEMENTINE NADORCOTTE",rayon:"FRUITS ET LEGUMES",price:"2.79",plu:"3384"},
+        {ean:"0000000003029",label:"CLEMENTINE RUBY",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:"3029"},
+        {ean:"0000000003390",label:"CLEMENULES VRAC",rayon:"FRUITS ET LEGUMES",price:"2.49",plu:"3390"},
+        {ean:"0000000004447",label:"COING",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:"4447"},
+        {ean:"0000000004306",label:"COMBAVA VRAC",rayon:"FRUITS ET LEGUMES",price:"27.99",plu:"4306"},
+        {ean:"0000000006868",label:"COMBAVA VRAC",rayon:"FRUITS ET LEGUMES",price:"29.99",plu:"6868"},
+        {ean:"0000000003535",label:"CONCOMBRE NOA",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:"3535"},
+        {ean:"0000000009031",label:"COQUILLETTES",rayon:"FRUITS ET LEGUMES",price:"2.40",plu:"9031"},
+        {ean:"0000000009033",label:"CORN FLAKES BIO",rayon:"FRUITS ET LEGUMES",price:"6.40",plu:"9033"},
+        {ean:"0000000004550",label:"COURGE BUTTERN",rayon:"FRUITS ET LEGUMES",price:"2.69",plu:"4550"},
+        {ean:"0000000004768",label:"COURGE JACK BE LITTLE VRA",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:"4768"},
+        {ean:"0000000003179",label:"COURGE TRANCHE ITM",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"3179"},
+        {ean:"0000000003418",label:"COURGETTE RONDE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.49",plu:"3418"},
+        {ean:"0000000004067",label:"COURGETTE VRAC STANDARD",rayon:"FRUITS ET LEGUMES",price:"1.19",plu:"4067"},
+        {ean:"0000000009034",label:"CRANBERRIES BIO",rayon:"FRUITS ET LEGUMES",price:"24.90",plu:"9034"},
+        {ean:"0000000009035",label:"CRAQUANT AUX AMANDES",rayon:"FRUITS ET LEGUMES",price:"28.20",plu:"9035"},
+        {ean:"0000000009036",label:"CROUTON AIL ET PERSIL",rayon:"FRUITS ET LEGUMES",price:"15.10",plu:"9036"},
+        {ean:"0000000009132",label:"CROZETS AU SARAZIN",rayon:"FRUITS ET LEGUMES",price:"9.60",plu:"9132"},
+        {ean:"0000000003045",label:"DATTE FRAICHE VRAC",rayon:"FRUITS ET LEGUMES",price:"13.49",plu:"3045"},
+        {ean:"0000000004264",label:"DATTE MEDJOOL VRAC",rayon:"FRUITS ET LEGUMES",price:"13.49",plu:"4264"},
+        {ean:"0000000004662",label:"ECHALOTE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.19",plu:"4662"},
+        {ean:"0000000004543",label:"ENDIVE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.89",plu:"4543"},
+        {ean:"0000000009038",label:"EPEAUTRE",rayon:"FRUITS ET LEGUMES",price:"8.15",plu:"9038"},
+        {ean:"0000000009039",label:"FARFALLE",rayon:"FRUITS ET LEGUMES",price:"4.05",plu:"9039"},
+        {ean:"0000000009040",label:"FARFALLE COMPLETE",rayon:"FRUITS ET LEGUMES",price:"3.50",plu:"9040"},
+        {ean:"0000000004515",label:"FENOUIL VRAC",rayon:"FRUITS ET LEGUMES",price:"3.19",plu:"4515"},
+        {ean:"0000000004532",label:"FEVE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.90",plu:"4532"},
+        {ean:"0000000004255",label:"FIGUE BARBARIE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.69",plu:"4255"},
+        {ean:"0000000004266",label:"FIGUE NOIRE/Verte  VRAC",rayon:"FRUITS ET LEGUMES",price:"9.99",plu:"4266"},
+        {ean:"0000000004268",label:"FIGUE VERTE VRAC",rayon:"FRUITS ET LEGUMES",price:"24.99",plu:"4268"},
+        {ean:"0000000009041",label:"FIGUES SECHEES BIO",rayon:"FRUITS ET LEGUMES",price:"21.95",plu:"9041"},
+        {ean:"0000000006017",label:"FLOCONS D AVOINE BIO",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"6017"},
+        {ean:"0000000009043",label:"FUSILLI",rayon:"FRUITS ET LEGUMES",price:"2.50",plu:"9043"},
+        {ean:"0000000006006",label:"GINGEMBRE CONFIT BIO",rayon:"FRUITS ET LEGUMES",price:"15.40",plu:"6006"},
+        {ean:"0000000004612",label:"GINGEMBRE VRAC",rayon:"FRUITS ET LEGUMES",price:"7.39",plu:"4612"},
+        {ean:"0000000004656",label:"GOMBO VRAC",rayon:"FRUITS ET LEGUMES",price:"8.99",plu:"4656"},
+        {ean:"0000000004299",label:"GOYAVE VRAC",rayon:"FRUITS ET LEGUMES",price:"11.99",plu:"4299"},
+        {ean:"0000000009404",label:"GRAINE DE TOURNESOL BIO",rayon:"FRUITS ET LEGUMES",price:"6.90",plu:"9404"},
+        {ean:"0000000009047",label:"GRAINES DE CHANVRE BIO",rayon:"FRUITS ET LEGUMES",price:"29.00",plu:"9047"},
+        {ean:"0000000009225",label:"GRAINES DE CHIA BIO",rayon:"FRUITS ET LEGUMES",price:"16.70",plu:"9225"},
+        {ean:"0000000009049",label:"GRAINES DE LIN BIO",rayon:"FRUITS ET LEGUMES",price:"7.00",plu:"9049"},
+        {ean:"0000000009048",label:"GRAINES DE SOJA JAUNE",rayon:"FRUITS ET LEGUMES",price:"4.60",plu:"9048"},
+        {ean:"0000000004397",label:"GRENADILLE VRAC",rayon:"FRUITS ET LEGUMES",price:"16.99",plu:"4397"},
+        {ean:"0000000009909",label:"Graines de Courge Bio",rayon:"FRUITS ET LEGUMES",price:"15.60",plu:"9909"},
+        {ean:"0000000004529",label:"HARICOT COCO PAIMPOLAIS V",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:"4529"},
+        {ean:"0000000003048",label:"HARICOT COCO PLAT VRAC",rayon:"FRUITS ET LEGUMES",price:"6.89",plu:"3048"},
+        {ean:"0000000002011",label:"HARICOT VERT COCO",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"2011"},
+        {ean:"0000000003049",label:"HARICOT VERT VRAC",rayon:"FRUITS ET LEGUMES",price:"4.50",plu:"3049"},
+        {ean:"0000000009056",label:"HARICOTS NOIRS",rayon:"FRUITS ET LEGUMES",price:"4.82",plu:"9056"},
+        {ean:"0000000009003",label:"HONEY BALLS",rayon:"FRUITS ET LEGUMES",price:"6.58",plu:"9003"},
+        {ean:"0000000004303",label:"KUMQUAT VRAC",rayon:"FRUITS ET LEGUMES",price:"9.99",plu:"4303"},
+        {ean:"0000000009026",label:"LENTILLE VERTE BIO",rayon:"FRUITS ET LEGUMES",price:"8.50",plu:"9026"},
+        {ean:"0000000009913",label:"LENTILLES CORAIL BIO",rayon:"FRUITS ET LEGUMES",price:"5.55",plu:"9913"},
+        {ean:"0000000004048",label:"LIME VRAC",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:"4048"},
+        {ean:"0000000004310",label:"LITCHI BRANCHE VRAC",rayon:"FRUITS ET LEGUMES",price:"18.99",plu:"4310"},
+        {ean:"0000000005008",label:"LITCHI BRANCHE VRAC",rayon:"FRUITS ET LEGUMES",price:"22.90",plu:"5008"},
+        {ean:"0000000004309",label:"LITCHI VRAC",rayon:"FRUITS ET LEGUMES",price:"7.99",plu:"4309"},
+        {ean:"0000000003157",label:"MAIN DE BOUDDHA PIECE",rayon:"FRUITS ET LEGUMES",price:"14.99",plu:"3157"},
+        {ean:"0000000003386",label:"MANDARINE  FEUILLE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3386"},
+        {ean:"0000000003383",label:"MANDARINE  VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3383"},
+        {ean:"0000000003172",label:"MANDARINE IRRESISTIBLE VR",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"3172"},
+        {ean:"0000000004055",label:"MANDARINE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.89",plu:"4055"},
+        {ean:"0000000004449",label:"MANDARINE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.35",plu:"4449"},
+        {ean:"0000000004455",label:"MANDARINES",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"4455"},
+        {ean:"0000000003042",label:"MANGOUSTAN VRAC",rayon:"FRUITS ET LEGUMES",price:"25.99",plu:"3042"},
+        {ean:"0000000000116",label:"MANGUE SAUVAGE",rayon:"FRUITS ET LEGUMES",price:"19.29",plu:"116"},
+        {ean:"0000000009064",label:"MANGUES SECHEES BIO",rayon:"FRUITS ET LEGUMES",price:"23.50",plu:"9064"},
+        {ean:"0000000004819",label:"MANIOC VRAC",rayon:"FRUITS ET LEGUMES",price:"6.89",plu:"4819"},
+        {ean:"0000000004927",label:"MARRON VRAC",rayon:"FRUITS ET LEGUMES",price:"8.99",plu:"4927"},
+        {ean:"0000000009101",label:"MELANGE 4 NOIX GRILLE BIO",rayon:"FRUITS ET LEGUMES",price:"27.85",plu:"9101"},
+        {ean:"0000000009066",label:"MELANGE BOULANGER BIO",rayon:"FRUITS ET LEGUMES",price:"14.30",plu:"9066"},
+        {ean:"0000000009068",label:"MELANGE EXOTIQUE",rayon:"FRUITS ET LEGUMES",price:"16.52",plu:"9068"},
+        {ean:"0000000009136",label:"MELANGE GENEROSITE  BIO",rayon:"FRUITS ET LEGUMES",price:"22.60",plu:"9136"},
+        {ean:"0000000006008",label:"MELANGE GOURMET BIO",rayon:"FRUITS ET LEGUMES",price:"22.60",plu:"6008"},
+        {ean:"0000000009071",label:"MELANGE POUR SOUPE",rayon:"FRUITS ET LEGUMES",price:"9.49",plu:"9071"},
+        {ean:"0000000006009",label:"MELANGE SALADE",rayon:"FRUITS ET LEGUMES",price:"24.10",plu:"6009"},
+        {ean:"0000000009073",label:"MELANGE SUPERFRUITS",rayon:"FRUITS ET LEGUMES",price:"32.50",plu:"9073"},
+        {ean:"0000000006010",label:"MELANGE TONUS",rayon:"FRUITS ET LEGUMES",price:"22.60",plu:"6010"},
+        {ean:"0000000009075",label:"MILLET",rayon:"FRUITS ET LEGUMES",price:"4.74",plu:"9075"},
+        {ean:"0000000003031",label:"MINEOLAS VRAC",rayon:"FRUITS ET LEGUMES",price:"2.49",plu:"3031"},
+        {ean:"0000000006021",label:"MUESLI CHOCOLAT",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"6021"},
+        {ean:"0000000009053",label:"MUESLI CROUSTILLANT 4 FRU",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9053"},
+        {ean:"0000000009059",label:"MUESLI CROUSTILLANT 4 FRU",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9059"},
+        {ean:"0000000009054",label:"MUESLI CROUSTILLANT 4 NOI",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9054"},
+        {ean:"0000000009797",label:"MUESLI CROUSTILLANT 4 NOI",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9797"},
+        {ean:"0000000009052",label:"MUESLI CROUSTILLANT PETIT",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9052"},
+        {ean:"0000000009078",label:"MUESLI DU VERGER",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9078"},
+        {ean:"0000000009081",label:"MUESLI FRUITS ET GRA",rayon:"FRUITS ET LEGUMES",price:"23.26",plu:"9081"},
+        {ean:"0000000009012",label:"MUESLI FRUITS ET GRAINES",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9012"},
+        {ean:"0000000009079",label:"MUESLI FRUITS TRADITIONNE",rayon:"FRUITS ET LEGUMES",price:"10.90",plu:"9079"},
+        {ean:"0000000009080",label:"MULBERRIES",rayon:"FRUITS ET LEGUMES",price:"20.27",plu:"9080"},
+        {ean:"0000000009063",label:"Mais a pop Bio",rayon:"FRUITS ET LEGUMES",price:"1.59",plu:"9063"},
+        {ean:"0000000009906",label:"Mais a pop Bio",rayon:"FRUITS ET LEGUMES",price:"1.59",plu:"9906"},
+        {ean:"0000000009907",label:"Melange craquant Bio",rayon:"FRUITS ET LEGUMES",price:"32.50",plu:"9907"},
+        {ean:"0000000004406",label:"NASHI VRAC",rayon:"FRUITS ET LEGUMES",price:"4.49",plu:"4406"},
+        {ean:"0000000009191",label:"NASHI VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"9191"},
+        {ean:"0000000004812",label:"NAVET BLANC VRAC",rayon:"FRUITS ET LEGUMES",price:"2.60",plu:"4812"},
+        {ean:"0000000004811",label:"NAVET VIOLET VRAC",rayon:"FRUITS ET LEGUMES",price:"2.69",plu:"4811"},
+        {ean:"0000000003035",label:"NECTARINE BLANCHE VRAC PR",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"3035"},
+        {ean:"0000000004188",label:"NECTARINE BLANCHE VRAC ST",rayon:"FRUITS ET LEGUMES",price:"4.49",plu:"4188"},
+        {ean:"0000000004036",label:"NECTARINE JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"4036"},
+        {ean:"0000000004035",label:"NECTARINE JAUNE VRAC STAN",rayon:"FRUITS ET LEGUMES",price:"4.29",plu:"4035"},
+        {ean:"0000000004377",label:"NECTARINE PLATE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"4377"},
+        {ean:"0000000004308",label:"NEFLE VRAC",rayon:"FRUITS ET LEGUMES",price:"10.50",plu:"4308"},
+        {ean:"0000000003044",label:"NOISETTE",rayon:"FRUITS ET LEGUMES",price:"8.99",plu:"3044"},
+        {ean:"0000000004928",label:"NOISETTE/ AMANDE  VRAC",rayon:"FRUITS ET LEGUMES",price:"8.99",plu:"4928"},
+        {ean:"0000000009082",label:"NOISETTES CARAMELISEES",rayon:"FRUITS ET LEGUMES",price:"16.60",plu:"9082"},
+        {ean:"0000000006011",label:"NOISETTES DECORTIQUEES",rayon:"FRUITS ET LEGUMES",price:"27.89",plu:"6011"},
+        {ean:"0000000009084",label:"NOISETTES EMONDEES GRILLE",rayon:"FRUITS ET LEGUMES",price:"33.21",plu:"9084"},
+        {ean:"0000000009085",label:"NOISETTES EN POUDRE",rayon:"FRUITS ET LEGUMES",price:"27.90",plu:"9085"},
+        {ean:"0000000009087",label:"NOIX DE CAJOU CURRY",rayon:"FRUITS ET LEGUMES",price:"33.90",plu:"9087"},
+        {ean:"0000000009094",label:"NOIX DE CAJOU CURRY",rayon:"FRUITS ET LEGUMES",price:"29.90",plu:"9094"},
+        {ean:"0000000009088",label:"NOIX DE CAJOU GRILLEES",rayon:"FRUITS ET LEGUMES",price:"23.22",plu:"9088"},
+        {ean:"0000000009131",label:"NOIX DE CAJOUAIL NOIX",rayon:"FRUITS ET LEGUMES",price:"33.90",plu:"9131"},
+        {ean:"0000000009089",label:"NOIX DE COCO LAMELLE",rayon:"FRUITS ET LEGUMES",price:"10.00",plu:"9089"},
+        {ean:"0000000009091",label:"NOIX DE COCO RAPEE",rayon:"FRUITS ET LEGUMES",price:"9.90",plu:"9091"},
+        {ean:"0000000009292",label:"NOIX DE COLA VRAC",rayon:"FRUITS ET LEGUMES",price:"25.99",plu:"9292"},
+        {ean:"0000000009092",label:"NOIX DE MACADAMIA",rayon:"FRUITS ET LEGUMES",price:"39.90",plu:"9092"},
+        {ean:"0000000009102",label:"NOIX DE PECAN",rayon:"FRUITS ET LEGUMES",price:"47.99",plu:"9102"},
+        {ean:"0000000006014",label:"NOIX DU BRESIL",rayon:"FRUITS ET LEGUMES",price:"44.80",plu:"6014"},
+        {ean:"0000000004943",label:"NOIX VRAC",rayon:"FRUITS ET LEGUMES",price:"6.99",plu:"4943"},
+        {ean:"0000000009908",label:"Noisettes caramelisees Bi",rayon:"FRUITS ET LEGUMES",price:"17.00",plu:"9908"},
+        {ean:"0000000004663",label:"OIGNON BLANC VRAC",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"4663"},
+        {ean:"0000000004665",label:"OIGNON JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.69",plu:"4665"},
+        {ean:"0000000004082",label:"OIGNON ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.20",plu:"4082"},
+        {ean:"0000000009095",label:"OIGNONS FRITS",rayon:"FRUITS ET LEGUMES",price:"15.30",plu:"9095"},
+        {ean:"0000000004000",label:"OLIVES VRAC",rayon:"FRUITS ET LEGUMES",price:"9.95",plu:"4000"},
+        {ean:"0000000003110",label:"ORANG.FILME N/TRAITE",rayon:"FRUITS ET LEGUMES",price:"2.29",plu:"3110"},
+        {ean:"0000000004382",label:"ORANGE A JUS",rayon:"FRUITS ET LEGUMES",price:"1.49",plu:"4382"},
+        {ean:"0000000004388",label:"ORANGE A JUS VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"4388"},
+        {ean:"0000000004012",label:"ORANGE DESSERT  VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"4012"},
+        {ean:"0000000003107",label:"ORANGE FEUILLE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3107"},
+        {ean:"0000000003370",label:"ORANGE MALTAISE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3370"},
+        {ean:"0000000004384",label:"ORANGE MMP NT APRES RECOL",rayon:"FRUITS ET LEGUMES",price:"2.69",plu:"4384"},
+        {ean:"0000000004383",label:"ORANGE NAVELINE NON TRAIT",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:"4383"},
+        {ean:"0000000004386",label:"ORANGE POUR MACHINE A JUS",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:"4386"},
+        {ean:"0000000004381",label:"ORANGE SANGUINE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.19",plu:"4381"},
+        {ean:"0000000014400",label:"P MINI PLAT.PECHE BLC",rayon:"FRUITS ET LEGUMES",price:"1.50",plu:"14400"},
+        {ean:"0000000014037",label:"P MINI PLAT.PECHE JNE",rayon:"FRUITS ET LEGUMES",price:"1.50",plu:"14037"},
+        {ean:"0000000003053",label:"PANAIS VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"3053"},
+        {ean:"0000000005051",label:"PASTEQUE ALLONGEE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.50",plu:"5051"},
+        {ean:"0000000005052",label:"PASTEQUE RAYEE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:"5052"},
+        {ean:"0000000004763",label:"PATATE DOUCE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.79",plu:"4763"},
+        {ean:"0000000009097",label:"PAVOT BLEU",rayon:"FRUITS ET LEGUMES",price:"14.23",plu:"9097"},
+        {ean:"0000000004726",label:"PDT RATTE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4726"},
+        {ean:"0000000004401",label:"PECHE BLANCHE VRAC PREMIU",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"4401"},
+        {ean:"0000000004400",label:"PECHE BLANCHE VRAC STANDA",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4400"},
+        {ean:"0000000004038",label:"PECHE JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"4038"},
+        {ean:"0000000004037",label:"PECHE JAUNE VRAC STANDARD",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4037"},
+        {ean:"0000000003113",label:"PECHE PLATE VRAC STANDARD",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:"3113"},
+        {ean:"0000000009098",label:"PENNE RIGATE",rayon:"FRUITS ET LEGUMES",price:"2.40",plu:"9098"},
+        {ean:"0000000009099",label:"PENNE RIGATE COMPLETE",rayon:"FRUITS ET LEGUMES",price:"4.80",plu:"9099"},
+        {ean:"0000000004674",label:"PETIT POIS VRAC",rayon:"FRUITS ET LEGUMES",price:"5.70",plu:"4674"},
+        {ean:"0000000009100",label:"PIGNONS DE PIN",rayon:"FRUITS ET LEGUMES",price:"67.99",plu:"9100"},
+        {ean:"0000000001005",label:"PIMENT ANTILLAIS",rayon:"FRUITS ET LEGUMES",price:"13.99",plu:"1005"},
+        {ean:"0000000004697",label:"PIMENT ANTILLAIS VRAC",rayon:"FRUITS ET LEGUMES",price:"13.99",plu:"4697"},
+        {ean:"0000000004691",label:"PIMENT OISEAU VRAC",rayon:"FRUITS ET LEGUMES",price:"24.99",plu:"4691"},
+        {ean:"0000000004702",label:"PIMENT ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.29",plu:"4702"},
+        {ean:"0000000004701",label:"PIMENT VERT VRAC",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"4701"},
+        {ean:"0000000004130",label:"PINK LADY",rayon:"FRUITS ET LEGUMES",price:"2.69",plu:"4130"},
+        {ean:"0000000006016",label:"PISTACHES GRILLEES SALEES",rayon:"FRUITS ET LEGUMES",price:"44.90",plu:"6016"},
+        {ean:"0000000003319",label:"PITAYA JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"18.99",plu:"3319"},
+        {ean:"0000000003040",label:"PITAYA ROSE VRAC",rayon:"FRUITS ET LEGUMES",price:"17.99",plu:"3040"},
+        {ean:"0000000003012",label:"POIRE ABATE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.49",plu:"3012"},
+        {ean:"0000000000011",label:"POIRE ANGELYS VRAC",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"11"},
+        {ean:"0000000003015",label:"POIRE ANGELYS VRAC",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"3015"},
+        {ean:"0000000005012",label:"POIRE ANGYS",rayon:"FRUITS ET LEGUMES",price:"4.89",plu:"5012"},
+        {ean:"0000000003378",label:"POIRE BERENICE",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"3378"},
+        {ean:"0000000003013",label:"POIRE BEURRE HARDY VRAC",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"3013"},
+        {ean:"0000000004414",label:"POIRE COMICE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.89",plu:"4414"},
+        {ean:"0000000003017",label:"POIRE CONFERENCE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3017"},
+        {ean:"0000000003019",label:"POIRE FORELLE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"3019"},
+        {ean:"0000000003021",label:"POIRE GUYOT VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3021"},
+        {ean:"0000000004408",label:"POIRE NASHIS CUIVRE",rayon:"FRUITS ET LEGUMES",price:"4.49",plu:"4408"},
+        {ean:"0000000003495",label:"POIRE QTEE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.19",plu:"3495"},
+        {ean:"0000000003024",label:"POIRE ROCHAS VRAC",rayon:"FRUITS ET LEGUMES",price:"3.79",plu:"3024"},
+        {ean:"0000000004024",label:"POIRE WILLIAM ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.37",plu:"4024"},
+        {ean:"0000000004409",label:"POIRE WILLIAM VERTE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"4409"},
+        {ean:"0000000005015",label:"POIRE XENIA VRAC",rayon:"FRUITS ET LEGUMES",price:"3.29",plu:"5015"},
+        {ean:"0000000004629",label:"POIREAU VRAC",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"4629"},
+        {ean:"0000000009103",label:"POIS CASSES VERTS",rayon:"FRUITS ET LEGUMES",price:"5.45",plu:"9103"},
+        {ean:"0000000009104",label:"POIS CHICHE",rayon:"FRUITS ET LEGUMES",price:"4.80",plu:"9104"},
+        {ean:"0000000009105",label:"POIVRE NOIR EN GRAINS",rayon:"FRUITS ET LEGUMES",price:"56.70",plu:"9105"},
+        {ean:"0000000004682",label:"POIVRON CORNE DE BOEUF",rayon:"FRUITS ET LEGUMES",price:"2.29",plu:"4682"},
+        {ean:"0000000003054",label:"POIVRON CORNE DE BOEUF VR",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"3054"},
+        {ean:"0000000004689",label:"POIVRON JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:"4689"},
+        {ean:"0000000003121",label:"POIVRON ORANGE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.59",plu:"3121"},
+        {ean:"0000000004065",label:"POIVRON ROUGE VRAC STANDA",rayon:"FRUITS ET LEGUMES",price:"5.89",plu:"4065"},
+        {ean:"0000000003119",label:"POIVRON VERT VRAC STANDAR",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"3119"},
+        {ean:"0000000003002",label:"POMME ANTARES VRAC",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:"3002"},
+        {ean:"0000000004133",label:"POMME BEEN'S",rayon:"FRUITS ET LEGUMES",price:"2.19",plu:"4133"},
+        {ean:"0000000004017",label:"POMME BEEN'S VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"4017"},
+        {ean:"0000000005019",label:"POMME CHANTECLER VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"5019"},
+        {ean:"0000000003343",label:"POMME COEUR DE REINE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3343"},
+        {ean:"0000000005018",label:"POMME COEUR DE REINE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"5018"},
+        {ean:"0000000004083",label:"POMME DE TERRE CONSO VRAC",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:"4083"},
+        {ean:"0000000004072",label:"POMME DE TERRE ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"1.39",plu:"4072"},
+        {ean:"0000000003005",label:"POMME DELISDOR VRAC STAND",rayon:"FRUITS ET LEGUMES",price:"1.69",plu:"3005"},
+        {ean:"0000000004135",label:"POMME GALA VRAC",rayon:"FRUITS ET LEGUMES",price:"3.29",plu:"4135"},
+        {ean:"0000000005046",label:"POMME GALIPETTE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"5046"},
+        {ean:"0000000003340",label:"POMME GRANNY VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3340"},
+        {ean:"0000000004018",label:"POMME GRANNY VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"4018"},
+        {ean:"0000000003283",label:"POMME HONEY CRUNCH VRAC",rayon:"FRUITS ET LEGUMES",price:"3.05",plu:"3283"},
+        {ean:"0000000003293",label:"POMME JAZZ  VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3293"},
+        {ean:"0000000003294",label:"POMME JAZZ VRAC",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:"3294"},
+        {ean:"0000000003011",label:"POMME JOYA VRAC",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:"3011"},
+        {ean:"0000000003181",label:"POMME JULIET VRAC",rayon:"FRUITS ET LEGUMES",price:"3.00",plu:"3181"},
+        {ean:"0000000003009",label:"POMME MMP CANADA VRAC",rayon:"FRUITS ET LEGUMES",price:"3.79",plu:"3009"},
+        {ean:"0000000003004",label:"POMME MMP DELISDOR VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"3004"},
+        {ean:"0000000004136",label:"POMME MMP GOLDEN VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4136"},
+        {ean:"0000000003435",label:"POMME NINA VRAC",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:"3435"},
+        {ean:"0000000004128",label:"POMME PINK LADY VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4128"},
+        {ean:"0000000003351",label:"POMME REINE DES REINETTES",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:"3351"},
+        {ean:"0000000009107",label:"POMMES SECHEES",rayon:"FRUITS ET LEGUMES",price:"28.40",plu:"9107"},
+        {ean:"0000000004437",label:"PRUNE BLEUE QUETSCH",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"4437"},
+        {ean:"0000000004442",label:"PRUNE JAUNE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"4442"},
+        {ean:"0000000004441",label:"PRUNE MIRABELLE VRAC",rayon:"FRUITS ET LEGUMES",price:"7.50",plu:"4441"},
+        {ean:"0000000004042",label:"PRUNE PRESIDENT VRAC",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:"4042"},
+        {ean:"0000000004438",label:"PRUNE QUETSCHE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.69",plu:"4438"},
+        {ean:"0000000004434",label:"PRUNE REINE CLAUDE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.19",plu:"4434"},
+        {ean:"0000000004041",label:"PRUNE ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.49",plu:"4041"},
+        {ean:"0000000004435",label:"PRUNE VERTE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.49",plu:"4435"},
+        {ean:"0000000009910",label:"Pignons de pin Bio",rayon:"FRUITS ET LEGUMES",price:"69.00",plu:"9910"},
+        {ean:"0000000009109",label:"QUINOA",rayon:"FRUITS ET LEGUMES",price:"13.40",plu:"9109"},
+        {ean:"0000000009110",label:"QUINOA TRICOLORE",rayon:"FRUITS ET LEGUMES",price:"12.30",plu:"9110"},
+        {ean:"0000000004022",label:"RAISIN BLANC DANLAS VRAC",rayon:"FRUITS ET LEGUMES",price:"6.99",plu:"4022"},
+        {ean:"0000000003043",label:"RAISIN BLANC IMPORT VRAC",rayon:"FRUITS ET LEGUMES",price:"2.29",plu:"3043"},
+        {ean:"0000000004274",label:"RAISIN BLANC ITALIA VRAC",rayon:"FRUITS ET LEGUMES",price:"5.89",plu:"4274"},
+        {ean:"0000000014056",label:"RAISIN NOIR DE TABLE",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:"14056"},
+        {ean:"0000000004957",label:"RAISIN NOIR MUSCAT VRAC",rayon:"FRUITS ET LEGUMES",price:"6.29",plu:"4957"},
+        {ean:"0000000004023",label:"RAISIN NOIR VRAC",rayon:"FRUITS ET LEGUMES",price:"6.49",plu:"4023"},
+        {ean:"0000000004636",label:"RAISIN RED GLOBE",rayon:"FRUITS ET LEGUMES",price:"6.99",plu:"4636"},
+        {ean:"0000000009111",label:"RAISINS SECS",rayon:"FRUITS ET LEGUMES",price:"13.50",plu:"9111"},
+        {ean:"0000000003041",label:"RAMBOUTAN",rayon:"FRUITS ET LEGUMES",price:"20.99",plu:"3041"},
+        {ean:"0000000001111",label:"RHUBARBE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.89",plu:"1111"},
+        {ean:"0000000006018",label:"RIZ BASMATI BLANC",rayon:"FRUITS ET LEGUMES",price:"5.87",plu:"6018"},
+        {ean:"0000000009032",label:"RIZ BASMATI BLANC BIO",rayon:"FRUITS ET LEGUMES",price:"5.87",plu:"9032"},
+        {ean:"0000000009113",label:"RIZ GOURMAND",rayon:"FRUITS ET LEGUMES",price:"7.80",plu:"9113"},
+        {ean:"0000000009114",label:"RIZ LONG BLANC",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"9114"},
+        {ean:"0000000009117",label:"RIZ ROND COMPLET",rayon:"FRUITS ET LEGUMES",price:"5.49",plu:"9117"},
+        {ean:"0000000009118",label:"RIZ ROUGE",rayon:"FRUITS ET LEGUMES",price:"5.49",plu:"9118"},
+        {ean:"0000000004747",label:"RUTABAGA VRAC",rayon:"FRUITS ET LEGUMES",price:"2.45",plu:"4747"},
+        {ean:"0000000009121",label:"SABLE CHOCOLAT",rayon:"FRUITS ET LEGUMES",price:"27.00",plu:"9121"},
+        {ean:"0000000009123",label:"SARRASIN",rayon:"FRUITS ET LEGUMES",price:"7.10",plu:"9123"},
+        {ean:"0000000009124",label:"SEMOULE DE BLE",rayon:"FRUITS ET LEGUMES",price:"3.75",plu:"9124"},
+        {ean:"0000000009125",label:"SESAME COMPLET",rayon:"FRUITS ET LEGUMES",price:"11.60",plu:"9125"},
+        {ean:"0000000009126",label:"SON D AVOINE",rayon:"FRUITS ET LEGUMES",price:"4.50",plu:"9126"},
+        {ean:"0000000009129",label:"SUCRE DE CANNE COMPLET",rayon:"FRUITS ET LEGUMES",price:"11.10",plu:"9129"},
+        {ean:"0000000009130",label:"SUCRE DE COCO",rayon:"FRUITS ET LEGUMES",price:"11.10",plu:"9130"},
+        {ean:"0000000004448",label:"TAMARILLO VRAC",rayon:"FRUITS ET LEGUMES",price:"12.99",plu:"4448"},
+        {ean:"0000000002020",label:"TAMARIN",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"2020"},
+        {ean:"0000000009137",label:"TISANE VERVEINE",rayon:"FRUITS ET LEGUMES",price:"85.00",plu:"9137"},
+        {ean:"0000000003145",label:"TOMATE  ALLONGEE VRAC",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"3145"},
+        {ean:"0000000004799",label:"TOMATE A FARCIR VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"4799"},
+        {ean:"0000000003150",label:"TOMATE ALLONGEE TORINO",rayon:"FRUITS ET LEGUMES",price:"4.59",plu:"3150"},
+        {ean:"0000000004800",label:"TOMATE ANCIENNE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.29",plu:"4800"},
+        {ean:"0000000004063",label:"TOMATE CERISE PANACHEE VR",rayon:"FRUITS ET LEGUMES",price:"7.99",plu:"4063"},
+        {ean:"0000000003335",label:"TOMATE CERISE RONDE EN GR",rayon:"FRUITS ET LEGUMES",price:"7.50",plu:"3335"},
+        {ean:"0000000004797",label:"TOMATE CERISE RONDE JAUNE",rayon:"FRUITS ET LEGUMES",price:"7.50",plu:"4797"},
+        {ean:"0000000005041",label:"TOMATE CERISE RONDE NOIRE",rayon:"FRUITS ET LEGUMES",price:"7.50",plu:"5041"},
+        {ean:"0000000004796",label:"TOMATE CERISE VRAC",rayon:"FRUITS ET LEGUMES",price:"7.50",plu:"4796"},
+        {ean:"0000000003336",label:"TOMATE COCKTAIL GRAPPE VR",rayon:"FRUITS ET LEGUMES",price:"7.99",plu:"3336"},
+        {ean:"0000000006758",label:"TOMATE COTELEE BLEUE VRAC",rayon:"FRUITS ET LEGUMES",price:"5.49",plu:"6758"},
+        {ean:"0000000004778",label:"TOMATE COTELEE JAUNE",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"4778"},
+        {ean:"0000000004808",label:"TOMATE COTELEE NOIRE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"4808"},
+        {ean:"0000000004807",label:"TOMATE COTELEE ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:"4807"},
+        {ean:"0000000004664",label:"TOMATE GRAPPE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.89",plu:"4664"},
+        {ean:"0000000003148",label:"TOMATE JAUNE GRAPPE",rayon:"FRUITS ET LEGUMES",price:"6.86",plu:"3148"},
+        {ean:"0000000004064",label:"TOMATE KUMATO VRAC",rayon:"FRUITS ET LEGUMES",price:"5.29",plu:"4064"},
+        {ean:"0000000004806",label:"TOMATE MMP COEUR DE BOEUF",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"4806"},
+        {ean:"0000000004856",label:"TOMATE REDNOIR 600G",rayon:"FRUITS ET LEGUMES",price:"2.29",plu:"4856"},
+        {ean:"0000000005034",label:"TOMATE RONDE EN GRAPPE VR",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:"5034"},
+        {ean:"0000000004805",label:"TOMATE ROSE  COTELEE",rayon:"FRUITS ET LEGUMES",price:"6.75",plu:"4805"},
+        {ean:"0000000004804",label:"TOMATE ZEBREE NATURE URBA",rayon:"FRUITS ET LEGUMES",price:"6.99",plu:"4804"},
+        {ean:"0000000004791",label:"TOPINAMBOUR VRAC",rayon:"FRUITS ET LEGUMES",price:"2.95",plu:"4791"},
+        {ean:"0000000009139",label:"TRIANGLES OLIVES. HERBES",rayon:"FRUITS ET LEGUMES",price:"22.95",plu:"9139"},
+        {ean:"0000000009138",label:"melange sel et poivre",rayon:"FRUITS ET LEGUMES",price:"33.99",plu:"9138"},
+        {ean:"0000000009134",label:"melange vitalite",rayon:"FRUITS ET LEGUMES",price:"32.50",plu:"9134"},
+        {ean:"0000000004122",label:"HUITRE VRAC N 2",rayon:"PRODUITS DE LA MER TRAD",price:"13.99",plu:"4122"},
+        {ean:"0000000004343",label:"HUITRE VRAC N 2",rayon:"PRODUITS DE LA MER TRAD",price:"13.99",plu:"4343"}
+    ];
+
+    /* Les articles que le moteur de valorisation remise, tires de
+       offers-07039.csv : le libelle porte l'avantage attendu, pour qu'on
+       puisse comparer a l'ecran ce que la caisse annonce. Un article vise par
+       deux offres (remise simple ET lot) les porte toutes les deux — c'est
+       la que le moteur arbitre. Les offres sans EAN — livraison, franco de
+       port, consigne, titres-restaurant, bon sur le ticket, cagnotte — ne
+       sont pas ici: elles se declenchent sur le ticket, pas sur un scan. */
+    const PROMO_07039 = [
+        {ean:"3456300009125",label:"JBV Bonbons de chocolat n — −15 %",rayon:"PROMOTIONS",price:"18.63",plu:null},
+        {ean:"3700214617106",label:"A.ECO CAFE ETHIOPIE BIO 2 — −1,00 € + lot à 7,40 €",rayon:"PROMOTIONS",price:"5.32",plu:null},
+        {ean:"3579630303395",label:"BAGUETTE PIZZA ROYALE/ 17 — −2,00 €",rayon:"PROMOTIONS",price:"2.99",plu:null},
+        {ean:"3080216059488",label:"1664 BIERE BLANCHE 5D 50C — −20 %",rayon:"PROMOTIONS",price:"2.07",plu:null},
+        {ean:"3760043160808",label:"FAYES FROMAGE BLANC 0%MG — −10 % + lot à 12,94 €",rayon:"PROMOTIONS",price:"6.20",plu:null},
+        {ean:"3180194062118",label:"7H.SHAMPOO ISF ANTI-ODEUR — −30 %",rayon:"PROMOTIONS",price:"10.07",plu:null},
+        {ean:"3574313401160",label:"90G RILL THON — −0,50 €",rayon:"PROMOTIONS",price:"3.73",plu:null},
+        {ean:"3250393126215",label:"ABRICOT A CONFITURE PLATE — −25 %",rayon:"PROMOTIONS",price:"11.49",plu:null},
+        {ean:"3250393475238",label:"ADELIE CONE YAOURT FR X6 — 3 achetés, 1 offert",rayon:"PROMOTIONS",price:"3.27",plu:null},
+        {ean:"8050327350038",label:"CRODO LEMON SODA — 1 acheté, 1 offert",rayon:"PROMOTIONS",price:"1.31",plu:null},
+        {ean:"3250390050179",label:"AIX LES BAINS EAU MIN — 5 achetés, 1 offert",rayon:"PROMOTIONS",price:"0.79",plu:null},
+        {ean:"3546941101385",label:"35G MEL SPECULOS BISCUITS — lot à 7,40 €",rayon:"PROMOTIONS",price:"3.39",plu:null},
+        {ean:"3288131510606",label:"BB PATES BOLOGN.VEG.BIO40 — lot à 12,94 €",rayon:"PROMOTIONS",price:"4.09",plu:null},
+        {ean:"3450601036811",label:"A.VERT LESSIVE BEBE 1.2L — −5 % dès 10,00 € puis −10 % dès 20,00 €",rayon:"PROMOTIONS",price:"7.45",plu:null},
+        {ean:"3286010060112",label:"BIOLANE COUCHE ECO JUMBO — −50 % contre 5 vignettes",rayon:"PROMOTIONS",price:"21.13",plu:null},
+        {ean:"3770008346307",label:"DENTIFRICE - MENTHE POIVR — −2,00 € contre 3 vignettes",rayon:"PROMOTIONS",price:"15.53",plu:null}
+    ];
+
+    const FORBIDDEN_07039 = [
+        {ean:"3181238992682",label:"CHARAL FOCACCIA BOEUF 165",rayon:"BOUCHERIE LS",price:"4.30",plu:null},
+        {ean:"3275461006367",label:"FE FILET MIGNON 30T 75G",rayon:"CHARCUTERIE TRAD",price:"3.95",plu:null},
+        {ean:"0000002255574",label:"FILET MIGNON SECHE HORS F",rayon:"CHARCUTERIE TRAITEUR LS",price:"50.16",plu:null},
+        {ean:"3278584150436",label:"SESAME 125 G",rayon:"EPICERIE SUCREE",price:"1.95",plu:null},
+        {ean:"0000000003034",label:"MELON GROS CALIBRE PIECE",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"0000000003151",label:"TOMATE RONDE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"0000000003171",label:"CLEMENTINE IRRESISTIBLE V",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:null},
+        {ean:"0000000003301",label:"POMME CRIPPS PINK VRAC",rayon:"FRUITS ET LEGUMES",price:"3.79",plu:null},
+        {ean:"0000000003317",label:"POIRE PACKAM S TRIUMPH VR",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:null},
+        {ean:"0000000003359",label:"RAISIN BLANC CHASSELAS VR",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:null},
+        {ean:"0000000003385",label:"CLEMENTINE FEUILLE CORSE",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:null},
+        {ean:"0000000004021",label:"POMME BEEN'S  VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"0000000004062",label:"CONCOMBRE NOA VRAC",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:null},
+        {ean:"0000000004104",label:"POMME MMP ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"0000000004129",label:"POMME FUJI VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"0000000004145",label:"POMME JONAGOLD VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"0000000004174",label:"POMMES ROYAL-GALA",rayon:"FRUITS ET LEGUMES",price:"1.99",plu:null},
+        {ean:"0000000004803",label:"TOMATE COTELEE AUMONIERE",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:null},
+        {ean:"0000000006060",label:"LOT DE  3 KAKI",rayon:"FRUITS ET LEGUMES",price:"1.80",plu:null},
+        {ean:"0000000006666",label:"LOT DE 2 BATAVIA",rayon:"FRUITS ET LEGUMES",price:"1.49",plu:null},
+        {ean:"0000000008451",label:"LOT DE 2 ARTICHAUTS",rayon:"FRUITS ET LEGUMES",price:"1.30",plu:null},
+        {ean:"0346160104050",label:"MELON GROS CALIBRE PIECE",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"2800237000000",label:"TOMATE RONDE VRAC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"2800275000000",label:"POMME BEEN'S CHANTECLERC",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"2800285000000",label:"RAISIN BLANC CHASSELAS VR",rayon:"FRUITS ET LEGUMES",price:"5.99",plu:null},
+        {ean:"2800299000000",label:"CLEMENTINE CORSE FEUILLE",rayon:"FRUITS ET LEGUMES",price:"3.99",plu:null},
+        {ean:"2800313000000",label:"PDT BLONDE CHAIR FERME VR",rayon:"FRUITS ET LEGUMES",price:"1.79",plu:null},
+        {ean:"2800337000000",label:"POMME GOLDEN PETIT CALIBR",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"2800390000000",label:"POMME BRAEBURN VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"2800391000000",label:"POMME ROUGE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"2800396000000",label:"POMME FUJI VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"2800402000000",label:"POMME JONAGOLD VRAC",rayon:"FRUITS ET LEGUMES",price:"3.59",plu:null},
+        {ean:"2800416000000",label:"BANANE ROSE VRAC",rayon:"FRUITS ET LEGUMES",price:"1108.89",plu:null},
+        {ean:"2800591000000",label:"CONCOMBRE NOA VRAC",rayon:"FRUITS ET LEGUMES",price:"2.59",plu:null},
+        {ean:"2800594000000",label:"TOMATE COTELEE AUMONIERE",rayon:"FRUITS ET LEGUMES",price:"4.99",plu:null},
+        {ean:"2802094000000",label:"CLEMENTINE IRRESISTIBLE V",rayon:"FRUITS ET LEGUMES",price:"3.49",plu:null},
+        {ean:"2891691000000",label:"POMME CRIPPS PINK VRAC",rayon:"FRUITS ET LEGUMES",price:"3.79",plu:null},
+        {ean:"2891742000000",label:"POMME BLUE REINE VRAC",rayon:"FRUITS ET LEGUMES",price:"3.39",plu:null},
+        {ean:"2891775000000",label:"ANANAS AVION VRAC",rayon:"FRUITS ET LEGUMES",price:"3.89",plu:null},
+        {ean:"3760190040725",label:"MELON GROS CALIBRE PIECE",rayon:"FRUITS ET LEGUMES",price:"2.99",plu:null},
+        {ean:"3000046126341",label:"Bche HuÃ®tre Nor.N3-2kg",rayon:"PRODUITS DE LA MER TRAD",price:"16.20",plu:null},
+        {ean:"3000046126396",label:"Bche HuÃ®tre Nor.N2-2.5kg",rayon:"PRODUITS DE LA MER TRAD",price:"20.31",plu:null},
+        {ean:"3000046284089",label:"Bche HuÃ®tre Bouz.N3-2kg",rayon:"PRODUITS DE LA MER TRAD",price:"13.90",plu:null},
+        {ean:"3000095284085",label:"Bche HuÃ®tre Bouz.N3-4kg",rayon:"PRODUITS DE LA MER TRAD",price:"27.80",plu:null},
+        {ean:"3250391471584",label:"Bche HuÃ®tre spe Nor.S.Mou",rayon:"PRODUITS DE LA MER TRAD",price:"15.50",plu:null}
+    ];
+
+    function addOption(select, groups, article, groupName) {
+        if (!groups[groupName]) {
+            groups[groupName] = document.createElement('optgroup');
+            groups[groupName].label = groupName;
+            select.appendChild(groups[groupName]);
+        }
+        const option = document.createElement('option');
+        option.value = article.ean;
+        option.textContent = article.ean + ' - ' + article.label
+                + (article.price ? '  (' + article.price + ' €)' : '');
+        groups[groupName].appendChild(option);
+    }
+
+    /* Les courses du quotidien d'abord, groupées par ce qu'on cherche ; le
+       reste du magasin ensuite, groupé par rayon. */
+    function fillFromSample(select) {
+        const chosen = select.value;
+        select.textContent = '';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '-- Sélectionner --';
+        select.appendChild(empty);
+        const groups = {};
+        PROMO_07039.forEach(a => addOption(select, groups, a, '🎁 Promotions'));
+        FORBIDDEN_07039.forEach(a => addOption(select, groups, a, '⛔ Interdits à la vente'));
+        EVERYDAY_07039.forEach(a => addOption(select, groups, a, '🛒 ' + a.keyword));
+        CATALOG_07039.forEach(a => addOption(select, groups, a, a.rayon));
+        if (chosen) { select.value = chosen; }
+    }
+
+    /* La liste balance est indexée par PLU et non par EAN : c'est le PLU que
+       la balance envoie et que le comptoir imprime. */
+    function fillPluFromSample(select) {
+        const chosen = select.value;
+        select.textContent = '';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '-- Sélectionner --';
+        select.appendChild(empty);
+        const groups = {};
+        WEIGHED_07039.forEach(article => {
+            if (!groups[article.rayon]) {
+                groups[article.rayon] = document.createElement('optgroup');
+                groups[article.rayon].label = article.rayon;
+                select.appendChild(groups[article.rayon]);
+            }
+            const option = document.createElement('option');
+            option.value = article.plu;
+            option.textContent = article.plu + ' - ' + article.label
+                    + (article.price ? '  (' + article.price + ' €)' : '');
+            groups[article.rayon].appendChild(option);
+        });
+        if (chosen) { select.value = chosen; }
+    }
+
+    function loadCatalog() {
+        fillFromSample(document.getElementById('eanList'));
+        fillFromSample(document.getElementById('counterEan'));
+        fillPluFromSample(document.getElementById('scalePlu'));
+        const note = document.getElementById('catalogNote');
+        if (note) {
+            note.innerText = PROMO_07039.length + ' en promotion + '
+                    + EVERYDAY_07039.length + ' produits courants + '
+                    + CATALOG_07039.length + ' un par famille au scan · '
+                    + WEIGHED_07039.length + ' pesés à la balance · '
+                    + FORBIDDEN_07039.length + ' interdits — échantillon FIGÉ du flux 07039';
+            note.className = 'status success';
+        }
+    }
+
+    loadCatalog();
+
+    // --- ACTIONS ---
+    async function postPosAction(action, data, statusElement) {
+        const url = `http://localhost:8080/api/pos/${action}`;
+        statusElement.innerText = "Envoi...";
+        statusElement.className = "status";
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: data
+            });
+
+            if (response.ok) {
+                statusElement.innerText = "Succès (200 OK)";
+                statusElement.className = "status success";
+            } else {
+                statusElement.innerText = `Erreur Serveur (${response.status})`;
+                statusElement.className = "status error";
+            }
+        } catch (error) {
+            statusElement.innerText = "Erreur Réseau";
+            statusElement.className = "status error";
+        }
+    }
+
+    async function postHardwareAction(action, data, statusElement) {
+        const url = `http://localhost:8080/api/hardware/${action}`;
+        if(statusElement) {
+            statusElement.innerText = "Envoi...";
+            statusElement.className = "status";
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: data
+            });
+            if (response.ok && statusElement) {
+                statusElement.innerText = "Commande envoyée !";
+                statusElement.className = "status success";
+            }
+        } catch (error) {
+            if(statusElement) {
+                statusElement.innerText = "Erreur Réseau";
+                statusElement.className = "status error";
+            }
+        }
+    }
+
+    /* Polls the register's virtual payment terminal for a pending request. */
+    function pollTpe() {
+        fetch('http://localhost:8080/api/hardware/tpe')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('tpeAmount').innerText = data.pending ? `DEMANDE : ${data.amount} €` : 'Aucune demande';
+                document.getElementById('tpeAccept').disabled = !data.pending;
+                document.getElementById('tpeRefuse').disabled = !data.pending;
+            })
+            .catch(() => {});
+    }
+    setInterval(pollTpe, 1000);
+
+    /* Sends the terminal decision (accept or refuse) on the pending request. */
+    function tpeDecide(decision) {
+        const status = document.getElementById('tpeStatus');
+        fetch(`http://localhost:8080/api/hardware/tpe/${decision}`, { method: 'POST' })
+            .then(r => {
+                status.innerText = r.ok ? (decision === 'accept' ? 'Paiement accepté' : 'Paiement refusé') : 'Aucune demande en attente';
+                status.className = r.ok ? 'status success' : 'status error';
+                pollTpe();
+            })
+            .catch(() => { status.innerText = 'Caisse injoignable'; status.className = 'status error'; });
+    }
+
+
+    /* Computes the EAN13 check digit of a 12-digit body. */
+    function ean13Checksum(body12) {
+        let sum = 0;
+        for (let i = 0; i < 12; i++) {
+            const d = body12.charCodeAt(i) - 48;
+            sum += (i % 2 === 0) ? d : d * 3;
+        }
+        return String((10 - (sum % 10)) % 10);
+    }
+
+    /* Builds and scans an in-store 2x label: prefix + 5-digit article code
+       + 5-digit value (cents for price labels, grams for weight labels)
+       + valid EAN13 check digit. */
+    function sendScaleLabel() {
+        const status = document.getElementById('scaleLabelStatus');
+        const plu = document.getElementById('scalePlu').value;
+        const mode = document.getElementById('scaleMode').value;
+        const raw = document.getElementById('scaleValue').value.replace(',', '.');
+        const value = parseFloat(raw);
+        if (!plu || isNaN(value) || value <= 0) {
+            status.innerText = "Article et valeur requis";
+            status.className = "status error";
+            return;
+        }
+        const units = Math.round(value * (mode === '21' ? 100 : 1000));
+        if (units > 99999) {
+            status.innerText = "Valeur trop grande (5 chiffres max)";
+            status.className = "status error";
+            return;
+        }
+        const body = mode + plu.padStart(5, '0') + String(units).padStart(5, '0');
+        postPosAction('scan', body + ean13Checksum(body), status);
+    }
+    /* ---------------- Comptoir traditionnel (LC-06-01) ----------------
+       The lines are composed here the way a counter scale composes them, then
+       pushed to the STORE NODE — never to the register. The register only ever
+       sees the 27-prefixed reference, and everything else it needs it goes and
+       fetches. Scanning twice is a supported experiment, not a bug: the second
+       scan must be refused. */
+    let counterLines = [];
+
+    /* A 10-digit reference, zero-padded, the way the counter printer numbers
+       its papers. Regenerated for each new ticket so two emissions never
+       collide on the store node's unique key. */
+    function newCounterReference() {
+        return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
+    }
+
+    function renderCounterLines() {
+        const box = document.getElementById('counterLines');
+        if (counterLines.length === 0) {
+            box.innerText = "Aucune ligne";
+            box.className = "status";
+            return;
+        }
+        box.innerText = counterLines
+            .map(l => `${l.ean} — ${l.quantity} kg — ${l.totalIncludingTax} €`)
+            .join("\n");
+        box.className = "status success";
+    }
+
+    function addCounterLine() {
+        const status = document.getElementById('counterStatus');
+        const ean = document.getElementById('counterEan').value;
+        const label = document.getElementById('counterEan').selectedOptions[0].text;
+        const quantity = parseFloat(document.getElementById('counterWeight').value.replace(',', '.'));
+        const total = parseFloat(document.getElementById('counterTotal').value.replace(',', '.'));
+        if (isNaN(quantity) || quantity <= 0 || isNaN(total) || total <= 0) {
+            status.innerText = "Poids et montant requis";
+            status.className = "status error";
+            return;
+        }
+        counterLines.push({
+            ean: ean,
+            label: label.split(' - ')[1] || label,
+            quantity: quantity,
+            totalIncludingTax: total,
+            vatRate: 0.055
+        });
+        document.getElementById('counterWeight').value = '';
+        document.getElementById('counterTotal').value = '';
+        renderCounterLines();
+        status.innerText = `${counterLines.length} ligne(s) composée(s)`;
+        status.className = "status";
+    }
+
+    async function emitCounterTicket() {
+        const status = document.getElementById('counterStatus');
+        const reference = document.getElementById('counterReference').value.trim();
+        if (!reference) {
+            status.innerText = "Référence requise";
+            status.className = "status error";
+            return;
+        }
+        if (counterLines.length === 0) {
+            status.innerText = "Aucune ligne à émettre";
+            status.className = "status error";
+            return;
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        const token = document.getElementById('counterToken').value.trim();
+        if (token) {
+            headers['X-Sync-Token'] = token;
+        }
+        status.innerText = "Envoi vers le magasin...";
+        status.className = "status";
+        try {
+            const response = await fetch(
+                document.getElementById('counterStoreUrl').value.replace(/\/+$/, '')
+                    + '/api/sync/balance-ticket',
+                {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        reference: reference,
+                        counterLabel: document.getElementById('counterLabel').value,
+                        emittedAt: new Date().toISOString().substring(0, 19),
+                        lines: counterLines
+                    })
+                });
+            if (response.ok) {
+                status.innerText = `Ticket ${reference} déposé au magasin (200 OK)`;
+                status.className = "status success";
+            } else {
+                status.innerText = `Refus du magasin (${response.status})`;
+                status.className = "status error";
+            }
+        } catch (error) {
+            status.innerText = "Nœud magasin injoignable";
+            status.className = "status error";
+        }
+    }
+
+    /* The rendezvous: the register reads 27 + the reference + the check digit
+       and goes asking the shop. Nothing of the lines travels through the scan. */
+    function scanCounterTicket() {
+        const status = document.getElementById('counterStatus');
+        const reference = document.getElementById('counterReference').value.trim();
+        if (!/^\d{10}$/.test(reference)) {
+            status.innerText = "Référence à 10 chiffres requise";
+            status.className = "status error";
+            return;
+        }
+        const body = '27' + reference;
+        postPosAction('scan', body + ean13Checksum(body), status);
+    }
+
+    function resetCounterTicket() {
+        counterLines = [];
+        document.getElementById('counterReference').value = newCounterReference();
+        renderCounterLines();
+        const status = document.getElementById('counterStatus');
+        status.innerText = "Nouveau ticket comptoir";
+        status.className = "status";
+    }
+
+    /* The counter starts with a fresh reference: nothing to type to try it. */
+    resetCounterTicket();
+
+    function sendEan() { postPosAction('scan', document.getElementById('eanList').value, document.getElementById('eanStatus')); }
+    function sendManualScan() { postPosAction('scan', document.getElementById('scanCode').value, document.getElementById('scanStatus')); }
+
+    function sendVoucher() {
+        const val = document.getElementById('voucherList').value;
+        if (!val) {
+            document.getElementById('voucherStatus').innerText = "Sélectionnez un bon";
+            document.getElementById('voucherStatus').className = "status error";
+            return;
+        }
+        postPosAction('scan', val, document.getElementById('voucherStatus'));
+    }
+
+    function sendBadge() {
+        const val = document.getElementById('badgeList').value;
+        if(!val) {
+            document.getElementById('badgeStatus').innerText = "Sélectionnez un employé";
+            document.getElementById('badgeStatus').className = "status error";
+            return;
+        }
+        postPosAction('scan', val, document.getElementById('badgeStatus'));
+    }
+
+    function sendFidelity() {
+        const val = document.getElementById('fidelityId').value;
+        postPosAction('scan', val, document.getElementById('fidelityStatus'));
+    }
+
+    function sendWeight() {
+        postHardwareAction('set-weight', document.getElementById('weightValue').value, document.getElementById('weightStatus'));
+    }
+
+    async function closeDrawer() {
+        await postHardwareAction('drawer/close', null, null);
+    }
+
+    // --- IMPRIMANTE ---
+
+    async function cutPaper() {
+        await postHardwareAction('printer/cut', null, null);
+    }
+
+    async function clearPaper() {
+        await postHardwareAction('printer/clear', null, null);
+    }
+
+    async function togglePaper() {
+        await postHardwareAction('printer/toggle-paper', null, null);
+    }
+
+    // Init
+    document.getElementById("scanCode").addEventListener("keypress", e => { if(e.key === "Enter") sendManualScan(); });
+    document.getElementById("weightValue").addEventListener("keypress", e => { if(e.key === "Enter") sendWeight(); });
+
+</script>
+
+</body>
+</html>

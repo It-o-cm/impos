@@ -99,6 +99,28 @@ public class EndorsementService {
     }
 
     /**
+     * Opens an endorsement request for a gesture that carries a form and
+     * belongs to a screen of its own.
+     *
+     * <p>This is what lets the drawer screens use the shared modal instead of
+     * their own badge and PIN boxes: the typed form waits here, inert, and the
+     * dispatch replays it once a manager credential passes.
+     *
+     * @param state the current POS state
+     * @param actionCode the action code requiring authorization
+     * @param form the gesture's fields, copied as parked values
+     * @param returnPath where to land once the gesture ran
+     */
+    public void requestAuthorization(PosState state, String actionCode,
+            java.util.Map<String, String> form, String returnPath) {
+        LOGGER.info("Entering method requestAuthorization with state: " + state + ", actionCode: " + actionCode
+                + ", returnPath: " + returnPath);
+        state.endorsement.request(actionCode, form, returnPath);
+        state.touch();
+        LOGGER.info("Exiting method requestAuthorization");
+    }
+
+    /**
      * Returns true when the LOGGED operator already holds a supervising role
      * (MANAGER or ADMIN, the same roles that validate endorsements) — the
      * connected-supervisor shortcut of LC-01-05-07. Looked up live in the

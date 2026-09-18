@@ -54,7 +54,7 @@ public class CashMovementResource {
     private static final Logger LOGGER = Logger.getLogger(CashMovementResource.class);
 
     /** Action code journaled when a manager endorses a cash movement. */
-    static final String ENDORSEMENT_ACTION = "CASH_MOVEMENT";
+    public static final String ENDORSEMENT_ACTION = "CASH_MOVEMENT";
 
     @Inject @Location("cash-movement") Template cashMovement;
     @Inject CashSessionService cashSessionService;
@@ -101,14 +101,18 @@ public class CashMovementResource {
 
     /**
      * Records a cash movement of the open session. Above the administered
-     * threshold, a manager endorsement is required and resolved to a badge
-     * before the movement is written; below it, no credential is asked.
+     * threshold a manager must endorse it; below it, nothing is asked.
+     *
+     * <p>The endorsement is asked through the SHARED modal, not through boxes
+     * of this screen's own: the form is parked and the movement is written
+     * only once a manager credential passes. The screen used to carry its own
+     * badge and PIN inputs, which duplicated the modal and — being plain text
+     * fields — could not be typed at all on a register with no keyboard.
      *
      * @param typeStr the movement type name
      * @param amountStr the amount typed by the cashier (French comma tolerated)
      * @param reason the movement reason, or null
-     * @param managerLogin the endorsing manager's badge or login, or null
-     * @param managerPin the endorsing manager's PIN, or null
+     * @param paymentMethod the tender the movement concerns, or null for cash
      * @return a redirect back to the cash-movement page carrying the outcome
      */
     @POST
@@ -117,32 +121,82 @@ public class CashMovementResource {
     public Response record(@FormParam("type") String typeStr,
                            @FormParam("amount") String amountStr,
                            @FormParam("reason") String reason,
-                           @FormParam("paymentMethod") String paymentMethod,
-                           @FormParam("managerLogin") String managerLogin,
-                           @FormParam("managerPin") String managerPin) {
-        LOGGER.info("Entering method record with typeStr: " + typeStr + ", amountStr: " + amountStr + ", reason: " + reason + ", paymentMethod: " + paymentMethod + ", managerLogin: " + managerLogin + ", managerPin: ***");
+                           @FormParam("paymentMethod") String paymentMethod) {
+        LOGGER.info("Entering method record with typeStr: " + typeStr + ", amountStr: " + amountStr + ", reason: " + reason + ", paymentMethod: " + paymentMethod);
         if (state.trainingMode) {
             LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=training");
         }
+        if (cashSessionService.getOpenSession() == null) {
+            LOGGER.info("Exiting method record");
+            return redirect("/cash-movement?error=no-session");
+        }
+        if (parseType(typeStr) == null) {
+            LOGGER.info("Exiting method record");
+            return redirect("/cash-movement?error=bad-type");
+        }
+        if (cashMovementService.requiresEndorsement(parseAmount(amountStr))
+                && !endorsementService.operatorIsSupervisor(state)) {
+            java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+            form.put("type", typeStr == null ? "" : typeStr);
+            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("reason", reason == null ? "" : reason);
+            form.put("paymentMethod", paymentMethod == null ? "" : paymentMethod);
+            endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/cash-movement");
+            LOGGER.info("Exiting method record: aval demande");
+            return redirect("/cash-movement");
+        }
+        LOGGER.info("Exiting method record");
+        return perform(typeStr, amountStr, reason, paymentMethod, supervisorBadge());
+    }
+
+    /**
+     * Replays the parked movement once the shared modal validated a manager.
+     *
+     * @param form the parked form fields
+     * @param endorsedBy the endorsing manager's badge or login
+     * @return a redirect back to the cash-movement page carrying the outcome
+     */
+    public Response performEndorsed(java.util.Map<String, String> form, String endorsedBy) {
+        LOGGER.info("Entering method performEndorsed with endorsedBy: " + endorsedBy);
+        LOGGER.info("Exiting method performEndorsed");
+        return perform(form.get("type"), form.get("amount"), form.get("reason"),
+                form.get("paymentMethod"), endorsedBy);
+    }
+
+    /**
+     * Writes the movement, re-running every guard: the parked form goes
+     * through the same checks as a form posted directly, so a session closed
+     * while the modal was open cannot slip a movement through.
+     *
+     * @param typeStr the movement type name
+     * @param amountStr the raw amount
+     * @param reason the movement reason, or null
+     * @param paymentMethod the tender the movement concerns, or null for cash
+     * @param endorsedBy the endorsing manager's badge, or null when none was needed
+     * @return a redirect back to the cash-movement page carrying the outcome
+     */
+    private Response perform(String typeStr, String amountStr, String reason,
+                             String paymentMethod, String endorsedBy) {
+        LOGGER.info("Entering method perform with typeStr: " + typeStr + ", amountStr: " + amountStr);
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method perform");
+            return redirect("/cash-movement?error=training");
+        }
         CashSession session = cashSessionService.getOpenSession();
         if (session == null) {
-            LOGGER.info("Exiting method record");
+            LOGGER.info("Exiting method perform");
             return redirect("/cash-movement?error=no-session");
         }
         CashMovement.MovementType type = parseType(typeStr);
         if (type == null) {
-            LOGGER.info("Exiting method record");
+            LOGGER.info("Exiting method perform");
             return redirect("/cash-movement?error=bad-type");
         }
         BigDecimal amount = parseAmount(amountStr);
-        String endorsedBy = null;
-        if (cashMovementService.requiresEndorsement(amount)) {
-            endorsedBy = resolveEndorsement(managerLogin, managerPin);
-            if (endorsedBy == null) {
-                LOGGER.info("Exiting method record");
-                return redirect("/cash-movement?error=endorsement");
-            }
+        if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
+            LOGGER.info("Exiting method perform");
+            return redirect("/cash-movement?error=endorsement");
         }
         Employee cashier = (state.auth.operatorId != null)
                 ? Employee.findById(state.auth.operatorId) : null;
@@ -153,29 +207,22 @@ public class CashMovementResource {
                 session, cashier, type, amount, reason, endorsedBy, tender, null, null);
         state.touch();
         if (recorded == null) {
-            LOGGER.info("Exiting method record");
+            LOGGER.info("Exiting method perform");
             return redirect("/cash-movement?error=endorsement");
         }
-        LOGGER.info("Exiting method record");
+        LOGGER.info("Exiting method perform");
         return redirect("/cash-movement?ok=1");
     }
 
     /**
-     * Resolves the endorsing manager's badge for an above-threshold movement:
-     * the connected supervisor endorses with their own badge, otherwise the
-     * presented credentials are checked and journaled and their login stands as
-     * the badge. Returns null when no manager authorized the movement.
+     * The badge of the logged operator when they are themselves a supervisor,
+     * the connected-supervisor shortcut of LC-01-05-07; null otherwise.
      *
-     * @param login the presented badge or login, or null
-     * @param pin the presented PIN, or null
-     * @return the endorsing manager's badge, or null when unauthorized
+     * @return the endorsing badge, or null when the operator cannot self-endorse
      */
-    private String resolveEndorsement(String login, String pin) {
+    private String supervisorBadge() {
         if (endorsementService.operatorIsSupervisor(state)) {
             return state.auth.operatorBadgeId;
-        }
-        if (endorsementService.authorize(login, pin, ENDORSEMENT_ACTION)) {
-            return login;
         }
         return null;
     }

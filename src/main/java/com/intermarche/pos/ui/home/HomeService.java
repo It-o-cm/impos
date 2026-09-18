@@ -510,7 +510,10 @@ public class HomeService {
             java.net.http.HttpResponse<String> response = SUPERVISOR_CLIENT.send(
                     builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                state.ticket.setError("SUPERVISEUR PRÉVENU");
+                // A CONFIRMATION, not a refusal: the zone is shared, so the
+                // setter is what decides whether it is drawn red with an ERR
+                // marker or as an acknowledgement.
+                state.ticket.setNotice("SUPERVISEUR PRÉVENU");
             } else {
                 state.ticket.setError("APPEL SUPERVISEUR REFUSÉ (" + response.statusCode() + ")");
             }

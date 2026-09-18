@@ -38,9 +38,9 @@ public final class RefPayloads {
      * association is owned by the family — so the swap is safe.
      */
     public static final List<String> DOMAINS =
-            List.of("PRODUCTS", "FAMILIES", "TOUCH_GROUPS", "VAT_RATES", "PRICES", "EMPLOYEES",
-                    "COUPON_TYPES", "ARTICLE_RANGES", "ISLANDS", "TENDERS", "DOCUMENT_TEMPLATES",
-                    "SETTINGS", "ENGINE_FEEDS", "CUSTOMERS", "CURRENCIES", "POSTAL_CODES");
+            List.of("ENGINE_FEEDS", "PRODUCTS", "FAMILIES", "TOUCH_GROUPS", "VAT_RATES", "PRICES",
+                    "EMPLOYEES", "COUPON_TYPES", "ARTICLE_RANGES", "ISLANDS", "TENDERS",
+                    "DOCUMENT_TEMPLATES", "SETTINGS", "CUSTOMERS", "CURRENCIES", "POSTAL_CODES");
 
     /**
      * The echelon domains a STORE node pulls from the CENTRAL node (route A),

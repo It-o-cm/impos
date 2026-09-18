@@ -30,6 +30,7 @@
     .form-row { display: flex; align-items: center; gap: 15px; margin: 25px 0; justify-content: center; }
     .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
     .form-row input { width: 10rem; padding: 14px; font-size: var(--fs-field); font-weight: bold; text-align: right; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .keyboard { max-width: 22rem; margin: 0 auto; }
     .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
 
     .btn { display: block; }
@@ -64,10 +65,14 @@
         {#else}
           <h2>Aucune session ouverte</h2>
           <form method="post" action="/action/session/open">
+            {! Pave tactile, comme partout ailleurs sur la caisse: la borne n'a
+             ! pas de clavier physique, un <input> libre y est inutilisable. !}
             <div class="form-row">
-              <label for="openingFloat">Fond de caisse €</label>
-              <input type="text" id="openingFloat" name="openingFloat" value="{defaultFloat}" inputmode="decimal" autocomplete="off">
+              <label for="floatDisplay">Fond de caisse €</label>
+              <input type="text" id="floatDisplay" class="kb-display" value="{defaultFloat}" readonly>
+              <input type="hidden" id="floatHidden" name="openingFloat" value="{defaultFloat}">
             </div>
+            <div class="keyboard pos-kb-compact" id="floatKbArea"></div>
             <div class="actions">
               <button type="submit" class="btn btn-success">OUVRIR LA SESSION</button>
             </div>
@@ -87,8 +92,24 @@
     </div>
   </div>
 
+  {#include keyboard-lib /}
+
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    (function () {
+        const hidden = document.getElementById('floatHidden');
+        if (!hidden) { return; }
+        PosInput.setup({
+            displayId: 'floatDisplay',
+            hiddenId: 'floatHidden',
+            containerId: 'floatKbArea',
+            keyboardType: 'price',
+            mode: 'decimal',
+            maxLength: 9,
+            initialValue: (hidden.value || '').replace(',', '.')
+        });
+    })();
   </script>
 </body>
 </html>

@@ -78,21 +78,16 @@
               </select>
             </div>
             <div class="form-row">
-              <label for="amount">Montant €</label>
-              <input type="text" id="amount" name="amount" value="0,00" inputmode="decimal" autocomplete="off">
+              <label for="amountDisplay">Montant €</label>
+              <input type="text" id="amountDisplay" class="kb-display" value="0,00" readonly>
+              <input type="hidden" id="amountHidden" name="amount" value="0">
             </div>
+            <div class="keyboard" id="amountKbArea"></div>
 
-            <div class="manager-block" id="managerBlock" style="display:none;">
-              <div class="hint">Aval manager requis au-delà de {threshold} €.</div>
-              <div class="form-row">
-                <label for="managerLogin">Badge manager</label>
-                <input type="text" id="managerLogin" name="managerLogin" autocomplete="off">
-              </div>
-              <div class="form-row">
-                <label for="managerPin">Code PIN</label>
-                <input type="password" id="managerPin" name="managerPin" autocomplete="off">
-              </div>
-            </div>
+            {! L'aval manager ne se saisit plus ici: au-dela du seuil le
+             ! transfert est PARQUE et la modale partagee s'ouvre — badge puis
+             ! PIN, entierement tactile, la meme que partout ailleurs. !}
+            <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
           </form>
         {/if}
       </div>
@@ -108,13 +103,16 @@
     </div>
   </div>
 
+  {#include endorsement /}
+  {#include keyboard-lib /}
+
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 
     const threshold = parseFloat("{threshold}");
     const fromSelect = document.getElementById('from');
-    const amountInput = document.getElementById('amount');
-    const managerBlock = document.getElementById('managerBlock');
+    const amountHidden = document.getElementById('amountHidden');
+    const managerHint = document.getElementById('managerHint');
     const ceiling = document.getElementById('ceiling');
 
     /* States the source's theoretical, which is the ceiling the server enforces. */
@@ -125,17 +123,27 @@
         value.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
     }
 
-    /* Reveals the manager block as soon as the typed amount passes the threshold. */
-    function toggleManager() {
-      const value = parseFloat((amountInput.value || '').replace(',', '.'));
-      managerBlock.style.display = (!isNaN(value) && value > threshold) ? 'block' : 'none';
+    /* Announces the endorsement instead of opening boxes to fill: the modal
+       does the asking, once the movement is actually submitted. */
+    function toggleManagerHint(value) {
+      const typed = parseFloat((value || '').replace(',', '.'));
+      managerHint.style.display = (!isNaN(typed) && typed > threshold) ? 'block' : 'none';
     }
 
     if (fromSelect) {
       fromSelect.addEventListener('change', showCeiling);
-      amountInput.addEventListener('input', toggleManager);
+      PosInput.setup({
+          displayId: 'amountDisplay',
+          hiddenId: 'amountHidden',
+          containerId: 'amountKbArea',
+          keyboardType: 'price',
+          mode: 'decimal',
+          maxLength: 9,
+          initialValue: '0',
+          onChange: toggleManagerHint
+      });
       showCeiling();
-      toggleManager();
+      toggleManagerHint(amountHidden.value);
     }
   </script>
 </body>

@@ -7,8 +7,6 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
-import io.quarkus.qute.Template;
-import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Response;
@@ -46,6 +44,12 @@ public class EndorsementResource {
 
     /** Undoes the settlements an abandoned ticket had already taken (LC-04-04-07/09). */
     @Inject com.intermarche.pos.ui.payment.PaymentService paymentService;
+
+    /** Replays a cash movement the modal just authorized. */
+    @Inject com.intermarche.pos.ui.cash.CashMovementResource cashMovementResource;
+
+    /** Replays a withdrawal or a transfer the modal just authorized. */
+    @Inject com.intermarche.pos.ui.cash.DrawerOperationsResource drawerOperationsResource;
 
     @Inject PosState state;
 
@@ -94,11 +98,12 @@ public class EndorsementResource {
         }
 
         if (endorsementService.authorize(login, password, actionToExecute)) {
-            executeApprovedAction(actionToExecute);
+            String landing = state.endorsement.returnPath;
+            Response own = executeApprovedAction(actionToExecute, login);
             endorsementService.clearRequest(state);
             state.touch();
             LOGGER.info("Exiting method validateEndorsement");
-            return redirectHome();
+            return landingOf(own, landing);
         } else {
             state.endorsement.error = "AUTORISATION REFUSÉE";
             state.touch();
@@ -114,8 +119,10 @@ public class EndorsementResource {
      * precedes the execution, never the reverse.
      *
      * @param actionToExecute the parked action string
+     * @param endorserBadge the badge or login of the manager who endorsed
+     * @return the landing the gesture wants, or null to land on the sale screen
      */
-    private void executeApprovedAction(String actionToExecute) {
+    private Response executeApprovedAction(String actionToExecute, String endorserBadge) {
             if (actionToExecute.equals("CANCEL_TICKET")) {
                 // LC-04-04-07/09: a settlement already taken is undone with the
                 // ticket — the lease released, the valuation reverted, the entries
@@ -176,6 +183,56 @@ public class EndorsementResource {
                 // (Re)prints an operator's badge number (LC-01-06-01).
                 homeService.printOperatorBadge(actionToExecute.substring("PRINT_BADGE_".length()));
             }
+            else if (actionToExecute.equals(
+                    com.intermarche.pos.ui.cash.CashMovementResource.ENDORSEMENT_ACTION)) {
+                // The drawer gestures carry a FORM, not just a code: the screen
+                // parked what was typed and it is replayed here, through the
+                // screen's own guards, now that a manager has answered.
+                return cashMovementResource.performEndorsed(state.endorsement.pendingForm, endorserBadge);
+            }
+            else if (actionToExecute.equals(
+                    com.intermarche.pos.ui.cash.DrawerOperationsResource.ENDORSEMENT_ACTION)) {
+                java.util.Map<String, String> form = state.endorsement.pendingForm;
+                // One action code for two gestures, as the journal has always
+                // named them; the parked form says which of the two it is.
+                if ("transfer".equals(form.get("op"))) {
+                    return drawerOperationsResource.performEndorsedTransfer(form, endorserBadge);
+                }
+                return drawerOperationsResource.performEndorsedWithdrawal(form, endorserBadge);
+            }
+            return null;
+    }
+
+    /**
+     * The logged operator's badge, or null when no one is logged.
+     *
+     * <p>Null-safe because the shortcut can be reached before the auth state
+     * carries anyone, and an endorsement badge is a label on a journal line,
+     * never a permission: the role was already checked above.
+     *
+     * @return the operator's badge, or null
+     */
+    private String operatorBadge() {
+        return state.auth != null ? state.auth.operatorBadgeId : null;
+    }
+
+    /**
+     * Chooses where the operator lands after an endorsed gesture: the landing
+     * the gesture itself produced, else the screen that parked it, else the
+     * sale screen.
+     *
+     * @param own the response the gesture returned, or null
+     * @param landing the parked return path, or null
+     * @return the response to send
+     */
+    private Response landingOf(Response own, String landing) {
+        if (own != null) {
+            return own;
+        }
+        if (landing != null && !landing.isBlank()) {
+            return Response.seeOther(URI.create(landing)).build();
+        }
+        return redirectHome();
     }
 
     /**
@@ -204,38 +261,34 @@ public class EndorsementResource {
             LOGGER.info("Exiting method selfEndorse");
             return redirectHome();
         }
-        executeApprovedAction(actionToExecute);
+        String landing = state.endorsement.returnPath;
+        Response own = executeApprovedAction(actionToExecute, operatorBadge());
         endorsementService.clearRequest(state);
         state.touch();
         LOGGER.info("Exiting method selfEndorse");
-        return redirectHome();
+        return landingOf(own, landing);
     }
 
     /**
      * Cancels the pending endorsement request.
      *
-     * @return the main page
+     * <p>Redirects instead of rendering, like every other action of this
+     * class. Rendering the main page from here meant building its data map
+     * here too, and this one was short of {@code restrictedTenders}, which
+     * the ticket fragment reads: the page then died on a missing key instead
+     * of showing a cancelled endorsement. The home resource owns that map and
+     * is the only place that should build it.
+     *
+     * @return the 303 redirect to the main page
      */
     @GET
     @Path("/action/endorse-cancel")
-    public TemplateInstance cancelEndorsement() {
+    public Response cancelEndorsement() {
         LOGGER.info("Entering method cancelEndorsement");
         endorsementService.clearRequest(state);
         state.touch();
         LOGGER.info("Exiting method cancelEndorsement");
-        return mainView(state);
-    }
-
-    @Inject Template main;
-
-    /**
-     * Returns the main page.
-     *
-     * @param state the current POS state
-     * @return the appropriate template instance
-     */
-    private TemplateInstance mainView(PosState state) {
-        return main.data("state", state);
+        return redirectHome();
     }
 
     /**

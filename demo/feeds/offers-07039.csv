@@ -1,0 +1,23 @@
+CODE|TYPE|SPECIFICATION|STORE_CODES|STORE_GROUP_CODES
+PROMO_CHOCOLAT_15|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3456300009125"], "discountType": "PERCENTAGE", "value": 15.0}|0101|
+PROMO_CAFE_1E|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3700214617106"], "discountType": "FIXED_AMOUNT", "value": 1.00}|0101|
+PROMO_PIZZA_2E|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3579630303395"], "discountType": "FIXED_AMOUNT", "value": 2.00}|0101|
+PROMO_BIERE_20|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3080216059488"], "discountType": "PERCENTAGE", "value": 20.0}|0101|
+PROMO_FROMAGE_10|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3760043160808"], "discountType": "PERCENTAGE", "value": 10.0}|0101|
+PROMO_SHAMPO_30|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3180194062118"], "discountType": "PERCENTAGE", "value": 30.0}|0101|
+PROMO_THON_050|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3574313401160"], "discountType": "FIXED_AMOUNT", "value": 0.50}|0101|
+PROMO_CONFITURE_25|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3250393126215"], "discountType": "PERCENTAGE", "value": 25.0}|0101|
+PROMO_YAOURTS_3PLUS1|N+M|{"targetEans": ["3250393475238"], "quantityToPay": 3, "discountedQuantity": 1, "selectionStrategy": "CHEAPEST", "discountType": "PERCENTAGE", "discountValue": 100.0}|0101|
+PROMO_SODA_2FOR1|N+M|{"targetEans": ["8050327350038"], "quantityToPay": 1, "discountedQuantity": 1, "selectionStrategy": "CHEAPEST", "discountType": "PERCENTAGE", "discountValue": 100.0}|0101|
+PROMO_EAU_5PLUS1|N+M|{"targetEans": ["3250390050179"], "quantityToPay": 5, "discountedQuantity": 1, "selectionStrategy": "CHEAPEST", "discountType": "PERCENTAGE", "discountValue": 100.0}|0101|
+BUNDLE_PETIT_DEJ|MIXED_BUNDLE|{"bundlePrice": 7.40, "vatRate": 0.055, "contents": [{"ean": "3700214617106", "quantity": 1.0}, {"ean": "3546941101385", "quantity": 1.0}]}|0101|
+BUNDLE_PATES_FROMAGE|MIXED_BUNDLE|{"bundlePrice": 12.94, "vatRate": 0.055, "contents": [{"ean": "3288131510606", "quantity": 2.0}, {"ean": "3760043160808", "quantity": 1.0}]}|0101|
+TIERED_LESSIVE_0101|TIERED_DISCOUNT|{"scope": "ITEMS", "targetEans": ["3450601036811"], "metric": "AMOUNT", "mode": "HIGHEST_REACHED", "tiers": [{"threshold": 10.0, "award": {"type": "PERCENTAGE", "value": 5.0}}, {"threshold": 20.0, "award": {"type": "PERCENTAGE", "value": 10.0}}]}|0101|
+VIGNETTE_CUISSON|VIGNETTE_DISCOUNT|{"catalog": [{"ean": "3286010060112", "vignettesRequired": 5, "discount": {"type": "PERCENTAGE", "value": 50.0}}, {"ean": "3770008346307", "vignettesRequired": 3, "discount": {"type": "FIXED_AMOUNT", "value": 2.00}}]}|0101|
+DELIVERY_HOME_0101|DELIVERY|{"tiers": [{"maxDistance": 8.0, "price": 5.90}, {"maxDistance": 16.0, "price": 9.90}], "vatRate": 0.20}|0101|
+FREE_DELIVERY_THRESHOLD_0101|FREE_DELIVERY_THRESHOLD|{"tiers": [{"threshold": 10.0, "value": 50.0, "type": "FIXED_AMOUNT"}, {"threshold": 20.0, "value": 100.0, "type": "FIXED_AMOUNT"}]}|0101|
+PROMO_GROUP_NORD|FREE_DELIVERY_THRESHOLD|{"tiers": [{"threshold": 30.0, "value": 100.0, "type": "PERCENTAGE"}]}||REGION_NORTH
+BASKET_CONSIGNMENT_0101|DEPOSIT_BASKET|{"basketVolume": 10.0, "basketPrice": 0.50, "vatRate": 0.20}|0101|
+MEAL_VOUCHER_0101|MEAL_VOUCHER|{"flag": "RESTAURANT_VOUCHER_ELIGIBLE", "threshold": 25.00}|0101|
+VOUCHER_TICKET_0101|VOUCHER_GRANT|{"scope": "TICKET", "metric": "AMOUNT", "mode": "HIGHEST_REACHED", "tiers": [{"threshold": 50.0, "award": {"type": "PERCENTAGE", "value": 5.0}}, {"threshold": 100.0, "award": {"type": "PERCENTAGE", "value": 10.0}}], "usage": {"validityDays": 30, "minimumPurchase": 10.0}}|0101|
+COUPON_POINTS_0101|COUPON_GRANT|{"scope": "TICKET", "metric": "AMOUNT", "mode": "PER_MULTIPLE", "unit": "POINTS", "every": {"step": 10.0, "award": {"type": "AMOUNT", "value": 1}}}|0101|

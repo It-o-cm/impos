@@ -53,7 +53,6 @@ class AuthResourceTest {
         resource.authService = mock(AuthService.class);
         resource.hardwareService = mock(HardwareService.class);
         resource.cashSessionService = mock(CashSessionService.class);
-        resource.main = mock(Template.class);
         resource.lock = mock(Template.class);
         resource.hardwareUnavailable = mock(Template.class);
         // The drawer-open-on-login rule defaults to ON, the pre-existing

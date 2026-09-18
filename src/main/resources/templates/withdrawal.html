@@ -114,16 +114,10 @@
                 <div class="total-label">À prélever</div>
                 <div class="total-amount" id="totalDisplay">0,00 €</div>
               </div>
+              {! L'aval ne se saisit plus ici: au-dela du seuil le prelevement
+               ! est PARQUE et la modale partagee s'ouvre. !}
               <div class="manager-block" id="managerBlock" style="display:none;">
-                <div class="hint">Aval manager requis au-delà de {threshold} €.</div>
-                <div class="form-row">
-                  <label for="managerLogin">Badge</label>
-                  <input type="text" id="managerLogin" name="managerLogin" autocomplete="off">
-                </div>
-                <div class="form-row">
-                  <label for="managerPin">PIN</label>
-                  <input type="password" id="managerPin" name="managerPin" autocomplete="off">
-                </div>
+                <div class="hint">Au-delà de {threshold} €, un aval manager sera demandé.</div>
               </div>
               <div class="numpad-container" id="numpadArea"></div>
             </div>
@@ -139,15 +133,7 @@
             <div class="fixed-hint">Le prélèvement porte sur la totalité du théorique affiché.</div>
             {#if needsEndorsement}
               <div class="manager-block">
-                <div class="hint">Aval manager requis au-delà de {threshold} €.</div>
-                <div class="form-row">
-                  <label for="managerLogin">Badge</label>
-                  <input type="text" id="managerLogin" name="managerLogin" autocomplete="off">
-                </div>
-                <div class="form-row">
-                  <label for="managerPin">PIN</label>
-                  <input type="password" id="managerPin" name="managerPin" autocomplete="off">
-                </div>
+                <div class="hint">Au-delà de {threshold} €, un aval manager sera demandé.</div>
               </div>
             {/if}
           </form>
@@ -179,6 +165,7 @@
     </div>
   </div>
 
+  {#include endorsement /}
   {#include keyboard-lib /}
 
   <script>

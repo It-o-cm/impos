@@ -1,6 +1,9 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import org.mockito.MockedStatic;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -28,6 +31,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -144,6 +148,8 @@ class RefPullServiceTest {
         service.objectMapper = mapper;
         service.role = "register";
         service.pullSeconds = 300L;
+        // Sans valeur le champ vaut 0, et un HttpRequest refuse un délai nul.
+        service.requestTimeoutSeconds = 30L;
         service.token = Optional.empty();
         service.centralUrl = Optional.empty();
         setHttpClient(service, client);
@@ -343,7 +349,18 @@ class RefPullServiceTest {
         doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
         when(apply.lastApplied(any())).thenReturn(null);
         RefPullService service = service(endpoints, apply, mapper, client);
-        service.pullOnce();
+        // Les trois gros domaines passent par le FICHIER brut quand la caisse en
+        // tient un ; ici elle n'en tient aucun, donc la voie des pages sert, et
+        // c'est elle que ce test décrit. Le finder est neutralisé pour qu'il
+        // réponde « rien » au lieu de chercher une entité non enrichie.
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<com.intermarche.pos.domain.sync.EngineFeed> none = mock(PanacheQuery.class);
+            when(none.firstResult()).thenReturn(null);
+            panache.when(() -> com.intermarche.pos.domain.sync.EngineFeed
+                    .find(eq("code"), any(Object[].class))).thenReturn(none);
+            service.pullOnce();
+        }
         verify(apply).applyFamilies(any());
         verify(apply).applyProducts(any());
         verify(apply).applyVatRates(any());

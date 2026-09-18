@@ -2,8 +2,9 @@
  ! Cash-movement page (CashMovementResource): the cashier records a drawer
  ! movement (withdrawal, deposit, expense, customer down-payment, cash-count
  ! declaration) with an amount and a reason. A movement strictly above the
- ! administered threshold reveals the manager-endorsement fields, checked
- ! server-side. Outcome messages arrive via the ?error= / ?ok= query params.
+ ! administered threshold parks the movement and opens the SHARED endorsement
+ ! modal; the movement is written only once a manager answers it. Outcome
+ ! messages arrive via the ?error= / ?ok= query params.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -26,8 +27,9 @@
     .form-row { display: flex; align-items: center; gap: 15px; margin: 18px 0; justify-content: space-between; }
     .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
     .form-row select, .form-row input { width: 20rem; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
-    .manager-block { border: 1px solid var(--border-strong); border-radius: 8px; padding: 12px 18px; margin-top: 18px; }
-    .manager-block .hint { color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 8px; }
+    .hint { color: var(--text-muted); font-size: var(--fs-body); margin-top: 12px; }
+    .kb-display { text-align: right; }
+    .keyboard { max-width: 22rem; margin: 0 auto; }
     .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
     .btn { display: block; }
     .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
@@ -64,9 +66,11 @@
             </select>
           </div>
           <div class="form-row">
-            <label for="amount">Montant €</label>
-            <input type="text" id="amount" name="amount" value="0,00" inputmode="decimal" autocomplete="off">
+            <label for="amountDisplay">Montant €</label>
+            <input type="text" id="amountDisplay" class="kb-display" value="0,00" readonly>
+            <input type="hidden" id="amountHidden" name="amount" value="0">
           </div>
+          <div class="keyboard" id="amountKbArea"></div>
           <div class="form-row">
             <label for="reason">Motif</label>
             <select id="reason" name="reason">
@@ -88,17 +92,12 @@
           </div>
           {/if}
 
-          <div class="manager-block" id="managerBlock" style="display:none;">
-            <div class="hint">Aval manager requis au-delà de {threshold} €.</div>
-            <div class="form-row">
-              <label for="managerLogin">Badge manager</label>
-              <input type="text" id="managerLogin" name="managerLogin" autocomplete="off">
-            </div>
-            <div class="form-row">
-              <label for="managerPin">Code PIN</label>
-              <input type="password" id="managerPin" name="managerPin" autocomplete="off">
-            </div>
-          </div>
+          {! L'aval manager ne se saisit plus ici: au-dela du seuil le
+           ! mouvement est PARQUE et la modale partagee s'ouvre — la meme que
+           ! partout ailleurs, badge puis PIN, entierement tactile. Cet ecran
+           ! portait ses propres cases badge et PIN, qui doublaient la modale et
+           ! qu'aucun doigt ne pouvait remplir sur une borne sans clavier. !}
+          <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
 
           <div class="actions">
             <button type="submit" class="btn btn-success">ENREGISTRER LE MOUVEMENT</button>
@@ -112,18 +111,35 @@
     </div>
   </div>
 
+  {#include endorsement /}
+  {#include keyboard-lib /}
+
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
-    // Reveal the manager block as soon as the typed amount passes the threshold.
+
+    /* Le seuil n'ouvre plus de cases a remplir: il annonce seulement qu'un
+       aval sera demande, pour que l'operateur ne soit pas surpris par la
+       modale au moment d'enregistrer. */
     const threshold = parseFloat("{threshold}");
-    const amountInput = document.getElementById('amount');
-    const managerBlock = document.getElementById('managerBlock');
-    function toggleManager() {
-      const value = parseFloat((amountInput.value || '').replace(',', '.'));
-      managerBlock.style.display = (!isNaN(value) && value > threshold) ? 'block' : 'none';
+    const amountHidden = document.getElementById('amountHidden');
+    const managerHint = document.getElementById('managerHint');
+
+    function toggleManagerHint(value) {
+      const typed = parseFloat((value || '').replace(',', '.'));
+      managerHint.style.display = (!isNaN(typed) && typed > threshold) ? 'block' : 'none';
     }
-    amountInput.addEventListener('input', toggleManager);
-    toggleManager();
+
+    PosInput.setup({
+        displayId: 'amountDisplay',
+        hiddenId: 'amountHidden',
+        containerId: 'amountKbArea',
+        keyboardType: 'price',
+        mode: 'decimal',
+        maxLength: 9,
+        initialValue: '0',
+        onChange: toggleManagerHint
+    });
+    toggleManagerHint(amountHidden.value);
   </script>
 </body>
 </html>

@@ -7,8 +7,6 @@ import com.intermarche.pos.ui.home.HomeService;
 import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
-import io.quarkus.qute.Template;
-import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
@@ -32,13 +30,12 @@ import static org.mockito.Mockito.when;
  * <p>
  * The resource is a thin JAX-RS facade over {@link PosState}, its
  * {@link EndorsementState} and {@link TicketState} sub-states, an
- * {@link EndorsementService}, a {@link TicketService}, a {@link RefundService},
- * a {@link HomeService} and two Qute {@link Template}s ({@code main},
- * {@code lock}). Every service and template is a Mockito mock while the two
+ * {@link EndorsementService}, a {@link TicketService}, a {@link RefundService}
+ * and a {@link HomeService}. Every service is a Mockito mock while the two
  * state holders are real objects so their public fields can be driven and read
- * directly. Templates echo a recognizable {@link TemplateInstance} so the
- * returned view can be identified; the POST actions instead return a 303
- * redirect to "/" (PRG pattern) that the tests assert by status and location.
+ * directly. The resource renders nothing of its own: every action returns a 303
+ * redirect to "/" (PRG pattern) that the tests assert by status and location,
+ * the home resource owning the main page and its data map.
  * Tests assert absolute expected values and verify delegation, covering both
  * arms of every guard, ternary and dispatch branch of the resource, including
  * the whole endorsement dispatch registry.
@@ -69,21 +66,7 @@ class EndorsementResourceTest {
         resource.ticketService = mock(TicketService.class);
         resource.refundService = mock(RefundService.class);
         resource.homeService = mock(HomeService.class);
-        resource.main = mock(Template.class);
         return resource;
-    }
-
-    /**
-     * Stubs the {@code main} template to return a recognizable view for the
-     * given resource's state.
-     *
-     * @param resource the resource whose {@code main} template is stubbed
-     * @return the view {@code main.data("state", state)} returns
-     */
-    private TemplateInstance stubMain(EndorsementResource resource) {
-        TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.main.data("state", resource.state)).thenReturn(view);
-        return view;
     }
 
     /**
@@ -536,13 +519,15 @@ class EndorsementResourceTest {
 
     /**
      * {@code cancelEndorsement()} clears the pending request, touches the state
-     * and renders the main view.
+     * and redirects to the main page instead of rendering it, so the home
+     * resource builds the page's data map.
      */
     @Test
-    void cancelEndorsementClearsAndReturnsMain() {
+    void cancelEndorsementClearsAndRedirects() {
         EndorsementResource resource = newResource();
-        TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.cancelEndorsement());
+        Response response = resource.cancelEndorsement();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
         verify(resource.endorsementService).clearRequest(resource.state);
         verify(resource.state).touch();
     }

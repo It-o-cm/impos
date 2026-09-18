@@ -58,6 +58,21 @@ public class RefPullService {
     @ConfigProperty(name = "pos.referential.pull-seconds", defaultValue = "300")
     long pullSeconds;
 
+    /**
+     * Seconds this register waits for one answer from its store node.
+     *
+     * <p>Configurable and not a constant because the wait is not a property of
+     * the protocol but of the CATALOGUE: the node answers
+     * {@code /api/referential/versions} by hashing every row of every domain,
+     * and a real point of sale has a hundred thousand articles where the
+     * demonstration set has three hundred. Thirty seconds is right for the
+     * latter and far too short for the former, where the whole pull cycle then
+     * fails and NO domain is applied — the register silently keeps the
+     * referential of its own seed.
+     */
+    @ConfigProperty(name = "pos.referential.request-timeout-seconds", defaultValue = "30")
+    long requestTimeoutSeconds;
+
     /** The role of this node: a register pulls its store, a store pulls the central. */
     @ConfigProperty(name = "pos.role", defaultValue = "register")
     String role;
@@ -238,6 +253,39 @@ public class RefPullService {
     }
 
     /**
+     * The domains the register applies from the raw file rather than from the
+     * snapshot pages.
+     *
+     * <p>Exactly those the engine feed catalog also carries, which is what puts
+     * the file on this register in the first place, and exactly the three that
+     * are big enough for the difference to matter.
+     */
+    private static final List<String> FILE_DOMAINS = List.of("PRODUCTS", "FAMILIES", "PRICES");
+
+    /**
+     * Applies one domain from the verbatim file the register holds, when it
+     * holds one.
+     *
+     * @param domain the domain being applied
+     * @param fingerprint the remote fingerprint to record on success
+     * @return true when the file served, false to fall back on the pages
+     */
+    private boolean applyFromFeedFile(String domain, String fingerprint) {
+        // The lookup goes through the apply service because THIS thread has
+        // neither a transaction nor a CDI request context: a Panache finder
+        // called here throws instead of returning the file.
+        String content = refApplyService.feedContent(domain);
+        if (content == null || content.isBlank()) {
+            return false;
+        }
+        if (!refApplyService.applyFromFile(domain, content)) {
+            return false;
+        }
+        refApplyService.recordApplied(domain, fingerprint);
+        return true;
+    }
+
+    /**
      * Downloads and applies the full snapshot of one domain, then records
      * the applied fingerprint.
      *
@@ -245,6 +293,16 @@ public class RefPullService {
      * @param fingerprint the remote fingerprint being applied
      */
     private void applyDomain(String domain, String fingerprint) throws Exception {
+        // The three big shared referentials are applied from the RAW FILE the
+        // register already holds through ENGINE_FEEDS, by the same importer the
+        // store node uses: transactions of a thousand rows, nothing accumulated
+        // in memory, and an unchanged row costing nothing. The pages are not
+        // even fetched. ENGINE_FEEDS is applied first in DOMAINS so the file is
+        // there when its domain comes up; should it be missing — a register
+        // that has never pulled it — the payload path below still serves.
+        if (FILE_DOMAINS.contains(domain) && applyFromFeedFile(domain, fingerprint)) {
+            return;
+        }
         switch (domain) {
             case "FAMILIES" -> refApplyService.applyFamilies(
                     this.<RefPayloads.FamilyDto>pages(domain, new TypeReference<List<RefPayloads.FamilyDto>>() {}));
@@ -322,7 +380,7 @@ public class RefPullService {
     private String get(String path) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(upstreamUrl() + path))
-                .timeout(Duration.ofSeconds(30))
+                .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                 .GET();
         String sharedToken = token.orElse("");
         if (!sharedToken.isBlank()) {

@@ -114,6 +114,7 @@
         .pay-mode-label { font-size: var(--fs-label); font-weight: bold; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
         .sub-info { color: var(--text-muted); font-size: var(--fs-body); }
         .sub-display { font-size: var(--fs-field); text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 8px; width: 100%; }
+        .sub-display.pad-active { box-shadow: 0 0 0 2px var(--success) inset; }
 
         /* Zone Numpad */
         .pay-numpad-zone { width: 16.25rem; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -490,8 +491,10 @@
                     <input type="text" id="backupAmountDisplay" class="sub-display" value="0,00" readonly>
                     <input type="hidden" name="amount" id="backupAmountValue" value="0">
                     {#if backupEndorsement}
-                    <input type="text" name="login" class="sub-display" placeholder="Identifiant superviseur" autocomplete="off">
-                    <input type="password" name="password" class="sub-display" placeholder="Mot de passe" autocomplete="off">
+                    <input type="text" id="backupLoginDisplay" class="sub-display" placeholder="Identifiant superviseur" readonly onclick="payBindPad('backup', 'login')">
+                    <input type="hidden" name="login" id="backupLoginValue" value="">
+                    <input type="text" id="backupPasswordDisplay" class="sub-display" placeholder="Mot de passe" readonly onclick="payBindPad('backup', 'password')">
+                    <input type="hidden" name="password" id="backupPasswordValue" value="">
                     {/if}
                     <div id="backupKeypad" class="pos-kb-compact"></div>
                     <button type="submit" class="btn btn-success">VALIDER LE PAIEMENT</button>
@@ -592,8 +595,11 @@
         <div class="pos-total" style="text-align:center;">{state.payment.tenderHeldAmount} €</div>
         <form action="/action/tender-authorize" method="POST"
               style="display:flex; flex-direction:column; gap:8px;">
-            <input type="text" name="login" class="sub-display" placeholder="Identifiant" autocomplete="off">
-            <input type="password" name="password" class="sub-display" placeholder="Mot de passe" autocomplete="off">
+            <input type="text" id="tenderLoginDisplay" class="sub-display" placeholder="Identifiant" readonly onclick="payBindPad('tender', 'login')">
+            <input type="hidden" name="login" id="tenderLoginValue" value="">
+            <input type="text" id="tenderPasswordDisplay" class="sub-display" placeholder="Mot de passe" readonly onclick="payBindPad('tender', 'password')">
+            <input type="hidden" name="password" id="tenderPasswordValue" value="">
+            <div id="tenderKeypad" class="pos-kb-compact"></div>
             <button type="submit" class="btn btn-success">AUTORISER LE RÈGLEMENT</button>
         </form>
         <form action="/action/tender-authorize-cancel" method="POST">
@@ -628,8 +634,11 @@
         <div class="pos-total" style="text-align:center;">{state.payment.creditPendingAmount} €</div>
         <form action="/action/credit-authorize" method="POST" id="creditAuthForm"
               style="display:flex; flex-direction:column; gap:8px;">
-            <input type="text" name="login" id="creditLoginDisplay" class="sub-display" placeholder="Identifiant" autocomplete="off">
-            <input type="password" name="password" id="creditPasswordDisplay" class="sub-display" placeholder="Mot de passe" autocomplete="off">
+            <input type="text" id="creditLoginDisplay" class="sub-display" placeholder="Identifiant" readonly onclick="payBindPad('creditAuth', 'login')">
+            <input type="hidden" name="login" id="creditLoginValue" value="">
+            <input type="text" id="creditPasswordDisplay" class="sub-display" placeholder="Mot de passe" readonly onclick="payBindPad('creditAuth', 'password')">
+            <input type="hidden" name="password" id="creditPasswordValue" value="">
+            <div id="creditAuthKeypad" class="pos-kb-compact"></div>
             <button type="submit" class="btn btn-success">AUTORISER LE DÉPASSEMENT</button>
         </form>
         <form action="/action/credit-authorize-cancel" method="POST">
@@ -684,13 +693,16 @@
         {#else}
         {! LC-07-09-02 and -07: by number when it is known, by name when it is not. !}
         <form action="/action/credit-number" method="POST" style="display:flex; gap:8px;">
-            <input type="text" name="number" class="sub-display" style="flex:1;" placeholder="N° de compte" autocomplete="off">
+            <input type="text" id="creditNumberDisplay" class="sub-display" style="flex:1;" placeholder="N° de compte" readonly onclick="payBindPad('creditLookup', 'number')">
+            <input type="hidden" name="number" id="creditNumberValue" value="">
             <button type="submit" class="btn btn-primary" style="width:9.375rem;">VALIDER</button>
         </form>
         <form action="/action/credit-search" method="POST" style="display:flex; gap:8px;">
-            <input type="text" name="search" class="sub-display" style="flex:1;" placeholder="Nom du client" value="{state.payment.creditSearch}" autocomplete="off">
+            <input type="text" id="creditSearchDisplay" class="sub-display" style="flex:1;" placeholder="Nom du client" value="{state.payment.creditSearch}" readonly onclick="payBindPad('creditLookup', 'search')">
+            <input type="hidden" name="search" id="creditSearchValue" value="{state.payment.creditSearch}">
             <button type="submit" class="btn btn-primary" style="width:9.375rem;">RECHERCHER</button>
         </form>
+        <div id="creditLookupKeypad" class="pos-kb-compact"></div>
         {#if state.payment.creditSearchWithoutMatch}
         <div class="pos-list-empty">AUCUN COMPTE POUR CETTE RECHERCHE</div>
         {#else}
@@ -875,6 +887,71 @@
      * cannot read the handheld's answer. Nothing is prefilled — a partial
      * authorization is precisely the case this exists for.
      */
+    /*
+     * Les panneaux de ce ecran portaient encore des <input> libres — identifiant
+     * superviseur, mot de passe, numero de compte, nom du client. Sur une borne
+     * sans clavier ils etaient tout simplement inremplissables. Chaque panneau a
+     * desormais SON pave, et comme PosInput est un singleton, un clic sur un
+     * champ rebranche le pave dessus en restaurant ce qui y avait ete saisi:
+     * le meme geste que l'ecran de changement de PIN.
+     */
+    const PAY_PADS = {
+        backup: {
+            container: 'backupKeypad',
+            fields: {
+                amount:   { display: 'backupAmountDisplay',   hidden: 'backupAmountValue',   type: 'payment', mode: 'payment', max: 10 },
+                login:    { display: 'backupLoginDisplay',    hidden: 'backupLoginValue',    type: 'alpha',   mode: 'text',    max: 32 },
+                password: { display: 'backupPasswordDisplay', hidden: 'backupPasswordValue', type: 'numpad',  mode: 'pin',     max: 8 }
+            }
+        },
+        tender: {
+            container: 'tenderKeypad',
+            fields: {
+                login:    { display: 'tenderLoginDisplay',    hidden: 'tenderLoginValue',    type: 'alpha',  mode: 'text', max: 32 },
+                password: { display: 'tenderPasswordDisplay', hidden: 'tenderPasswordValue', type: 'numpad', mode: 'pin',  max: 8 }
+            }
+        },
+        creditAuth: {
+            container: 'creditAuthKeypad',
+            fields: {
+                login:    { display: 'creditLoginDisplay',    hidden: 'creditLoginValue',    type: 'alpha',  mode: 'text', max: 32 },
+                password: { display: 'creditPasswordDisplay', hidden: 'creditPasswordValue', type: 'numpad', mode: 'pin',  max: 8 }
+            }
+        },
+        creditLookup: {
+            container: 'creditLookupKeypad',
+            fields: {
+                number: { display: 'creditNumberDisplay', hidden: 'creditNumberValue', type: 'numpad',      mode: 'text', max: 20 },
+                search: { display: 'creditSearchDisplay', hidden: 'creditSearchValue', type: 'searchAlpha', mode: 'text', max: 40 }
+            }
+        }
+    };
+
+    /* Rebranche le pave d'un panneau sur l'un de ses champs. Sans effet quand le
+       panneau n'est pas a l'ecran: les panneaux sont exclusifs et le serveur
+       n'en rend qu'un a la fois. */
+    window.payBindPad = function (panelName, fieldName) {
+        const panel = PAY_PADS[panelName];
+        if (!panel || !document.getElementById(panel.container)) { return; }
+        const field = panel.fields[fieldName];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        Object.values(panel.fields).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('pad-active'); }
+        });
+        document.getElementById(field.display).classList.add('pad-active');
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: panel.container,
+            keyboardType: field.type,
+            mode: field.mode,
+            uppercase: false,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    };
+
     (function () {
         const backupForm = document.getElementById('backupAmountForm');
         if (!backupForm) return;
@@ -888,6 +965,14 @@
             maxLength: 10
         });
         PosInput.clear();
+    })();
+
+    /* Les trois panneaux d'autorisation et la recherche de compte ouvrent leur
+       premier champ, pour qu'un pave soit deja la sous le doigt. */
+    (function () {
+        if (document.getElementById('tenderKeypad')) { payBindPad('tender', 'login'); }
+        if (document.getElementById('creditAuthKeypad')) { payBindPad('creditAuth', 'login'); }
+        if (document.getElementById('creditLookupKeypad')) { payBindPad('creditLookup', 'number'); }
     })();
 
     /*

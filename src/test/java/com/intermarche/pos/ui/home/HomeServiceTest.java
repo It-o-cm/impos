@@ -761,7 +761,7 @@ class HomeServiceTest {
         when(client.send(any(), any())).thenReturn(response);
         writeStaticFinal("SUPERVISOR_CLIENT", client);
         service.callSupervisor("theft");
-        verify(service.state.ticket).setError("SUPERVISEUR PRÉVENU");
+        verify(service.state.ticket).setNotice("SUPERVISEUR PRÉVENU");
         verify(service.state).touch();
     }
 

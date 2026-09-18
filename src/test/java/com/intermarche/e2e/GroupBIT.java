@@ -2,6 +2,7 @@ package com.intermarche.e2e;
 
 import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
@@ -818,7 +819,7 @@ public class GroupBIT {
             np.product = p;
             np.priceExcludingTax = new BigDecimal(priceTTC);
             np.priceIncludingTax = new BigDecimal(priceTTC);
-            np.vatRate = new BigDecimal("0.2000");
+            np.vat = new VatRate(1, new BigDecimal("0.2000"), "Taux normal");
             np.priority = 1;
             np.startDateTime = LocalDateTime.of(2026, 1, 12, 0, 0);
             np.endDateTime = null;
