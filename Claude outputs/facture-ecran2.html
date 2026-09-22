@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>FACTURE C04-F000123</title>
+<style>
+    :root { --bg-dark:#121212; --bg-panel:#1E1E1E; --text-main:#FFFFFF; --text-muted:#AAAAAA;
+           --primary:#0055FF; --success:#00C853; --danger:#D32F2F; --warning:#FF9800;
+           --border-color:#333333; --accent:#FFC400; --muted:#555555; --bg-page:#000000;
+           --bg-inset:#181818; --bg-row:#222222; --border-strong:#444444; }
+  .btn-primary { background: var(--primary); }
+  .btn-success { background: var(--success); }
+  .btn.btn-muted { background: var(--muted); color: var(--text-main); }
+  /*
+   * TWO GEOMETRIES, ONE DOCUMENT. On screen this is a till: 1000 x 600, the register's
+   * chrome, a scrolling working area and an action bar always under the thumb. The A4
+   * sheet -- 210 x 297 mm, its margins and its white void -- belongs to PAPER and lives
+   * in the print block alone. Rendering that sheet on the screen, which is what this
+   * page used to do, fills four fifths of a 768 px display with blank paper.
+   */
+  * { box-sizing: border-box; }
+  body { margin: 0; background-color: var(--bg-page); color: var(--text-main);
+         font-family: Arial, Helvetica, sans-serif;
+         display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+  .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark);
+                  border: 2px solid var(--border-strong); border-radius: 10px;
+                  display: grid; grid-template-rows: 60px 1fr 80px;
+                  overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+  .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color);
+             display: flex; justify-content: space-between; align-items: center;
+             padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
+  .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+  /* No finger-scrolling of a document: the article rows are PAGINATED, exactly as
+     the reprint list and the ticket lines are. The overflow rule is a safety net for
+     an unusually tall theme, not the way this screen is meant to be read. */
+  .paper-area { overflow-y: auto; padding: 12px; }
+  .bottom-nav { display: flex; align-items: center; justify-content: space-between;
+                padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+  .btn { padding: 15px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px;
+         cursor: pointer; color: white; text-transform: uppercase;
+         box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; }
+  .btn:active { transform: translateY(4px); box-shadow: none; }
+  .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed;
+                  transform: none !important; box-shadow: none !important; }
+  .pager { display: flex; align-items: center; gap: 12px; }
+  .pageInfo { color: var(--text-muted); font-size: .9rem; }
+
+  /* The document itself: black on white, because a document is not a screen theme. */
+  .sheet { background: #fff; color: #111; font-size: 12px; padding: 14px 18px; border-radius: 4px; }
+  .top { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
+  .top img { width: 130px; }
+  .top .spacer { width: 130px; }
+  .titleblock { flex: 1; text-align: center; }
+  .titleblock h1 { font-size: 19px; margin: 0 0 2px; letter-spacing: .5px; }
+  .titleblock .num { font-size: 12px; }
+  .titleblock .dup { margin-top: 3px; font-weight: bold; letter-spacing: 1px; }
+  .parties { display: flex; gap: 12px; margin-bottom: 8px; }
+  .box { border: 1px solid #111; padding: 7px 9px; }
+  .parties .box { flex: 1; }
+  .box .name { font-weight: bold; }
+  .box .gap { height: 5px; }
+  .meta { border: 1px solid #111; padding: 7px 9px; margin-bottom: 8px; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 1px 0; vertical-align: top; }
+  .meta td.k { font-weight: bold; width: 130px; }
+  .meta td.v { width: 150px; }
+  .meta td.k2 { font-weight: bold; width: 140px; padding-left: 24px; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.lines th, table.lines td { border: 1px solid #111; padding: 4px 6px; }
+  table.lines th { font-size: 11px; text-align: center; }
+  table.lines td.num { text-align: center; white-space: nowrap; }
+  table.lines td.amt { text-align: right; white-space: nowrap; }
+  table.lines .attrs { display: block; color: #666; font-size: 10.5px; }
+  .bottom { display: flex; gap: 12px; align-items: flex-start; }
+  .bottom .left { flex: 1.15; }
+  .bottom .right { flex: 1; }
+  table.vat { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.vat th, table.vat td { border: 1px solid #111; padding: 4px 6px; font-size: 11px; }
+  table.vat th { text-align: center; }
+  table.vat td.amt { text-align: right; }
+  table.vat td.rate { text-align: center; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 4px 6px; }
+  .totals tr.due td { font-weight: bold; border-top: 1px solid #111; }
+  .totals td.amt { text-align: right; white-space: nowrap; }
+  .settle { margin-top: 6px; }
+  .settle .h { font-weight: bold; margin-bottom: 2px; }
+  .settle table { width: 100%; border-collapse: collapse; }
+  .settle td { padding: 1px 0; }
+  .settle td.amt { text-align: right; }
+  .legal { margin-top: 8px; font-size: 10.5px; color: #666; }
+  .foot { margin-top: 10px; padding-top: 4px; border-top: 1px solid #111;
+          display: flex; justify-content: space-between; font-size: 11px; }
+
+  /* Paper. The only place A4 exists. */
+  @media print {
+    @page { size: A4; margin: 12mm; }
+    body { background: #fff; display: block; }
+    .pos-terminal { width: auto; height: auto; border: none; border-radius: 0;
+                    display: block; box-shadow: none; overflow: visible; }
+    .top-bar, .bottom-nav { display: none; }
+    .paper-area { overflow: visible; padding: 0; }
+    .sheet { font-size: 11px; padding: 0; border-radius: 0; }
+    .top img, .top .spacer { width: 46mm; }
+  }
+</style>
+</head>
+<body data-theme="dark">
+<div class="pos-terminal">
+
+  <div class="top-bar">
+    <span class="store-name">FACTURE</span>
+    <span id="clock"></span>
+  </div>
+
+  <div class="paper-area">
+    <div class="sheet">
+  <div class="top">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJQAAACUCAMAAABC4vDmAAAAY1BMVEX///8AAACNjY37+/tmZmbPz8+IiIjw8PD29vbh4eGUlJTs7OzV1dWFhYWioqLFxcWcnJwODg6pqalsbGwoKCiwsLA8PDxPT09YWFhCQkJ9fX12dna6urogICA3NzcaGhowMDCW7z/GAAAEsklEQVR4nO2Y67KjKBCA8YKKoGjMRSMmef+nnL6AyZwzW1uzydRubfX3JwGku+kbJkoJgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIwq8okH/biK+U0zTlzbfpOnTmD2u2h87+eqXOgOu3aX/MMvdnbepBxUuIinBCPH53aFT7dYOGyfNfHONDBFAxvoxtRhzw+wm/nb7uuMDk/D2mH6QmFS8TjdcARydHo8hnRnsfJ4uXmNYOp5OfrfPB6zoJcrDHNTCrvU4pqIk9Ie3P+8MA9JojtDrt9qMbB89xdCZctEqvx/sI/hwfLTxlcLL0vrH5eaPpbQItpqNRNt5LGNl22UZc3HjrfetRwZXDcL9hIMx6Y7HbFQ9i15FXR6fpY4ySVZhRyDjezwF8UuJaUTyynY7jDTzq03P6ZlT3HB1rdci+UYLAA3qCnuzjkRnIhuaMQtuhWhfzsvthlbk/h0FZfO6sGhJZ1wt8bE4NOKxOls1wrL9nJxjV82hFf/iCnp2tufBiBM96rpuZjzyxmIqlY36wZF+QrEFp9ODaOLJamY0OSKlfKXp01Ek7y85qXs7JqxkULEpo1RwPSfJ4a6aTUTP51t4yymbPHsAjL/EBPMPNckdqudwg3itp0Dypo7tR7dGx1zFB0KuXhrOyZz9GFYekIrAElmcosyFjMR2W2sSzkjdNHU0k8CiXmhUP7HytajzLMZ2B4gON4UayqFwz3Iqfk+I9gXxSxpFLKgaWwG6EvGmXlBwzqwzslsw6PGKsacqXde9IVYzIkWZbjjbG665VcSRZ5PWzilU46QNaMxfkr8mRnKkgFVAUFUuwaMvIYscL5gbYT48OumNnhhgOlSR3XKuQLxQa7eanNaOhFDgaLoIp9hDFjT2ymVSTyGLZx4MqKGyFMmjNheWF5sQ68+eOsuBweDbKRwPRv3dDZRmBeC0c2gu7hh6t9gzjQB1vy2U6pdGZsgXyjVRolUJNe/L6zDGN6UAnv410UsVRifXJCaEa3P1QNT5yf9yWObcx38oiNoYkK6QjUTEGY+u9z961xy2HXQXFK+X7yWExX+Oi5hR1Aw+4FOJlUMXdXC1cEMbYZi+CSpGsNSatYwUu3kHb3ntQALTQE8vu+cNkr1sp0fLYHyzVSZnckSahS9VsYJMU2xQaBhfblB+8reHUWo2N6ZiuMpzFW7okxVh9j2YPNbc2KslH39MFUdhocEwg+piv6zpfqatmcSXn0l3wRqarsJ72jhAjjK1Ac+LVyl9S/nnucyXuWciR/pm9kHFoxiOmPzMnlfG2gUpJ0gIF/RE7AvSMek27qGU0ujXKV3kOb4HNkOd5y1d7n1ddg+8IYWgRiD88VAUVixKyue1gFLqqwndU2JkPeJe3eKDx0mq45XENm7yp4EugN47DIWhTWJyAxPRxtyqMP6CaPKh/ysDn+29RzHT7+C7/OG/8MLAbFobNPs74zg8D6Bqb5T7wUc5v/YRqsVCK5e/V/B7v/TDA9uFeO8BnKN+xSWGHnX963/0I33+B/h4Bm6b7sFHDm0YpP10b1ZafZPbvGoXv//EPko/xvk2CIAiCIAiCIAiCIAiCIAiCIAiCIAiCIAjC/5QfPvJBglVD0x8AAAAASUVORK5CYII=" alt="Intermarché">
+    <div class="titleblock">
+      <h1>FACTURE</h1>
+      <div class="num">N° de facture C04-F000123</div>
+    </div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="parties">
+    <div class="box">
+      <div class="name">Intermarché Super Alim. Vaucresson</div>
+      <div>SA JANSELIN</div>
+      <div class="gap"></div>
+      <div>12 avenue de la Celle Saint-Cloud</div><div>92420 VAUCRESSON</div>
+      <div class="gap"></div>
+      <div>Tél. : 01 47 41 12 30</div>
+      <div>Fax : 01 47 41 12 39</div>
+      <div>SIRET : 392 847 105 00031</div>
+      <div>TVA intracom. : FR62392847105</div>
+    </div>
+    <div class="box">
+      <div class="name">BOULANGERIE DU PARC SARL</div>
+      <div>Marc VIDAL</div>
+      <div class="gap"></div>
+      <div>3 place de la Mairie</div><div>92420 VAUCRESSON</div>
+      <div class="gap"></div>
+      <div>N° de compte client : C04-CLI000042</div>
+      <div>SIRET : 512 345 678 00017</div>
+      <div>TVA intracom. : FR40512345678</div>
+    </div>
+  </div>
+
+  <div class="meta">
+    <table>
+      <tr>
+        <td class="k">Date de facturation</td><td class="v">09/09/2026 16:42</td>
+        <td class="k2">N° de ticket</td><td>C04-00000417</td>
+      </tr>
+      <tr>
+        <td class="k">Type de document</td><td class="v">FACTURE</td>
+        <td class="k2">Date de la vente</td><td>09/09/2026</td>
+      </tr>
+      <tr>
+        <td class="k">Point de vente</td><td class="v">Caisse C04</td>
+        <td class="k2">Moyen de paiement</td><td>Carte bancaire</td>
+      </tr>
+    </table>
+  </div>
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th style="width:46%">Description</th>
+        <th>Quantité</th>
+        <th>TVA</th>
+        <th>PV HT</th>
+        <th>PV TTC</th>
+        <th>Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CAFE GRAINS ARABICA 1KG
+          <span class="attrs">Famille : EPICERIE SUCREE</span>
+          <span class="attrs">3178530403022</span>
+        </td>
+        <td class="num">2</td>
+        <td class="num">5,50 %</td>
+        <td class="amt">12,23 €</td>
+        <td class="amt">12,90 €</td>
+        <td class="amt">25,80 €</td>
+      </tr>
+      <tr>
+        <td>PAPIER A4 80G RAMETTE
+          <span class="attrs">Famille : BAZAR</span>
+          <span class="attrs">3250393026256</span>
+        </td>
+        <td class="num">5</td>
+        <td class="num">20,00 %</td>
+        <td class="amt">4,16 €</td>
+        <td class="amt">4,99 €</td>
+        <td class="amt">24,95 €</td>
+      </tr>
+      <tr>
+        <td>TOMATES GRAPPE
+          <span class="attrs">Famille : FRUITS ET LEGUMES</span>
+          
+        </td>
+        <td class="num">1,480 kg</td>
+        <td class="num">5,50 %</td>
+        <td class="amt">3,74 €</td>
+        <td class="amt">3,95 €</td>
+        <td class="amt">5,85 €</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="bottom">
+    <div class="left">
+      <table class="vat">
+        <thead>
+          <tr><th>Taux TVA</th><th>Base HT</th><th>Montant TVA</th><th>Total TTC</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rate">5,50 %</td>
+            <td class="amt">30,00 €</td>
+            <td class="amt">1,65 €</td>
+            <td class="amt">31,65 €</td>
+          </tr>
+          <tr>
+            <td class="rate">20,00 %</td>
+            <td class="amt">20,79 €</td>
+            <td class="amt">4,16 €</td>
+            <td class="amt">24,95 €</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="settle">
+        <div class="h">Mode de règlement :</div>
+        <table>
+          <tr><td>- Carte bancaire</td><td class="amt">56,60 €</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="right">
+      <div class="box totals">
+        <table>
+          <tr><td>Sous-total HT</td><td class="amt">50,79 €</td></tr>
+          <tr><td>Total TVA</td><td class="amt">5,81 €</td></tr>
+          <tr><td>Sous-total TTC</td><td class="amt">56,60 €</td></tr>
+          <tr class="due"><td>Montant à payer</td><td class="amt">56,60 €</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="legal">En cas de retard de paiement, une pénalité au taux d'intérêt appliqué par la Banque centrale européenne à son opération de refinancement la plus récente majoré de 10 points de pourcentage est exigible, ainsi qu'une indemnité forfaitaire pour frais de recouvrement de 40 € (articles L441-10 et D441-5 du code de commerce). Pas d'escompte pour paiement anticipé.</div>
+
+  <div class="foot">
+    <div>SA JANSELIN — RCS 342 490 562 — Capital : 40 000,00 €</div>
+    <div>1 / 1</div>
+  </div>
+
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <a class="btn btn-muted" href="/invoice/abandon">ABANDONNER</a>
+
+    <span class="pager">
+    </span>
+
+    <form method="post" action="/invoice/issue" style="margin:0">
+      <button class="btn btn-success" type="submit">ÉMETTRE ET IMPRIMER</button>
+    </form>
+  </div>
+
+</div>
+<script>
+  setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>{document.title} {document.number}</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  :root { --ink: #111; --rule: #111; --soft: #666; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #8a8a8a; font-family: Arial, Helvetica, sans-serif;
+         color: var(--ink); font-size: 11px; }
+  .sheet { width: 210mm; min-height: 297mm; margin: 16px auto; background: #fff; padding: 12mm; }
+  .top { display: flex; align-items: flex-start; gap: 12mm; margin-bottom: 8mm; }
+  .top img { width: 46mm; }
+  .top .spacer { width: 46mm; }
+  .titleblock { flex: 1; text-align: center; }
+  .titleblock h1 { font-size: 20px; margin: 2mm 0 1mm; letter-spacing: .5px; }
+  .titleblock .num { font-size: 11px; }
+  .titleblock .dup { margin-top: 1.5mm; font-weight: bold; letter-spacing: 1px; }
+  .parties { display: flex; gap: 6mm; margin-bottom: 5mm; }
+  .box { border: 1px solid var(--rule); padding: 3mm 3.5mm; }
+  .parties .box { flex: 1; min-height: 34mm; }
+  .box .name { font-weight: bold; }
+  .box .gap { height: 2.5mm; }
+  .meta { border: 1px solid var(--rule); padding: 3mm 3.5mm; margin-bottom: 5mm; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: .6mm 0; vertical-align: top; }
+  .meta td.k { font-weight: bold; width: 34mm; }
+  .meta td.v { width: 40mm; }
+  .meta td.k2 { font-weight: bold; width: 36mm; padding-left: 8mm; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
+  table.lines th, table.lines td { border: 1px solid var(--rule); padding: 1.4mm 2mm; }
+  table.lines th { font-size: 10px; text-align: center; }
+  table.lines td.num { text-align: center; white-space: nowrap; }
+  table.lines td.amt { text-align: right; white-space: nowrap; }
+  table.lines .attrs { display: block; color: var(--soft); font-size: 9.5px; }
+  .bottom { display: flex; gap: 6mm; align-items: flex-start; }
+  .bottom .left { flex: 1.15; }
+  .bottom .right { flex: 1; }
+  table.vat { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
+  table.vat th, table.vat td { border: 1px solid var(--rule); padding: 1.4mm 2mm; font-size: 10px; }
+  table.vat th { text-align: center; }
+  table.vat td.amt { text-align: right; }
+  table.vat td.rate { text-align: center; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 1.4mm 2mm; }
+  .totals tr.due td { font-weight: bold; border-top: 1px solid var(--rule); }
+  .totals td.amt { text-align: right; white-space: nowrap; }
+  .settle { margin-top: 3mm; }
+  .settle .h { font-weight: bold; margin-bottom: 1mm; }
+  .settle table { width: 100%; border-collapse: collapse; }
+  .settle td { padding: .6mm 0; }
+  .settle td.amt { text-align: right; }
+  .legal { margin-top: 4mm; font-size: 9.5px; color: var(--soft); }
+  .foot { margin-top: 6mm; padding-top: 2mm; border-top: 1px solid var(--rule);
+          display: flex; justify-content: space-between; font-size: 10px; }
+  @media print { body { background: #fff; } .sheet { margin: 0; width: auto; padding: 0; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="top">
+    {#if document.logo}<img src="{document.logo}" alt="Intermarché">{#else}<div class="spacer"></div>{/if}
+    <div class="titleblock">
+      <h1>{document.title}</h1>
+      <div class="num">N° de {document.title.toLowerCase} {document.number}</div>
+      {#if document.duplicate}
+      <div class="dup">*** DUPLICATA N°{document.duplicateNumber} ***</div>
+      {/if}
+    </div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="parties">
+    <div class="box">
+      <div class="name">{document.seller.name}</div>
+      {#if document.seller.legalName}<div>{document.seller.legalName}</div>{/if}
+      <div class="gap"></div>
+      {#for line in document.seller.addressLines}<div>{line}</div>{/for}
+      <div class="gap"></div>
+      {#if document.seller.phone}<div>Tél. : {document.seller.phone}</div>{/if}
+      {#if document.seller.fax}<div>Fax : {document.seller.fax}</div>{/if}
+      {#if document.seller.siret}<div>SIRET : {document.seller.siret}</div>{/if}
+      {#if document.seller.vatNumber}<div>TVA intracom. : {document.seller.vatNumber}</div>{/if}
+    </div>
+    <div class="box">
+      <div class="name">{document.customer.name}</div>
+      {#if document.customer.contact}<div>{document.customer.contact}</div>{/if}
+      <div class="gap"></div>
+      {#for line in document.customer.addressLines}<div>{line}</div>{/for}
+      <div class="gap"></div>
+      {#if document.customer.accountNumber}<div>N° de compte client : {document.customer.accountNumber}</div>{/if}
+      {#if document.customer.siret}<div>SIRET : {document.customer.siret}</div>{/if}
+      {#if document.customer.vatNumber}<div>TVA intracom. : {document.customer.vatNumber}</div>{/if}
+    </div>
+  </div>
+
+  <div class="meta">
+    <table>
+      <tr>
+        <td class="k">Date de facturation</td><td class="v">{document.issueDate}</td>
+        <td class="k2">N° de ticket</td><td>{document.ticketNumber}</td>
+      </tr>
+      <tr>
+        <td class="k">Type de document</td><td class="v">{document.title}</td>
+        <td class="k2">Date de la vente</td><td>{document.saleDate}</td>
+      </tr>
+      <tr>
+        <td class="k">Point de vente</td><td class="v">Caisse {document.terminal}</td>
+        <td class="k2">Moyen de paiement</td><td>{document.paymentMethods}</td>
+      </tr>
+    </table>
+  </div>
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th style="width:46%">Description</th>
+        <th>Quantité</th>
+        <th>TVA</th>
+        <th>PV HT</th>
+        <th>PV TTC</th>
+        <th>Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#for line in document.lines}
+      <tr>
+        <td>{line.label}
+          {#if line.attributes}<span class="attrs">{line.attributes}</span>{/if}
+          {#if line.ean}<span class="attrs">{line.ean}</span>{/if}
+        </td>
+        <td class="num">{line.quantity}</td>
+        <td class="num">{line.vatRate}</td>
+        <td class="amt">{line.unitExcludingTax} €</td>
+        <td class="amt">{line.unitIncludingTax} €</td>
+        <td class="amt">{line.totalIncludingTax} €</td>
+      </tr>
+      {/for}
+    </tbody>
+  </table>
+
+  <div class="bottom">
+    <div class="left">
+      <table class="vat">
+        <thead>
+          <tr><th>Taux TVA</th><th>Base HT</th><th>Montant TVA</th><th>Total TTC</th></tr>
+        </thead>
+        <tbody>
+          {#for row in document.vatRows}
+          <tr>
+            <td class="rate">{row.rate}</td>
+            <td class="amt">{row.excludingTax} €</td>
+            <td class="amt">{row.vat} €</td>
+            <td class="amt">{row.includingTax} €</td>
+          </tr>
+          {/for}
+        </tbody>
+      </table>
+      {#if document.tenders.size > 0}
+      <div class="settle">
+        <div class="h">Mode de règlement :</div>
+        <table>
+          {#for tender in document.tenders}
+          <tr><td>- {tender.label}</td><td class="amt">{tender.amount} €</td></tr>
+          {/for}
+        </table>
+      </div>
+      {/if}
+    </div>
+    <div class="right">
+      <div class="box totals">
+        <table>
+          <tr><td>Sous-total HT</td><td class="amt">{document.totalExcludingTax} €</td></tr>
+          <tr><td>Total TVA</td><td class="amt">{document.totalVat} €</td></tr>
+          <tr><td>Sous-total TTC</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+          <tr class="due"><td>Montant à payer</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="legal">{document.legalMentions}</div>
+
+  <div class="foot">
+    <div>{document.legalFooter}</div>
+    <div>1 / 1</div>
+  </div>
+
+</div>
+</body>
+</html>

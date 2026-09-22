@@ -1,0 +1,1003 @@
+--- a/src/main/java/com/intermarche/pos/service/PosSettingsService.java
++++ b/src/main/java/com/intermarche/pos/service/PosSettingsService.java
+@@ -334,6 +334,34 @@
+         new Def("cash.movement-tenders", Type.TEXT, "MOUVEMENTS DE CAISSE",
+                 "Moyens de paiement d'un mouvement",
+                 "Moyens de paiement proposes pour un mouvement de caisse (prelevement/apport d'un cheque, d'un titre-restaurant...), separes par des points-virgules. Vide : le mouvement porte toujours sur les especes (BO-03-02-20).",
++                "", null),
++        new Def("discount.line-max-amount", Type.TEXT, "GESTES DE PRIX",
++                "Plafond de remise ligne (€)",
++                "Montant maximum d'une remise en euros sur une ligne. Une remise à ce montant passe, au-delà elle est refusée. 0 = pas de plafond en euros (BO-03-07-04).",
++                "0.00", null),
++        new Def("discount.global-max-amount", Type.TEXT, "GESTES DE PRIX",
++                "Plafond de remise ticket (€)",
++                "Montant maximum d'une remise ticket en euros. Une remise à ce montant passe, au-delà elle est refusée. 0 = pas de plafond en euros (BO-03-07-04).",
++                "0.00", null),
++        new Def("fidelity.show-holder-name", Type.BOOL, "FIDÉLITÉ",
++                "Afficher le nom du porteur",
++                "Le nom et le prénom trouvés par une recherche de carte sont affichés en caisse à côté du numéro. Désactivé : la caisse n'affiche que le numéro de carte, comme pour une carte scannée (BO-10-03-04).",
++                "true", null),
++        new Def("fidelity.jv-promotion-enabled", Type.BOOL, "FIDÉLITÉ",
++                "Promotions personnalisées à la carte",
++                "La carte de fidélité est transmise au moteur de promotion, qui lit les offres personnelles du porteur et peut les déclencher. Désactivé : le panier est valorisé anonymement et aucune promotion personnalisée n'est déclenchée (BO-10-03-22).",
++                "true", null),
++        new Def("fidelity.url", Type.TEXT, "FIDÉLITÉ",
++                "URL du service fidélité",
++                "Adresse de base du service fidélité appelé pour valoriser le panier avec les avantages fid, projeter la cagnotte et envoyer les transactions. Vide : la propriété de déploiement pos.fid.url s'applique (BO-11-04-04).",
++                "", "pos.fid.url"),
++        new Def("fidelity.user", Type.TEXT, "FIDÉLITÉ",
++                "Compte machine du service fidélité",
++                "Identifiant du compte machine de la caisse auprès du service fidélité. Vide : la propriété de déploiement pos.fid.user s'applique. Le mot de passe reste un secret de déploiement et n'est pas administrable (BO-11-04-04).",
++                "", "pos.fid.user"),
++        new Def("training.theme", Type.TEXT, "MODE ÉCOLE",
++                "Thème de l'écran caisse en formation",
++                "Nom du thème appliqué à l'écran caisse en mode école, pour le distinguer de l'écran de vente standard (sombre, clair). Vide : la formation garde le thème habituel et seul le bandeau la signale (BO-10-07-08).",
+                 "", null));
+ 
+     /**
+@@ -883,6 +911,71 @@
+     }
+ 
+     /**
++     * Whether the holder's name found by a loyalty lookup is carried onto the
++     * register (BO-10-03-04): disabled, the register keeps the pseudonymity of
++     * a scanned card and shows the card number alone.
++     *
++     * @return true when the holder's name may be displayed
++     */
++    public boolean fidelityShowHolderName() {
++        LOGGER.info("Entering method fidelityShowHolderName");
++        LOGGER.info("Exiting method fidelityShowHolderName");
++        return boolValue("fidelity.show-holder-name");
++    }
++
++    /**
++     * Whether card-linked personal promotions are active (BO-10-03-22): the
++     * loyalty card is sent to the promotion engine, which reads the holder's
++     * eligible personal offers and can trigger them. Disabled, the basket is
++     * priced anonymously and no personal promotion is triggered.
++     *
++     * @return true when card-linked promotions are active
++     */
++    public boolean fidelityJvPromotionEnabled() {
++        LOGGER.info("Entering method fidelityJvPromotionEnabled");
++        LOGGER.info("Exiting method fidelityJvPromotionEnabled");
++        return boolValue("fidelity.jv-promotion-enabled");
++    }
++
++    /**
++     * The base URL of the loyalty service this register calls (BO-11-04-04);
++     * empty when the {@code pos.fid.url} deployment property applies.
++     *
++     * @return the loyalty service base URL, possibly empty
++     */
++    public String fidelityUrl() {
++        LOGGER.info("Entering method fidelityUrl");
++        LOGGER.info("Exiting method fidelityUrl");
++        return value("fidelity.url");
++    }
++
++    /**
++     * The Basic-auth user of the register's machine account on the loyalty
++     * service (BO-11-04-04); empty when the deployment property applies. The
++     * password is NOT administrable and stays a deployment secret.
++     *
++     * @return the loyalty machine-account user, possibly empty
++     */
++    public String fidelityUser() {
++        LOGGER.info("Entering method fidelityUser");
++        LOGGER.info("Exiting method fidelityUser");
++        return value("fidelity.user");
++    }
++
++    /**
++     * The theme the register's screens take in training mode (BO-10-07-08):
++     * the school screen is then visibly another screen than the sale one.
++     * Blank, training keeps the ordinary theme resolution.
++     *
++     * @return the training theme name, or an empty string when none
++     */
++    public String trainingTheme() {
++        LOGGER.info("Entering method trainingTheme");
++        LOGGER.info("Exiting method trainingTheme");
++        return value("training.theme");
++    }
++
++    /**
+      * Whether the digital-receipt QR code is shown on the customer display at
+      * the end of a transaction (BO-10-07-02): disabled, no QR code is shown.
+      *
+@@ -999,6 +1092,36 @@
+     }
+ 
+     /**
++     * The largest discount, in euros, a cashier may take off ONE line
++     * (BO-03-07-04).
++     *
++     * <p>The percentage cap and this one are independent guards: a shop can
++     * allow 100 % and still forbid handing back more than ten euros on a line.
++     * Zero means no euro ceiling at all, which is the default — a register that
++     * suddenly started refusing remises because a cap was introduced would be a
++     * checkout outage.
++     *
++     * @return the ceiling in euros, zero when none is administered
++     */
++    public BigDecimal lineMaxDiscountAmount() {
++        LOGGER.info("Entering method lineMaxDiscountAmount");
++        LOGGER.info("Exiting method lineMaxDiscountAmount");
++        return bigDecimalValue("discount.line-max-amount");
++    }
++
++    /**
++     * The largest discount, in euros, a cashier may take off the WHOLE ticket
++     * (BO-03-07-04).
++     *
++     * @return the ceiling in euros, zero when none is administered
++     */
++    public BigDecimal globalMaxDiscountAmount() {
++        LOGGER.info("Entering method globalMaxDiscountAmount");
++        LOGGER.info("Exiting method globalMaxDiscountAmount");
++        return bigDecimalValue("discount.global-max-amount");
++    }
++
++    /**
+      * The number of group touches shown per page on the SAISIE DIRECTE grid
+      * (BO-03-01-06): a value below one is treated as unset and the catalog
+      * default applies, so the register never renders a zero-tile page.
+--- a/src/main/java/com/intermarche/pos/ui/ThemeService.java
++++ b/src/main/java/com/intermarche/pos/ui/ThemeService.java
+@@ -48,13 +48,30 @@
+     @Inject
+     PosState state;
+ 
++    /** Administered settings — carries the training-mode theme (BO-10-07-08). */
++    @Inject
++    com.intermarche.pos.service.PosSettingsService posSettingsService;
++
+     /**
+      * Resolves the current theme name for this register's screens.
++     * <p>
++     * BO-10-07-08: in TRAINING mode the administered training theme, when the
++     * store names one, wins over the whole chain below — the school screen is
++     * then visibly another screen than the sale one, and which one it is comes
++     * from the back office rather than from the code. Left blank, training
++     * keeps the ordinary resolution and the banner alone marks it.
+      *
+      * @return the data-theme value to render (never null)
+      */
+     public String currentTheme() {
+         LOGGER.info("Entering method currentTheme");
++        if (state.trainingMode) {
++            String trainingTheme = posSettingsService.trainingTheme();
++            if (trainingTheme != null && !trainingTheme.isBlank()) {
++                LOGGER.info("Exiting method currentTheme");
++                return trainingTheme.trim();
++            }
++        }
+         if (state.auth != null && state.auth.operatorId != null) {
+             Employee operator = Employee.findById(state.auth.operatorId);
+             if (operator != null && operator.theme != null && !operator.theme.isBlank()) {
+--- a/src/main/java/com/intermarche/pos/ui/fidelity/FidelityService.java
++++ b/src/main/java/com/intermarche/pos/ui/fidelity/FidelityService.java
+@@ -24,6 +24,10 @@
+     @Inject
+     ImfidClient imfidClient;
+ 
++    /** Administered settings — carries the holder-name display flag. */
++    @Inject
++    com.intermarche.pos.service.PosSettingsService posSettingsService;
++
+     /**
+      * Circuit breaker on imfid, mirroring the valuation engine's: after a
+      * failure, no further call for {@code retrySeconds} — a dead loyalty
+@@ -185,8 +189,12 @@
+             return "CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL";
+         }
+         validateCard(state, card);
+-        state.fidelity.holderLastName = lastName;
+-        state.fidelity.holderFirstName = firstName;
++        // BO-10-03-04: the holder's name is carried onto the register only when
++        // the store administers it. Off, the register keeps the pseudonymity of
++        // a scanned card even after a lookup — nothing to show, nothing stored.
++        boolean showHolderName = posSettingsService.fidelityShowHolderName();
++        state.fidelity.holderLastName = showHolderName ? lastName : null;
++        state.fidelity.holderFirstName = showHolderName ? firstName : null;
+         // LC-08-02-09: the address the register offers before sending the receipt.
+         // Blank means the referential holds none — the operator types one.
+         state.fidelity.holderEmail = email == null || email.isBlank() ? null : email.trim();
+--- a/src/main/java/com/intermarche/pos/ui/fidelity/ImfidClient.java
++++ b/src/main/java/com/intermarche/pos/ui/fidelity/ImfidClient.java
+@@ -71,7 +71,40 @@
+      * @return true when a base URL is present and the external loyalty is active
+      */
+     public boolean isConfigured() {
+-        return url.isPresent() && posSettingsService.fidelityExternalEnabled();
++        return baseUrl() != null && posSettingsService.fidelityExternalEnabled();
++    }
++
++    /**
++     * Resolves the loyalty service base URL (BO-11-04-04): the ADMINISTERED
++     * value wins, so an echelon can point its registers at another endpoint
++     * without a redeployment, and the {@code pos.fid.url} deployment property
++     * remains the fallback for a node that administers none.
++     *
++     * @return the base URL, or null when none is configured
++     */
++    String baseUrl() {
++        String administered = posSettingsService != null ? posSettingsService.fidelityUrl() : null;
++        if (administered != null && !administered.isBlank()) {
++            return administered.trim();
++        }
++        return url.orElse(null);
++    }
++
++    /**
++     * Resolves the Basic-auth user of the POS machine account (BO-11-04-04):
++     * the ADMINISTERED value wins, the {@code pos.fid.user} deployment property
++     * is the fallback. The PASSWORD is deliberately NOT administrable — it
++     * would travel in clear in the referential snapshot and show on the admin
++     * page — and stays a deployment secret.
++     *
++     * @return the Basic-auth user, or null when none is configured
++     */
++    String authUser() {
++        String administered = posSettingsService != null ? posSettingsService.fidelityUser() : null;
++        if (administered != null && !administered.isBlank()) {
++            return administered.trim();
++        }
++        return user.orElse(null);
+     }
+ 
+     /**
+@@ -80,7 +113,7 @@
+      * @return the base URL, or null when fidelity is disabled
+      */
+     public String targetUrl() {
+-        return url.orElse(null);
++        return baseUrl();
+     }
+ 
+     /**
+@@ -90,12 +123,13 @@
+      * @return true when imfid answers 200 within the timeout
+      */
+     public boolean health() {
+-        if (url.isEmpty()) {
++        String base = baseUrl();
++        if (base == null) {
+             return false;
+         }
+         try {
+             HttpRequest request = HttpRequest.newBuilder()
+-                    .uri(URI.create(url.get() + "/q/health"))
++                    .uri(URI.create(base + "/q/health"))
+                     .timeout(Duration.ofMillis(1500))
+                     .GET()
+                     .build();
+@@ -356,11 +390,16 @@
+      * @return the builder, Basic header set when credentials are configured
+      */
+     private HttpRequest.Builder authenticated(String path) {
++        String base = baseUrl();
++        if (base == null) {
++            throw new java.util.NoSuchElementException("No value present");
++        }
+         HttpRequest.Builder builder = HttpRequest.newBuilder()
+-                .uri(URI.create(url.orElseThrow() + path));
+-        if (user.isPresent() && password.isPresent()) {
++                .uri(URI.create(base + path));
++        String authUser = authUser();
++        if (authUser != null && password.isPresent()) {
+             builder.header("Authorization", "Basic " + Base64.getEncoder()
+-                    .encodeToString((user.get() + ":" + password.get()).getBytes()));
++                    .encodeToString((authUser + ":" + password.get()).getBytes()));
+         }
+         return builder;
+     }
+--- a/src/main/java/com/intermarche/pos/ui/ticket/TicketService.java
++++ b/src/main/java/com/intermarche/pos/ui/ticket/TicketService.java
+@@ -152,6 +152,16 @@
+             LOGGER.info("Exiting method applyGlobalDiscount");
+             return;
+         }
++        // The EURO cap is administered separately (BO-03-07-04) and governs the
++        // amount gesture only: a percentage is already bounded by its own cap.
++        // Zero disables it, so an unadministered register behaves as before.
++        BigDecimal amountCap = posSettingsService.globalMaxDiscountAmount();
++        if (type == PriceModType.GLOBAL_REMISE && amountCap.signum() > 0
++                && value.compareTo(amountCap) > 0) {
++            state.ticket.setError("REMISE SUPERIEURE AU PLAFOND");
++            LOGGER.info("Exiting method applyGlobalDiscount");
++            return;
++        }
+         state.ticket.setGlobalDiscount(
+                 type == PriceModType.GLOBAL_DISCOUNT ? "PERCENT" : "AMOUNT", value);
+         recalculateTotal(state);
+@@ -511,6 +521,13 @@
+         if (item == null || amount == null || amount.signum() <= 0) { LOGGER.info("Exiting method applyRemise"); return; }
+         if (item.moneyProduct) { LOGGER.info("Exiting method applyRemise"); return; } // money products are never discounted
+         if (item.discountForbidden) { LOGGER.info("Exiting method applyRemise"); return; } // BO-02-03-09: article bans discounts
++        // The euro ceiling of a LINE remise is administered (BO-03-07-04);
++        // zero disables it. The amount AT the ceiling passes, beyond it is refused.
++        BigDecimal amountCap = posSettingsService.lineMaxDiscountAmount();
++        if (amountCap.signum() > 0 && amount.compareTo(amountCap) > 0) {
++            LOGGER.info("Exiting method applyRemise");
++            return;
++        }
+         if (item.originalUnitPrice.signum() == 0 || item.originalUnitPrice.compareTo(item.unitPrice) == 0) {
+             item.originalUnitPrice = item.unitPrice;
+         }
+--- a/src/main/java/com/intermarche/pos/ui/valuation/ValuationService.java
++++ b/src/main/java/com/intermarche/pos/ui/valuation/ValuationService.java
+@@ -66,6 +66,10 @@
+     @jakarta.inject.Inject
+     com.intermarche.pos.ui.fidelity.FidelityService fidelityService;
+ 
++    /** Administered settings — carries the card-linked promotion flag (BO-10-03-22). */
++    @jakarta.inject.Inject
++    com.intermarche.pos.service.PosSettingsService posSettingsService;
++
+     /** Seconds during which the engine is skipped after a failure (circuit breaker). */
+     @org.eclipse.microprofile.config.inject.ConfigProperty(
+             name = "pos.valuation.retry-seconds", defaultValue = "10")
+@@ -369,7 +373,13 @@
+     private ValuationPayloads.BasketDto buildBasket(TicketState ticket, String fidelityCard,
+                                                     LocalDateTime creationDate) {
+         ValuationPayloads.BasketDto basket = new ValuationPayloads.BasketDto();
+-        basket.customerCode = (fidelityCard != null && !fidelityCard.isBlank()) ? fidelityCard : null;
++        // BO-10-03-22: the card travels to the promotion engine ONLY when the
++        // store administers card-linked promotions. Off, the basket is priced
++        // anonymously — the engine can no longer read the holder's eligible
++        // personal offers, and none can be triggered against the card.
++        boolean jvPromotion = posSettingsService.fidelityJvPromotionEnabled();
++        basket.customerCode = (jvPromotion && fidelityCard != null && !fidelityCard.isBlank())
++                ? fidelityCard : null;
+         Store store = Store.findAll().firstResult();
+         basket.storeCode = store != null ? store.code : "0000";
+         String isoDate = (creationDate != null ? creationDate : LocalDateTime.now())
+--- a/src/test/java/com/intermarche/pos/ui/ThemeServiceTest.java
++++ b/src/test/java/com/intermarche/pos/ui/ThemeServiceTest.java
+@@ -49,6 +49,11 @@
+     private ThemeService newService() {
+         ThemeService service = new ThemeService();
+         service.state = new PosState();
++        // BO-10-07-08: no training theme administered by default, so the whole
++        // pre-existing resolution chain below is unchanged; the dedicated tests
++        // re-stub it to prove the setting is READ and not hard-coded.
++        service.posSettingsService = mock(PosSettingsService.class);
++        when(service.posSettingsService.trainingTheme()).thenReturn("");
+         return service;
+     }
+ 
+@@ -630,4 +635,103 @@
+     void globalsHolderIsInstantiable() {
+         assertNotNull(new ThemeService.Globals());
+     }
++
++    // --------------------------------------------------
++    // BO-10-07-08 : écran caisse du mode école
++    // --------------------------------------------------
++
++    /**
++     * In training, the administered training theme wins the whole chain, so the
++     * school screen is visibly another screen than the sale one (training arm,
++     * non-blank arm). The operator's own preference is NOT consulted.
++     */
++    @Test
++    void trainingTakesTheAdministeredTrainingTheme() {
++        ThemeService service = newService();
++        service.state.trainingMode = true;
++        when(service.posSettingsService.trainingTheme()).thenReturn("clair");
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            assertEquals("clair", service.currentTheme());
++        }
++    }
++
++    /**
++     * A SECOND administered value lands as itself, which is what proves the
++     * setting is read rather than a literal returned.
++     */
++    @Test
++    void trainingTakesASecondAdministeredTrainingTheme() {
++        ThemeService service = newService();
++        service.state.trainingMode = true;
++        when(service.posSettingsService.trainingTheme()).thenReturn("sombre");
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            assertEquals("sombre", service.currentTheme());
++        }
++    }
++
++    /**
++     * An administered value padded with spaces is trimmed before it lands on
++     * the {@code data-theme} attribute.
++     */
++    @Test
++    void theAdministeredTrainingThemeIsTrimmed() {
++        ThemeService service = newService();
++        service.state.trainingMode = true;
++        when(service.posSettingsService.trainingTheme()).thenReturn("  clair  ");
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            assertEquals("clair", service.currentTheme());
++        }
++    }
++
++    /**
++     * A BLANK administered value leaves training on the ordinary resolution —
++     * the store's theme here (blank arm, the leg a null check alone would miss).
++     */
++    @Test
++    void aBlankTrainingThemeKeepsTheOrdinaryChain() {
++        ThemeService service = newService();
++        service.state.trainingMode = true;
++        when(service.posSettingsService.trainingTheme()).thenReturn("   ");
++        Store store = new Store();
++        store.theme = "clair";
++        // The query mock is built BEFORE the static mock: building a mock
++        // inside the block confuses Mockito's stubbing state (see above).
++        PanacheQuery<Store> query = storeQuery(store);
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            ms.when(Store::findAll).thenReturn(query);
++            assertEquals("clair", service.currentTheme());
++        }
++    }
++
++    /**
++     * A NULL administered value behaves like a blank one (null arm).
++     */
++    @Test
++    void aNullTrainingThemeKeepsTheOrdinaryChain() {
++        ThemeService service = newService();
++        service.state.trainingMode = true;
++        when(service.posSettingsService.trainingTheme()).thenReturn(null);
++        PanacheQuery<Store> query = storeQuery(null);
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            ms.when(Store::findAll).thenReturn(query);
++            assertEquals(ThemeService.DEFAULT_THEME, service.currentTheme());
++        }
++    }
++
++    /**
++     * OUTSIDE training, the administered training theme is ignored entirely —
++     * the setting is never even read (training false arm).
++     */
++    @Test
++    void theSaleScreenIgnoresTheTrainingTheme() {
++        ThemeService service = newService();
++        service.state.trainingMode = false;
++        when(service.posSettingsService.trainingTheme()).thenReturn("clair");
++        PanacheQuery<Store> query = storeQuery(null);
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            ms.when(Store::findAll).thenReturn(query);
++            assertEquals(ThemeService.DEFAULT_THEME, service.currentTheme());
++        }
++        verify(service.posSettingsService, never()).trainingTheme();
++    }
+ }
+--- a/src/test/java/com/intermarche/pos/ui/admin/AdminSettingsResourceTest.java
++++ b/src/test/java/com/intermarche/pos/ui/admin/AdminSettingsResourceTest.java
+@@ -157,6 +157,13 @@
+             {"ticket.vat-breakdown-enabled",        "TICKETS",                    "b", ""},
+             {"fidelity.external-enabled",           "FIDÉLITÉ",                   "b", ""},
+             {"cash.movement-tenders",               "MOUVEMENTS DE CAISSE",       "",  ""},
++            {"discount.line-max-amount",            "GESTES DE PRIX",             "",  ""},
++            {"discount.global-max-amount",          "GESTES DE PRIX",             "",  ""},
++            {"fidelity.show-holder-name",           "FIDÉLITÉ",                   "b", ""},
++            {"fidelity.jv-promotion-enabled",       "FIDÉLITÉ",                   "b", ""},
++            {"fidelity.url",                        "FIDÉLITÉ",                   "",  ""},
++            {"fidelity.user",                       "FIDÉLITÉ",                   "",  ""},
++            {"training.theme",                      "MODE ÉCOLE",                 "",  ""},
+         };
+         assertEquals(expected.length, entries.size());
+         String previousSection = null;
+--- a/src/test/java/com/intermarche/pos/ui/fidelity/FidelityServiceTest.java
++++ b/src/test/java/com/intermarche/pos/ui/fidelity/FidelityServiceTest.java
+@@ -1416,10 +1416,25 @@
+         FidelityService service = new FidelityService();
+         service.imfidClient = mock(ImfidClient.class);
+         when(service.imfidClient.isConfigured()).thenReturn(true);
++        service.posSettingsService = settings(true);
+         return service;
+     }
+ 
+     /**
++     * Builds an administered-settings mock answering the holder-name display
++     * flag (BO-10-03-04) with the given value.
++     *
++     * @param showHolderName the administered value of {@code fidelity.show-holder-name}
++     * @return the settings mock
++     */
++    private com.intermarche.pos.service.PosSettingsService settings(boolean showHolderName) {
++        com.intermarche.pos.service.PosSettingsService settings =
++                mock(com.intermarche.pos.service.PosSettingsService.class);
++        when(settings.fidelityShowHolderName()).thenReturn(showHolderName);
++        return settings;
++    }
++
++    /**
+      * Builds a lookup result carrying the given matches.
+      *
+      * @param n the number of synthetic matches, or -1 for a null match list
+@@ -1592,6 +1607,7 @@
+         FidelityService service = new FidelityService();
+         service.imfidClient = mock(ImfidClient.class);
+         when(service.imfidClient.isConfigured()).thenReturn(false);
++        service.posSettingsService = settings(true);
+         PosState state = new PosState();
+         String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "PENDING_ACTIVATION", null);
+         assertNull(message);
+@@ -1612,6 +1628,7 @@
+         FidelityService service = new FidelityService();
+         service.imfidClient = mock(ImfidClient.class);
+         when(service.imfidClient.isConfigured()).thenReturn(false);
++        service.posSettingsService = settings(true);
+         PosState state = new PosState();
+         String message = service.attachLookedUpCard(state, "2990000000019", "Dupont", null, "ACTIVE", null);
+         assertNull(message);
+@@ -1725,6 +1742,7 @@
+         FidelityService service = new FidelityService();
+         service.imfidClient = mock(ImfidClient.class);
+         when(service.imfidClient.isConfigured()).thenReturn(false);
++        service.posSettingsService = settings(true);
+         return service;
+     }
+ 
+@@ -1777,4 +1795,52 @@
+                 "jean@example.org");
+         assertNull(state.fidelity.holderEmail);
+     }
++
++    // --- attachLookedUpCard : affichage du nom du porteur (BO-10-03-04) ---
++
++    /**
++     * The administered flag ON carries the holder's name onto the register, so
++     * the operator sees it beside the card number (true arm).
++     */
++    @Test
++    void theAdministeredFlagCarriesTheHolderName() {
++        FidelityService service = attachService();
++        PosState state = new PosState();
++        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE", null);
++        assertEquals("Dupont", state.fidelity.holderLastName);
++        assertEquals("Jean", state.fidelity.holderFirstName);
++        assertEquals("DUPONT Jean · 2990000000019", state.fidelity.getDisplaySummary());
++    }
++
++    /**
++     * The administered flag OFF keeps the register pseudonymous: neither name is
++     * stored and the summary shows the card number alone (false arm). Asserting a
++     * SECOND administered value is what proves the flag is read rather than a
++     * literal being returned.
++     */
++    @Test
++    void theAdministeredFlagOffKeepsTheRegisterPseudonymous() {
++        FidelityService service = attachService();
++        service.posSettingsService = settings(false);
++        PosState state = new PosState();
++        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE", null);
++        assertNull(state.fidelity.holderLastName);
++        assertNull(state.fidelity.holderFirstName);
++        assertEquals("2990000000019", state.fidelity.getDisplaySummary());
++    }
++
++    /**
++     * The flag governs the NAME only: the holder's e-mail still travels, because
++     * the receipt address is a different requirement (LC-08-02-09).
++     */
++    @Test
++    void theAdministeredFlagDoesNotGovernTheHolderEmail() {
++        FidelityService service = attachService();
++        service.posSettingsService = settings(false);
++        PosState state = new PosState();
++        service.attachLookedUpCard(state, "2990000000019", "Dupont", "Jean", "ACTIVE",
++                "jean@example.org");
++        assertNull(state.fidelity.holderLastName);
++        assertEquals("jean@example.org", state.fidelity.holderEmail);
++    }
+ }
+--- a/src/test/java/com/intermarche/pos/ui/fidelity/ImfidClientTest.java
++++ b/src/test/java/com/intermarche/pos/ui/fidelity/ImfidClientTest.java
+@@ -67,7 +67,7 @@
+         client.url = Optional.of("http://127.0.0.1:" + server.getAddress().getPort());
+         client.user = Optional.of("pos");
+         client.password = Optional.of("pos-password");
+-        client.posSettingsService = org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
++        client.posSettingsService = settings();
+         org.mockito.Mockito.when(client.posSettingsService.fidelityExternalEnabled()).thenReturn(true);
+     }
+ 
+@@ -80,6 +80,21 @@
+     }
+ 
+     /**
++     * Builds an administered-settings mock answering the loyalty endpoint keys
++     * (BO-11-04-04) with an empty value, so the deployment properties apply and
++     * the pre-existing cases are unchanged.
++     *
++     * @return the settings mock
++     */
++    private com.intermarche.pos.service.PosSettingsService settings() {
++        com.intermarche.pos.service.PosSettingsService settings =
++                org.mockito.Mockito.mock(com.intermarche.pos.service.PosSettingsService.class);
++        org.mockito.Mockito.when(settings.fidelityUrl()).thenReturn("");
++        org.mockito.Mockito.when(settings.fidelityUser()).thenReturn("");
++        return settings;
++    }
++
++    /**
+      * Registers a stub answer on a path, recording what the client sent.
+      *
+      * @param path the path to serve
+@@ -128,6 +143,7 @@
+         org.mockito.Mockito.when(client.posSettingsService.fidelityExternalEnabled()).thenReturn(false);
+         assertFalse(client.isConfigured());
+         ImfidClient bare = new ImfidClient();
++        bare.posSettingsService = settings();
+         bare.url = Optional.empty();
+         assertFalse(bare.isConfigured());
+         assertNull(bare.targetUrl());
+@@ -504,6 +520,7 @@
+     @Test
+     void releaseSwallowsAnAbsentConfiguration() {
+         ImfidClient bare = new ImfidClient();
++        bare.posSettingsService = settings();
+         bare.url = Optional.empty();
+         bare.user = Optional.empty();
+         bare.password = Optional.empty();
+@@ -575,6 +592,7 @@
+     @Test
+     void healthIsFalseWhenNoUrlIsConfigured() {
+         ImfidClient bare = new ImfidClient();
++        bare.posSettingsService = settings();
+         bare.url = Optional.empty();
+         assertFalse(bare.health());
+     }
+@@ -809,4 +827,128 @@
+         assertFalse(line.contains("email="), line);
+         assertFalse(line.contains("name=Dupont"), line);
+     }
++
++    // --- BO-11-04-04 : point d'appel fidélité administré ---
++
++    /**
++     * The ADMINISTERED base URL wins over the deployment property, so an
++     * echelon can point its registers at another endpoint without a
++     * redeployment (administered arm).
++     */
++    @Test
++    void theAdministeredUrlWinsOverTheDeploymentProperty() {
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl())
++                .thenReturn("http://imfid.echelon:8080");
++        assertEquals("http://imfid.echelon:8080", client.targetUrl());
++    }
++
++    /**
++     * A SECOND administered value lands as itself, which is what proves the
++     * setting is read rather than a literal returned; padding is trimmed.
++     */
++    @Test
++    void aSecondAdministeredUrlLandsTrimmed() {
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl())
++                .thenReturn("  http://imfid.other:9090  ");
++        assertEquals("http://imfid.other:9090", client.targetUrl());
++    }
++
++    /**
++     * A BLANK administered URL leaves the deployment property in charge (blank
++     * arm — the leg a null check alone would miss).
++     */
++    @Test
++    void aBlankAdministeredUrlKeepsTheDeploymentProperty() {
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl()).thenReturn("   ");
++        assertEquals("http://127.0.0.1:" + server.getAddress().getPort(), client.targetUrl());
++    }
++
++    /**
++     * A NULL administered URL behaves like a blank one (null arm).
++     */
++    @Test
++    void aNullAdministeredUrlKeepsTheDeploymentProperty() {
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUrl()).thenReturn(null);
++        assertEquals("http://127.0.0.1:" + server.getAddress().getPort(), client.targetUrl());
++    }
++
++    /**
++     * An administered URL with no deployment property at all still configures
++     * the service: administering the endpoint is enough on its own.
++     */
++    @Test
++    void anAdministeredUrlAloneConfiguresTheService() {
++        ImfidClient bare = new ImfidClient();
++        bare.posSettingsService = settings();
++        bare.url = Optional.empty();
++        org.mockito.Mockito.when(bare.posSettingsService.fidelityUrl())
++                .thenReturn("http://imfid.echelon:8080");
++        org.mockito.Mockito.when(bare.posSettingsService.fidelityExternalEnabled()).thenReturn(true);
++        assertTrue(bare.isConfigured());
++        assertEquals("http://imfid.echelon:8080", bare.targetUrl());
++    }
++
++    /**
++     * The ADMINISTERED machine account is the one sent in the Basic header, the
++     * deployment property being only its fallback (administered arm).
++     *
++     * @throws Exception on transport
++     */
++    @Test
++    void theAdministeredUserIsSentInTheBasicHeader() throws Exception {
++        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("caisse-12");
++        client.earn("{}", "{}");
++        assertEquals("Basic " + java.util.Base64.getEncoder()
++                        .encodeToString("caisse-12:pos-password".getBytes()),
++                receivedAuthorization.get());
++    }
++
++    /**
++     * A SECOND administered account lands as itself, padding trimmed.
++     *
++     * @throws Exception on transport
++     */
++    @Test
++    void aSecondAdministeredUserIsSentTrimmed() throws Exception {
++        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("  caisse-7  ");
++        client.earn("{}", "{}");
++        assertEquals("Basic " + java.util.Base64.getEncoder()
++                        .encodeToString("caisse-7:pos-password".getBytes()),
++                receivedAuthorization.get());
++    }
++
++    /**
++     * A BLANK administered account leaves the deployment property in charge
++     * (blank arm).
++     *
++     * @throws Exception on transport
++     */
++    @Test
++    void aBlankAdministeredUserKeepsTheDeploymentProperty() throws Exception {
++        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("   ");
++        client.earn("{}", "{}");
++        assertEquals("Basic " + java.util.Base64.getEncoder()
++                        .encodeToString("pos:pos-password".getBytes()),
++                receivedAuthorization.get());
++    }
++
++    /**
++     * An administered account with NO deployment user still authenticates: the
++     * administered half is a complete credential once the password is on file.
++     *
++     * @throws Exception on transport
++     */
++    @Test
++    void anAdministeredUserAloneAuthenticates() throws Exception {
++        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
++        client.user = Optional.empty();
++        org.mockito.Mockito.when(client.posSettingsService.fidelityUser()).thenReturn("caisse-12");
++        client.earn("{}", "{}");
++        assertEquals("Basic " + java.util.Base64.getEncoder()
++                        .encodeToString("caisse-12:pos-password".getBytes()),
++                receivedAuthorization.get());
++    }
+ }
+--- a/src/test/java/com/intermarche/pos/ui/ticket/TicketServiceTest.java
++++ b/src/test/java/com/intermarche/pos/ui/ticket/TicketServiceTest.java
+@@ -98,6 +98,10 @@
+         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+         when(service.posSettingsService.lineMaxDiscountPercent()).thenReturn(100);
+         when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(100);
++        // Euro ceilings at their catalog default of zero, i.e. disabled, so every
++        // historical assertion on remises is unchanged (BO-03-07-04).
++        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(BigDecimal.ZERO);
++        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(BigDecimal.ZERO);
+         // Original price shown at its catalog default (BO-10-07-12), so the
+         // historical "Prix initial" assertions on forcePrice hold.
+         when(service.posSettingsService.priceShowOriginalOnForce()).thenReturn(true);
+@@ -2136,4 +2140,99 @@
+         assertTrue(state.ticket.items.isEmpty());
+         assertTrue(state.version > version);
+     }
++
++    /**
++     * The administered EURO ceiling refuses a line remise beyond it
++     * (BO-03-07-04): the line keeps its price and its modifier.
++     */
++    @Test
++    void applyRemiseRefusesAnAmountAboveTheAdministeredCap() {
++        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("10.00"));
++        TicketState.TicketItem item = line("Pommes", new BigDecimal("20.00"), BigDecimal.ONE);
++        service.applyRemise(item, new BigDecimal("10.01"));
++        assertEquals(0, new BigDecimal("20.0000").compareTo(item.unitPrice));
++        assertNull(item.modifierType);
++    }
++
++    /**
++     * The administered EURO ceiling accepts a line remise exactly AT it
++     * (BO-03-07-04, boundary): the minimum promised is honoured.
++     */
++    @Test
++    void applyRemiseAcceptsAnAmountExactlyAtTheAdministeredCap() {
++        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("10.00"));
++        TicketState.TicketItem item = line("Pommes", new BigDecimal("20.00"), BigDecimal.ONE);
++        service.applyRemise(item, new BigDecimal("10.00"));
++        assertEquals(0, new BigDecimal("10.0000").compareTo(item.unitPrice));
++        assertEquals(PriceModType.REMISE, item.modifierType);
++    }
++
++    /**
++     * A SECOND administered ceiling moves the refusal: what 10 € forbade, 20 €
++     * allows. Two distinct administered values, so no literal can satisfy both.
++     */
++    @Test
++    void applyRemiseFollowsTheAdministeredCapWhateverItIs() {
++        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("20.00"));
++        TicketState.TicketItem item = line("Pommes", new BigDecimal("30.00"), BigDecimal.ONE);
++        service.applyRemise(item, new BigDecimal("15.00"));
++        assertEquals(PriceModType.REMISE, item.modifierType);
++    }
++
++    /**
++     * A zero ceiling is no ceiling: the historical behaviour, kept as the
++     * catalog default so an unadministered register refuses nothing new.
++     */
++    @Test
++    void applyRemiseIsUncappedWhenTheAdministeredCapIsZero() {
++        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(BigDecimal.ZERO);
++        TicketState.TicketItem item = line("Pommes", new BigDecimal("20.00"), BigDecimal.ONE);
++        service.applyRemise(item, new BigDecimal("19.00"));
++        assertEquals(PriceModType.REMISE, item.modifierType);
++    }
++
++    /**
++     * The administered EURO ceiling refuses a TICKET remise beyond it
++     * (BO-03-07-04).
++     */
++    @Test
++    void applyGlobalDiscountRefusesEurosAboveTheAdministeredAmountCap() {
++        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("30.00"));
++        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("30.01"));
++        assertNull(state.ticket.globalDiscountType);
++        assertEquals("REMISE SUPERIEURE AU PLAFOND", state.ticket.transientError);
++    }
++
++    /**
++     * The administered EURO ceiling accepts a TICKET remise exactly AT it
++     * (BO-03-07-04, boundary).
++     */
++    @Test
++    void applyGlobalDiscountAcceptsEurosExactlyAtTheAdministeredAmountCap() {
++        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("30.00"));
++        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("30.00"));
++        assertEquals("AMOUNT", state.ticket.globalDiscountType);
++    }
++
++    /**
++     * A SECOND administered ceiling moves the refusal on the ticket gesture too.
++     */
++    @Test
++    void applyGlobalDiscountFollowsTheAdministeredAmountCapWhateverItIs() {
++        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("60.00"));
++        service.applyGlobalDiscount(state, PriceModType.GLOBAL_REMISE, new BigDecimal("50.00"));
++        assertEquals("AMOUNT", state.ticket.globalDiscountType);
++    }
++
++    /**
++     * The euro ceiling does NOT govern the percentage gesture, which keeps its
++     * own cap: the two guards are independent.
++     */
++    @Test
++    void theAmountCapDoesNotGovernThePercentageGesture() {
++        when(service.posSettingsService.globalMaxDiscountAmount()).thenReturn(new BigDecimal("5.00"));
++        when(service.posSettingsService.globalMaxDiscountPercent()).thenReturn(50);
++        service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("40"));
++        assertEquals("PERCENT", state.ticket.globalDiscountType);
++    }
+ }
+--- a/src/test/java/com/intermarche/pos/ui/valuation/ValuationServiceTest.java
++++ b/src/test/java/com/intermarche/pos/ui/valuation/ValuationServiceTest.java
+@@ -97,6 +97,10 @@
+     /** The loyalty projection, fed at every revaluation outcome. */
+     private final FidelityService fidelityService = mock(FidelityService.class);
+ 
++    /** The administered settings, carrying the card-linked promotion flag. */
++    private final com.intermarche.pos.service.PosSettingsService posSettingsService =
++            mock(com.intermarche.pos.service.PosSettingsService.class);
++
+     private ValuationService newService() {
+         ValuationService service = new ValuationService();
+         service.valuationClient = valuationClient;
+@@ -110,6 +114,11 @@
+         service.fidelityService = fidelityService;
+         service.objectMapper = new ObjectMapper();
+         service.retrySeconds = 10L;
++        // BO-10-03-22: card-linked promotions are on by default here, so the
++        // pre-existing cases keep sending the card; the two dedicated tests
++        // below re-stub the flag to prove it is READ and not hard-coded.
++        service.posSettingsService = posSettingsService;
++        when(posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
+         return service;
+     }
+ 
+@@ -778,6 +787,82 @@
+         assertEquals(new BigDecimal("7.00"), basket.items.get(0).manualForcedPrice);
+     }
+ 
++    // --- BO-10-03-22 : promotions personnalisées à la carte ---
++
++    /**
++     * Card-linked promotions administered ON send the attached card to the
++     * promotion engine, which is what lets it read the holder's personal
++     * offers (true arm).
++     *
++     * @throws Exception on transport or serialization
++     */
++    @Test
++    void theAdministeredFlagSendsTheCardToThePromotionEngine() throws Exception {
++        assertEquals("CARD9", basketSentWithCard("CARD9", true).customerCode);
++    }
++
++    /**
++     * Card-linked promotions administered OFF price the basket anonymously:
++     * the card never reaches the promotion engine, so no personal offer can be
++     * read or triggered (false arm). Asserting a SECOND administered value is
++     * what proves the flag is read rather than a literal returned.
++     *
++     * @throws Exception on transport or serialization
++     */
++    @Test
++    void theAdministeredFlagOffPricesTheBasketAnonymously() throws Exception {
++        assertNull(basketSentWithCard("CARD9", false).customerCode);
++    }
++
++    /**
++     * With the flag ON but no card attached, the basket stays anonymous: the
++     * flag governs the card, it does not invent one (card-null arm).
++     *
++     * @throws Exception on transport or serialization
++     */
++    @Test
++    void theAdministeredFlagDoesNotInventACard() throws Exception {
++        assertNull(basketSentWithCard(null, true).customerCode);
++    }
++
++    /**
++     * With the flag ON but a BLANK card, the basket stays anonymous (card-blank
++     * arm — the leg a null check alone would miss).
++     *
++     * @throws Exception on transport or serialization
++     */
++    @Test
++    void theAdministeredFlagIgnoresABlankCard() throws Exception {
++        assertNull(basketSentWithCard("   ", true).customerCode);
++    }
++
++    /**
++     * Valuates a one-line cart with the given card and the given administered
++     * value of the card-linked promotion flag, and returns the basket the
++     * engine actually received.
++     *
++     * @param card the attached fidelity card, or null
++     * @param jvPromotion the administered value of {@code fidelity.jv-promotion-enabled}
++     * @return the basket sent to the engine
++     * @throws Exception on transport or serialization
++     */
++    private ValuationPayloads.BasketDto basketSentWithCard(String card, boolean jvPromotion)
++            throws Exception {
++        ValuationService service = newService();
++        when(posSettingsService.fidelityJvPromotionEnabled()).thenReturn(jvPromotion);
++        when(valuationClient.isEnabled()).thenReturn(true);
++        when(valuationClient.valuate(any())).thenReturn(response(null));
++        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
++                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
++        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
++            PanacheQuery<Store> storeQuery = query(null);
++            ms.when(Store::findAll).thenReturn(storeQuery);
++            service.valuate(ticketWith(item("A", "10", "10", "1")), card, LocalDateTime.now());
++        }
++        verify(valuationClient).valuate(captor.capture());
++        return captor.getValue();
++    }
++
+     /**
+      * valuate degrades on an InterruptedException, restoring the interrupt
+      * flag (InterruptedException catch arm).

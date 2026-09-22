@@ -278,7 +278,7 @@ public class RefPullService {
         if (content == null || content.isBlank()) {
             return false;
         }
-        if (!refApplyService.applyFromFile(domain, content)) {
+        if (refApplyService.applyFromFile(domain, content) == null) {
             return false;
         }
         refApplyService.recordApplied(domain, fingerprint);

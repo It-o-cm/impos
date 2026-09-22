@@ -285,12 +285,17 @@ public class RefApplyService {
      * as it does at the node. What comes back is a count, and the caller records
      * the fingerprint on it.
      *
+     * <p>The importer's own answer is returned rather than a boolean, because
+     * this method now has two callers: the pull loop, which only needs to know
+     * that the content served, and the CSV door of a register running without
+     * a store node, which hands the counts back to whoever pushed the file.
+     *
      * @param domain the domain being applied, which names the importer
      * @param content the raw CSV, verbatim
-     * @return true when the domain is one this path serves
+     * @return the importer's answer, or null when no importer serves that domain
      */
     @jakarta.enterprise.context.control.ActivateRequestContext
-    public boolean applyFromFile(String domain, String content) {
+    public jakarta.ws.rs.core.Response applyFromFile(String domain, String content) {
         LOGGER.info("Entering method applyFromFile with domain: " + domain);
         java.io.InputStream stream = new java.io.ByteArrayInputStream(
                 content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -302,11 +307,11 @@ public class RefApplyService {
         };
         if (answer == null) {
             LOGGER.info("Exiting method applyFromFile: domaine non servi par cette voie");
-            return false;
+            return null;
         }
-        LOGGER.infof("Référentiel %s appliqué depuis le fichier: %s", domain, answer.getEntity());
+        LOGGER.infof("Référentiel %s appliqué depuis le contenu: %s", domain, answer.getEntity());
         LOGGER.info("Exiting method applyFromFile");
-        return true;
+        return answer;
     }
 
     /**

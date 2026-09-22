@@ -23,9 +23,9 @@ class HidBarcodeDecoderTest {
     private final HidBarcodeDecoder decoder = new HidBarcodeDecoder(emitted::add);
 
     /**
-     * Builds a 64-byte report carrying one data frame: identifier, announced
-     * length, symbology, flags, the character bytes, the terminator, then zero
-     * padding.
+     * Builds a 64-byte report carrying one IBM label frame: the TOTAL LENGTH
+     * of the report, the label message type, symbology, flags, the character
+     * bytes, the terminator, then zero padding.
      *
      * @param symbology the symbology byte
      * @param chars the character bytes of the code
@@ -33,8 +33,8 @@ class HidBarcodeDecoderTest {
      */
     private static byte[] frame(int symbology, int... chars) {
         byte[] r = new byte[64];
-        r[0] = (byte) IbmHandHeldFormat.FRAME_ID;
-        r[1] = (byte) (chars.length + 3);
+        r[0] = (byte) (4 + chars.length + 1);
+        r[1] = (byte) IbmHandHeldFormat.MESSAGE_TYPE_LABEL;
         r[2] = (byte) symbology;
         r[3] = 0x00;
         for (int i = 0; i < chars.length; i++) {
@@ -224,7 +224,7 @@ class HidBarcodeDecoderTest {
      */
     @Test
     void tooShortReportIsIgnored() {
-        decoder.feed(new byte[]{(byte) IbmHandHeldFormat.FRAME_ID}, 1);
+        decoder.feed(new byte[]{(byte) 0x12}, 1);
         assertTrue(emitted.isEmpty());
     }
 
@@ -235,7 +235,7 @@ class HidBarcodeDecoderTest {
     @Test
     void announcedLengthBeyondReportIsRefused() {
         byte[] r = frame(0x03, digits("3178530403022"));
-        r[1] = (byte) 0x7F;
+        r[0] = (byte) 0x7F;
         decoder.feed(r, 64);
         assertTrue(emitted.isEmpty());
     }
@@ -247,21 +247,23 @@ class HidBarcodeDecoderTest {
     @Test
     void announcedLengthBelowOverheadIsRefused() {
         byte[] r = frame(0x03, digits("3178530403022"));
-        r[1] = 0x02;
+        r[0] = 0x02;
         decoder.feed(r, 64);
         assertTrue(emitted.isEmpty());
     }
 
     /**
-     * A frame whose announced payload does not end on the terminator is
-     * refused — the frame is not the one this decoder understands.
+     * A numeric frame closed by NO terminator keeps every announced byte: a
+     * {@code 00} where the terminator was is the digit zero, not an ending,
+     * and the announced length is what says where the label stops. This is
+     * the property that forbids reading a NUL as a terminator.
      */
     @Test
-    void missingTerminatorIsRefused() {
+    void aNumericFrameWithoutTerminatorKeepsItsAnnouncedBytes() {
         byte[] r = frame(0x03, digits("3178530403022"));
         r[4 + 13] = 0x00;
         decoder.feed(r, 64);
-        assertTrue(emitted.isEmpty());
+        assertEquals(List.of("31785304030220"), emitted);
     }
 
     /**

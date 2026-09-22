@@ -114,6 +114,14 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-resteasy-qute</artifactId>
         </dependency>
+        <!-- HTTP Basic on the CSV door only: a register without a store node is
+             fed by a push, and that push writes the catalogue and the prices.
+             Identities are the employees, through EmployeeIdentityProvider, the
+             same accounts as the badge and the back office. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>

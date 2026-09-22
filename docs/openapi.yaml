@@ -1,0 +1,4898 @@
+openapi: 3.0.3
+info:
+  title: impos — HTTP entry points
+  version: 1.0-SNAPSHOT
+  description: |
+    Every JAX-RS entry point exposed by impos (sources `src/main/java` and `src/mock/java`),
+    extracted statically from the resource annotations.
+
+    **Nature of the endpoints.** impos is a server-rendered register UI (Quarkus + Qute), not a REST API:
+
+    - `GET` pages return HTML rendered by Qute templates (`text/html`);
+    - `/action/**` routes are HTML form posts (`application/x-www-form-urlencoded`) that answer
+      `303 See Other` (Post/Redirect/Get) towards the next screen;
+    - `/api/**` routes are the JSON / text endpoints (hardware simulator in `src/mock`, scanner input,
+      valuation engine mock, feed status...).
+
+    **Cross-cutting request filters** (not repeated on each operation):
+
+    - `SessionCheckFilter` — when no cash session is open (and the register is neither locked nor in
+      training mode), any path outside its allow-list answers `303` → `/session?error=no-session`.
+      Allow-listed prefixes: `/session`, `/action/session`, `/cash-count`, `/lock`, `/action/unlock`,
+      `/action/hardware-override`, `/action/resume-after-drawer`, `/action/training`, `/weight`,
+      `/pin-change`, `/action/pin-change`, `/badge-print`, `/action/badge-print`, `/theme-select`,
+      `/action/theme`, `/supervisor`, `/action/supervisor`, `/drawer-error`, `/api/`, `/t/`, `/customer`,
+      `/ticket-fragment`, `/endorsement-data`.
+    - `LockCheckFilter` — while the register is locked, any path outside its allow-list answers
+      `303` → `/lock`. Allow-listed prefixes: `/lock`, `/action/unlock`, `/api/`, `/t/`, `/customer`,
+      `/ticket-fragment`, `/endorsement-data`.
+    - `DrawerCheckFilter` — on resources annotated `@DrawerMustBeClosed`, while the cash drawer is open,
+      answers `303` → `/drawer-error` unless the method is annotated `@DrawerMayBeOpen`.
+
+    **Not covered here:** Quarkus built-in routes (`/q/health`, `/q/openapi`, `/q/swagger-ui`, dev UI),
+    static resources (`META-INF/resources`), and the outgoing REST client `HardwareClient`
+    (it *calls* `/api/hardware/**`, it does not expose anything).
+
+    Status codes on `Response`-returning methods are inferred from the method bodies
+    (`Response.seeOther`, `Response.status(...)`, thrown `WebApplicationException`s); response
+    bodies of `Map<String, Object>` JSON endpoints list the keys found in the code.
+servers:
+- url: http://localhost:8080
+  description: Local register (dev / prod on the till)
+tags:
+- name: AuthResource
+  description: |-
+    JAX-RS resource driving the lock screen: lock page, badge polling and unlock action.
+
+    `com.intermarche.pos.ui.auth.AuthResource` (src/main)
+- name: BadgePrintResource
+  description: |-
+    Operator badge reprint (LC-01-06-01): the typed operator number is parked as the endorsed action `PRINT_BADGE_` — the print itself runs in the endorsement dispatch, strictly AFTER a manager approval (or the connected-supervisor shortcut), like every guarded gesture.
+
+    `com.intermarche.pos.ui.auth.BadgePrintResource` (src/main)
+- name: CashCountResource
+  description: |-
+    JAX-RS resource of the drawer-count page, the middle step of the Z closing: `/action/session/close-start` routes here after its checks, `/action/start-cash-count` opens the drawer, the page's client-side calculator sums the typed denomination counts, and the validated total (with its per-denomination JSON) is posted to `/action/session/close`. Every display route is `@DrawerMayBeOpen` — counting happens with the drawer open by definition, while the rest of the register stays behind the drawer guard.
+
+    `com.intermarche.pos.ui.cash.CashCountResource` (src/main)
+- name: CashMovementResource
+  description: |-
+    JAX-RS resource of the cash-movement screen: the cashier records a drawer movement (withdrawal, deposit, expense, customer down-payment or cash-count declaration) with its amount and reason, and the movement is written to the register's own database and pushed to the store node through the outbox by `CashMovementService` — no synchronous network call sits in this path, so a register cut off from the network keeps recording movements.
+
+    `com.intermarche.pos.ui.cash.CashMovementResource` (src/main)
+- name: CashSessionResource
+  description: |-
+    JAX-RS resource driving the cash-session screen: session status page, opening with an initial float, X report printing, and the Z closing flow that runs through the cash-count page.
+
+    `com.intermarche.pos.ui.cash.CashSessionResource` (src/main)
+- name: CustomerDisplayResource
+  description: |-
+    Customer-facing display (phase 4): a dedicated page opened on the second screen, polling its own fragment with the same version mechanism as the main screen. Shows the running cart, the totals, the payment progress and, once complete, the change and the digital receipt link. No lock applies — it is a display, not a control surface.
+
+    `com.intermarche.pos.ui.customer.CustomerDisplayResource` (src/main)
+- name: DigitalTicketResource
+  description: |-
+    Public digital receipt (phase 4): the customer opens the short link printed on the paper ticket (and shown on the customer display) from their own device — no register lock applies. Access requires the unguessable key generated at draft creation; only closed tickets are shown.
+
+    `com.intermarche.pos.ui.customer.DigitalTicketResource` (src/main)
+- name: DrawerOperationsResource
+  description: |-
+    The two gestures that move money inside the drawer without a customer in front of the register: the manual withdrawal of a tender (`LC-12-03`) and the transfer of a settlement from one tender to another (`LC-12-10`).
+
+    `com.intermarche.pos.ui.cash.DrawerOperationsResource` (src/main)
+- name: EndorsementResource
+  description: |-
+    JAX-RS resource driving the manager-endorsement modal: polling endpoint, validation of the endorsed action and cancellation.
+
+    `com.intermarche.pos.ui.endorsement.EndorsementResource` (src/main)
+- name: EngineFeedStatusResource
+  description: |-
+    Reports how far the LOCAL valuation engine is behind the feeds this register holds: per feed, the stored version, the version the engine last acknowledged, whether the two match, and the last delivery error.
+
+    `com.intermarche.pos.ui.valuation.EngineFeedStatusResource` (src/main)
+- name: FidelityResource
+  description: |-
+    JAX-RS resource of the manual fidelity-card entry page — the fallback when the card does not scan (the scan handler is the primary path). Class is `@DrawerMustBeClosed` like the other sale screens: attaching a card is a sale gesture, not a drawer one.
+
+    `com.intermarche.pos.ui.fidelity.FidelityResource` (src/main)
+- name: FruitResource
+  description: |-
+    JAX-RS resource of the FRUITS & LÉGUMES weighing screen. Display only: the tap on a fruit goes through the ticket actions, this resource just shows the grid.
+
+    `com.intermarche.pos.ui.ticket.FruitResource` (src/main)
+- name: HomeResource
+  description: |-
+    JAX-RS resource driving the home screen: drawer-error handling, main pages, navigation, line selection/cancellation, price-modification modal and item addition actions.
+
+    `com.intermarche.pos.ui.home.HomeResource` (src/main)
+- name: InvoiceResource
+  description: |-
+    JAX-RS resource of the invoice screen, under its own `/invoice` prefix.
+
+    `com.intermarche.pos.ui.invoice.InvoiceResource` (src/main)
+- name: ManualResource
+  description: |-
+    JAX-RS resource of the SAISIE DIRECTE drill-down: root level and category levels. Adding the chosen product goes through the ticket actions.
+
+    `com.intermarche.pos.ui.ticket.ManualResource` (src/main)
+- name: MockHardwareResource
+  description: |-
+    The EMBEDDED HARDWARE SIMULATOR: the scale, the drawer, the customer display, the printer and the virtual payment terminal, driven over HTTP so that a register with no peripheral attached can still be sold, tested and demonstrated.
+
+    `com.intermarche.pos.ui.resource.MockHardwareResource` (src/main)
+
+    Exists only in build profile(s) `dev`, `test`.
+- name: MockValuationResource
+  description: |-
+    Embedded VALUATION-ENGINE SIMULATOR for the autonomous e2e runs — the pricing sibling of `MockHardwareResource`: the register under test must never depend on an externally running imvaluation, so `E2eTestProfile` points `pos.valuation.url` at the test application itself (`http://localhost:8081/api`) and this endpoint answers the client's `POST {url`/valuation}.
+
+    `com.intermarche.pos.ui.resource.MockValuationResource` (src/main)
+- name: ParkedTicketResource
+  description: |-
+    JAX-RS resource driving parked tickets: parking the current cart, listing the parked tickets of this register and resuming one.
+
+    `com.intermarche.pos.ui.ticket.ParkedTicketResource` (src/main)
+- name: PaymentResource
+  description: |-
+    JAX-RS resource driving the payment screen: payment method actions, voucher entry flow, payment history pagination, finalization and printing.
+
+    `com.intermarche.pos.ui.payment.PaymentResource` (src/main)
+- name: PinChangeResource
+  description: |-
+    JAX-RS resource of the PIN change page for the logged-in operator: same page on success (confirmation) and on failure (typed error, retry). The current-PIN verification is direct — it does not increment the shared lockout counter (see `AuthService`).
+
+    `com.intermarche.pos.ui.auth.PinChangeResource` (src/main)
+- name: PosHardwareResource
+  description: |-
+    Inbound endpoints of the simulated hardware: scanner, scale and, since phase 6, the virtual payment terminal — the simulator polls the pending card request and answers with an accept or refuse decision.
+
+    `com.intermarche.pos.ui.home.PosHardwareResource` (src/main)
+- name: ProductSearchResource
+  description: |-
+    JAX-RS resource driving the product search screen: full-text search over the active catalog and one-tap addition of a result to the ticket.
+
+    `com.intermarche.pos.ui.ticket.ProductSearchResource` (src/main)
+- name: RealHardwareResource
+  description: |-
+    The REAL hardware boundary of a production till — the future home of the physical device drivers, serving the exact `HardwareClient` contract on `/api/hardware/**`.
+
+    `com.intermarche.pos.ui.hardware.RealHardwareResource` (src/main)
+
+    Exists only in build profile(s) `prod`.
+- name: RefundResource
+  description: |-
+    JAX-RS resource driving the refund screens: ticket search, line quantity edition and refund-method choice.
+
+    `com.intermarche.pos.ui.returnprocess.RefundResource` (src/main)
+- name: ReprintResource
+  description: |-
+    JAX-RS resource of the reprint screen, under its own `/reprint` prefix: history list, paged navigation, ticket detail and the duplicata print action. Review is free (reading persisted tickets mutates nothing); only the print action carries fiscal weight — it bumps the duplicata counter and is blocked in training by the service.
+
+    `com.intermarche.pos.ui.reprintticket.ReprintResource` (src/main)
+- name: ThemeResource
+  description: |-
+    JAX-RS resource of the theme-selection screen: lists the available themes plus the "store default" choice, and persists the logged cashier's preference (`Employee.theme`).
+
+    `com.intermarche.pos.ui.ThemeResource` (src/main)
+- name: TicketAbandonResource
+  description: |-
+    The abandon screen (`LC-04-04-06` to `-12`): the last thing an operator sees before a sale stops existing.
+
+    `com.intermarche.pos.ui.ticket.TicketAbandonResource` (src/main)
+- name: TicketEmailResource
+  description: |-
+    Sends the last closed ticket by e-mail FROM THE REGISTER (LC-08-02-09/-10/-11).
+
+    `com.intermarche.pos.ui.customer.TicketEmailResource` (src/main)
+- name: VoucherBalanceResource
+  description: |-
+    Stored-value balance consultation (LC-02-09-04): gift cards and credit notes are REGISTRY-backed (`stored_values`), so the balance answer is local and authoritative — no external hub involved. Strictly read-only: consulting never touches the ticket nor the instrument.
+
+    `com.intermarche.pos.ui.payment.VoucherBalanceResource` (src/main)
+paths:
+  /:
+    get:
+      tags:
+      - HomeResource
+      summary: Shows the home page.
+      operationId: HomeResource_home
+      description: |-
+        Shows the home page.
+
+        Java: `HomeResource#home` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /abandon:
+    get:
+      tags:
+      - TicketAbandonResource
+      summary: Shows the abandon screen.
+      operationId: TicketAbandonResource_showAbandonScreen
+      description: |-
+        Shows the abandon screen.
+
+        Java: `TicketAbandonResource#showAbandonScreen` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the abandon page
+          content:
+            text/html:
+              schema:
+                type: string
+    post:
+      tags:
+      - TicketAbandonResource
+      summary: 'Confirms the abandon: records the reason and the printing choice, then hands the gesture to the manager endorsement.'
+      operationId: TicketAbandonResource_confirmAbandon
+      description: |-
+        Confirms the abandon: records the reason and the printing choice, then hands the gesture to the manager endorsement.
+
+        Java: `TicketAbandonResource#confirmAbandon` — returns `Object`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: the reason the operator picked, blank when the shop asks for none
+                print:
+                  type: string
+                  description: '`on` when the operator asked for the abandon ticket'
+      responses:
+        '200':
+          description: OK — a redirect to the sale screen, or the abandon page carrying the refusal
+          content:
+            text/html:
+              schema: {}
+        '303':
+          description: See Other (redirect)
+  /action/add/{code}:
+    get:
+      tags:
+      - HomeResource
+      summary: Adds a weighed product by its PLU code.
+      operationId: HomeResource_addPlu
+      description: |-
+        Adds a weighed product by its PLU code.
+
+        Java: `HomeResource#addPlu` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: code
+        in: path
+        required: true
+        description: the PLU code
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/age-check/confirm:
+    get:
+      tags:
+      - HomeResource
+      summary: 'Confirms the pending age check (ID verified): the parked add replays and the sale resumes (phase: age control).'
+      operationId: HomeResource_ageCheckConfirm
+      description: |-
+        Confirms the pending age check (ID verified): the parked add replays and the sale resumes (phase: age control).
+
+        Java: `HomeResource#ageCheckConfirm` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/age-check/refuse:
+    get:
+      tags:
+      - HomeResource
+      summary: 'Refuses the sale of the age-restricted product: nothing is added and the refusal is journalized (phase: age
+        control).'
+      operationId: HomeResource_ageCheckRefuse
+      description: |-
+        Refuses the sale of the age-restricted product: nothing is added and the refusal is journalized (phase: age control).
+
+        Java: `HomeResource#ageCheckRefuse` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/backup-cancel:
+    post:
+      tags:
+      - PaymentResource
+      summary: Closes the backup-monetics panel, abandoning the pending request.
+      operationId: PaymentResource_closeBackupPanel
+      description: |-
+        Closes the backup-monetics panel, abandoning the pending request.
+
+        Java: `PaymentResource#closeBackupPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/backup-manual:
+    post:
+      tags:
+      - PaymentResource
+      summary: Switches the panel to keying the outcome in, for a till whose scanner cannot read 2D codes (LC-07-07-09).
+      operationId: PaymentResource_openBackupManualEntry
+      description: |-
+        Switches the panel to keying the outcome in, for a till whose scanner cannot read 2D codes (LC-07-07-09).
+
+        Java: `PaymentResource#openBackupManualEntry` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/backup-open:
+    post:
+      tags:
+      - PaymentResource
+      summary: Opens the backup-monetics panel and emits the request QR code (LC-07-07-06/07).
+      operationId: PaymentResource_openBackupPanel
+      description: |-
+        Opens the backup-monetics panel and emits the request QR code (LC-07-07-06/07).
+
+        Java: `PaymentResource#openBackupPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/backup-scan:
+    post:
+      tags:
+      - PaymentResource
+      summary: Validates the answer scanned off the mobile terminal (LC-07-07-08).
+      operationId: PaymentResource_validateBackupScan
+      description: |-
+        Validates the answer scanned off the mobile terminal (LC-07-07-08).
+
+        Java: `PaymentResource#validateBackupScan` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: string
+                  description: the scanned text
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/badge-print:
+    post:
+      tags:
+      - BadgePrintResource
+      summary: Parks the badge print as an endorsed action and returns to the sale screen, where the endorsement modal takes
+        over.
+      operationId: BadgePrintResource_requestBadgePrint
+      description: |-
+        Parks the badge print as an endorsed action and returns to the sale screen, where the endorsement modal takes over.
+
+        Java: `BadgePrintResource#requestBadgePrint` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                operator:
+                  type: string
+                  description: the typed operator badge id or login name
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/cancel:
+    get:
+      tags:
+      - PaymentResource
+      summary: Cancels the registered payments (in memory and on the draft) and redirects to the main page.
+      operationId: PaymentResource_cancelPayment
+      description: |-
+        Cancels the registered payments (in memory and on the draft) and redirects to the main page.
+
+        Java: `PaymentResource#cancelPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a 303 redirect to the main page (same replay-safety rule as
+            `#validatePayment()`: a mutating GET never renders the page it lands on)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/cancelLine:
+    get:
+      tags:
+      - HomeResource
+      summary: Cancels the targeted line (directly or via endorsement).
+      operationId: HomeResource_cancelLine
+      description: |-
+        Cancels the targeted line (directly or via endorsement).
+
+        Java: `HomeResource#cancelLine` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/cancelTicket:
+    get:
+      tags:
+      - HomeResource
+      summary: Sends the operator to the abandon screen, where the shop's rules are applied before the ticket is given up
+        (`LC-04-04...
+      operationId: HomeResource_cancelTicket
+      description: |-
+        Sends the operator to the abandon screen, where the shop's rules are applied before the ticket is given up (`LC-04-04-06` to `-12`).
+
+        It no longer requests the endorsement itself: the reason, the fate of a settlement already taken and the printing are decided there, and a second road to the same gesture would be a road around them.
+
+        Java: `HomeResource#cancelTicket` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/abandon` — a redirect to the abandon screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/card-cancel:
+    get:
+      tags:
+      - PaymentResource
+      summary: Cancels the pending virtual-terminal card request from the register.
+      operationId: PaymentResource_cancelPendingCard
+      description: |-
+        Cancels the pending virtual-terminal card request from the register.
+
+        Java: `PaymentResource#cancelPendingCard` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/cash-movement/record:
+    post:
+      tags:
+      - CashMovementResource
+      summary: Records a cash movement of the open session.
+      operationId: CashMovementResource_record
+      description: |-
+        Records a cash movement of the open session. Above the administered threshold, a manager endorsement is required and resolved to a badge before the movement is written; below it, no credential is asked.
+
+        Java: `CashMovementResource#record` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: the movement type name
+                amount:
+                  type: string
+                  description: the amount typed by the cashier (French comma tolerated)
+                reason:
+                  type: string
+                  description: the movement reason, or null
+                paymentMethod:
+                  type: string
+                managerLogin:
+                  type: string
+                  description: the endorsing manager's badge or login, or null
+                managerPin:
+                  type: string
+                  description: the endorsing manager's PIN, or null
+      responses:
+        '200':
+          description: OK — a redirect back to the cash-movement page carrying the outcome
+  /action/cheque-cancel:
+    get:
+      tags:
+      - PaymentResource
+      summary: Cancels the pending cheque reading from the register.
+      operationId: PaymentResource_cancelPendingCheque
+      description: |-
+        Cancels the pending cheque reading from the register.
+
+        Java: `PaymentResource#cancelPendingCheque` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/close:
+    post:
+      tags:
+      - AuthResource
+      summary: Carries out a close the closing page asked the operator to justify (LC-01-02-02/06/10).
+      operationId: AuthResource_closeRegister
+      description: |-
+        Carries out a close the closing page asked the operator to justify (LC-01-02-02/06/10).
+
+        Two ways through, and they are not the same event. The OPERATOR keys their own password; a SUPERVISOR endorses a forced close, which is what the requirement asks for when the password is forgotten, and which the journal records as a forcing.
+
+        Java: `AuthResource#closeRegister` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  description: the operator's password, or null on a forced close
+                supervisor:
+                  type: string
+                  description: the supervisor's identifier on a forced close
+                supervisorPassword:
+                  type: string
+                  description: the supervisor's password on a forced close
+      responses:
+        '200':
+          description: OK — a redirect to the lock screen, or the page again with its refusal
+          content:
+            text/html:
+              schema:
+                type: string
+        '303':
+          description: 'See Other (redirect). Location: `/lock`'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/collect:
+    get:
+      tags:
+      - HomeResource
+      summary: Marks the selected line "à enlever", or arms the next article for it (`LC-02-08-01/02/03`).
+      operationId: HomeResource_toggleCollect
+      description: |-
+        Marks the selected line "à enlever", or arms the next article for it (`LC-02-08-01/02/03`).
+
+        Java: `HomeResource#toggleCollect` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/credit-authorize:
+    post:
+      tags:
+      - PaymentResource
+      summary: Lets a supervisor allow the account's ceiling to be passed (LC-07-09-04).
+      operationId: PaymentResource_authorizeCreditOverLimit
+      description: |-
+        Lets a supervisor allow the account's ceiling to be passed (LC-07-09-04).
+
+        Java: `PaymentResource#authorizeCreditOverLimit` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                login:
+                  type: string
+                  description: the supervisor's login
+                password:
+                  type: string
+                  description: the supervisor's password
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/credit-authorize-cancel:
+    post:
+      tags:
+      - PaymentResource
+      summary: Gives up on the settlement held back for authorization, keeping the account named so a smaller amount can be
+        typed (L...
+      operationId: PaymentResource_cancelCreditOverLimit
+      description: |-
+        Gives up on the settlement held back for authorization, keeping the account named so a smaller amount can be typed (LC-07-09-04).
+
+        Java: `PaymentResource#cancelCreditOverLimit` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/credit-cancel:
+    post:
+      tags:
+      - PaymentResource
+      summary: Closes the customer-credit panel without settling anything.
+      operationId: PaymentResource_closeCreditPanel
+      description: |-
+        Closes the customer-credit panel without settling anything.
+
+        Java: `PaymentResource#closeCreditPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/credit-number:
+    post:
+      tags:
+      - PaymentResource
+      summary: Names the account by its number (LC-07-09-02).
+      operationId: PaymentResource_selectCreditAccountByNumber
+      description: |-
+        Names the account by its number (LC-07-09-02).
+
+        Java: `PaymentResource#selectCreditAccountByNumber` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                number:
+                  type: string
+                  description: the account number typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/credit-open:
+    post:
+      tags:
+      - PaymentResource
+      summary: Opens the customer-credit panel over the payment screen.
+      operationId: PaymentResource_openCreditPanel
+      description: |-
+        Opens the customer-credit panel over the payment screen.
+
+        Java: `PaymentResource#openCreditPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/credit-search:
+    post:
+      tags:
+      - PaymentResource
+      summary: Looks accounts up by name (LC-07-09-07).
+      operationId: PaymentResource_searchCreditAccounts
+      description: |-
+        Looks accounts up by name (LC-07-09-07).
+
+        Java: `PaymentResource#searchCreditAccounts` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                search:
+                  type: string
+                  description: the name fragment typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/credit-select:
+    post:
+      tags:
+      - PaymentResource
+      summary: Names the account picked from the search results (LC-07-09-08).
+      operationId: PaymentResource_selectCreditAccount
+      description: |-
+        Names the account picked from the search results (LC-07-09-08).
+
+        Java: `PaymentResource#selectCreditAccount` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                customerId:
+                  type: string
+                  description: the database id of the picked account
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/currency-cancel:
+    post:
+      tags:
+      - PaymentResource
+      summary: Closes the foreign-currency panel without settling anything.
+      operationId: PaymentResource_closeCurrencyPanel
+      description: |-
+        Closes the foreign-currency panel without settling anything.
+
+        Java: `PaymentResource#closeCurrencyPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/currency-open:
+    post:
+      tags:
+      - PaymentResource
+      summary: Opens the foreign-currency panel over the payment screen.
+      operationId: PaymentResource_openCurrencyPanel
+      description: |-
+        Opens the foreign-currency panel over the payment screen.
+
+        Java: `PaymentResource#openCurrencyPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/currency-select:
+    post:
+      tags:
+      - PaymentResource
+      summary: Selects the currency the customer is paying in, which reveals the rate and the amount due in that currency
+        (LC-07-14-...
+      operationId: PaymentResource_selectCurrency
+      description: |-
+        Selects the currency the customer is paying in, which reveals the rate and the amount due in that currency (LC-07-14-04).
+
+        Java: `PaymentResource#selectCurrency` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: the ISO code of the selected currency
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/deposit:
+    get:
+      tags:
+      - HomeResource
+      summary: Adds a deposit-return line to the ticket.
+      operationId: HomeResource_addDepositReturn
+      description: |-
+        Adds a deposit-return line to the ticket.
+
+        Java: `HomeResource#addDepositReturn` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/donation:
+    get:
+      tags:
+      - PaymentResource
+      summary: Toggles the solidarity round-up line on the current ticket.
+      operationId: PaymentResource_toggleDonation
+      description: |-
+        Toggles the solidarity round-up line on the current ticket.
+
+        Java: `PaymentResource#toggleDonation` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/endorse-cancel:
+    get:
+      tags:
+      - EndorsementResource
+      summary: Cancels the pending endorsement request.
+      operationId: EndorsementResource_cancelEndorsement
+      description: |-
+        Cancels the pending endorsement request.
+
+        Java: `EndorsementResource#cancelEndorsement` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the main page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/endorse-self:
+    post:
+      tags:
+      - EndorsementResource
+      summary: 'Connected-supervisor shortcut (LC-01-05-07): when the LOGGED operator already holds the MANAGER or ADMIN role,
+        the pe...'
+      operationId: EndorsementResource_selfEndorse
+      description: |-
+        Connected-supervisor shortcut (LC-01-05-07): when the LOGGED operator already holds the MANAGER or ADMIN role, the pending endorsement is executed directly — no second credential is asked. The role check is done server-side here, never trusted from the page.
+
+        Java: `EndorsementResource#selfEndorse` — returns `Response`.
+      responses:
+        '200':
+          description: OK — a 303 redirect to the main page (PRG pattern, so a browser reload never replays the POST); any
+            refusal message travels through the shared state
+  /action/endorse-validate:
+    post:
+      tags:
+      - EndorsementResource
+      summary: Validates the pending endorsement with the presented credentials and, on success, executes the endorsed action.
+      operationId: EndorsementResource_validateEndorsement
+      description: |-
+        Validates the pending endorsement with the presented credentials and, on success, executes the endorsed action.
+
+        Java: `EndorsementResource#validateEndorsement` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                login:
+                  type: string
+                  description: the badge id or login name presented for the endorsement
+                password:
+                  type: string
+                  description: the raw PIN presented for the endorsement
+      responses:
+        '200':
+          description: OK — a 303 redirect to the main page (PRG pattern, so a browser reload never replays the POST); any
+            refusal message travels through the shared state
+  /action/entry/cancel:
+    get:
+      tags:
+      - HomeResource
+      summary: 'Gives up the suspended add: nothing is registered.'
+      operationId: HomeResource_cancelEntry
+      description: |-
+        Gives up the suspended add: nothing is registered.
+
+        Java: `HomeResource#cancelEntry` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/entry/confirm:
+    post:
+      tags:
+      - HomeResource
+      summary: Takes the price or the decimal quantity the operator keyed on the entry prompt (`LC-02-03-01/03`).
+      operationId: HomeResource_confirmEntry
+      description: |-
+        Takes the price or the decimal quantity the operator keyed on the entry prompt (`LC-02-03-01/03`).
+
+        Java: `HomeResource#confirmEntry` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                rawValue:
+                  type: string
+                  description: the figure typed on the prompt's keypad
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/fidelity:
+    post:
+      tags:
+      - FidelityResource
+      summary: Attaches the typed card and returns to the home page.
+      operationId: FidelityResource_validateFidelity
+      description: |-
+        Attaches the typed card and returns to the home page.
+
+        Java: `FidelityResource#validateFidelity` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                card:
+                  type: string
+                  description: the typed card number
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a 303 redirect to the main page (PRG pattern, so a browser reload
+            never replays the POST)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/fidelity-lookup:
+    post:
+      tags:
+      - FidelityResource
+      summary: Searches cards by holder identity (addendum §3) and re-renders the fidelity page with the matches.
+      operationId: FidelityResource_lookupFidelity
+      description: |-
+        Searches cards by holder identity (addendum §3) and re-renders the fidelity page with the matches. ONE criterion per call, chosen by the mode the operator picked: `tel`, `email` or `name`. In name mode the single typed value is split on its FIRST space — "DURAND JACQUES" searches name=DURAND, firstName=JACQUES; a compound last name must therefore be searched without first name.
+
+        Java: `FidelityResource#lookupFidelity` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  description: the search mode (tel | email | name)
+                value:
+                  type: string
+                  description: the operator's input, as typed (imfid normalizes)
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/fidelity` — a 303 redirect to the fidelity page (PRG pattern, so
+            a browser refresh never replays the POST); the outcome plus the echoed search mode and value travel through the
+            fidelity state and the page re-renders in the SAME mode with the criterion displayed'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/fidelity-select:
+    post:
+      tags:
+      - FidelityResource
+      summary: Attaches a card selected in the lookup list (addendum §4) and returns to the sale screen; a refused status
+        (RESILIATE...
+      operationId: FidelityResource_selectFidelity
+      description: |-
+        Attaches a card selected in the lookup list (addendum §4) and returns to the sale screen; a refused status (RESILIATED) re-renders the page with the refusal. The card REPLACES any previously attached one, and the found number then flows exactly like a scanned card.
+
+        Java: `FidelityResource#selectFidelity` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                card:
+                  type: string
+                  description: the selected card number
+                lastName:
+                  type: string
+                  description: the holder's last name, echoed from the lookup
+                firstName:
+                  type: string
+                  description: the holder's first name, echoed from the lookup
+                status:
+                  type: string
+                  description: the account status, echoed from the lookup
+                email:
+                  type: string
+                  description: the holder's e-mail, echoed from the lookup (LC-08-02-09)
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/fidelity`, `/` — a 303 redirect (PRG pattern, so a browser reload
+            never replays the POST): to the main page on success, or back to the fidelity page with the refusal stored in
+            the fidelity state'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/finish:
+    get:
+      tags:
+      - PaymentResource
+      summary: Finalizes the transaction (closes the ticket) and redirects to the main page.
+      operationId: PaymentResource_validatePayment
+      description: |-
+        Finalizes the transaction (closes the ticket) and redirects to the main page.
+
+        Java: `PaymentResource#validatePayment` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a 303 redirect to the main page — this GET mutates state, so
+            it must never RENDER a page the browser then sits on: the sale screen reloads itself on a payability flip, and
+            a reload of a rendered `/action/finish` would replay the fiscal close onto the NEXT freshly started draft (same
+            replay class as the PRG-converted POSTs)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/hardware-override:
+    post:
+      tags:
+      - AuthResource
+      summary: Opens the lane in spite of the hardware gate, from the button of the blocking status page.
+      operationId: AuthResource_hardwareOverride
+      description: |-
+        Opens the lane in spite of the hardware gate, from the button of the blocking status page.
+
+        Deliberate escape hatch for commissioning, demonstration and a till whose faulty peripheral must not stop the day: the failure is real and stays reported, but the operator decides. It requires an unlocked register — the credentials were checked by `#unlock` just before and the gate does not log the operator out — so the page cannot be used as a way in; a stale page posted after a lockout goes back to the lock screen. The bypass is journalled at WARN, otherwise a till would end up selling for weeks with a dead printer nobody remembers.
+
+        Java: `AuthResource#hardwareOverride` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/lock` — the same routing a clean unlock takes, or a redirect to
+            the lock page when no operator is logged in'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/manual-add-known:
+    post:
+      tags:
+      - HomeResource
+      summary: Adds a known product by its EAN with a typed quantity.
+      operationId: HomeResource_addManualKnown
+      description: |-
+        Adds a known product by its EAN with a typed quantity.
+
+        Java: `HomeResource#addManualKnown` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                ean:
+                  type: string
+                  description: the EAN code
+                quantity:
+                  type: string
+                  description: the typed quantity (defaults to 1)
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a 303 redirect to the home page (PRG pattern, so a browser reload
+            never replays the POST)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/manual-add-unknown:
+    post:
+      tags:
+      - HomeResource
+      summary: Adds an unknown (unlisted) item with a typed label and price.
+      operationId: HomeResource_addManualUnknown
+      description: |-
+        Adds an unknown (unlisted) item with a typed label and price.
+
+        Java: `HomeResource#addManualUnknown` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: the label typed by the cashier
+                price:
+                  type: string
+                  description: the price typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a 303 redirect to the home page (PRG pattern, so a browser reload
+            never replays the POST)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/menu/{key}:
+    get:
+      tags:
+      - HomeResource
+      summary: Shows one of the five button menus.
+      operationId: HomeResource_showMenu
+      description: |-
+        Shows one of the five button menus.
+
+        One route for the five keys of the bottom bar. An unknown key lands on the sale menu rather than on an error: a mistyped or stale link must never leave a cashier in front of a blank grid.
+
+        Java: `HomeResource#showMenu` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: key
+        in: path
+        required: true
+        description: the menu key carried by the bottom bar's link
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/monetics-degraded:
+    post:
+      tags:
+      - HomeResource
+      summary: Forces the monetics into degraded mode, or releases it (LC-07-08-03/04).
+      operationId: HomeResource_toggleMoneticsDegraded
+      description: |-
+        Forces the monetics into degraded mode, or releases it (LC-07-08-03/04).
+
+        ONE key for both directions, like the training toggle beside it: the operator sees one state and one gesture, and the register knows which of the two the gesture means.
+
+        Java: `HomeResource#toggleMoneticsDegraded` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                login:
+                  type: string
+                  description: the supervisor's login, when the shop requires an endorsement
+                password:
+                  type: string
+                  description: the supervisor's password
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/parked/park:
+    get:
+      tags:
+      - ParkedTicketResource
+      summary: Parks the current cart and returns to the home page; on refusal the error is shown on the ticket area.
+      operationId: ParkedTicketResource_parkCurrent
+      description: |-
+        Parks the current cart and returns to the home page; on refusal the error is shown on the ticket area.
+
+        Java: `ParkedTicketResource#parkCurrent` — returns `Response`.
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/parked/resume/{id}:
+    get:
+      tags:
+      - ParkedTicketResource
+      summary: Resumes a parked ticket and returns to the home page; on refusal the error is shown on the ticket area.
+      operationId: ParkedTicketResource_resume
+      description: |-
+        Resumes a parked ticket and returns to the home page; on refusal the error is shown on the ticket area.
+
+        Java: `ParkedTicketResource#resume` — returns `Response`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the parked ticket
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-backup:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers the amount the operator keyed in (LC-07-07-09).
+      operationId: PaymentResource_doBackupPayment
+      description: |-
+        Registers the amount the operator keyed in (LC-07-07-09).
+
+        Java: `PaymentResource#doBackupPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount the mobile terminal accepted
+                login:
+                  type: string
+                  description: the supervisor's login, when one is required
+                password:
+                  type: string
+                  description: the supervisor's password
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-card:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers a card payment.
+      operationId: PaymentResource_doCardPayment
+      description: |-
+        Registers a card payment.
+
+        Java: `PaymentResource#doCardPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-cash:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers a cash payment from the tendered amount.
+      operationId: PaymentResource_doCashPayment
+      description: |-
+        Registers a cash payment from the tendered amount.
+
+        Java: `PaymentResource#doCashPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                given:
+                  type: string
+                  description: the cash amount handed over by the customer
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-cheque:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers a cheque payment.
+      operationId: PaymentResource_doChequePayment
+      description: |-
+        Registers a cheque payment.
+
+        Java: `PaymentResource#doChequePayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-credit:
+    post:
+      tags:
+      - PaymentResource
+      summary: Charges the named account (LC-07-09-01/03).
+      operationId: PaymentResource_doCreditPayment
+      description: |-
+        Charges the named account (LC-07-09-01/03).
+
+        Java: `PaymentResource#doCreditPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount typed by the cashier, blank for the whole due
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-currency:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers a settlement handed over in the selected currency (LC-07-14-03).
+      operationId: PaymentResource_doCurrencyPayment
+      description: |-
+        Registers a settlement handed over in the selected currency (LC-07-14-03).
+
+        Java: `PaymentResource#doCurrencyPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount handed over, in that currency
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-fid:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers a fidelity payment.
+      operationId: PaymentResource_doFidelityPayment
+      description: |-
+        Registers a fidelity payment.
+
+        Java: `PaymentResource#doFidelityPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay-tr:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers a meal-ticket payment.
+      operationId: PaymentResource_doTrPayment
+      description: |-
+        Registers a meal-ticket payment.
+
+        Java: `PaymentResource#doTrPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pay/abandon-ticket:
+    get:
+      tags:
+      - PaymentResource
+      summary: Abandons the WHOLE ticket from the payment phase, without going back to the article-entry screen first (LC-04-04-05).
+      operationId: PaymentResource_abandonTicketFromPayment
+      description: |-
+        Abandons the WHOLE ticket from the payment phase, without going back to the article-entry screen first (LC-04-04-05).
+
+        It no longer abandons anything by itself: the shop's abandon rules — what a settlement already taken forbids, which reason is given, what is printed (`LC-04-04-06` to `-12`) — live on the abandon screen, and a second road to the same gesture would be a road around those rules.
+
+        Java: `PaymentResource#abandonTicketFromPayment` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/abandon` — a redirect to the abandon screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/payments/next:
+    get:
+      tags:
+      - PaymentResource
+      summary: Moves the payment history to the next page.
+      operationId: PaymentResource_paymentsNext
+      description: |-
+        Moves the payment history to the next page.
+
+        Java: `PaymentResource#paymentsNext` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/payments/prev:
+    get:
+      tags:
+      - PaymentResource
+      summary: Moves the payment history to the previous page.
+      operationId: PaymentResource_paymentsPrev
+      description: |-
+        Moves the payment history to the previous page.
+
+        Java: `PaymentResource#paymentsPrev` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/pin-change:
+    post:
+      tags:
+      - PinChangeResource
+      summary: Applies a PIN change for the logged-in operator.
+      operationId: PinChangeResource_changePin
+      description: |-
+        Applies a PIN change for the logged-in operator.
+
+        On success, the page is shown again with a confirmation; on failure, it is shown again with the corresponding error so the operator can retry.
+
+        Java: `PinChangeResource#changePin` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                currentPin:
+                  type: string
+                  description: the operator's current PIN
+                newPin:
+                  type: string
+                  description: the desired new PIN
+                confirmPin:
+                  type: string
+                  description: the confirmation of the new PIN
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pin-change` — a 303 redirect to the PIN change page (PRG pattern,
+            so a browser reload never replays the POST) carrying the success or error message as a query parameter'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/price-mod/arm:
+    post:
+      tags:
+      - HomeResource
+      summary: Arms a quantity for the next article named (`LC-02-13-04/05/06`).
+      operationId: HomeResource_armQuantity
+      description: |-
+        Arms a quantity for the next article named (`LC-02-13-04/05/06`).
+
+        Java: `HomeResource#armQuantity` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                rawValue:
+                  type: string
+                  description: the quantity typed on the modal's keypad
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/price-mod/cancel:
+    get:
+      tags:
+      - HomeResource
+      summary: cancelPriceMod
+      operationId: HomeResource_cancelPriceMod
+      description: 'Java: `HomeResource#cancelPriceMod` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to
+        `/drawer-error` while the cash drawer is open).'
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/price-mod/submit:
+    post:
+      tags:
+      - HomeResource
+      summary: Submits the price-modification value typed in the modal.
+      operationId: HomeResource_submitPriceMod
+      description: |-
+        Submits the price-modification value typed in the modal.
+
+        Java: `HomeResource#submitPriceMod` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: the name of the modification mode
+                uid:
+                  type: string
+                  description: the uid of the targeted ticket line
+                rawValue:
+                  type: string
+                  description: the raw typed value (French comma tolerated)
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a 303 redirect to the home page (PRG pattern, so a browser reload
+            never replays the POST)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/price-mod/{type}:
+    get:
+      tags:
+      - HomeResource
+      summary: Opens the price-modification modal for the targeted line.
+      operationId: HomeResource_openPriceMod
+      description: |-
+        Opens the price-modification modal for the targeted line.
+
+        Java: `HomeResource#openPriceMod` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: type
+        in: path
+        required: true
+        description: the modification type (remise, discount, force_price)
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/print:
+    post:
+      tags:
+      - PaymentResource
+      summary: Prints the current ticket and redirects to the appropriate page.
+      operationId: PaymentResource_printTicket
+      description: |-
+        Prints the current ticket and redirects to the appropriate page.
+
+        Java: `PaymentResource#printTicket` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay`, `/` — a 303 redirect (PRG pattern, so a browser reload never
+            replays the POST): to the payment page while the transaction modal is shown, otherwise to the main page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/print-choice:
+    post:
+      tags:
+      - PaymentResource
+      summary: Applies the cashier's end-of-transaction printing choice (LC-08-03-01 to LC-08-03-06) and returns to the completion
+        m...
+      operationId: PaymentResource_applyPrintChoice
+      description: |-
+        Applies the cashier's end-of-transaction printing choice (LC-08-03-01 to LC-08-03-06) and returns to the completion modal, which then shows the choice as applied.
+
+        In training nothing is persisted, so the choice can only produce the in-memory training receipt: it is printed when the choice asks for the sale ticket, and the choice is recorded so the buttons stop offering themselves — exactly as on a real sale.
+
+        Java: `PaymentResource#applyPrintChoice` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                choice:
+                  type: string
+                  description: the raw choice name posted by the modal
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a 303 redirect to the payment page (PRG pattern, so a browser
+            reload never prints a second time)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/print-last:
+    get:
+      tags:
+      - HomeResource
+      summary: Reprints the last closed ticket.
+      operationId: HomeResource_printLast
+      description: |-
+        Reprints the last closed ticket.
+
+        Answers with a redirect, like every other function of the TICKET menu: these three used to re-render the sale screen under their own action URL, so the address bar stayed on /action/print-last and a refresh printed the ticket a second time.
+
+        Java: `HomeResource#printLast` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/print-last-barcode:
+    get:
+      tags:
+      - HomeResource
+      summary: Prints the identification barcode of the last closed ticket, alone (LC-08-01-04).
+      operationId: HomeResource_printLastBarcode
+      description: |-
+        Prints the identification barcode of the last closed ticket, alone (LC-08-01-04).
+
+        Java: `HomeResource#printLastBarcode` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/print-last-card:
+    get:
+      tags:
+      - HomeResource
+      summary: Prints a duplicate of the last closed ticket's card receipt (LC-08-05-09).
+      operationId: HomeResource_printLastCard
+      description: |-
+        Prints a duplicate of the last closed ticket's card receipt (LC-08-05-09).
+
+        Java: `HomeResource#printLastCard` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/repeat:
+    get:
+      tags:
+      - HomeResource
+      summary: Repeats the registration of the last article (`LC-02-13-12`).
+      operationId: HomeResource_repeatLastItem
+      description: |-
+        Repeats the registration of the last article (`LC-02-13-12`).
+
+        Java: `HomeResource#repeatLastItem` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/reprint-last:
+    get:
+      tags:
+      - PaymentResource
+      summary: Reprints the last closed ticket and returns to the home page.
+      operationId: PaymentResource_reprintLastTicket
+      description: |-
+        Reprints the last closed ticket and returns to the home page.
+
+        Java: `PaymentResource#reprintLastTicket` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/resume-after-drawer:
+    get:
+      tags:
+      - HomeResource
+      summary: Resumes navigation after the drawer has been closed (manual fallback).
+      operationId: HomeResource_resumeAfterDrawer
+      description: |-
+        Resumes navigation after the drawer has been closed (manual fallback).
+
+        Java: `HomeResource#resumeAfterDrawer` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '303':
+          description: See Other (redirect) — a redirect to the stored return URL, or the home page
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/search/add/{ean}:
+    get:
+      tags:
+      - ProductSearchResource
+      summary: Adds a search result to the ticket by its EAN and returns to the home page.
+      operationId: ProductSearchResource_addFromSearch
+      description: |-
+        Adds a search result to the ticket by its EAN and returns to the home page.
+
+        Java: `ProductSearchResource#addFromSearch` — returns `Response`.
+      parameters:
+      - name: ean
+        in: path
+        required: true
+        description: the EAN of the chosen product
+        schema:
+          type: string
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/search/scan:
+    post:
+      tags:
+      - ProductSearchResource
+      summary: Hands a code the operator TYPED to the scan chain (`LC-06-01-01`).
+      operationId: ProductSearchResource_scanTypedCode
+      description: |-
+        Hands a code the operator TYPED to the scan chain (`LC-06-01-01`).
+
+        The search above only ever offers CATALOG articles, which is the right answer for a product and the wrong one for everything else: a counter-ticket reference, a voucher, a loyalty card are all codes that exist and that the catalog has never heard of, so they can never appear in a result list. When a scanner cannot read a damaged barcode, the operator reads it out — and what they type must reach exactly what the scanner would have reached.
+
+        So this route does NOT look anything up: it walks the code through `processScan`, the same chain, in the same order, under the same guards. Typing is scanning.
+
+        Java: `ProductSearchResource#scanTypedCode` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                q:
+                  type: string
+                  description: the code typed by the operator
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/select/{index}:
+    get:
+      tags:
+      - HomeResource
+      summary: Toggles the selection of a ticket line.
+      operationId: HomeResource_selectLine
+      description: |-
+        Toggles the selection of a ticket line.
+
+        Java: `HomeResource#selectLine` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: index
+        in: path
+        required: true
+        description: the index of the line in the full ticket
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/session/close:
+    post:
+      tags:
+      - CashSessionResource
+      summary: Closes the open session (Z report) with the counted amount, the denominations detail and the withdrawal, prints
+        the Z...
+      operationId: CashSessionResource_closeSession
+      description: |-
+        Closes the open session (Z report) with the counted amount, the denominations detail and the withdrawal, prints the Z report and locks the register.
+
+        Java: `CashSessionResource#closeSession` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                counted:
+                  type: string
+                  description: the counted cash total from the counting page
+                withdrawn:
+                  type: string
+                  description: the withdrawn amount typed by the cashier
+                detail:
+                  type: string
+                  description: the denominations detail as entered (JSON)
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/session`, `/lock` — a redirect to the lock page, or back to the
+            session page when no session is open'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/session/close-start:
+    get:
+      tags:
+      - CashSessionResource
+      summary: 'Starts the Z closing flow: opens the drawer and routes to the counting page.'
+      operationId: CashSessionResource_startClosing
+      description: |-
+        Starts the Z closing flow: opens the drawer and routes to the counting page.
+
+        Java: `CashSessionResource#startClosing` — returns `Response`.
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/session`, `/cash-count` — a redirect to the cash-count page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/session/open:
+    post:
+      tags:
+      - CashSessionResource
+      summary: Opens a session with the typed initial float.
+      operationId: CashSessionResource_openSession
+      description: |-
+        Opens a session with the typed initial float.
+
+        Java: `CashSessionResource#openSession` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                openingFloat:
+                  type: string
+                  description: the initial float typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/session`, `/` — a redirect to the session page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/session/x-report:
+    get:
+      tags:
+      - CashSessionResource
+      summary: Prints the X report of the open session, from the report screen.
+      operationId: CashSessionResource_printXReport
+      description: |-
+        Prints the X report of the open session, from the report screen.
+
+        Java: `CashSessionResource#printXReport` — returns `Response`.
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/session`, `/session/x-report` — a redirect back to the report page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/start-cash-count:
+    get:
+      tags:
+      - CashCountResource
+      summary: Opens the drawer and routes to the counting page.
+      operationId: CashCountResource_startCashCount
+      description: |-
+        Opens the drawer and routes to the counting page.
+
+        Java: `CashCountResource#startCashCount` — returns `Object`.
+      responses:
+        '200':
+          description: OK — a redirect to the counting page
+          content:
+            application/json:
+              schema: {}
+        '303':
+          description: See Other (redirect)
+  /action/supervisor/{reason}:
+    get:
+      tags:
+      - HomeResource
+      summary: Sends a supervisor call with the chosen reason and returns to the home page (the outcome is shown in the message
+        zone).
+      operationId: HomeResource_callSupervisor
+      description: |-
+        Sends a supervisor call with the chosen reason and returns to the home page (the outcome is shown in the message zone).
+
+        Java: `HomeResource#callSupervisor` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: reason
+        in: path
+        required: true
+        description: the reason chosen on the supervisor page
+        schema:
+          type: string
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/tender-authorize:
+    post:
+      tags:
+      - PaymentResource
+      summary: Lets a supervisor allow an administered tender bound to be passed for the settlement held back (BO-03-02-10/12/13/14).
+      operationId: PaymentResource_authorizeHeldTender
+      description: |-
+        Lets a supervisor allow an administered tender bound to be passed for the settlement held back (BO-03-02-10/12/13/14).
+
+        Java: `PaymentResource#authorizeHeldTender` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                login:
+                  type: string
+                  description: the supervisor's login
+                password:
+                  type: string
+                  description: the supervisor's password
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/tender-authorize-cancel:
+    post:
+      tags:
+      - PaymentResource
+      summary: Gives up on the settlement held back for a supervisor's authorization (BO-03-02-10/12/13/14).
+      operationId: PaymentResource_cancelHeldTender
+      description: |-
+        Gives up on the settlement held back for a supervisor's authorization (BO-03-02-10/12/13/14).
+
+        Java: `PaymentResource#cancelHeldTender` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/theme:
+    post:
+      tags:
+      - ThemeResource
+      summary: Persists the cashier's theme choice (blank = follow the store) and returns to the sale screen, where the new
+        theme re...
+      operationId: ThemeResource_chooseTheme
+      description: |-
+        Persists the cashier's theme choice (blank = follow the store) and returns to the sale screen, where the new theme renders immediately.
+
+        Java: `ThemeResource#chooseTheme` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                theme:
+                  type: string
+                  description: the chosen theme name, or blank for the store default
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/ticket/next:
+    get:
+      tags:
+      - HomeResource
+      summary: Moves the ticket display to the next page.
+      operationId: HomeResource_ticketNext
+      description: |-
+        Moves the ticket display to the next page.
+
+        Java: `HomeResource#ticketNext` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/ticket/prev:
+    get:
+      tags:
+      - HomeResource
+      summary: Moves the ticket display to the previous page.
+      operationId: HomeResource_ticketPrev
+      description: |-
+        Moves the ticket display to the previous page.
+
+        Java: `HomeResource#ticketPrev` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the home page
+          content:
+            text/html:
+              schema:
+                type: string
+  /action/training:
+    get:
+      tags:
+      - HomeResource
+      summary: Requests the endorsed training-mode toggle.
+      operationId: HomeResource_toggleTraining
+      description: |-
+        Requests the endorsed training-mode toggle.
+
+        Java: `HomeResource#toggleTraining` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the home page (the endorsement modal opens)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/transfer/record:
+    post:
+      tags:
+      - DrawerOperationsResource
+      summary: Records a settlement transfer between two tenders and prints its ticket when the shop asks for one.
+      operationId: DrawerOperationsResource_recordTransfer
+      description: |-
+        Records a settlement transfer between two tenders and prints its ticket when the shop asks for one.
+
+        Java: `DrawerOperationsResource#recordTransfer` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  description: the source tender key
+                to:
+                  type: string
+                  description: the destination tender key
+                amount:
+                  type: string
+                  description: the amount to move (French comma tolerated)
+                managerLogin:
+                  type: string
+                  description: the endorsing manager's badge or login, or null
+                managerPin:
+                  type: string
+                  description: the endorsing manager's PIN, or null
+      responses:
+        '200':
+          description: OK — a redirect back to the transfer screen carrying the outcome
+  /action/unlock:
+    post:
+      tags:
+      - AuthResource
+      summary: Unlocks the register with the presented credentials.
+      operationId: AuthResource_unlock
+      description: |-
+        Unlocks the register with the presented credentials.
+
+        Java: `AuthResource#unlock` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                login:
+                  type: string
+                  description: the login identifier (badge id or login name)
+                password:
+                  type: string
+                  description: the raw PIN entered
+      responses:
+        '200':
+          description: OK — the hardware status page on success — the lane opens from its CONTINUER button, never straight
+            from here — or a redirect back to the lock page with the appropriate error code
+        '303':
+          description: 'See Other (redirect). Location: `/lock`'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/voucher-amount:
+    post:
+      tags:
+      - PaymentResource
+      summary: Registers the pending voucher with the amount entered by the cashier.
+      operationId: PaymentResource_validateVoucherAmount
+      description: |-
+        Registers the pending voucher with the amount entered by the cashier.
+
+        Java: `PaymentResource#validateVoucherAmount` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: string
+                  description: the amount typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/voucher-balance:
+    post:
+      tags:
+      - VoucherBalanceResource
+      summary: Redirects the typed number to the consultation page (PRG pattern, so a browser reload never replays the POST);
+        the GE...
+      operationId: VoucherBalanceResource_consult
+      description: |-
+        Redirects the typed number to the consultation page (PRG pattern, so a browser reload never replays the POST); the GET runs the lookup.
+
+        Java: `VoucherBalanceResource#consult` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                number:
+                  type: string
+                  description: the typed or scanned instrument number
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/voucher-balance` — a 303 redirect to the consultation page carrying
+            the number'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/voucher-cancel:
+    post:
+      tags:
+      - PaymentResource
+      summary: Cancels the in-progress voucher entry.
+      operationId: PaymentResource_cancelVoucher
+      description: |-
+        Cancels the in-progress voucher entry.
+
+        Java: `PaymentResource#cancelVoucher` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/voucher-number:
+    post:
+      tags:
+      - PaymentResource
+      summary: Validates a manually typed voucher number against the selected type.
+      operationId: PaymentResource_validateVoucherNumber
+      description: |-
+        Validates a manually typed voucher number against the selected type.
+
+        If the number does not match the type's pattern, an error is shown (likely a typing mistake). If the amount is encoded, the payment is registered; otherwise the amount is requested.
+
+        Java: `PaymentResource#validateVoucherNumber` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                number:
+                  type: string
+                  description: the voucher number typed by the cashier
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/voucher-open:
+    post:
+      tags:
+      - PaymentResource
+      summary: Opens the voucher panel so the cashier can choose a type.
+      operationId: PaymentResource_openVoucherPanel
+      description: |-
+        Opens the voucher panel so the cashier can choose a type.
+
+        Java: `PaymentResource#openVoucherPanel` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/voucher-select:
+    post:
+      tags:
+      - PaymentResource
+      summary: Starts a manual voucher entry for the selected type.
+      operationId: PaymentResource_selectVoucherType
+      description: |-
+        Starts a manual voucher entry for the selected type.
+
+        For a type carrying a number, the cashier is asked to type the number next; for a numberless type, the amount is requested directly.
+
+        Java: `PaymentResource#selectVoucherType` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: the technical code of the selected coupon type
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/pay` — a redirect back to the payment page'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /action/withdrawal/record:
+    post:
+      tags:
+      - DrawerOperationsResource
+      summary: Records a manual withdrawal of one tender and prints its ticket when the shop asks for one.
+      operationId: DrawerOperationsResource_recordWithdrawal
+      description: |-
+        Records a manual withdrawal of one tender and prints its ticket when the shop asks for one.
+
+        The amount of a non-cash tender is NOT read from the form: the register withdraws exactly what it believes the drawer holds (`LC-12-03-06`), so a forged post cannot invent one.
+
+        Java: `DrawerOperationsResource#recordWithdrawal` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                method:
+                  type: string
+                  description: the tender key chosen on the screen
+                amount:
+                  type: string
+                  description: the counted total, for cash only (French comma tolerated)
+                detail:
+                  type: string
+                  description: the per-denomination JSON of a cash count, or null
+                managerLogin:
+                  type: string
+                  description: the endorsing manager's badge or login, or null
+                managerPin:
+                  type: string
+                  description: the endorsing manager's PIN, or null
+      responses:
+        '200':
+          description: OK — a redirect back to the withdrawal screen carrying the outcome
+  /api/drawer-status:
+    get:
+      tags:
+      - HomeResource
+      summary: Polling endpoint reporting the drawer status and the redirect target once it is closed.
+      operationId: HomeResource_checkDrawerStatus
+      description: |-
+        Polling endpoint reporting the drawer status and the redirect target once it is closed.
+
+        Java: `HomeResource#checkDrawerStatus` — returns `Map<String, Object>`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: OK — a JSON map with the drawer state and redirect URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  open: {}
+                  redirect: {}
+                additionalProperties: true
+  /api/hardware/catalog:
+    get:
+      tags:
+      - MockHardwareResource
+      summary: What the register CURRENTLY knows how to sell, for the simulator's article lists.
+      operationId: MockHardwareResource_catalog
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        What the register CURRENTLY knows how to sell, for the simulator's article lists.
+
+        The simulator used to carry those lists written by hand, and they were true of exactly one catalogue: the referential seed. A register is fed by its store node, and the node's own feed carries another numbering plan entirely — so every list went stale the day the demonstration started going through the node, and each scan came back "CODE INCONNU" without the operator being able to see why. A hand-kept mirror of a table that another machine replaces cannot be kept right; the only list that is never wrong is the one read off the register at the moment of the scan.
+
+        The filter is the one the scan itself applies — `active = true` — so what this answers is exactly what a scan will accept. An article forbidden to sale IS listed: refusing it is one of the cases worth demonstrating, and the flag is carried so the screen can say so.
+
+        Java: `MockHardwareResource#catalog` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      parameters:
+      - name: limit
+        in: query
+        description: how many articles at most (bounded to 500)
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: OK — the sellable articles as JSON, EAN, label, PLU and the forbidden flag, in catalogue order
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/hardware/display:
+    post:
+      tags:
+      - MockHardwareResource
+      - RealHardwareResource
+      summary: Shows a text on the customer line display.
+      operationId: MockHardwareResource_setDisplay
+      x-build-profile: served in every build profile by one of two exclusive implementations
+      description: |-
+        Java: `MockHardwareResource#setDisplay` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Shows a text on the customer line display.
+
+        STUB for the Diebold Nixdorf BA9x USB display: accepts and drops the text. The real driver writes it to the two-line VFD.
+
+        Java: `RealHardwareResource#setDisplay` — returns `void`. Exists only in build profile(s) `prod`. Responses there: 204.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: OK
+        '503':
+          description: Service Unavailable
+        '204':
+          description: No Content
+    get:
+      tags:
+      - MockHardwareResource
+      summary: getDisplay
+      operationId: MockHardwareResource_getDisplay
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: 'Java: `MockHardwareResource#getDisplay` — returns `Response`. Exists only in build profile(s) `dev`, `test`.'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/hardware/display/toggle:
+    post:
+      tags:
+      - MockHardwareResource
+      summary: Simule la coupure / le rétablissement de l'afficheur client (panne matérielle).
+      operationId: MockHardwareResource_toggleDisplay
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        Simule la coupure / le rétablissement de l'afficheur client (panne matérielle). Tant qu'il est coupé, `POST /display` répond 503 : côté caisse, `HardwareService.displayMessage` avale l'erreur en silence et la vente continue.
+
+        Java: `MockHardwareResource#toggleDisplay` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      responses:
+        '200':
+          description: OK
+  /api/hardware/drawer/close:
+    post:
+      tags:
+      - MockHardwareResource
+      summary: closeDrawer
+      operationId: MockHardwareResource_closeDrawer
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: 'Java: `MockHardwareResource#closeDrawer` — returns `Response`. Exists only in build profile(s) `dev`,
+        `test`.'
+      responses:
+        '200':
+          description: OK
+  /api/hardware/drawer/open:
+    post:
+      tags:
+      - MockHardwareResource
+      - RealHardwareResource
+      summary: Fires the drawer-opening pulse.
+      operationId: MockHardwareResource_openDrawer
+      x-build-profile: served in every build profile by one of two exclusive implementations
+      description: |-
+        Java: `MockHardwareResource#openDrawer` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Fires the drawer-opening pulse.
+
+        STUB for the cash drawer wired to the Epson UB-U05 printer port: the real driver sends the ESC/POS kick pulse through the printer.
+
+        Java: `RealHardwareResource#openDrawer` — returns `void`. Exists only in build profile(s) `prod`. Responses there: 204.
+      responses:
+        '200':
+          description: OK
+        '204':
+          description: No Content
+  /api/hardware/drawer/status:
+    get:
+      tags:
+      - MockHardwareResource
+      - RealHardwareResource
+      summary: Reads the physical drawer state.
+      operationId: MockHardwareResource_getDrawerStatus
+      x-build-profile: served in every build profile by one of two exclusive implementations
+      description: |-
+        Java: `MockHardwareResource#getDrawerStatus` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Reads the physical drawer state.
+
+        STUB: answers CLOSED — the state that never traps the register behind the drawer guard. The real driver reads the drawer sensor through the printer status.
+
+        Java: `RealHardwareResource#getDrawerStatus` — returns `String`. Exists only in build profile(s) `prod`. Responses there: 200.
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+        '503':
+          description: Service Unavailable
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/hardware/drawer/toggle-sensor:
+    post:
+      tags:
+      - MockHardwareResource
+      summary: Simule la mort / le rétablissement du capteur de tiroir (panne matérielle).
+      operationId: MockHardwareResource_toggleDrawerSensor
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        Simule la mort / le rétablissement du capteur de tiroir (panne matérielle). Tant qu'il est mort, `GET /drawer/status` répond 503 : côté caisse, `HardwareService.isDrawerOpen` répond FALSE (sécurité), la garde tiroir est donc désactivée et n'enferme pas la caisse.
+
+        Java: `MockHardwareResource#toggleDrawerSensor` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      responses:
+        '200':
+          description: OK
+  /api/hardware/printer/clear:
+    post:
+      tags:
+      - MockHardwareResource
+      summary: Efface complètement le buffer d'impression.
+      operationId: MockHardwareResource_clearPrinter
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        Efface complètement le buffer d'impression.
+
+        Java: `MockHardwareResource#clearPrinter` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      responses:
+        '200':
+          description: OK
+  /api/hardware/printer/content:
+    get:
+      tags:
+      - MockHardwareResource
+      summary: Retourne le contenu actuel du buffer d'impression.
+      operationId: MockHardwareResource_getPrintedContent
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        Retourne le contenu actuel du buffer d'impression.
+
+        Java: `MockHardwareResource#getPrintedContent` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/hardware/printer/cut:
+    post:
+      tags:
+      - MockHardwareResource
+      - RealHardwareResource
+      summary: Simule la coupe du papier et la remise à zéro du ticket.
+      operationId: MockHardwareResource_cutPaper
+      x-build-profile: served in every build profile by one of two exclusive implementations
+      description: |-
+        Simule la coupe du papier et la remise à zéro du ticket.
+
+        Java: `MockHardwareResource#cutPaper` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Cuts the printer paper.
+
+        STUB: the real driver sends the ESC/POS cut command to the UB-U05.
+
+        Java: `RealHardwareResource#cutPaper` — returns `void`. Exists only in build profile(s) `prod`. Responses there: 204.
+      responses:
+        '200':
+          description: OK
+        '204':
+          description: No Content
+  /api/hardware/printer/print:
+    post:
+      tags:
+      - MockHardwareResource
+      - RealHardwareResource
+      summary: Simule l'impression d'un texte.
+      operationId: MockHardwareResource_printTicket
+      x-build-profile: served in every build profile by one of two exclusive implementations
+      description: |-
+        Simule l'impression d'un texte. Le texte s'ajoute au buffer visible sur l'écran de simulation.
+
+        Java: `MockHardwareResource#printTicket` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Sends a formatted receipt to the printer.
+
+        STUB for the Epson UB-U05 ticket printer: accepts and drops the 42-column text. The real driver renders it in ESC/POS.
+
+        Java: `RealHardwareResource#printTicket` — returns `void`. Exists only in build profile(s) `prod`. Responses there: 204.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: OK
+        '503':
+          description: Service Unavailable
+        '204':
+          description: No Content
+  /api/hardware/printer/status:
+    get:
+      tags:
+      - MockHardwareResource
+      summary: Retourne l'état de l'imprimante (OK ou NO_PAPER).
+      operationId: MockHardwareResource_getPrinterStatus
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        Retourne l'état de l'imprimante (OK ou NO_PAPER).
+
+        Java: `MockHardwareResource#getPrinterStatus` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/hardware/printer/toggle-paper:
+    post:
+      tags:
+      - MockHardwareResource
+      summary: Inverse l'état du papier pour simuler une panne.
+      operationId: MockHardwareResource_togglePaper
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: |-
+        Inverse l'état du papier pour simuler une panne.
+
+        Java: `MockHardwareResource#togglePaper` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+      responses:
+        '200':
+          description: OK
+  /api/hardware/set-weight:
+    post:
+      tags:
+      - MockHardwareResource
+      summary: setManualWeight
+      operationId: MockHardwareResource_setManualWeight
+      x-build-profile: only in build profile(s) `dev`, `test`
+      description: 'Java: `MockHardwareResource#setManualWeight` — returns `Response`. Exists only in build profile(s) `dev`,
+        `test`.'
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+  /api/hardware/tpe:
+    get:
+      tags:
+      - MockHardwareResource
+      - PosHardwareResource
+      summary: Relays the terminal status poll to the register — mirror of `PosHardwareResource.tpeStatus()`.
+      operationId: MockHardwareResource_tpeStatus
+      x-build-profile: declared by two resources in the same build profile(s); JAX-RS matching selects one
+      description: |-
+        Relays the terminal status poll to the register — mirror of `PosHardwareResource.tpeStatus()`. Without this relay the JAX-RS shadowing (see the note above) sends the simulator's 1-second `GET /api/hardware/tpe` poll to a 404: the pending amount never shows and the ACCEPT/REFUSE buttons stay disabled.
+
+        Java: `MockHardwareResource#tpeStatus` — returns `java.util.Map<String, Object>`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Returns the state of the virtual payment terminal, polled by the simulator: whether a card request is pending and its amount.
+
+        Java: `PosHardwareResource#tpeStatus` — returns `Map<String, Object>`. Responses there: 200.
+      responses:
+        '200':
+          description: OK — a JSON map with the pending flag and the formatted amount
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending: {}
+                  amount: {}
+                additionalProperties: true
+  /api/hardware/tpe/accept:
+    post:
+      tags:
+      - MockHardwareResource
+      - PosHardwareResource
+      summary: Relays the terminal's ACCEPT decision to the register.
+      operationId: MockHardwareResource_tpeAccept
+      x-build-profile: declared by two resources in the same build profile(s); JAX-RS matching selects one
+      description: |-
+        Relays the terminal's ACCEPT decision to the register.
+
+        Java: `MockHardwareResource#tpeAccept` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Applies the simulator's accept decision: the virtual terminal fires the accept leg of the transaction callback, which registers the pending card payment.
+
+        Java: `PosHardwareResource#tpeAccept` — returns `Response`. Responses there: 200, 409.
+      responses:
+        '200':
+          description: OK — 200, or 409 when no card request is pending
+        '409':
+          description: Conflict
+  /api/hardware/tpe/refuse:
+    post:
+      tags:
+      - MockHardwareResource
+      - PosHardwareResource
+      summary: Relays the terminal's REFUSE decision to the register.
+      operationId: MockHardwareResource_tpeRefuse
+      x-build-profile: declared by two resources in the same build profile(s); JAX-RS matching selects one
+      description: |-
+        Relays the terminal's REFUSE decision to the register.
+
+        Java: `MockHardwareResource#tpeRefuse` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Applies the simulator's refuse decision: the virtual terminal fires the refuse leg of the transaction callback, which drops the pending card payment and tells the cashier.
+
+        Java: `PosHardwareResource#tpeRefuse` — returns `Response`. Responses there: 200, 409.
+      responses:
+        '200':
+          description: OK — 200, or 409 when no card request is pending
+        '409':
+          description: Conflict
+  /api/hardware/weight:
+    get:
+      tags:
+      - MockHardwareResource
+      - RealHardwareResource
+      summary: Reads the current weight from the scale.
+      operationId: MockHardwareResource_getWeight
+      x-build-profile: served in every build profile by one of two exclusive implementations
+      description: |-
+        Java: `MockHardwareResource#getWeight` — returns `Response`. Exists only in build profile(s) `dev`, `test`.
+
+        **Alternative implementation** — Reads the current weight from the scale.
+
+        STUB: no scale is attached to the target till (none detected on USB); answers 0,000 — the register's convention for "no weight on the plate", which keeps the weighing screen honest (nothing weighed).
+
+        Java: `RealHardwareResource#getWeight` — returns `String`. Exists only in build profile(s) `prod`. Responses there: 200.
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/pos/scan:
+    post:
+      tags:
+      - PosHardwareResource
+      summary: Handles a scanned code pushed by the scanner (or the simulator).
+      operationId: PosHardwareResource_handleScan
+      description: |-
+        Handles a scanned code pushed by the scanner (or the simulator).
+
+        Java: `PosHardwareResource#handleScan` — returns `Response`.
+      requestBody:
+        description: the scanned code
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: OK — 200, or 400 on an empty code
+        '400':
+          description: Bad Request
+  /api/valuation:
+    post:
+      tags:
+      - MockValuationResource
+      summary: 'Values a basket: neutral response, plus the simulated meal-voucher advantage when the basket holds eligible
+        items.'
+      operationId: MockValuationResource_valuate
+      description: |-
+        Values a basket: neutral response, plus the simulated meal-voucher advantage when the basket holds eligible items.
+
+        Java: `MockValuationResource#valuate` — returns `ValuationPayloads.ValuationResponseDto`.
+      requestBody:
+        description: the basket posted by the register's valuation client
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValuationPayloads_BasketDto'
+      responses:
+        '200':
+          description: OK — the simulated valuation response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValuationPayloads_ValuationResponseDto'
+  /badge-print:
+    get:
+      tags:
+      - BadgePrintResource
+      summary: Shows the badge-reprint entry page.
+      operationId: BadgePrintResource_badgePrintPage
+      description: |-
+        Shows the badge-reprint entry page.
+
+        Java: `BadgePrintResource#badgePrintPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the entry page
+          content:
+            text/html:
+              schema:
+                type: string
+  /cash-count:
+    get:
+      tags:
+      - CashCountResource
+      summary: Shows the counting page, banknotes tab first.
+      operationId: CashCountResource_cashCountPage
+      description: |-
+        Shows the counting page, banknotes tab first.
+
+        Java: `CashCountResource#cashCountPage` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the counting page
+          content:
+            text/html:
+              schema:
+                type: string
+  /cash-count/fragment/{type}:
+    get:
+      tags:
+      - CashCountResource
+      summary: Returns the denomination-list fragment of one tab (AJAX swap).
+      operationId: CashCountResource_getFragment
+      description: |-
+        Returns the denomination-list fragment of one tab (AJAX swap).
+
+        Java: `CashCountResource#getFragment` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      parameters:
+      - name: type
+        in: path
+        required: true
+        description: 'the tab: "coins", "rolls", anything else = banknotes'
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the list fragment
+          content:
+            text/html:
+              schema:
+                type: string
+  /cash-movement:
+    get:
+      tags:
+      - CashMovementResource
+      summary: 'Shows the cash-movement form: the movement types, the administered reasons and the endorsement threshold,
+        plus any ou...'
+      operationId: CashMovementResource_cashMovementPage
+      description: |-
+        Shows the cash-movement form: the movement types, the administered reasons and the endorsement threshold, plus any outcome message from a redirect.
+
+        Java: `CashMovementResource#cashMovementPage` — returns `TemplateInstance`.
+      parameters:
+      - name: error
+        in: query
+        description: an optional error code from a redirect
+        schema:
+          type: string
+      - name: ok
+        in: query
+        description: a non-null flag when the previous movement was recorded
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the cash-movement page
+          content:
+            text/html:
+              schema:
+                type: string
+  /close:
+    get:
+      tags:
+      - AuthResource
+      summary: Closes the register, or shows what stands in the way (LC-01-02-01).
+      operationId: AuthResource_closePage
+      description: |-
+        Closes the register, or shows what stands in the way (LC-01-02-01).
+
+        A GET, because it is reached from a key on the sale screen; it either closes straight away — the historical behaviour, and still the default — or renders the page that asks for what the back office demanded.
+
+        Reached the other way too: the operator scans their own badge and the sale screen sends them here. The badge IS the credential, so it answers the password the back office may demand (LC-01-02-03) — and only that. Tickets left in attente still stop the close and still ask for the supervisor's endorsement, because that question is not about proving who is standing at the register.
+
+        Java: `AuthResource#closePage` — returns `Response`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: OK — a redirect to the lock screen, or the closing page
+          content:
+            text/html:
+              schema:
+                type: string
+        '303':
+          description: 'See Other (redirect). Location: `/lock`'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /customer:
+    get:
+      tags:
+      - CustomerDisplayResource
+      summary: Shows the customer display page.
+      operationId: CustomerDisplayResource_customerPage
+      description: |-
+        Shows the customer display page.
+
+        Java: `CustomerDisplayResource#customerPage` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the customer display page
+          content:
+            text/html:
+              schema:
+                type: string
+  /customer-data:
+    get:
+      tags:
+      - CustomerDisplayResource
+      summary: Polling endpoint of the customer display, version-gated like the main screen fragment.
+      operationId: CustomerDisplayResource_customerData
+      description: |-
+        Polling endpoint of the customer display, version-gated like the main screen fragment.
+
+        Java: `CustomerDisplayResource#customerData` — returns `Map<String, Object>`.
+      parameters:
+      - name: v
+        in: query
+        description: the version known by the display, or null
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK — a JSON map with the change flag and, when changed, the display data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changed: {}
+                  version: {}
+                  locked: {}
+                  welcomeMessage: {}
+                  training: {}
+                  message: {}
+                  empty: {}
+                  total: {}
+                  remaining: {}
+                  roundedRemaining: {}
+                  rounding: {}
+                  paying: {}
+                  complete: {}
+                  change: {}
+                  digitalPath: {}
+                  label: {}
+                  ean: {}
+                  qty: {}
+                  amount: {}
+                  items: {}
+                additionalProperties: true
+  /drawer-error:
+    get:
+      tags:
+      - HomeResource
+      summary: Shows the drawer-open error page.
+      operationId: HomeResource_drawerErrorPage
+      description: |-
+        Shows the drawer-open error page.
+
+        Java: `HomeResource#drawerErrorPage` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the drawer-error page
+          content:
+            text/html:
+              schema:
+                type: string
+  /endorsement-data:
+    get:
+      tags:
+      - EndorsementResource
+      summary: Returns the endorsement modal state for the UI polling.
+      operationId: EndorsementResource_getEndorsementData
+      description: |-
+        Returns the endorsement modal state for the UI polling.
+
+        Java: `EndorsementResource#getEndorsementData` — returns `Map<String, Object>`.
+      responses:
+        '200':
+          description: OK — a JSON map with the modal state (active, action, scanned badge, error)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active: {}
+                  action: {}
+                  scannedBadge: {}
+                  error: {}
+                additionalProperties: true
+  /feeds/import/status:
+    get:
+      tags:
+      - EngineFeedStatusResource
+      summary: Returns the engine sync state of every stored feed, in catalog order.
+      operationId: EngineFeedStatusResource_status
+      description: |-
+        Returns the engine sync state of every stored feed, in catalog order.
+
+        Java: `EngineFeedStatusResource#status` — returns `Response`.
+      responses:
+        '200':
+          description: OK — a JSON array of per-feed states
+          content:
+            application/json:
+              schema:
+                type: object
+  /fidelity:
+    get:
+      tags:
+      - FidelityResource
+      summary: Shows the manual card-entry page.
+      operationId: FidelityResource_fidelityPage
+      description: |-
+        Shows the manual card-entry page.
+
+        Java: `FidelityResource#fidelityPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the fidelity page
+          content:
+            text/html:
+              schema:
+                type: string
+  /fidelity/page/{p}:
+    get:
+      tags:
+      - FidelityResource
+      summary: Changes the lookup result page (same pattern as the refund detail pagination) and re-renders the fidelity page;
+        the i...
+      operationId: FidelityResource_changeLookupPage
+      description: |-
+        Changes the lookup result page (same pattern as the refund detail pagination) and re-renders the fidelity page; the index is clamped by the state when the list is read.
+
+        Java: `FidelityResource#changeLookupPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: p
+        in: path
+        required: true
+        description: the target 0-based page index
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the fidelity page on the requested result page
+          content:
+            text/html:
+              schema:
+                type: string
+  /fruits:
+    get:
+      tags:
+      - FruitResource
+      summary: Shows the weighing grid of active PLU products.
+      operationId: FruitResource_fruitsPage
+      description: |-
+        Shows the weighing grid of active PLU products.
+
+        Java: `FruitResource#fruitsPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the fruits page
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Opens the screen on its first step, with the closed-ticket shortlist and the register's last ticket pre-filled.
+      operationId: InvoiceResource_showInvoiceScreen
+      description: |-
+        Opens the screen on its first step, with the closed-ticket shortlist and the register's last ticket pre-filled.
+
+        Java: `InvoiceResource#showInvoiceScreen` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/abandon:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Gives up the document being prepared and leaves the screen.
+      operationId: InvoiceResource_abandon
+      description: |-
+        Gives up the document being prepared and leaves the screen.
+
+        Java: `InvoiceResource#abandon` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/` — a redirect to the sale screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /invoice/back/customer:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Goes back to the customer step, keeping the ticket already chosen.
+      operationId: InvoiceResource_backToCustomer
+      description: |-
+        Goes back to the customer step, keeping the ticket already chosen.
+
+        Java: `InvoiceResource#backToCustomer` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/invoice` — a redirect to the request screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /invoice/back/ticket:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Goes back to the ticket step, keeping the customer already chosen.
+      operationId: InvoiceResource_backToTicket
+      description: |-
+        Goes back to the ticket step, keeping the customer already chosen.
+
+        Java: `InvoiceResource#backToTicket` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/invoice` — a redirect to the request screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /invoice/back/type:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Goes back to the document-kind step, keeping the ticket and the customer.
+      operationId: InvoiceResource_backToDocumentType
+      description: |-
+        Goes back to the document-kind step, keeping the ticket and the customer.
+
+        Java: `InvoiceResource#backToDocumentType` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/invoice` — a redirect to the request screen'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /invoice/customer/create:
+    post:
+      tags:
+      - InvoiceResource
+      summary: Creates the customer and addresses the document to it.
+      operationId: InvoiceResource_createCustomer
+      description: |-
+        Creates the customer and addresses the document to it.
+
+        Java: `InvoiceResource#createCustomer` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                companyName:
+                  type: string
+                  description: the business name
+                contactName:
+                  type: string
+                  description: the contact's name
+                street:
+                  type: string
+                  description: the street line
+                postalCode:
+                  type: string
+                  description: the postal code
+                city:
+                  type: string
+                  description: the town
+                siret:
+                  type: string
+                  description: the SIRET
+                vatNumber:
+                  type: string
+                  description: the intra-community VAT number
+                phone:
+                  type: string
+                  description: the telephone number
+                email:
+                  type: string
+                  description: the electronic address
+                taxId:
+                  type: string
+                  description: the fiscal identifier (NIF)
+                taxCountry:
+                  type: string
+                  description: the country code picked for a foreign NIF
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the review step when the creation worked
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/customer/edit:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Opens the mask that corrects the named customer (`BO-10-04-03`).
+      operationId: InvoiceResource_editCustomer
+      description: |-
+        Opens the mask that corrects the named customer (`BO-10-04-03`).
+
+        Java: `InvoiceResource#editCustomer` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, showing the correction form
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/customer/lookup:
+    post:
+      tags:
+      - InvoiceResource
+      summary: 'Looks a customer up: straight by account number when the operator typed one (`LC-08-04-06`), by name otherwise
+        (`LC-0...'
+      operationId: InvoiceResource_lookupCustomer
+      description: |-
+        Looks a customer up: straight by account number when the operator typed one (`LC-08-04-06`), by name otherwise (`LC-08-04-07`).
+
+        The number WINS when both are filled: it names exactly one customer, where a name may name several — answering a filled number with a list of near-matches would be answering a question the operator did not ask.
+
+        Java: `InvoiceResource#lookupCustomer` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                search:
+                  type: string
+                  description: the name fragment typed, possibly blank
+                customerNumber:
+                  type: string
+                  description: the account number typed, possibly blank
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the review step when a number was resolved
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/customer/new:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Opens the form that creates a customer at the register.
+      operationId: InvoiceResource_newCustomer
+      description: |-
+        Opens the form that creates a customer at the register.
+
+        Java: `InvoiceResource#newCustomer` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, showing the creation form
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/customer/update:
+    post:
+      tags:
+      - InvoiceResource
+      summary: Writes the corrections back onto the named customer (`BO-10-04-04`).
+      operationId: InvoiceResource_updateCustomer
+      description: |-
+        Writes the corrections back onto the named customer (`BO-10-04-04`).
+
+        Java: `InvoiceResource#updateCustomer` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                companyName:
+                  type: string
+                  description: the business name
+                contactName:
+                  type: string
+                  description: the contact's name
+                street:
+                  type: string
+                  description: the street line
+                postalCode:
+                  type: string
+                  description: the postal code
+                city:
+                  type: string
+                  description: the town
+                siret:
+                  type: string
+                  description: the SIRET
+                vatNumber:
+                  type: string
+                  description: the intra-community VAT number
+                phone:
+                  type: string
+                  description: the telephone number
+                email:
+                  type: string
+                  description: the electronic address
+                taxId:
+                  type: string
+                  description: the fiscal identifier (NIF)
+                taxCountry:
+                  type: string
+                  description: the country code picked for a foreign NIF
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the review step when the correction worked
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/customer/{id}:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Names the customer the document is addressed to.
+      operationId: InvoiceResource_chooseCustomer
+      description: |-
+        Names the customer the document is addressed to.
+
+        Java: `InvoiceResource#chooseCustomer` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the customer
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the review step
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/document/{id}:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Shows an issued document again.
+      operationId: InvoiceResource_showDocument
+      description: |-
+        Shows an issued document again.
+
+        Java: `InvoiceResource#showDocument` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the document
+        schema:
+          type: integer
+          format: int64
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the document page, or the request page when there is no such
+            document
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/issue:
+    post:
+      tags:
+      - InvoiceResource
+      summary: 'Issues the document: draws its number, writes it and prints it.'
+      operationId: InvoiceResource_issue
+      description: |-
+        Issues the document: draws its number, writes it and prints it.
+
+        Java: `InvoiceResource#issue` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/invoice/preview`, `/invoice/slip`, `/invoice/document/` — a redirect
+            to the issued document, or back to the screen on refusal'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /invoice/preview:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Shows the document as it will be issued — no number yet, nothing written.
+      operationId: InvoiceResource_preview
+      description: |-
+        Shows the document as it will be issued — no number yet, nothing written.
+
+        Java: `InvoiceResource#preview` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the document page, or the request page when a step is still
+            missing
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/slip:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Shows the sheet the slip station is waiting for (`LC-08-04-12/13`).
+      operationId: InvoiceResource_showSlip
+      description: |-
+        Shows the sheet the slip station is waiting for (`LC-08-04-12/13`).
+
+        A plain render, and NOT the screen's entry point: `/invoice` opens the flow from nothing, which on an issued document would throw away the sheets still to be printed.
+
+        Java: `InvoiceResource#showSlip` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on its insertion step
+          content:
+            text/html:
+              schema:
+                type: string
+    post:
+      tags:
+      - InvoiceResource
+      summary: Prints the sheet the operator has just fed the station, and asks for the next.
+      operationId: InvoiceResource_printSlip
+      description: |-
+        Prints the sheet the operator has just fed the station, and asks for the next.
+
+        Java: `InvoiceResource#printSlip` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/invoice/slip`, `/invoice`, `/invoice/document/` — the insertion
+            screen while sheets remain, the issued document once the last has come out'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /invoice/ticket:
+    post:
+      tags:
+      - InvoiceResource
+      summary: Names the ticket the document will state, from the number, the date and the register the operator typed (`LC-08-04-02`).
+      operationId: InvoiceResource_chooseTicket
+      description: |-
+        Names the ticket the document will state, from the number, the date and the register the operator typed (`LC-08-04-02`).
+
+        Java: `InvoiceResource#chooseTicket` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                ticketNumber:
+                  type: string
+                  description: the number of the closed ticket to bill
+                ticketDate:
+                  type: string
+                  description: the day it was issued, blank when not narrowed
+                ticketTerminal:
+                  type: string
+                  description: the register that issued it, blank when not narrowed
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the customer step when the ticket was found
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/ticket/{ticketNumber}:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Names the ticket from the shortlist, without typing its number.
+      operationId: InvoiceResource_pickTicket
+      description: |-
+        Names the ticket from the shortlist, without typing its number.
+
+        Java: `InvoiceResource#pickTicket` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: ticketNumber
+        in: path
+        required: true
+        description: the number of the closed ticket to bill
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the customer step
+          content:
+            text/html:
+              schema:
+                type: string
+  /invoice/type/{type}:
+    get:
+      tags:
+      - InvoiceResource
+      summary: Names the kind of document to draw (`LC-08-04-04`).
+      operationId: InvoiceResource_chooseDocumentType
+      description: |-
+        Names the kind of document to draw (`LC-08-04-04`).
+
+        Java: `InvoiceResource#chooseDocumentType` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: type
+        in: path
+        required: true
+        description: the enum name of the kind the operator touched
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the request page, on the customer or the review step
+          content:
+            text/html:
+              schema:
+                type: string
+  /lock:
+    get:
+      tags:
+      - AuthResource
+      summary: Shows the lock page (logging the current operator out) with an optional error message.
+      operationId: AuthResource_lockPage
+      description: |-
+        Shows the lock page (logging the current operator out) with an optional error message.
+
+        Java: `AuthResource#lockPage` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      parameters:
+      - name: error
+        in: query
+        description: the error code from the redirect ("true" for invalid credentials, "locked" for a locked account), or
+          null
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the lock page
+          content:
+            text/html:
+              schema:
+                type: string
+  /lock-data:
+    get:
+      tags:
+      - AuthResource
+      summary: Polling endpoint returning the last scanned badge on the lock screen.
+      operationId: AuthResource_getLockData
+      description: |-
+        Polling endpoint returning the last scanned badge on the lock screen.
+
+        Java: `AuthResource#getLockData` — returns `Map<String, Object>`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: OK — a JSON map with the scanned badge, or an empty string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scannedBadge: {}
+                  passwordRequired: {}
+                additionalProperties: true
+  /manual:
+    get:
+      tags:
+      - ManualResource
+      summary: manualPage
+      operationId: ManualResource_manualPage
+      description: 'Java: `ManualResource#manualPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error`
+        while the cash drawer is open).'
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+          default: 1
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /manual/cat/{code}:
+    get:
+      tags:
+      - ManualResource
+      summary: manualCategoryPage
+      operationId: ManualResource_manualCategoryPage
+      description: 'Java: `ManualResource#manualCategoryPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+          format: int32
+          default: 1
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /parked:
+    get:
+      tags:
+      - ParkedTicketResource
+      summary: Shows one page of the parked tickets of this register.
+      operationId: ParkedTicketResource_parkedPage
+      description: |-
+        Shows one page of the parked tickets of this register.
+
+        Java: `ParkedTicketResource#parkedPage` — returns `TemplateInstance`.
+      parameters:
+      - name: page
+        in: query
+        description: the zero-based page to show; null or out of range is clamped to the nearest existing page
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the parked-tickets page
+          content:
+            text/html:
+              schema:
+                type: string
+  /pay:
+    get:
+      tags:
+      - PaymentResource
+      summary: Shows the payment page, creating the draft ticket on first entry.
+      operationId: PaymentResource_showPaymentPage
+      description: |-
+        Shows the payment page, creating the draft ticket on first entry.
+
+        Java: `PaymentResource#showPaymentPage` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the payment page
+          content:
+            text/html:
+              schema:
+                type: string
+  /pin-change:
+    get:
+      tags:
+      - PinChangeResource
+      summary: Displays the PIN change page for the logged-in operator, optionally with the outcome of a change carried by
+        the PRG r...
+      operationId: PinChangeResource_pinChangePage
+      description: |-
+        Displays the PIN change page for the logged-in operator, optionally with the outcome of a change carried by the PRG redirect.
+
+        Java: `PinChangeResource#pinChangePage` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      parameters:
+      - name: error
+        in: query
+        description: the one-shot error message, or null
+        schema:
+          type: string
+      - name: success
+        in: query
+        description: the one-shot confirmation message, or null
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the PIN change page
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint:
+    get:
+      tags:
+      - ReprintResource
+      summary: showReprintPage
+      operationId: ReprintResource_showReprintPage
+      description: 'Java: `ReprintResource#showReprintPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/foreign:
+    get:
+      tags:
+      - ReprintResource
+      summary: Opens the mask naming a ticket held by another register (LC-08-05-05).
+      operationId: ReprintResource_showForeign
+      description: |-
+        Opens the mask naming a ticket held by another register (LC-08-05-05).
+
+        Java: `ReprintResource#showForeign` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the foreign-duplicata page
+          content:
+            text/html:
+              schema:
+                type: string
+    post:
+      tags:
+      - ReprintResource
+      summary: Prints the duplicata of a ticket made on another register (LC-08-05-05).
+      operationId: ReprintResource_printForeign
+      description: |-
+        Prints the duplicata of a ticket made on another register (LC-08-05-05).
+
+        Java: `ReprintResource#printForeign` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                ticketNumber:
+                  type: string
+                  description: the number typed
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the foreign-duplicata page, carrying the failure when there
+            was one
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/next:
+    get:
+      tags:
+      - ReprintResource
+      summary: reprintNextPage
+      operationId: ReprintResource_reprintNextPage
+      description: 'Java: `ReprintResource#reprintNextPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/prev:
+    get:
+      tags:
+      - ReprintResource
+      summary: reprintPrevPage
+      operationId: ReprintResource_reprintPrevPage
+      description: 'Java: `ReprintResource#reprintPrevPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/print/{id}:
+    get:
+      tags:
+      - ReprintResource
+      summary: doReprint
+      operationId: ReprintResource_doReprint
+      description: 'Java: `ReprintResource#doReprint` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error`
+        while the cash drawer is open).'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/reprint/view/`'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /reprint/view/{id}:
+    get:
+      tags:
+      - ReprintResource
+      summary: showReprintDetail
+      operationId: ReprintResource_showReprintDetail
+      description: 'Java: `ReprintResource#showReprintDetail` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/view/{id}/exchange:
+    get:
+      tags:
+      - ReprintResource
+      summary: Opens the bon-pour-échange preparation on the viewed ticket (LC-08-05-10).
+      operationId: ReprintResource_startExchange
+      description: |-
+        Opens the bon-pour-échange preparation on the viewed ticket (LC-08-05-10).
+
+        Java: `ReprintResource#startExchange` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the viewed ticket
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the reprint page on its detail view
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/view/{id}/exchange/cancel:
+    get:
+      tags:
+      - ReprintResource
+      summary: Leaves the bon-pour-échange preparation without printing.
+      operationId: ReprintResource_cancelExchange
+      description: |-
+        Leaves the bon-pour-échange preparation without printing.
+
+        Java: `ReprintResource#cancelExchange` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the viewed ticket
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the reprint page on its detail view
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/view/{id}/exchange/print:
+    get:
+      tags:
+      - ReprintResource
+      summary: Prints the bon pour échange of the viewed ticket (LC-08-05-13).
+      operationId: ReprintResource_printExchange
+      description: |-
+        Prints the bon pour échange of the viewed ticket (LC-08-05-13).
+
+        Java: `ReprintResource#printExchange` — returns `Response`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the ticket
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/reprint/view/` — a redirect to the detail view (PRG pattern, so
+            a reload never prints a second bon)'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /reprint/view/{id}/exchange/toggle/{lineId}:
+    get:
+      tags:
+      - ReprintResource
+      summary: Names a line for the bon pour échange, or unnames it (LC-08-05-12).
+      operationId: ReprintResource_toggleExchangeLine
+      description: |-
+        Names a line for the bon pour échange, or unnames it (LC-08-05-12).
+
+        Java: `ReprintResource#toggleExchangeLine` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the viewed ticket
+        schema:
+          type: integer
+          format: int64
+      - name: lineId
+        in: path
+        required: true
+        description: the database id of the line touched
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the reprint page on its detail view
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/view/{id}/next:
+    get:
+      tags:
+      - ReprintResource
+      summary: detailNextPage
+      operationId: ReprintResource_detailNextPage
+      description: 'Java: `ReprintResource#detailNextPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /reprint/view/{id}/prev:
+    get:
+      tags:
+      - ReprintResource
+      summary: detailPrevPage
+      operationId: ReprintResource_detailPrevPage
+      description: 'Java: `ReprintResource#detailPrevPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects
+        to `/drawer-error` while the cash drawer is open).'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template.
+          content:
+            text/html:
+              schema:
+                type: string
+  /return:
+    get:
+      tags:
+      - RefundResource
+      summary: Shows the refund search page, or the detail page when a ticket is already selected.
+      operationId: RefundResource_showSearchPage
+      description: |-
+        Shows the refund search page, or the detail page when a ticket is already selected.
+
+        Java: `RefundResource#showSearchPage` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the appropriate refund page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/edit-amount:
+    get:
+      tags:
+      - RefundResource
+      summary: Switches the input to global-amount edition.
+      operationId: RefundResource_editAmount
+      description: |-
+        Switches the input to global-amount edition.
+
+        Java: `RefundResource#editAmount` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/line/{id}/add:
+    get:
+      tags:
+      - RefundResource
+      summary: Increments the refund quantity of a line.
+      operationId: RefundResource_addQty
+      description: |-
+        Increments the refund quantity of a line.
+
+        Java: `RefundResource#addQty` — returns `TemplateInstance`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the line
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/line/{id}/sub:
+    get:
+      tags:
+      - RefundResource
+      summary: Decrements the refund quantity of a line.
+      operationId: RefundResource_subQty
+      description: |-
+        Decrements the refund quantity of a line.
+
+        Java: `RefundResource#subQty` — returns `TemplateInstance`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the line
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/page/{p}:
+    get:
+      tags:
+      - RefundResource
+      summary: Changes the detail page.
+      operationId: RefundResource_changePage
+      description: |-
+        Changes the detail page.
+
+        Java: `RefundResource#changePage` — returns `TemplateInstance`.
+      parameters:
+      - name: p
+        in: path
+        required: true
+        description: the target page index
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/pay/card:
+    get:
+      tags:
+      - RefundResource
+      summary: Requests an endorsed card refund.
+      operationId: RefundResource_payCard
+      description: |-
+        Requests an endorsed card refund.
+
+        Java: `RefundResource#payCard` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page (the endorsement modal opens over it)
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/pay/cash:
+    get:
+      tags:
+      - RefundResource
+      summary: Requests an endorsed cash refund.
+      operationId: RefundResource_payCash
+      description: |-
+        Requests an endorsed cash refund.
+
+        Java: `RefundResource#payCash` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page (the endorsement modal opens over it)
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/pay/loyalty:
+    get:
+      tags:
+      - RefundResource
+      summary: Requests an endorsed loyalty refund.
+      operationId: RefundResource_payLoyalty
+      description: |-
+        Requests an endorsed loyalty refund.
+
+        Java: `RefundResource#payLoyalty` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page (the endorsement modal opens over it)
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/pay/voucher:
+    get:
+      tags:
+      - RefundResource
+      summary: Requests an endorsed store-voucher refund.
+      operationId: RefundResource_payVoucher
+      description: |-
+        Requests an endorsed store-voucher refund.
+
+        Java: `RefundResource#payVoucher` — returns `TemplateInstance`.
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page (the endorsement modal opens over it)
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/search:
+    post:
+      tags:
+      - RefundResource
+      summary: Runs the ticket search with the typed pattern.
+      operationId: RefundResource_doSearch
+      description: |-
+        Runs the ticket search with the typed pattern.
+
+        Java: `RefundResource#doSearch` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                rawValue:
+                  type: string
+                  description: the typed number fragment
+      responses:
+        '200':
+          description: OK — a 303 redirect to the refund screen (PRG pattern, so a browser reload never replays the POST);
+            the GET re-renders the search results from the refund state
+  /return/select-line/{id}:
+    get:
+      tags:
+      - RefundResource
+      summary: Toggles the selection of a line for direct quantity typing.
+      operationId: RefundResource_selectLine
+      description: |-
+        Toggles the selection of a line for direct quantity typing.
+
+        Java: `RefundResource#selectLine` — returns `TemplateInstance`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the line
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/select/{id}:
+    get:
+      tags:
+      - RefundResource
+      summary: Selects a ticket to refund.
+      operationId: RefundResource_selectTicket
+      description: |-
+        Selects a ticket to refund.
+
+        Java: `RefundResource#selectTicket` — returns `TemplateInstance`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the database id of the ticket
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the detail page
+          content:
+            text/html:
+              schema:
+                type: string
+  /return/submit-amount:
+    post:
+      tags:
+      - RefundResource
+      summary: Applies a typed global refund amount.
+      operationId: RefundResource_submitAmount
+      description: |-
+        Applies a typed global refund amount.
+
+        Java: `RefundResource#submitAmount` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                rawValue:
+                  type: string
+                  description: the typed amount
+      responses:
+        '200':
+          description: OK — a 303 redirect to the refund screen (PRG pattern, so a browser reload never replays the POST)
+  /return/submit-line:
+    post:
+      tags:
+      - RefundResource
+      summary: Applies a typed refund quantity on a line.
+      operationId: RefundResource_submitLine
+      description: |-
+        Applies a typed refund quantity on a line.
+
+        Java: `RefundResource#submitLine` — returns `Response`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                lineId:
+                  type: integer
+                  format: int64
+                  description: the database id of the line
+                rawValue:
+                  type: string
+                  description: the typed quantity
+      responses:
+        '200':
+          description: OK — a 303 redirect to the refund screen (PRG pattern, so a browser reload never replays the POST)
+  /search:
+    get:
+      tags:
+      - ProductSearchResource
+      summary: 'Shows the search page, with the results of the typed query when one is present (2 characters minimum): name
+        fragment,...'
+      operationId: ProductSearchResource_searchPage
+      description: |-
+        Shows the search page, with the results of the typed query when one is present (2 characters minimum): name fragment, EAN prefix or exact article code (PLU).
+
+        Java: `ProductSearchResource#searchPage` — returns `TemplateInstance`.
+      parameters:
+      - name: q
+        in: query
+        description: the typed query, or null
+        schema:
+          type: string
+      - name: page
+        in: query
+        description: the page of results asked for, null for the first
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the search page
+          content:
+            text/html:
+              schema:
+                type: string
+  /session:
+    get:
+      tags:
+      - CashSessionResource
+      summary: 'Shows the session page: current open session, or the opening form.'
+      operationId: CashSessionResource_sessionPage
+      description: |-
+        Shows the session page: current open session, or the opening form.
+
+        Java: `CashSessionResource#sessionPage` — returns `TemplateInstance`.
+      parameters:
+      - name: error
+        in: query
+        description: an optional error code from a redirect
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the session page
+          content:
+            text/html:
+              schema:
+                type: string
+  /session/x-report:
+    get:
+      tags:
+      - CashSessionResource
+      summary: SHOWS the X report of the open session (read-only snapshot).
+      operationId: CashSessionResource_showXReport
+      description: |-
+        SHOWS the X report of the open session (read-only snapshot).
+
+        An X is a READING: its whole purpose is to look at where the session stands — mid-shift check, handover between cashiers, control before a withdrawal. It used to exist as a print alone, so an operator pressing the key saw nothing at all, and nothing whatsoever on a register whose printer is out of paper. The paper is now what one asks for AFTER reading, not instead of it.
+
+        Nothing is journalled here: a reading on screen is not an edition. The journal entry belongs to the print, which is the copy that leaves the register.
+
+        Java: `CashSessionResource#showXReport` — returns `Object`.
+      responses:
+        '200':
+          description: OK — the report page, or a redirect to the session page when none is open
+          content:
+            text/html:
+              schema: {}
+        '303':
+          description: See Other (redirect)
+  /supervisor:
+    get:
+      tags:
+      - HomeResource
+      summary: Shows the supervisor-call page.
+      operationId: HomeResource_supervisorPage
+      description: |-
+        Shows the supervisor-call page.
+
+        Java: `HomeResource#supervisorPage` — returns `TemplateInstance`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the supervisor page
+          content:
+            text/html:
+              schema:
+                type: string
+  /t/{id}/{key}:
+    get:
+      tags:
+      - DigitalTicketResource
+      summary: Shows the digital receipt of a closed ticket.
+      operationId: DigitalTicketResource_view
+      description: |-
+        Shows the digital receipt of a closed ticket.
+
+        Java: `DigitalTicketResource#view` — returns `TemplateInstance`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the ticket database id
+        schema:
+          type: integer
+          format: int64
+      - name: key
+        in: path
+        required: true
+        description: the access key printed on the paper ticket
+        schema:
+          type: string
+      - name: sent
+        in: query
+        description: 'true when the PRG redirect of the email action flags a just-sent confirmation to display (Java primitive:
+          defaults to false when absent)'
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the digital receipt page, or its unavailable variant
+          content:
+            text/html:
+              schema:
+                type: string
+  /t/{id}/{key}/email:
+    post:
+      tags:
+      - DigitalTicketResource
+      summary: Stores the typed email on the ticket and sends the digital receipt (mocked delivery, journaled).
+      operationId: DigitalTicketResource_sendByEmail
+      description: |-
+        Stores the typed email on the ticket and sends the digital receipt (mocked delivery, journaled).
+
+        Java: `DigitalTicketResource#sendByEmail` — returns `Response`. `@Transactional`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the ticket database id
+        schema:
+          type: integer
+          format: int64
+      - name: key
+        in: path
+        required: true
+        description: the access key printed on the paper ticket
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: the email typed by the customer
+      responses:
+        '303':
+          description: 'See Other (redirect). Location: `/t/` — a 303 redirect to the receipt page (PRG pattern, so a browser
+            reload never re-sends the email), flagged with the sent confirmation when the delivery was journaled'
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+  /t/{id}/{key}/qr.svg:
+    get:
+      tags:
+      - DigitalTicketResource
+      summary: Renders the QR code of the digital receipt link, under the same access key as the page (shown on the customer
+        display...
+      operationId: DigitalTicketResource_qr
+      description: |-
+        Renders the QR code of the digital receipt link, under the same access key as the page (shown on the customer display for the customer to scan).
+
+        The CLOSED gate of `#load` does NOT apply here: the display shows this image while the ticket is still open, and the image discloses nothing beyond the id and key its caller already holds.
+
+        Java: `DigitalTicketResource#qr` — returns `jakarta.ws.rs.core.Response`.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: the ticket database id
+        schema:
+          type: integer
+          format: int64
+      - name: key
+        in: path
+        required: true
+        description: the access key printed on the paper ticket
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK — the SVG QR code, or 404 when the key does not match or the ticket was cancelled
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        '404':
+          description: Not Found
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+  /theme-select:
+    get:
+      tags:
+      - ThemeResource
+      summary: Shows the theme-selection screen.
+      operationId: ThemeResource_themeSelectPage
+      description: |-
+        Shows the theme-selection screen.
+
+        Java: `ThemeResource#themeSelectPage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the selection page
+          content:
+            text/html:
+              schema:
+                type: string
+  /ticket-email:
+    get:
+      tags:
+      - TicketEmailResource
+      summary: Opens the screen on the last closed ticket, with the holder's address offered when the referential supplied
+        one.
+      operationId: TicketEmailResource_showEmailScreen
+      description: |-
+        Opens the screen on the last closed ticket, with the holder's address offered when the referential supplied one.
+
+        Java: `TicketEmailResource#showEmailScreen` — returns `Object`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      responses:
+        '200':
+          description: OK — the send page, or a redirect to the sale screen when the register has closed no sale yet
+          content:
+            text/html:
+              schema: {}
+        '303':
+          description: See Other (redirect)
+    post:
+      tags:
+      - TicketEmailResource
+      summary: Sends the last closed ticket to the address confirmed or typed by the operator.
+      operationId: TicketEmailResource_sendEmail
+      description: |-
+        Sends the last closed ticket to the address confirmed or typed by the operator.
+
+        Java: `TicketEmailResource#sendEmail` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open), `@Transactional`.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: the address to send to
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the send page, carrying the outcome
+          content:
+            text/html:
+              schema:
+                type: string
+  /ticket-fragment:
+    get:
+      tags:
+      - HomeResource
+      summary: Polling endpoint returning the ticket fragment when the state version changed.
+      operationId: HomeResource_getTicketFragment
+      description: |-
+        Polling endpoint returning the ticket fragment when the state version changed.
+
+        Java: `HomeResource#getTicketFragment` — returns `Map<String, Object>`. `@DrawerMayBeOpen` (reachable while the cash drawer is open).
+      parameters:
+      - name: v
+        in: query
+        description: the version known by the client, or null
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK — a JSON map with the change flag and, when changed, the fragment data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locked: {}
+                  closeRequested: {}
+                  payable: {}
+                  changed: {}
+                  version: {}
+                  html: {}
+                  total: {}
+                  amount: {}
+                  ageCheckActive: {}
+                  entryPromptActive: {}
+                  fidelityActive: {}
+                  fidelitySummary: {}
+                  fidelityEarn: {}
+                additionalProperties: true
+  /transfer:
+    get:
+      tags:
+      - DrawerOperationsResource
+      summary: Shows the settlement-transfer screen.
+      operationId: DrawerOperationsResource_transferPage
+      description: |-
+        Shows the settlement-transfer screen.
+
+        Java: `DrawerOperationsResource#transferPage` — returns `TemplateInstance`.
+      parameters:
+      - name: error
+        in: query
+        description: an optional error code from a redirect
+        schema:
+          type: string
+      - name: ok
+        in: query
+        description: a non-null flag when the previous transfer was recorded
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the transfer page
+          content:
+            text/html:
+              schema:
+                type: string
+  /voucher-balance:
+    get:
+      tags:
+      - VoucherBalanceResource
+      summary: Shows the consultation page; when a number travels in the query string (put there by the PRG redirect of the
+        POST bel...
+      operationId: VoucherBalanceResource_voucherBalancePage
+      description: |-
+        Shows the consultation page; when a number travels in the query string (put there by the PRG redirect of the POST below), the registry lookup runs and the result renders — the lookup is strictly read-only, so re-running it on a browser refresh is harmless.
+
+        An EMPTY consultation is answered, not ignored: the operator pressed the button, so the screen must say something. Without the `asked` marker a blank number and a fresh arrival are indistinguishable here, and the screen would answer a press by redrawing itself — which reads as a button that does nothing.
+
+        Java: `VoucherBalanceResource#voucherBalancePage` — returns `TemplateInstance`. `@DrawerMustBeClosed` (redirects to `/drawer-error` while the cash drawer is open).
+      parameters:
+      - name: number
+        in: query
+        description: the instrument number to consult, or null for a bare page
+        schema:
+          type: string
+      - name: asked
+        in: query
+        description: 'true when the operator pressed CONSULTER, whatever they typed (Java primitive: defaults to false when
+          absent)'
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the consultation page, with the result when a number was given
+          content:
+            text/html:
+              schema:
+                type: string
+  /weight:
+    post:
+      tags:
+      - PosHardwareResource
+      summary: Handles a weight pushed by the scale (or the simulator).
+      operationId: PosHardwareResource_handleWeight
+      description: |-
+        Handles a weight pushed by the scale (or the simulator).
+
+        Java: `PosHardwareResource#handleWeight` — returns `Response`.
+      requestBody:
+        description: the weight in kilograms
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: OK — 200, or 400 on an empty weight
+        '400':
+          description: Bad Request
+  /withdrawal:
+    get:
+      tags:
+      - DrawerOperationsResource
+      summary: 'Shows the withdrawal screen: the tender list when none is chosen, then either the denomination count of cash
+        or the r...'
+      operationId: DrawerOperationsResource_withdrawalPage
+      description: |-
+        Shows the withdrawal screen: the tender list when none is chosen, then either the denomination count of cash or the read-only theoretical of another tender.
+
+        Java: `DrawerOperationsResource#withdrawalPage` — returns `TemplateInstance`.
+      parameters:
+      - name: method
+        in: query
+        description: the chosen tender key, or null while none is chosen
+        schema:
+          type: string
+      - name: error
+        in: query
+        description: an optional error code from a redirect
+        schema:
+          type: string
+      - name: ok
+        in: query
+        description: a non-null flag when the previous withdrawal was recorded
+        schema:
+          type: string
+      responses:
+        '200':
+          description: HTML page rendered by a Qute template. the withdrawal page
+          content:
+            text/html:
+              schema:
+                type: string
+components:
+  headers:
+    Location:
+      description: Redirect target.
+      schema:
+        type: string
+        format: uri-reference
+  schemas:
+    AdvantageDto:
+      type: object
+      properties:
+        type:
+          type: string
+        offer:
+          type: string
+        offerCode:
+          type: string
+        discountAmount:
+          $ref: '#/components/schemas/AmountDto'
+        suggestion:
+          $ref: '#/components/schemas/SuggestionDto'
+        totalEligibleAmount:
+          type: number
+        threshold:
+          type: number
+      description: One advantage of the valuation (heterogeneous by type).
+      x-java-type: com.intermarche.pos.ui.valuation.AdvantageDto
+    AmountDto:
+      type: object
+      properties:
+        amountExcludingTax:
+          type: number
+        amountIncludingTax:
+          type: number
+        vatRate:
+          type: number
+      description: An amount triple of the engine.
+      x-java-type: com.intermarche.pos.ui.valuation.AmountDto
+    ItemDto:
+      type: object
+      properties:
+        lineId:
+          type: string
+        produceEan:
+          type: string
+        quantity:
+          type: number
+        pricePerUnitExclTax:
+          type: number
+        pricePerUnitInclTax:
+          type: number
+        vatRate:
+          type: number
+        manualDiscountAmount:
+          type: number
+        manualDiscountPercent:
+          type: number
+        manualForcedPrice:
+          type: number
+        priceDate:
+          type: string
+        expiryDate:
+          type: string
+      description: One basket line.
+      x-java-type: com.intermarche.pos.ui.valuation.ItemDto
+    OfferDto:
+      type: object
+      properties:
+        offerId:
+          type: string
+        type:
+          type: string
+        amount:
+          $ref: '#/components/schemas/AmountDto'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfferItemDto'
+      description: One offer of the valuation.
+      x-java-type: com.intermarche.pos.ui.valuation.OfferDto
+    OfferItemDto:
+      type: object
+      properties:
+        lineId:
+          type: string
+        produceEan:
+          type: string
+        quantity:
+          type: number
+        amount:
+          $ref: '#/components/schemas/AmountDto'
+      description: One valued portion of a request line inside an offer.
+      x-java-type: com.intermarche.pos.ui.valuation.OfferItemDto
+    SuggestionDto:
+      type: object
+      properties:
+        ean:
+          type: string
+        quantity:
+          type: number
+        offerCode:
+          type: string
+      description: An upsell suggestion carried by an advantage.
+      x-java-type: com.intermarche.pos.ui.valuation.SuggestionDto
+    ValuationPayloads_BasketDto:
+      type: object
+      properties:
+        customerCode:
+          type: string
+        storeCode:
+          type: string
+        createdAt:
+          type: string
+        deliveryMode:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemDto'
+      description: The basket submitted for valuation.
+      x-java-type: com.intermarche.pos.ui.valuation.ValuationPayloads.BasketDto
+    ValuationPayloads_ValuationResponseDto:
+      type: object
+      properties:
+        offers:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfferDto'
+        advantages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdvantageDto'
+        totalPrice:
+          $ref: '#/components/schemas/AmountDto'
+      description: The whole valuation response.
+      x-java-type: com.intermarche.pos.ui.valuation.ValuationPayloads.ValuationResponseDto

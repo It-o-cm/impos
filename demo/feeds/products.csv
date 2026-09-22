@@ -59,21 +59,21 @@ EAN|NAME|DESCRIPTION|BRAND|REFERENCE_WEIGHT|REFERENCE_VOLUME|PRODUCT_TYPE|UNIT_N
 3000000010204|Ananas Victoria|Fruits exotiques — Ananas Victoria|Maison Dubois|1.057|1.066|WEIGHT|kg|true|4119|🍍|false|true
 3000000010211|Mangue Kent|Fruits exotiques — Mangue Kent|Le Verger|0.145|0.220|WEIGHT|kg|true|4120|🍍|false|true
 3000000010228|Avocat Hass|Fruits exotiques — Avocat Hass|Croq'Frais|1.326|2.994|WEIGHT|kg|true|4121|🍍|false|true
-3000000010235|Kiwi Vert|Fruits exotiques — Kiwi Vert|Terroir & Co|1.088|2.352|WEIGHT|kg|true|4122|🍍|false|true
+3000000010235|Kiwi Vert|Fruits exotiques — Kiwi Vert|Terroir & Co|1.088|2.352|WEIGHT|kg|true|4960|🍍|false|true
 3000000010242|Fruit de la Passion|Fruits exotiques — Fruit de la Passion|Prairie|1.209|1.463|WEIGHT|kg|true|4123|🍍|false|true
 3000000010259|Litchis 400g|Fruits exotiques — Litchis 400g|Marinella|1.210|2.550|WEIGHT|kg|true|4124|🍍|false|true
 3000000010266|Papaye|Fruits exotiques — Papaye|Vertfeuille|0.725|1.692|WEIGHT|kg|true|4125|🍍|false|true
 3000000010273|Noix de Coco|Fruits exotiques — Noix de Coco|L'Artisan|1.440|3.350|WEIGHT|kg|true|4126|🍍|false|true
 3000000010280|Grenade|Fruits exotiques — Grenade|Nordique|0.195|0.355|WEIGHT|kg|true|4127|🍍|false|true
-3000000010297|Poires Conférence|Fruits du verger — Poires Conférence|Prairie|0.591|0.642|WEIGHT|kg|true|4128|🍐|false|true
+3000000010297|Poires Conférence|Fruits du verger — Poires Conférence|Prairie|0.591|0.642|WEIGHT|kg|true|4961|🍐|false|true
 3000000010303|Pêches Jaunes|Fruits du verger — Pêches Jaunes|Marinella|1.254|1.424|WEIGHT|kg|true|4129|🍐|false|true
-3000000010310|Nectarines|Fruits du verger — Nectarines|Vertfeuille|0.450|0.588|WEIGHT|kg|true|4130|🍐|false|true
+3000000010310|Nectarines|Fruits du verger — Nectarines|Vertfeuille|0.450|0.588|WEIGHT|kg|true|4962|🍐|false|true
 3000000010327|Abricots|Fruits du verger — Abricots|L'Artisan|1.473|3.464|WEIGHT|kg|true|4131|🍐|false|true
 3000000010334|Prunes Reine-Claude|Fruits du verger — Prunes Reine-Claude|Nordique|0.234|0.463|WEIGHT|kg|true|4132|🍐|false|true
-3000000010341|Raisin Muscat|Fruits du verger — Raisin Muscat|Saveurs d'Ici|0.117|0.228|WEIGHT|kg|true|4133|🍐|false|true
+3000000010341|Raisin Muscat|Fruits du verger — Raisin Muscat|Saveurs d'Ici|0.117|0.228|WEIGHT|kg|true|4963|🍐|false|true
 3000000010358|Pommes Granny Smith|Fruits du verger — Pommes Granny Smith|Maison Dubois|0.742|1.376|WEIGHT|kg|true|4134|🍐|false|true
-3000000010365|Pommes Pink Lady|Fruits du verger — Pommes Pink Lady|Le Verger|0.434|0.612|WEIGHT|kg|true|4135|🍐|false|true
-3000000010372|Brugnons|Fruits du verger — Brugnons|Croq'Frais|0.873|1.574|WEIGHT|kg|true|4136|🍐|false|true
+3000000010365|Pommes Pink Lady|Fruits du verger — Pommes Pink Lady|Le Verger|0.434|0.612|WEIGHT|kg|true|4964|🍐|false|true
+3000000010372|Brugnons|Fruits du verger — Brugnons|Croq'Frais|0.873|1.574|WEIGHT|kg|true|4965|🍐|false|true
 3000000010389|Coings|Fruits du verger — Coings|Terroir & Co|1.412|2.022|WEIGHT|kg|true|4137|🍐|false|true
 3000000010396|Laitue Batavia|Salades et herbes — Laitue Batavia|Saveurs d'Ici|1.352|2.165|WEIGHT|kg|true|4138|🥬|false|true
 3000000010402|Salade Iceberg|Salades et herbes — Salade Iceberg|Maison Dubois|0.409|0.450|WEIGHT|kg|true|4139|🥬|false|true
@@ -145,7 +145,7 @@ EAN|NAME|DESCRIPTION|BRAND|REFERENCE_WEIGHT|REFERENCE_VOLUME|PRODUCT_TYPE|UNIT_N
 3000000011065|Magret de Canard 350g|Volaille — Magret de Canard 350g|Marinella|1.168|2.765|WEIGHT|kg|true|4185|🍗|false|true
 3000000011072|Pintade Fermière|Volaille — Pintade Fermière|Vertfeuille|1.138|2.135|WEIGHT|kg|true|4186|🍗|false|true
 3000000011089|Nuggets de Poulet 400g|Volaille — Nuggets de Poulet 400g|L'Artisan|0.458|0.950|WEIGHT|kg|true|4187|🍗|false|true
-3000000011096|Steak Haché 5% 2x125g|Boeuf et porc — Steak Haché 5% 2x125g|Prairie|0.887|1.269|WEIGHT|kg|true|4188|🥩|false|true
+3000000011096|Steak Haché 5% 2x125g|Boeuf et porc — Steak Haché 5% 2x125g|Prairie|0.887|1.269|WEIGHT|kg|true|4966|🥩|false|true
 3000000011102|Entrecôte 300g|Boeuf et porc — Entrecôte 300g|Marinella|1.330|3.285|WEIGHT|kg|true|4189|🥩|false|true
 3000000011119|Bavette d'Aloyau 250g|Boeuf et porc — Bavette d'Aloyau 250g|Vertfeuille|1.124|1.271|WEIGHT|kg|true|4190|🥩|false|true
 3000000011126|Rôti de Boeuf 800g|Boeuf et porc — Rôti de Boeuf 800g|L'Artisan|0.883|1.978|WEIGHT|kg|true|4191|🥩|false|true

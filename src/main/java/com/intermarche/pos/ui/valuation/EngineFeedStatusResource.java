@@ -14,17 +14,18 @@ import org.jboss.logging.Logger;
  * register holds: per feed, the stored version, the version the engine last
  * acknowledged, whether the two match, and the last delivery error.
  *
- * <p>The register no longer IMPORTS anything — the CSV front door left with
- * the store node — but it still DELIVERS the feeds it pulled to the engine
- * attached to it ({@code EngineFeedDeliveryService}), and that delivery is the
- * only thing whose progress cannot be seen from the node. Hence a read-only
- * endpoint here, in the package that already holds the register's whole
- * relationship with its engine.
+ * <p>The register DELIVERS the feeds it holds to the engine attached to it
+ * ({@code EngineFeedDeliveryService}), and that delivery is the only thing
+ * whose progress cannot be seen from the node. Hence a read-only endpoint
+ * here, in the package that already holds the register's whole relationship
+ * with its engine.
  *
- * <p>The path is kept verbatim at {@code /feeds/import/status}: it is what
- * supervision and the demo stack poll, and renaming a URL to match a class
- * that moved would break callers for a matter of wording. The POST sibling
- * that used to share this path is gone; nothing else changed for a caller.
+ * <p>The path is {@code /feeds/import/status}, what supervision and the demo
+ * stack poll. Its POST sibling, {@code /feeds/import/{code\}}, is served by
+ * {@link com.intermarche.pos.imports.FeedImportResource}: it left with the
+ * store node and came back for the till that runs WITHOUT one. Two classes on
+ * one root path, one reading and one writing — the literal {@code /status}
+ * wins over the template, and the methods differ anyway.
  */
 @Path("/feeds/import")
 public class EngineFeedStatusResource {

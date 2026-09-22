@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>{document.title} {document.number}</title>
+<style>
+    :root { --bg-dark:#121212; --bg-panel:#1E1E1E; --text-main:#FFFFFF; --text-muted:#AAAAAA;
+           --primary:#0055FF; --success:#00C853; --danger:#D32F2F; --warning:#FF9800;
+           --border-color:#333333; --accent:#FFC400; --muted:#555555; --bg-page:#000000;
+           --bg-inset:#181818; --bg-row:#222222; --border-strong:#444444; }
+  .btn-primary { background: var(--primary); }
+  .btn-success { background: var(--success); }
+  .btn.btn-muted { background: var(--muted); color: var(--text-main); }
+  /*
+   * TWO GEOMETRIES, ONE DOCUMENT. On screen this is a till: 1000 x 600, the register's
+   * chrome, a scrolling working area and an action bar always under the thumb. The A4
+   * sheet -- 210 x 297 mm, its margins and its white void -- belongs to PAPER and lives
+   * in the print block alone. Rendering that sheet on the screen, which is what this
+   * page used to do, fills four fifths of a 768 px display with blank paper.
+   */
+  * { box-sizing: border-box; }
+  body { margin: 0; background-color: var(--bg-page); color: var(--text-main);
+         font-family: Arial, Helvetica, sans-serif;
+         display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+  .pos-terminal { width: 1000px; height: 600px; background-color: var(--bg-dark);
+                  border: 2px solid var(--border-strong); border-radius: 10px;
+                  display: grid; grid-template-rows: 60px 1fr 80px;
+                  overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+  .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color);
+             display: flex; justify-content: space-between; align-items: center;
+             padding: 0 20px; font-size: 1.2rem; color: var(--text-muted); }
+  .top-bar .store-name { color: var(--danger); font-weight: bold; font-size: 1.4rem; }
+  /* No finger-scrolling of a document: the article rows are PAGINATED, exactly as
+     the reprint list and the ticket lines are. The overflow rule is a safety net for
+     an unusually tall theme, not the way this screen is meant to be read. */
+  .paper-area { overflow-y: auto; padding: 12px; }
+  .bottom-nav { display: flex; align-items: center; justify-content: space-between;
+                padding: 0 20px; background: var(--bg-page); border-top: 1px solid var(--border-color); }
+  .btn { padding: 15px; font-size: 0.8rem; font-weight: bold; border: none; border-radius: 6px;
+         cursor: pointer; color: white; text-transform: uppercase;
+         box-shadow: 0 4px 0 rgba(0,0,0,0.3); text-decoration: none; }
+  .btn:active { transform: translateY(4px); box-shadow: none; }
+  .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed;
+                  transform: none !important; box-shadow: none !important; }
+  .pager { display: flex; align-items: center; gap: 12px; }
+  .pageInfo { color: var(--text-muted); font-size: .9rem; }
+
+  /* The document itself: black on white, because a document is not a screen theme. */
+  .sheet { background: #fff; color: #111; font-size: 12px; padding: 14px 18px; border-radius: 4px; }
+  .top { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
+  .top img { width: 130px; }
+  .top .spacer { width: 130px; }
+  .titleblock { flex: 1; text-align: center; }
+  .titleblock h1 { font-size: 19px; margin: 0 0 2px; letter-spacing: .5px; }
+  .titleblock .num { font-size: 12px; }
+  .titleblock .dup { margin-top: 3px; font-weight: bold; letter-spacing: 1px; }
+  .parties { display: flex; gap: 12px; margin-bottom: 8px; }
+  .box { border: 1px solid #111; padding: 7px 9px; }
+  .parties .box { flex: 1; }
+  .box .name { font-weight: bold; }
+  .box .gap { height: 5px; }
+  .meta { border: 1px solid #111; padding: 7px 9px; margin-bottom: 8px; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 1px 0; vertical-align: top; }
+  .meta td.k { font-weight: bold; width: 130px; }
+  .meta td.v { width: 150px; }
+  .meta td.k2 { font-weight: bold; width: 140px; padding-left: 24px; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.lines th, table.lines td { border: 1px solid #111; padding: 4px 6px; }
+  table.lines th { font-size: 11px; text-align: center; }
+  table.lines td.num { text-align: center; white-space: nowrap; }
+  table.lines td.amt { text-align: right; white-space: nowrap; }
+  table.lines .attrs { display: block; color: #666; font-size: 10.5px; }
+  .bottom { display: flex; gap: 12px; align-items: flex-start; }
+  .bottom .left { flex: 1.15; }
+  .bottom .right { flex: 1; }
+  table.vat { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.vat th, table.vat td { border: 1px solid #111; padding: 4px 6px; font-size: 11px; }
+  table.vat th { text-align: center; }
+  table.vat td.amt { text-align: right; }
+  table.vat td.rate { text-align: center; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 4px 6px; }
+  .totals tr.due td { font-weight: bold; border-top: 1px solid #111; }
+  .totals td.amt { text-align: right; white-space: nowrap; }
+  .settle { margin-top: 6px; }
+  .settle .h { font-weight: bold; margin-bottom: 2px; }
+  .settle table { width: 100%; border-collapse: collapse; }
+  .settle td { padding: 1px 0; }
+  .settle td.amt { text-align: right; }
+  .legal { margin-top: 8px; font-size: 10.5px; color: #666; }
+  .foot { margin-top: 10px; padding-top: 4px; border-top: 1px solid #111;
+          display: flex; justify-content: space-between; font-size: 11px; }
+
+  /* Paper. The only place A4 exists. */
+  @media print {
+    @page { size: A4; margin: 12mm; }
+    body { background: #fff; display: block; }
+    .pos-terminal { width: auto; height: auto; border: none; border-radius: 0;
+                    display: block; box-shadow: none; overflow: visible; }
+    .top-bar, .bottom-nav { display: none; }
+    .paper-area { overflow: visible; padding: 0; }
+    .sheet { font-size: 11px; padding: 0; border-radius: 0; }
+    .top img, .top .spacer { width: 46mm; }
+  }
+</style>
+</head>
+<body data-theme="dark">
+<div class="pos-terminal">
+
+  <div class="top-bar">
+    <span class="store-name">{document.title}</span>
+    <span id="clock"></span>
+  </div>
+
+  <div class="paper-area">
+    <div class="sheet">
+  <div class="top">
+    {#if document.logo}<img src="{document.logo}" alt="Intermarché">{#else}<div class="spacer"></div>{/if}
+    <div class="titleblock">
+      <h1>{document.title}</h1>
+      {#if document.number}
+      <div class="num">N° de {document.title.toLowerCase} {document.number}</div>
+      {#else}
+      <div class="num draft">N° attribué à l'émission</div>
+      {/if}
+      {#if document.duplicate}
+      <div class="dup">*** DUPLICATA N°{document.duplicateNumber} ***</div>
+      {/if}
+    </div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="parties">
+    <div class="box">
+      <div class="name">{document.seller.name}</div>
+      {#if document.seller.legalName}<div>{document.seller.legalName}</div>{/if}
+      <div class="gap"></div>
+      {#for line in document.seller.addressLines}<div>{line}</div>{/for}
+      <div class="gap"></div>
+      {#if document.seller.phone}<div>Tél. : {document.seller.phone}</div>{/if}
+      {#if document.seller.fax}<div>Fax : {document.seller.fax}</div>{/if}
+      {#if document.seller.siret}<div>SIRET : {document.seller.siret}</div>{/if}
+      {#if document.seller.vatNumber}<div>TVA intracom. : {document.seller.vatNumber}</div>{/if}
+    </div>
+    <div class="box">
+      <div class="name">{document.customer.name}</div>
+      {#if document.customer.contact}<div>{document.customer.contact}</div>{/if}
+      <div class="gap"></div>
+      {#for line in document.customer.addressLines}<div>{line}</div>{/for}
+      <div class="gap"></div>
+      {#if document.customer.accountNumber}<div>N° de compte client : {document.customer.accountNumber}</div>{/if}
+      {#if document.customer.siret}<div>SIRET : {document.customer.siret}</div>{/if}
+      {#if document.customer.vatNumber}<div>TVA intracom. : {document.customer.vatNumber}</div>{/if}
+    </div>
+  </div>
+
+  <div class="meta">
+    <table>
+      <tr>
+        <td class="k">Date de facturation</td><td class="v">{document.issueDate}</td>
+        <td class="k2">N° de ticket</td><td>{document.ticketNumber}</td>
+      </tr>
+      <tr>
+        <td class="k">Type de document</td><td class="v">{document.title}</td>
+        <td class="k2">Date de la vente</td><td>{document.saleDate}</td>
+      </tr>
+      <tr>
+        <td class="k">Point de vente</td><td class="v">Caisse {document.terminal}</td>
+        <td class="k2">Moyen de paiement</td><td>{document.paymentMethods}</td>
+      </tr>
+    </table>
+  </div>
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th style="width:46%">Description</th>
+        <th>Quantité</th>
+        <th>TVA</th>
+        <th>PV HT</th>
+        <th>PV TTC</th>
+        <th>Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#for line in pageLines}
+      <tr>
+        <td>{line.label}
+          {#if line.attributes}<span class="attrs">{line.attributes}</span>{/if}
+          {#if line.ean}<span class="attrs">{line.ean}</span>{/if}
+        </td>
+        <td class="num">{line.quantity}</td>
+        <td class="num">{line.vatRate}</td>
+        <td class="amt">{line.unitExcludingTax} €</td>
+        <td class="amt">{line.unitIncludingTax} €</td>
+        <td class="amt">{line.totalIncludingTax} €</td>
+      </tr>
+      {/for}
+    </tbody>
+  </table>
+
+  <div class="bottom">
+    <div class="left">
+      <table class="vat">
+        <thead>
+          <tr><th>Taux TVA</th><th>Base HT</th><th>Montant TVA</th><th>Total TTC</th></tr>
+        </thead>
+        <tbody>
+          {#for row in document.vatRows}
+          <tr>
+            <td class="rate">{row.rate}</td>
+            <td class="amt">{row.excludingTax} €</td>
+            <td class="amt">{row.vat} €</td>
+            <td class="amt">{row.includingTax} €</td>
+          </tr>
+          {/for}
+        </tbody>
+      </table>
+      {#if document.tenders.size > 0}
+      <div class="settle">
+        <div class="h">Mode de règlement :</div>
+        <table>
+          {#for tender in document.tenders}
+          <tr><td>- {tender.label}</td><td class="amt">{tender.amount} €</td></tr>
+          {/for}
+        </table>
+      </div>
+      {/if}
+    </div>
+    <div class="right">
+      <div class="box totals">
+        <table>
+          <tr><td>Sous-total HT</td><td class="amt">{document.totalExcludingTax} €</td></tr>
+          <tr><td>Total TVA</td><td class="amt">{document.totalVat} €</td></tr>
+          <tr><td>Sous-total TTC</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+          <tr class="due"><td>Montant à payer</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="legal">{document.legalMentions}</div>
+
+  <div class="foot">
+    <div>{document.legalFooter}</div>
+    <div>1 / 1</div>
+  </div>
+
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    {#if issued}
+    <a class="btn btn-muted" href="/">RETOUR CAISSE</a>
+    {#else}
+    <a class="btn btn-muted" href="/invoice/abandon">ABANDONNER</a>
+    {/if}
+
+    <span class="pager">
+      {#if pageCount > 1}
+        {#if hasPrev}
+        <a class="btn btn-muted" href="{pageUrl}{prevPage}">PRÉCÉDENT</a>
+        {#else}
+        <button class="btn btn-muted" disabled>PRÉCÉDENT</button>
+        {/if}
+        <span class="pageInfo">Page {page} / {pageCount}</span>
+        {#if hasNext}
+        <a class="btn btn-muted" href="{pageUrl}{nextPage}">SUIVANT</a>
+        {#else}
+        <button class="btn btn-muted" disabled>SUIVANT</button>
+        {/if}
+      {/if}
+    </span>
+
+    {#if issued}
+    <a class="btn btn-primary" href="/invoice">NOUVELLE FACTURE</a>
+    {#else}
+    <form method="post" action="/invoice/issue" style="margin:0">
+      <button class="btn btn-success" type="submit">ÉMETTRE ET IMPRIMER</button>
+    </form>
+    {/if}
+  </div>
+
+</div>
+<script>
+  setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+</script>
+</body>
+</html>

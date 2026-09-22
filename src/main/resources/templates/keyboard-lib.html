@@ -241,6 +241,12 @@
             this._injectStyles();
             container.innerHTML = '';
             const kb = this._makeGrid('pos-keyboard--alpha');
+            // Letters are sent LOWER-CASED, like the other alpha pad. Not a
+            // cosmetic choice: 'C' is the CLEAR command of handleKey, so an
+            // upper-case letter C emptied the whole field instead of typing
+            // itself -- the one letter of the alphabet that collides with a
+            // command token. The display is uppercased in CSS, so nothing
+            // changes on screen, and the search matches on lower(name).
             const rows = ['1234567890', 'AZERTYUIOP', 'QSDFGHJKLM'];
             rows.forEach(row => {
                 row.split('').forEach(l => {
@@ -248,7 +254,7 @@
                     b.type = 'button';
                     b.innerText = l;
                     b.className = 'pos-key pos-key--digit pos-key--alpha';
-                    b.onclick = () => onKey(l);
+                    b.onclick = () => onKey(l.toLowerCase());
                     kb.appendChild(b);
                 });
             });
@@ -259,7 +265,7 @@
                 b.type = 'button';
                 b.innerText = l;
                 b.className = 'pos-key pos-key--digit pos-key--alpha';
-                b.onclick = () => onKey(l);
+                b.onclick = () => onKey(l.toLowerCase());
                 kb.appendChild(b);
             });
             const sp = document.createElement('button');

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Facture C04-F000123</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  :root {
+    --ink: #111; --rule: #111; --soft: #666; --band: #f2f2f2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #8a8a8a; font-family: Arial, Helvetica, sans-serif;
+         color: var(--ink); font-size: 11px; }
+  .sheet { width: 210mm; min-height: 297mm; margin: 16px auto; background: #fff;
+           padding: 12mm; }
+  .top { display: flex; align-items: flex-start; gap: 12mm; margin-bottom: 8mm; }
+  .top img { width: 46mm; }
+  .titleblock { flex: 1; text-align: center; }
+  .titleblock h1 { font-size: 20px; margin: 2mm 0 1mm; letter-spacing: .5px; }
+  .titleblock .num { font-size: 11px; }
+  .parties { display: flex; gap: 6mm; margin-bottom: 5mm; }
+  .box { border: 1px solid var(--rule); padding: 3mm 3.5mm; }
+  .parties .box { flex: 1; min-height: 34mm; }
+  .box .name { font-weight: bold; }
+  .box .gap { height: 2.5mm; }
+  .meta { border: 1px solid var(--rule); padding: 3mm 3.5mm; margin-bottom: 5mm; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: .6mm 0; vertical-align: top; }
+  .meta td.k { font-weight: bold; width: 34mm; }
+  .meta td.v { width: 40mm; }
+  .meta td.k2 { font-weight: bold; width: 36mm; padding-left: 8mm; }
+  .meta .tail { margin-top: 2mm; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
+  table.lines th, table.lines td { border: 1px solid var(--rule); padding: 1.4mm 2mm; }
+  table.lines th { font-size: 10px; text-align: center; }
+  table.lines td.num { text-align: center; white-space: nowrap; }
+  table.lines td.amt { text-align: right; white-space: nowrap; }
+  table.lines .attrs { display: block; color: var(--soft); font-size: 9.5px; }
+  .bottom { display: flex; gap: 6mm; align-items: flex-start; }
+  .bottom .left { flex: 1.15; }
+  .bottom .right { flex: 1; }
+  table.vat { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
+  table.vat th, table.vat td { border: 1px solid var(--rule); padding: 1.4mm 2mm; font-size: 10px; }
+  table.vat th { text-align: center; }
+  table.vat td.amt { text-align: right; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 1.4mm 2mm; }
+  .totals tr.due td { font-weight: bold; border-top: 1px solid var(--rule); }
+  .totals td.amt { text-align: right; white-space: nowrap; }
+  .settle { margin-top: 3mm; }
+  .settle .h { font-weight: bold; margin-bottom: 1mm; }
+  .settle table { width: 100%; border-collapse: collapse; }
+  .settle td { padding: .6mm 0; }
+  .settle td.amt { text-align: right; }
+  .foot { margin-top: 8mm; padding-top: 2mm; border-top: 1px solid var(--rule);
+          display: flex; justify-content: space-between; font-size: 10px; }
+  .legal { margin-top: 4mm; font-size: 9.5px; color: var(--soft); }
+  @media print { body { background: #fff; } .sheet { margin: 0; width: auto; padding: 0; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="top">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJQAAACUCAMAAABC4vDmAAAAY1BMVEX///8AAACNjY37+/tmZmbPz8+IiIjw8PD29vbh4eGUlJTs7OzV1dWFhYWioqLFxcWcnJwODg6pqalsbGwoKCiwsLA8PDxPT09YWFhCQkJ9fX12dna6urogICA3NzcaGhowMDCW7z/GAAAEsklEQVR4nO2Y67KjKBCA8YKKoGjMRSMmef+nnL6AyZwzW1uzydRubfX3JwGku+kbJkoJgiAIgiAIgiAIgiAIgiAIgiAIgiAIgiAIwq8okH/biK+U0zTlzbfpOnTmD2u2h87+eqXOgOu3aX/MMvdnbepBxUuIinBCPH53aFT7dYOGyfNfHONDBFAxvoxtRhzw+wm/nb7uuMDk/D2mH6QmFS8TjdcARydHo8hnRnsfJ4uXmNYOp5OfrfPB6zoJcrDHNTCrvU4pqIk9Ie3P+8MA9JojtDrt9qMbB89xdCZctEqvx/sI/hwfLTxlcLL0vrH5eaPpbQItpqNRNt5LGNl22UZc3HjrfetRwZXDcL9hIMx6Y7HbFQ9i15FXR6fpY4ySVZhRyDjezwF8UuJaUTyynY7jDTzq03P6ZlT3HB1rdci+UYLAA3qCnuzjkRnIhuaMQtuhWhfzsvthlbk/h0FZfO6sGhJZ1wt8bE4NOKxOls1wrL9nJxjV82hFf/iCnp2tufBiBM96rpuZjzyxmIqlY36wZF+QrEFp9ODaOLJamY0OSKlfKXp01Ek7y85qXs7JqxkULEpo1RwPSfJ4a6aTUTP51t4yymbPHsAjL/EBPMPNckdqudwg3itp0Dypo7tR7dGx1zFB0KuXhrOyZz9GFYekIrAElmcosyFjMR2W2sSzkjdNHU0k8CiXmhUP7HytajzLMZ2B4gON4UayqFwz3Iqfk+I9gXxSxpFLKgaWwG6EvGmXlBwzqwzslsw6PGKsacqXde9IVYzIkWZbjjbG665VcSRZ5PWzilU46QNaMxfkr8mRnKkgFVAUFUuwaMvIYscL5gbYT48OumNnhhgOlSR3XKuQLxQa7eanNaOhFDgaLoIp9hDFjT2ymVSTyGLZx4MqKGyFMmjNheWF5sQ68+eOsuBweDbKRwPRv3dDZRmBeC0c2gu7hh6t9gzjQB1vy2U6pdGZsgXyjVRolUJNe/L6zDGN6UAnv410UsVRifXJCaEa3P1QNT5yf9yWObcx38oiNoYkK6QjUTEGY+u9z961xy2HXQXFK+X7yWExX+Oi5hR1Aw+4FOJlUMXdXC1cEMbYZi+CSpGsNSatYwUu3kHb3ntQALTQE8vu+cNkr1sp0fLYHyzVSZnckSahS9VsYJMU2xQaBhfblB+8reHUWo2N6ZiuMpzFW7okxVh9j2YPNbc2KslH39MFUdhocEwg+piv6zpfqatmcSXn0l3wRqarsJ72jhAjjK1Ac+LVyl9S/nnucyXuWciR/pm9kHFoxiOmPzMnlfG2gUpJ0gIF/RE7AvSMek27qGU0ujXKV3kOb4HNkOd5y1d7n1ddg+8IYWgRiD88VAUVixKyue1gFLqqwndU2JkPeJe3eKDx0mq45XENm7yp4EugN47DIWhTWJyAxPRxtyqMP6CaPKh/ysDn+29RzHT7+C7/OG/8MLAbFobNPs74zg8D6Bqb5T7wUc5v/YRqsVCK5e/V/B7v/TDA9uFeO8BnKN+xSWGHnX963/0I33+B/h4Bm6b7sFHDm0YpP10b1ZafZPbvGoXv//EPko/xvk2CIAiCIAiCIAiCIAiCIAiCIAiCIAiCIAjC/5QfPvJBglVD0x8AAAAASUVORK5CYII=" alt="Intermarché">
+    <div class="titleblock">
+      <h1>FACTURE</h1>
+      <div class="num">N° de facture C04-F000123</div>
+    </div>
+    <div style="width:46mm"></div>
+  </div>
+
+  <div class="parties">
+    <div class="box">
+      <div class="name">Intermarché Super Alim. Vaucresson</div>
+      <div>SA JANSELIN</div>
+      <div class="gap"></div>
+      <div>12 avenue de la Celle Saint-Cloud</div>
+      <div>92420 VAUCRESSON</div>
+      <div class="gap"></div>
+      <div>Tél. : 01 47 41 12 30</div>
+      <div>Fax : 01 47 41 12 39</div>
+    </div>
+    <div class="box">
+      <div class="name">BOULANGERIE DU PARC SARL</div>
+      <div>Marc VIDAL</div>
+      <div class="gap"></div>
+      <div>3 place de la Mairie</div>
+      <div>92420 VAUCRESSON</div>
+      <div class="gap"></div>
+      <div>N° de compte client : C04-CLI000042</div>
+      <div>SIRET : 512 345 678 00017</div>
+      <div>TVA intracom. : FR40512345678</div>
+    </div>
+  </div>
+
+  <div class="meta">
+    <table>
+      <tr>
+        <td class="k">Date de facturation</td><td class="v">09/09/2026 16:42</td>
+        <td class="k2">N° de ticket</td><td>C04-00000417</td>
+      </tr>
+      <tr>
+        <td class="k">Type de document</td><td class="v">Facture</td>
+        <td class="k2">Date de la vente</td><td>09/09/2026</td>
+      </tr>
+      <tr>
+        <td class="k">Point de vente</td><td class="v">Caisse C04</td>
+        <td class="k2">Moyen de paiement</td><td>Carte bancaire</td>
+      </tr>
+    </table>
+    <div class="tail">Date du règlement : 09/09/2026</div>
+  </div>
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th style="width:46%">Description</th>
+        <th>Quantité</th>
+        <th>TVA</th>
+        <th>PV HT</th>
+        <th>PV TTC</th>
+        <th>Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CAFE GRAINS ARABICA 1KG
+            <span class="attrs">3178530403022 — Origine : BRESIL, Categorie : 1</span></td>
+        <td class="num">2</td><td class="num">5,50 %</td>
+        <td class="amt">12,23 €</td><td class="amt">12,90 €</td><td class="amt">25,80 €</td>
+      </tr>
+      <tr>
+        <td>PAPIER A4 80G RAMETTE
+            <span class="attrs">3250393026256</span></td>
+        <td class="num">5</td><td class="num">20,00 %</td>
+        <td class="amt">4,16 €</td><td class="amt">4,99 €</td><td class="amt">24,95 €</td>
+      </tr>
+      <tr>
+        <td>TOMATES GRAPPE
+            <span class="attrs">Origine : FRANCE, Categorie : 1, Variete : RONDE EN GRAPPE</span></td>
+        <td class="num">1,480 kg</td><td class="num">5,50 %</td>
+        <td class="amt">3,74 €</td><td class="amt">3,95 €</td><td class="amt">5,85 €</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="bottom">
+    <div class="left">
+      <table class="vat">
+        <thead>
+          <tr><th>Taux TVA</th><th>Base HT</th><th>Montant TVA</th><th>Total TTC</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="num" style="text-align:center">5,50 %</td>
+              <td class="amt">30,00 €</td><td class="amt">1,65 €</td><td class="amt">31,65 €</td></tr>
+          <tr><td class="num" style="text-align:center">20,00 %</td>
+              <td class="amt">20,79 €</td><td class="amt">4,16 €</td><td class="amt">24,95 €</td></tr>
+        </tbody>
+      </table>
+      <div class="settle">
+        <div class="h">Mode de règlement :</div>
+        <table>
+          <tr><td>- Carte bancaire</td><td class="amt">56,60 €</td></tr>
+          <tr><td>- Chèque</td><td class="amt">0,00 €</td></tr>
+          <tr><td>- Espèces</td><td class="amt">0,00 €</td></tr>
+          <tr><td>- Bon d'achat</td><td class="amt">0,00 €</td></tr>
+          <tr><td>- Total de vos remises immédiates</td><td class="amt">0,00 €</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="right">
+      <div class="box totals">
+        <table>
+          <tr><td>Sous-total HT</td><td class="amt">50,79 €</td></tr>
+          <tr><td>Total TVA</td><td class="amt">5,81 €</td></tr>
+          <tr><td>Sous-total TTC</td><td class="amt">56,60 €</td></tr>
+          <tr class="due"><td>Montant à payer</td><td class="amt">56,60 €</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="legal">
+    Facture acquittée. En cas de retard de paiement, une pénalité au taux d'intérêt appliqué
+    par la Banque centrale européenne à son opération de refinancement la plus récente majoré
+    de 10 points de pourcentage est exigible, ainsi qu'une indemnité forfaitaire pour frais de
+    recouvrement de 40 € (articles L441-10 et D441-5 du code de commerce). Pas d'escompte pour
+    paiement anticipé.
+  </div>
+
+  <div class="foot">
+    <div>SA JANSELIN — RCS 342 490 562 — Capital : 40 000 €</div>
+    <div>1 / 1</div>
+  </div>
+
+</div>
+</body>
+</html>

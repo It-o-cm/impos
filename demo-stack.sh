@@ -194,7 +194,7 @@ inject_nomenclature() { # scheme label enseigne file
   http=$(curl -s -o "$RUN_DIR/inject-NOMENCLATURE.json" -w "%{http_code}" \
       -u "$ADMIN_AUTH" -H "Content-Type: text/plain; charset=utf-8" \
       --data-binary "@$FEEDS_DIR/$file" \
-      "http://localhost:8070/nomenclatures/import?scheme=$scheme&label=$label&enseigne=$enseigne")
+      "http://localhost:8070/feeds/import/NOMENCLATURE?scheme=$scheme&label=$label&enseigne=$enseigne")
   if [ "$http" != "200" ]; then
     echo "✗ Injection NOMENCLATURE refusée (HTTP $http) — voir $RUN_DIR/inject-NOMENCLATURE.json"
     exit 1
@@ -279,10 +279,11 @@ inject_feed "/feeds/import/VAT_RATES"            VAT_RATES         vat-rates.csv
 inject_feed "/feeds/import/PRICES"               PRICES            "prices$FEED_SUFFIX.csv"
 inject_feed "/feeds/import/OFFERS"               OFFERS            "offers$FEED_SUFFIX.csv"
 
-# La NOMENCLATURE ne passe pas par la grammaire /feeds/import/{code}, et ce
-# n'est pas un oubli: cette grammaire n'a pas de place pour dire DANS QUELLE
-# nomenclature charger. Deux enseignes publient les mêmes colonnes et rien
-# dans le fichier ne les distingue, donc le schéma se nomme sur la requête.
+# La NOMENCLATURE passe par la même grammaire que tout le reste, mais elle
+# ajoute trois paramètres de requête: le fichier numérote les nœuds A
+# L'INTERIEUR d'un schéma et ne nomme jamais le schéma, deux enseignes
+# publiant les mêmes colonnes et les mêmes numéros. La clé étrangère manque
+# dans le fichier, donc l'appelant la fournit.
 # Le fichier est l'export réel du groupe: 2504 nœuds, quatre niveaux de 2, 4,
 # 8 et 12 caractères, le niveau le plus fin entièrement CUSTOM.
 inject_nomenclature ITM_FR "Nomenclature+ITM+France" ITM hierarchies.csv
