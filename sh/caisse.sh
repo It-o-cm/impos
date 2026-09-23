@@ -49,6 +49,9 @@ TPE_MODE='bridge'
 ENDORSE_ROTATION='180'
 POS_PORT='8080'
 SSHOPT='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR'
+# Same options WITHOUT the silencing: used by the file copies alone, so their
+# meter and their diagnostics reach the screen.
+SCPOPT='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 # Two runtimes on the till, on purpose. impos stays on 21, the version Quarkus is
 # supported on; the hardware daemon needs 25 because the payment client is reached
 # through java.lang.foreign, final only from 22 on.
@@ -65,9 +68,26 @@ rsh() {
   sshpass -p "$PASS" ssh $SSHOPT "$HOST" "$1"
 }
 
-# Copies a local file to the till.
+# Copies a local file to the till, WITH the transfer meter.
+#
+# The uber-jar weighs some seventy megabytes and the copy is the only step of
+# a build that says nothing: between BUILD SUCCESS and the deployment message
+# the script used to sit mute for as long as the link took, which reads as a
+# hang and is indistinguishable from one. So the size goes out before, the
+# meter of scp during, and the elapsed time after.
+#
+# SCPOPT and not SSHOPT: the shared options silence scp below the level where
+# it reports anything, and here it is precisely what the transfer has to say
+# that is wanted. A meter that does not move separates a slow link from a
+# stalled negotiation -- which is what a scp speaking SFTP to a sshd without
+# the subsystem looks like.
 rcp() {
-  sshpass -p "$PASS" scp $SSHOPT "$1" "$HOST:$2"
+  local size start
+  size=$(du -h "$1" 2>/dev/null | awk '{print $1}')
+  printf 'copie de %s (%s) vers %s:%s\n' "$(basename "$1")" "${size:-?}" "$HOST_IP" "$2"
+  start=$SECONDS
+  sshpass -p "$PASS" scp $SCPOPT "$1" "$HOST:$2" || return 1
+  printf 'copie terminee en %s s\n' "$((SECONDS - start))"
 }
 
 # Refuses to go on when sshpass is missing.

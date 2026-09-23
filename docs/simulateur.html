@@ -1,7 +1,8 @@
 <!--
   Hardware simulator — STATIC dev tool opened directly in a browser (not
   served by Qute: HTML comments are fine here, Qute {! !} would not be
-  stripped). Talks to the register at hardcoded http://localhost:8080.
+  stripped). Talks to the register at the origin it was served from
+  (http://localhost:8080 when opened as a file).
   Modules and their endpoints: scanner → POST /api/pos/scan ; scale →
   POST /weight ; 2x label builder (price/weight prefixes + checksum) ;
   traditional counter (LC-06-01) → composes weighed lines, POSTs them to the
@@ -406,6 +407,17 @@
 </div>
 
 <script>
+    /* Base of the register this panel drives.
+       Served BY the register in qualification -- Caddy publishes this page
+       under /simulateur of the impos vhost -- the panel must address the
+       origin it was loaded from. A hardcoded http://localhost:8080 there
+       points at the VISITOR's own machine, where nothing answers, and the
+       whole panel is mute for a reason that has nothing to do with the
+       register. Opened straight off the disk as a file:// page there is no
+       origin to inherit, and the local register is the only sensible guess,
+       which is exactly what the demo stack does. */
+    const POS = (location.protocol === 'file:') ? 'http://localhost:8080' : location.origin;
+
     /*
      * Draws a print body the way the hardware bridge does.
      *
@@ -485,10 +497,10 @@
     async function refreshHardwareState() {
         try {
             const [displayResp, drawerResp, printerResp, paperResp] = await Promise.all([
-                fetch('http://localhost:8080/api/hardware/display'),
-                fetch('http://localhost:8080/api/hardware/drawer/status'),
-                fetch('http://localhost:8080/api/hardware/printer/content'),
-                fetch('http://localhost:8080/api/hardware/printer/status')
+                fetch(POS + '/api/hardware/display'),
+                fetch(POS + '/api/hardware/drawer/status'),
+                fetch(POS + '/api/hardware/printer/content'),
+                fetch(POS + '/api/hardware/printer/status')
             ]);
 
             const screen = document.getElementById('lcdScreen');
@@ -615,7 +627,7 @@
         const note = document.getElementById('catalogNote');
         try {
             const response = await fetch(
-                'http://localhost:8080/api/hardware/catalog?limit=' + CATALOG_LIMIT);
+                POS + '/api/hardware/catalog?limit=' + CATALOG_LIMIT);
             if (!response.ok) { throw new Error('HTTP ' + response.status); }
             const articles = await response.json();
             fillArticleList(document.getElementById('eanList'), articles, true);
@@ -642,7 +654,7 @@
 
     // --- ACTIONS ---
     async function postPosAction(action, data, statusElement) {
-        const url = `http://localhost:8080/api/pos/${action}`;
+        const url = `${POS}/api/pos/${action}`;
         statusElement.innerText = "Envoi...";
         statusElement.className = "status";
 
@@ -667,7 +679,7 @@
     }
 
     async function postHardwareAction(action, data, statusElement) {
-        const url = `http://localhost:8080/api/hardware/${action}`;
+        const url = `${POS}/api/hardware/${action}`;
         if(statusElement) {
             statusElement.innerText = "Envoi...";
             statusElement.className = "status";
@@ -693,7 +705,7 @@
 
     /* Polls the register's virtual payment terminal for a pending request. */
     function pollTpe() {
-        fetch('http://localhost:8080/api/hardware/tpe')
+        fetch(POS + '/api/hardware/tpe')
             .then(r => r.json())
             .then(data => {
                 document.getElementById('tpeAmount').innerText = data.pending ? `DEMANDE : ${data.amount} €` : 'Aucune demande';
@@ -707,7 +719,7 @@
     /* Sends the terminal decision (accept or refuse) on the pending request. */
     function tpeDecide(decision) {
         const status = document.getElementById('tpeStatus');
-        fetch(`http://localhost:8080/api/hardware/tpe/${decision}`, { method: 'POST' })
+        fetch(`${POS}/api/hardware/tpe/${decision}`, { method: 'POST' })
             .then(r => {
                 status.innerText = r.ok ? (decision === 'accept' ? 'Paiement accepté' : 'Paiement refusé') : 'Aucune demande en attente';
                 status.className = r.ok ? 'status success' : 'status error';

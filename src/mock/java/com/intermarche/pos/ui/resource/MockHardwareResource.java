@@ -20,12 +20,22 @@ import java.util.concurrent.atomic.AtomicReference;
  * during a test run could not be demonstrated, and half the demo script
  * (weighing, drawer, receipt) goes through it. What keeps it out of a store
  * is the BUILD-TIME profile filter below, the same one that governs the
- * referential seed: the class is compiled everywhere, the bean exists only in
- * dev and test, and a production jar exposes none of these endpoints.
+ * referential seed: the class is compiled everywhere, the bean exists only
+ * under the profiles it names, and a production jar exposes none of these
+ * endpoints.
+ * <p>
+ * THE {@code demo} PROFILE is the shared demonstrator hosted on the cloud:
+ * no peripheral there either, and the panel IS the hardware. It is not a
+ * third way of running a shop — a real till is built and deployed without it,
+ * so what reaches a store is unchanged. Under {@code demo} this bean takes
+ * the {@code /api/hardware} path that
+ * {@link com.intermarche.pos.ui.hardware.RealHardwareResource} holds under
+ * {@code prod}: exactly one of the two ever exists, so the two identical
+ * paths never meet.
  */
 @Path("/api/hardware")
 @ApplicationScoped
-@IfBuildProfile(anyOf = {"dev", "test"})
+@IfBuildProfile(anyOf = {"dev", "test", "demo"})
 public class MockHardwareResource {
 
     /**

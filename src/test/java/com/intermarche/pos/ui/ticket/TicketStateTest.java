@@ -1236,4 +1236,83 @@ class TicketStateTest {
         deposit.mealVoucherEligible = true;
         assertEquals(0, new BigDecimal("10.00").compareTo(ts.mealVoucherEligibleTotal()));
     }
+
+    /**
+     * {@code setWarning} lights the WARNING state: the message rides the
+     * shared zone, it is neither a refusal nor a confirmation.
+     */
+    @org.junit.jupiter.api.Test
+    void setWarningMarksTheZoneAsAWarning() {
+        TicketState ticket = new TicketState();
+        ticket.setWarning("PRIX ÉLEVÉ");
+        org.junit.jupiter.api.Assertions.assertEquals("PRIX ÉLEVÉ", ticket.transientError);
+        org.junit.jupiter.api.Assertions.assertTrue(ticket.transientWarn);
+        org.junit.jupiter.api.Assertions.assertFalse(ticket.transientOk);
+    }
+
+    /**
+     * A refusal after a warning clears the warning mark: the zone shows one
+     * thing at a time and says which.
+     */
+    @org.junit.jupiter.api.Test
+    void setErrorClearsTheWarningMark() {
+        TicketState ticket = new TicketState();
+        ticket.setWarning("PRIX ÉLEVÉ");
+        ticket.setError("REFUS");
+        org.junit.jupiter.api.Assertions.assertEquals("REFUS", ticket.transientError);
+        org.junit.jupiter.api.Assertions.assertFalse(ticket.transientWarn);
+        org.junit.jupiter.api.Assertions.assertFalse(ticket.transientOk);
+    }
+
+    /**
+     * A confirmation after a warning clears the warning mark too.
+     */
+    @org.junit.jupiter.api.Test
+    void setNoticeClearsTheWarningMark() {
+        TicketState ticket = new TicketState();
+        ticket.setWarning("PRIX ÉLEVÉ");
+        ticket.setNotice("FAIT");
+        org.junit.jupiter.api.Assertions.assertEquals("FAIT", ticket.transientError);
+        org.junit.jupiter.api.Assertions.assertFalse(ticket.transientWarn);
+        org.junit.jupiter.api.Assertions.assertTrue(ticket.transientOk);
+    }
+
+    /**
+     * Clearing the ticket clears the warning mark with the message.
+     */
+    @org.junit.jupiter.api.Test
+    void clearClearsTheWarningMark() {
+        TicketState ticket = new TicketState();
+        ticket.setWarning("PRIX ÉLEVÉ");
+        ticket.clear();
+        org.junit.jupiter.api.Assertions.assertNull(ticket.transientError);
+        org.junit.jupiter.api.Assertions.assertFalse(ticket.transientWarn);
+    }
+
+    /**
+     * {@code addItem} raises the entry flag on the parent for a NEW line.
+     */
+    @org.junit.jupiter.api.Test
+    void addItemRaisesTheEntryFlagOnANewLine() {
+        com.intermarche.pos.ui.PosState parent = new com.intermarche.pos.ui.PosState();
+        parent.ticket.addItem("3000000000021", null, "WHISKY", new java.math.BigDecimal("24.90"),
+                java.math.BigDecimal.ONE, new java.math.BigDecimal("0.20"));
+        org.junit.jupiter.api.Assertions.assertTrue(parent.lineJustEntered);
+    }
+
+    /**
+     * It raises it on a MERGE too: entering an article a second time is an
+     * entry, even though no new line appears.
+     */
+    @org.junit.jupiter.api.Test
+    void addItemRaisesTheEntryFlagOnAMerge() {
+        com.intermarche.pos.ui.PosState parent = new com.intermarche.pos.ui.PosState();
+        parent.ticket.addItem("3000000000021", null, "WHISKY", new java.math.BigDecimal("24.90"),
+                java.math.BigDecimal.ONE, new java.math.BigDecimal("0.20"));
+        parent.lineJustEntered = false;
+        parent.ticket.addItem("3000000000021", null, "WHISKY", new java.math.BigDecimal("24.90"),
+                java.math.BigDecimal.ONE, new java.math.BigDecimal("0.20"));
+        org.junit.jupiter.api.Assertions.assertEquals(1, parent.ticket.items.size());
+        org.junit.jupiter.api.Assertions.assertTrue(parent.lineJustEntered);
+    }
 }

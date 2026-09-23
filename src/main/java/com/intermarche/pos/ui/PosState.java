@@ -234,6 +234,19 @@ public class PosState implements Serializable {
     /** Uid of the last entered line (cancellable without endorsement), or null. */
     public String lastEnteredItemId = null;
 
+    /**
+     * Raised by {@code TicketState.addItem} on every article entry — a new
+     * line as well as a merge into an existing one — and consumed once by the
+     * post-mutation funnel of the ticket service.
+     *
+     * <p>It exists because the two halves of the decision live apart: only
+     * the ticket state knows an article was entered, and only the service
+     * knows the administered threshold that says whether to warn about it.
+     * A flag raised in one and read in the other keeps the policy out of the
+     * state object without teaching six entry points the same rule.
+     */
+    public boolean lineJustEntered = false;
+
 
     /** Uid of the solidarity round-up line of the current ticket, or null. */
     public String donationLineUid = null;

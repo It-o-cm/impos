@@ -1,8 +1,7 @@
-# systemd unit — imfid (loyalty program), port 8060, PostgreSQL (%prod profile reads env).
+# systemd unit — imfid (loyalty program), port 8060, H2 FILE database.
 [Unit]
 Description=imfid (Quarkus) - qualification
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target
 
 [Service]
 User=apps
@@ -10,23 +9,15 @@ WorkingDirectory=/opt/apps/imfid
 ExecStart=/usr/bin/java -jar /opt/apps/imfid/quarkus-app/quarkus-run.jar
 Restart=on-failure
 RestartSec=5
-Environment=QUARKUS_PROFILE=prod
+# Demonstrator profile: the seeded loyalty dataset (program zone included),
+# known accounts, no imposed password change. A real loyalty service runs
+# %prod on PostgreSQL; here the four applications are uniform on H2 file.
+Environment=QUARKUS_PROFILE=demo
 Environment=QUARKUS_HTTP_PORT=8060
-Environment=QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/imfid
-Environment=QUARKUS_DATASOURCE_USERNAME=imfid
-Environment=QUARKUS_DATASOURCE_PASSWORD=__DB_PASSWORD__
+Environment=QUARKUS_DATASOURCE_JDBC_URL=jdbc:h2:file:/opt/apps/imfid/data/imfid
 Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
-# %prod config expands ${IMFID_SMTP_HOST} (password-reset mailer). Qualification
-# has no SMTP server: satisfy the expansion and MOCK the mailer — every mail is
-# written to the journal instead of being sent (read it with journalctl -u imfid).
-Environment=IMFID_SMTP_HOST=localhost
+# Every password-reset mail is written to the journal instead of being sent.
 Environment=QUARKUS_MAILER_MOCK_EMAIL=true
-# Mandatory %prod bootstrap: admin account (back-office first login) and the
-# `pos` Basic-auth password — MUST equal pos.fid.password in impos.service
-# (pos-password), or the register's loyalty calls all fail 401.
-Environment=IMFID_BOOTSTRAP_ADMIN_EMAIL=__ADMIN_EMAIL__
-Environment=IMFID_BOOTSTRAP_ADMIN_PASSWORD=__BOOTSTRAP_PASSWORD__
-Environment=IMFID_BOOTSTRAP_POS_PASSWORD=pos-password
 
 [Install]
 WantedBy=multi-user.target

@@ -98,6 +98,70 @@ public class TicketService {
     private void syncAndRevalue(PosState state) {
         ticketPersistenceService.syncDraft(state);
         valuationService.revalue(state);
+        warnOnExpensiveEntry(state);
+    }
+
+    /**
+     * Warns the cashier when the article just entered is dearer than the
+     * administered threshold.
+     *
+     * <p>Placed on the post-mutation funnel rather than on each entry point:
+     * a scan, a keyed EAN, a PLU, a group tile and the entry prompt all end
+     * here, and all of them raise {@code lineJustEntered} through the single
+     * {@code addItem} funnel. The flag is CONSUMED whatever the outcome, so a
+     * gesture that follows the entry — a discount, a quantity change — never
+     * replays the warning, and a second entry of the same article warns
+     * again even though it merged into the line already there.
+     *
+     * <p>Three things it deliberately does not do. It never speaks over a
+     * refusal or a confirmation already in the zone: the message that stopped
+     * a gesture matters more than the one that comments on it. It reads the
+     * UNIT price and not the line amount, because the rule is about the
+     * article being dear, not about the basket growing — three articles at
+     * four euros are not a dear article. And a threshold at zero switches it
+     * off entirely rather than warning on everything.
+     *
+     * @param state the current POS state
+     */
+    private void warnOnExpensiveEntry(PosState state) {
+        if (!state.lineJustEntered) {
+            return;
+        }
+        state.lineJustEntered = false;
+        if (state.ticket.transientError != null) {
+            return;
+        }
+        BigDecimal threshold = posSettingsService.saleLineWarningThreshold();
+        if (threshold == null || threshold.signum() <= 0) {
+            return;
+        }
+        TicketState.TicketItem entered = enteredLine(state);
+        if (entered == null || entered.unitPrice == null
+                || entered.unitPrice.compareTo(threshold) <= 0) {
+            return;
+        }
+        state.ticket.setWarning("PRIX ÉLEVÉ : " + entered.label + " "
+                + entered.unitPrice.setScale(2, java.math.RoundingMode.HALF_UP)
+                        .toPlainString().replace('.', ',') + " €");
+    }
+
+    /**
+     * Returns the line the last entry landed on, by the uid the funnel
+     * recorded.
+     *
+     * @param state the current POS state
+     * @return the entered line, or null when it is no longer in the ticket
+     */
+    private TicketState.TicketItem enteredLine(PosState state) {
+        if (state.lastEnteredItemId == null) {
+            return null;
+        }
+        for (TicketState.TicketItem item : state.ticket.items) {
+            if (state.lastEnteredItemId.equals(item.uid)) {
+                return item;
+            }
+        }
+        return null;
     }
 
     @Inject

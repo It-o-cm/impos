@@ -183,6 +183,203 @@ class TicketServiceTest {
         when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
     }
 
+    // --- avertissement prix eleve (warnOnExpensiveEntry) ---
+
+    /**
+     * Drives the post-mutation funnel the way an entry does: a line is added
+     * through the {@code addItem} funnel (which raises the entry flag on the
+     * state), then a scan with an empty handler chain runs the chain and the
+     * trailing sync.
+     *
+     * @param label the line label
+     * @param unitPrice the unit price of the line
+     */
+    private void enterLine(String label, String unitPrice) {
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        state.ticket.addItem("3000000000021", null, label,
+                new BigDecimal(unitPrice), BigDecimal.ONE, new BigDecimal("0.20"));
+        service.processScan("3000000000021");
+    }
+
+    /**
+     * An article dearer than the threshold warns: the message names the line
+     * and its price, and the zone is drawn as a WARNING — neither a refusal
+     * nor a confirmation.
+     */
+    @Test
+    void anArticleAboveTheThresholdWarns() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        assertEquals("PRIX ÉLEVÉ : WHISKY 70CL 24,90 €", state.ticket.transientError);
+        assertTrue(state.ticket.transientWarn);
+        assertFalse(state.ticket.transientOk);
+    }
+
+    /**
+     * An article exactly AT the threshold does not warn: the comparison is
+     * strictly above, like every other administered ceiling of this register.
+     */
+    @Test
+    void anArticleAtTheThresholdDoesNotWarn() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("LIVRE", "10.00");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * An article below the threshold does not warn.
+     */
+    @Test
+    void anArticleBelowTheThresholdDoesNotWarn() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("PAIN", "1.20");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A threshold at zero switches the warning off — the disabled arm.
+     */
+    @Test
+    void aZeroThresholdWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(BigDecimal.ZERO);
+        enterLine("WHISKY 70CL", "24.90");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A negative threshold is treated as disabled too — the other leg of the
+     * {@code signum() <= 0} guard, which a zero alone leaves uncovered.
+     */
+    @Test
+    void aNegativeThresholdWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("-1.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * An unreadable setting (null) disables the warning rather than faulting
+     * the entry — the null leg of the same guard.
+     */
+    @Test
+    void aNullThresholdWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(null);
+        enterLine("WHISKY 70CL", "24.90");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A refusal already in the zone is never spoken over: the message that
+     * stopped a gesture outranks the one that comments on it.
+     */
+    @Test
+    void aWarningNeverSpeaksOverARefusal() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator()).thenReturn(List.<ScanContext.ScanHandler>of(
+                new ErrorHandler()).spliterator());
+        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
+                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
+        service.processScan("3000000000021");
+        assertEquals("REFUS", state.ticket.transientError);
+        assertFalse(state.ticket.transientWarn);
+    }
+
+    /**
+     * The entry flag is CONSUMED even when nothing is warned about, so a
+     * later gesture on the same cart — a discount, a quantity change — does
+     * not replay the warning of an entry already commented on.
+     */
+    @Test
+    void theEntryFlagIsConsumedSoAFollowingGestureDoesNotReplayIt() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        state.ticket.transientError = null;
+        state.ticket.transientWarn = false;
+        service.processScan("3000000000021");
+        assertNull(state.ticket.transientError);
+        assertFalse(state.lineJustEntered);
+    }
+
+    /**
+     * Entering the same dear article twice warns twice: the second entry
+     * merges into the line already there, and a merge is an entry — the arm
+     * a uid comparison would have missed.
+     */
+    @Test
+    void enteringTheSameDearArticleTwiceWarnsTwice() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        assertTrue(state.ticket.transientWarn);
+        state.ticket.transientError = null;
+        state.ticket.transientWarn = false;
+        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
+                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
+        service.processScan("3000000000021");
+        assertEquals(1, state.ticket.items.size());
+        assertTrue(state.ticket.transientWarn);
+    }
+
+    /**
+     * An entered line that is no longer in the ticket warns about nothing —
+     * the null arm of the lookup, reached when the line was removed between
+     * the entry and the sync.
+     */
+    @Test
+    void anEnteredLineNoLongerPresentWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
+                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
+        String uid = state.lastEnteredItemId;
+        state.ticket.addItem("3000000000038", null, "PAIN",
+                new BigDecimal("1.20"), BigDecimal.ONE, new BigDecimal("0.055"));
+        state.ticket.removeItemById(uid);
+        state.lastEnteredItemId = uid;
+        service.processScan("3000000000021");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * No recorded entry at all — a sync driven by something other than an
+     * entry — warns about nothing, and the setting is not even consulted.
+     */
+    @Test
+    void aSyncWithoutAnEntryWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        state.ticket.addItem("3000000000038", null, "PAIN",
+                new BigDecimal("1.20"), BigDecimal.ONE, new BigDecimal("0.055"));
+        state.lineJustEntered = false;
+        state.lastEnteredItemId = null;
+        service.processScan("3000000000038");
+        assertNull(state.ticket.transientError);
+    }
+
+    /** A handler that refuses the scan, to occupy the message zone. */
+    private static class ErrorHandler implements ScanContext.ScanHandler {
+        /**
+         * Stamps a refusal on the ticket.
+         *
+         * @param ctx the scan context
+         */
+        @Override
+        public void handle(ScanContext ctx) {
+            ctx.state.ticket.setError("REFUS");
+            ctx.handled = true;
+        }
+    }
+
     // --- processScan ---
 
     /**

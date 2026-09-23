@@ -46,7 +46,7 @@ import java.util.ArrayList;
  * purpose: they can never reach a basket.
  */
 @ApplicationScoped
-@IfBuildProfile(anyOf = {"dev", "test"})
+@IfBuildProfile(anyOf = {"dev", "test", "demo"})
 public class DataInitializer {
 
     /** Price window start shared with the engine's seed (12 Jan 2026). */

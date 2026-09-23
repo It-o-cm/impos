@@ -283,6 +283,10 @@ public class PosSettingsService {
                 "Scan multiple de carte de fidélité",
                 "Plusieurs cartes de fidélité peuvent être scannées pendant la transaction, seule la dernière est retenue. Désactivé : une carte déjà scannée bloque les suivantes (BO-10-03-02).",
                 "true", null),
+        new Def("sale.line-warning-threshold", Type.TEXT, "AFFICHAGE",
+                "Seuil d'avertissement prix article (\u20ac)",
+                "Prix unitaire au-del\u00e0 duquel la saisie d'un article affiche un avertissement au caissier. 0 = aucun avertissement.",
+                "10.00", null),
         new Def("cash.movement-endorsement-threshold", Type.TEXT, "MOUVEMENTS DE CAISSE",
                 "Seuil d'aval manager (€)",
                 "Montant au-delà duquel un mouvement de caisse (prélèvement, apport, dépense, acompte, déclaration) exige un aval manager. Un mouvement à ce montant ou en dessous passe sans aval (BO-04-01-44).",
@@ -1514,6 +1518,21 @@ public class PosSettingsService {
         }
         LOGGER.info("Exiting method cashMovementTenders");
         return tenders;
+    }
+
+    /**
+     * The unit price above which entering an article warns the cashier.
+     * <p>
+     * Administered rather than compiled in, like every other threshold of
+     * this register: a shop sells nothing above ten euros and another sells
+     * nothing below. Zero switches the warning off entirely.
+     *
+     * @return the warning threshold, in euros
+     */
+    public BigDecimal saleLineWarningThreshold() {
+        LOGGER.info("Entering method saleLineWarningThreshold");
+        LOGGER.info("Exiting method saleLineWarningThreshold");
+        return bigDecimalValue("sale.line-warning-threshold");
     }
 
     /**

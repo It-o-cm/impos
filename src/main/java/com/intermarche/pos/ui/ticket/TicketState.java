@@ -118,6 +118,19 @@ public class TicketState implements Serializable {
     public boolean transientOk = false;
 
     /**
+     * True when {@link #transientError} carries a WARNING rather than a
+     * refusal or a confirmation.
+     *
+     * <p>Three things ride one zone and they do not mean the same: a refusal
+     * stops the gesture, a confirmation acknowledges it, a warning lets it
+     * through and asks the operator to look. Drawing a warning in red with
+     * ERR would teach the cashier to ignore red; drawing it green with OK
+     * would hide it. Hence the third state rather than a second use of
+     * {@link #transientOk}.
+     */
+    public boolean transientWarn = false;
+
+    /**
      * Attaches the parent POS state so that mutations can bump its version.
      *
      * @param parent the owning POS state
@@ -154,6 +167,10 @@ public class TicketState implements Serializable {
     public void addItem(String ean, String plu, String label, BigDecimal unitPrice, BigDecimal qtyToAdd, BigDecimal vatRate) {
         // LC-02-08-02: the "à enlever" key arms ONE article, and this is the funnel
         // every way of entering one goes through — a scan, a keyed EAN, a group tile.
+        // The same property is what carries lineJustEntered, raised on BOTH exits
+        // below (a merge into an existing line is an entry too) and consumed once
+        // by the service that owns the settings: the state records that an article
+        // was entered, the service decides whether that deserves a message.
         // Reading the flag here rather than at each entry point is what makes the
         // three of them behave the same without any of them knowing about the desk.
         boolean toCollect = parent != null && parent.collectArmed;
@@ -192,6 +209,7 @@ public class TicketState implements Serializable {
                     if (parent != null) {
                         parent.lastEnteredItemId = item.uid;
                         parent.collectArmed = false;
+                        parent.lineJustEntered = true;
                     }
                     onChange();
                     return;
@@ -210,6 +228,7 @@ public class TicketState implements Serializable {
         if (parent != null) {
             parent.lastEnteredItemId = newItem.uid;
             parent.collectArmed = false;
+            parent.lineJustEntered = true;
         }
 
         onChange();
@@ -357,6 +376,7 @@ public class TicketState implements Serializable {
         globalDiscountApplied = null;
         transientError = null;
         transientOk = false;
+        transientWarn = false;
         onChange();
     }
 
@@ -368,6 +388,7 @@ public class TicketState implements Serializable {
     public void setError(String err) {
         this.transientError = err;
         this.transientOk = false;
+        this.transientWarn = false;
         onChange();
     }
 
@@ -380,6 +401,21 @@ public class TicketState implements Serializable {
     public void setNotice(String message) {
         this.transientError = message;
         this.transientOk = true;
+        this.transientWarn = false;
+        onChange();
+    }
+
+    /**
+     * Sets a transient WARNING shown on the ticket area — the same zone as
+     * {@link #setError(String)}, drawn as a caution: the gesture went
+     * through, the operator is asked to look at it.
+     *
+     * @param message the warning message
+     */
+    public void setWarning(String message) {
+        this.transientError = message;
+        this.transientOk = false;
+        this.transientWarn = true;
         onChange();
     }
 

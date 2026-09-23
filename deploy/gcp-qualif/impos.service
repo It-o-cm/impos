@@ -1,4 +1,21 @@
 # systemd unit — impos (POS till C04), port 8080, H2 FILE database.
+#
+# PROFILE demo, and not prod: this host is a DEMONSTRATOR to be shared, not a
+# shop. The demo profile brings in the two beans a shared demonstrator needs
+# and a store must never see — MockHardwareResource, the simulator panel's own
+# hardware surface, and DataInitializer, the referential seed that repopulates
+# the register at every boot (the schema is drop-and-create, so each restart
+# starts from a known demonstration). A real till is built and deployed under
+# prod, from caisse.sh, and carries neither.
+#
+# Consequences of leaving prod, all deliberate:
+#   - RealHardwareResource (@IfBuildProfile prod) is gone and the mock takes
+#     its /api/hardware path. Exactly one of the two ever exists.
+#   - ScannerReaderService (@IfBuildProfile prod) is gone too, so nothing
+#     opens the input devices of a machine that has none.
+#   - the %prod.* keys of application.properties no longer apply. There are
+#     exactly two, and both are passed explicitly below rather than left to a
+#     profile that is not active.
 # H2 file is deliberate: the design mandates one executable and one local DB per till
 # (a sale must never depend on a network link). One VM instance = one till.
 [Unit]
@@ -13,23 +30,48 @@ ExecStart=/usr/bin/java \
   -Dquarkus.datasource.jdbc.url=jdbc:h2:file:/opt/apps/impos/data/pos-c04 \
   -Dpos.terminal.id=C04 \
   -Dpos.valuation.url=http://127.0.0.1:8090 \
+  -Dpos.valuation.feed-delivery-seconds=5 \
+  -Dpos.sync.store-url=http://127.0.0.1:8070 \
+  -Dpos.referential.pull-seconds=60 \
+  -Dpos.referential.request-timeout-seconds=300 \
+  -Dpos.valuation.user=admin \
+  -Dpos.valuation.password=admin \
   -Dpos.fid.url=http://127.0.0.1:8060 \
   -Dpos.fid.user=pos \
   -Dpos.fid.password=pos-password \
   -Dscan.pattern.fidelity=^299\\d{10}$ \
   -Dpos.tpe.virtual=true \
+  -Dpos.scanner.enabled=false \
+  -Dpos.bootstrap.admin.password=admin \
   -jar /opt/apps/impos/quarkus-app/quarkus-run.jar
 Restart=on-failure
 RestartSec=5
 Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+# The build and the run must name the SAME profile: @IfBuildProfile is decided
+# when the jar is augmented (03-deploy.sh passes -Dquarkus.profile=demo for
+# impos), and the configuration is resolved when it runs.
+Environment=QUARKUS_PROFILE=demo
 # First-boot administrator, created only when the employee table is empty.
-Environment=POS_ADMIN_PASSWORD=__BOOTSTRAP_PASSWORD__
-# The "hardware-api" rest client MUST have a URL or CDI fails at first request
-# (dev mode inherits it from test classes; the prod jar has neither mock nor
-# property). Qualification doctrine = the e2e one: point it at the app itself,
-# where the hardware endpoints do not exist -> 404s absorbed fail-soft, drawer
-# reported closed. Env var form of quarkus.rest-client."hardware-api".url.
+# Passed as a SYSTEM PROPERTY above and not through this variable: the
+# variable feeds %prod.pos.bootstrap.admin.password, and the prod profile is
+# not the one running here. Kept for a jar deployed by hand under prod.
+# The "hardware-api" rest client MUST have a URL or CDI fails at first request.
+# It points at the register itself, and under the demo profile that is the
+# whole simulation: MockHardwareResource answers /api/hardware in the same
+# process, so an order to open the drawer or to print reaches the panel, and
+# the panel's own reads -- printer content, paper state, display text --
+# answer from the same place. The hardware boundary is real HTTP, and both
+# of its ends are the simulator. Env var form of
+# quarkus.rest-client."hardware-api".url.
 Environment=QUARKUS_REST_CLIENT__HARDWARE_API__URL=http://127.0.0.1:8080
+# NO REAL HARDWARE HERE, and the scanner is the one peripheral the register
+# reads itself rather than through that bridge: ScannerReaderService opens the
+# input devices of the machine at startup, which on a virtual machine means
+# scanning /sys for scanners that do not exist. Switched off explicitly rather
+# than left to find nothing -- the boot log then says what was decided instead
+# of what was missed. The simulator page drives the scan intake over HTTP and
+# needs none of it.
+#
 
 [Install]
 WantedBy=multi-user.target

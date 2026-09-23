@@ -16,7 +16,7 @@ gcloud config set project "$PROJECT"
 gcloud compute addresses create "${VM_NAME}-ip" --region="${ZONE%-*}" || true
 STATIC_IP=$(gcloud compute addresses describe "${VM_NAME}-ip" --region="${ZONE%-*}" --format='value(address)')
 
-# Firewall: HTTP/HTTPS only (Caddy). App ports 8080/8090/8060 stay internal.
+# Firewall: HTTP/HTTPS only (Caddy). App ports 8080/8070/8090/8060 stay internal.
 gcloud compute firewall-rules create allow-http-https \
   --allow=tcp:80,tcp:443 --target-tags=web --direction=INGRESS || true
 

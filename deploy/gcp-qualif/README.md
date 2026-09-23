@@ -1,4 +1,4 @@
-# Qualification environment — impos / imvaluation / imfid on Google Cloud
+# Qualification environment — impos / imedge / imvaluation / imfid on Google Cloud
 
 **Who this is for.** Anyone who has to install, run, or fix this environment,
 including people who have never used Google Cloud before. No prior cloud or
@@ -17,7 +17,7 @@ code.
 
 ## 1. What this environment is, in plain words
 
-We have three Java applications that together form a supermarket checkout
+We have four Java applications that together form a supermarket checkout
 ecosystem:
 
 - **impos** — the cash register itself (the screen the cashier uses);
@@ -74,18 +74,19 @@ You do not need to memorize this — come back to it when a word is unclear.
                     Internet (HTTPS, padlock handled by Caddy)
                               |
                         [ Caddy :443 ]  <- the ONLY door open to the internet
-        ______________________|______________________
-       |                      |                      |
-impos-qualif.…        imvaluation-qualif.…    imfid-qualif.…
-  (+ /simulateur)             |                      |
-       |                      |                      |
- [ impos :8080 ]      [ imvaluation :8090 ]   [ imfid :8060 ]
-   H2 file DB             H2 file DB                 |
- /opt/apps/impos/data  /opt/apps/imvaluation/  [ PostgreSQL 16 ]
-                            data                 db: imfid
-       |______________________|______________________|
+     _________________________|_________________________
+    |              |                 |                  |
+impos-qualif.…  imedge-qualif.…  imvaluation-qualif.…  imfid-qualif.…
+ (+ /simulateur)   |                 |                  |
+    |              |                 |                  |
+[ impos :8080 ] [ imedge :8070 ] [ imvaluation :8090 ] [ imfid :8060 ]
+  H2 file DB      H2 file DB        H2 file DB              |
+/opt/apps/impos/ /opt/apps/imedge/ /opt/apps/imvaluation/  [ PostgreSQL 16 ]
+      data            data                data              db: imfid
+    |______________|_________________|__________________|
               the apps talk to each other INSIDE the VM
-              (impos -> imvaluation for prices, impos -> imfid for loyalty)
+   (impos -> imvaluation for prices, impos -> imfid for loyalty,
+    impos -> imedge for the referential, imedge -> imvaluation for the feeds)
 ```
 
 Why it is built this way — three decisions worth knowing, because they answer
@@ -94,15 +95,80 @@ most "why not…?" questions:
 1. **One single VM.** On a real till, the pricing engine runs on the same
    machine as the register (instant local calls). One VM reproduces exactly
    that. It is also the cheapest and simplest option.
-2. **impos and imvaluation keep their data in H2 files** (no database server),
-   because that is how a real cash register works: it must be able to sell
-   even if every network cable is cut. imfid is the only service that is
-   central by nature (a loyalty account is shared between stores), so it is
-   the only one on PostgreSQL.
-3. **The application ports (8080/8090/8060) are never open to the internet.**
+2. **impos, imedge and imvaluation keep their data in H2 files** (no database
+   server), because that is how a real shop works: a register must be able to
+   sell even if every network cable is cut, and a store node belongs to its
+   shop. imfid is the only service that is central by nature (a loyalty
+   account is shared between stores), so it is the only one on PostgreSQL.
+3. **The application ports (8080/8070/8090/8060) are never open to the internet.**
    Everything goes through Caddy on the standard HTTPS port. The GCP firewall
    enforces this — even a misconfigured application cannot be reached
    directly.
+
+### 3.1 The store node, and the demonstrator profile
+
+**imedge** is the shop's referential authority: the registers pull their
+catalogue, prices, families and staff from it, and push back what they sold.
+It is deployed here like the others, on its own subdomain, with its own H2
+file. Two things it needs and the others do not:
+
+- `POS_SESSION_KEY`, **required and without a default** — the node kept a back
+  office behind a form login, and its session cookie is encrypted with that
+  key. Unset, imedge refuses to boot. `02-provision.sh` generates it once
+  (`openssl rand -hex 32`) and writes it into the unit, so redeploying a jar
+  never logs the back office out.
+- its own bootstrap administrator, created only when the employee table is
+  empty, from the same `POS_ADMIN_PASSWORD` as the register.
+
+**The register is wired to the node, but not switched on.** The line
+`POS_SYNC_STORE_URL=http://127.0.0.1:8070` sits COMMENTED in `impos.service`,
+and that is deliberate: a pull from an EMPTY node replaces the register's
+catalogue with nothing. Feed the node first — its CSV door is
+`POST /feeds/import/{CODE}` — then uncomment the line and restart impos.
+
+**No hardware, anywhere — the simulator IS the hardware.** This VM has no
+scanner, no printer, no drawer, no scale and no payment terminal. This host is
+a DEMONSTRATOR to be shared; production runs on real tills, deployed by
+`sh/caisse.sh`, and nothing written here reaches them.
+
+So the register is built and run under a profile of its own, `demo`, which
+brings in the two beans a shared demonstrator needs and a shop must never see:
+
+- **`MockHardwareResource`** — the simulator panel's own hardware surface. It
+  takes the `/api/hardware` path that `RealHardwareResource` holds under
+  `prod`; exactly one of the two ever exists, so the identical paths never
+  meet. This is what makes the panel's mirror work: the printed ticket, the
+  paper state, the displayed line, the drawer, the scale, the catalogue.
+- **`DataInitializer`** — the referential seed. The schema is
+  `drop-and-create`, so every restart starts from the same known
+  demonstration instead of an empty register.
+
+Two consequences of leaving `prod`, both wanted: `ScannerReaderService` is
+gone with it, so nothing opens the input devices of a machine that has none;
+and the `%prod.*` keys no longer apply — there are exactly two, and
+`impos.service` passes both explicitly rather than relying on a profile that
+is not active.
+
+The wiring is a loop, on purpose:
+`QUARKUS_REST_CLIENT__HARDWARE_API__URL=http://127.0.0.1:8080` points the
+hardware client at the register itself, where the mock answers. An order to
+open the drawer or to print leaves over HTTP and arrives at the panel; the
+panel's reads answer from the same place. The boundary is real, both of its
+ends are the simulator. `pos.tpe.virtual=true` does the same for the terminal.
+
+**The panel addresses the origin it was served from.** The page used to call
+`http://localhost:8080` in hard-coded form, which on a shared host means the
+VISITOR's own machine — nothing answers and the panel looks broken for a
+reason that has nothing to do with the register. It now reads
+`location.origin`, and falls back to `http://localhost:8080` only when opened
+straight off the disk as a `file://` page, which is what the local demo stack
+does.
+
+Build and run must name the same profile: `@IfBuildProfile` is decided when
+the jar is augmented, the configuration when it runs. `03-deploy.sh` passes
+`-Dquarkus.profile=demo` for impos alone, and `impos.service` carries
+`QUARKUS_PROFILE=demo`. The node, the engine and the loyalty service stay on
+`prod`: they are the real ones here.
 
 ## 4. What you need before starting
 
@@ -252,11 +318,11 @@ Auto-stop scheduled every day at 20:00 Europe/Paris (start stays manual: ./quali
 
 **Write down that IP** — you need it for step 2.
 
-### Step 2 — Declare the three web addresses (DNS)
+### Step 2 — Declare the four web addresses (DNS)
 
 The `it-o-cm.fr` zone is hosted on Google Cloud DNS, inside the **Mobipay**
 project — not in the new qualification project, and not at the domain's
-registrar. So this step is three `gcloud` commands, run from your computer
+registrar. So this step is a handful of `gcloud` commands, run from your computer
 (note the explicit `--project`: the active project is `impos-qualif`, but the
 zone lives elsewhere):
 
@@ -266,12 +332,12 @@ gcloud dns managed-zones list --project=mobipay-calife
 ```
 
 The output lists the zone for `it-o-cm.fr.` — note its NAME (first column).
-Then create the three records (mind the **trailing dot**: DNS names here are
+Then create the four records (mind the **trailing dot**: DNS names here are
 absolute):
 
 ```bash
 ZONE=<the-name-found-above>
-for h in impos-qualif imvaluation-qualif imfid-qualif; do
+for h in impos-qualif imedge-qualif imvaluation-qualif imfid-qualif; do
   gcloud dns record-sets create ${h}.it-o-cm.fr. --project=mobipay-calife \
     --zone="$ZONE" --type=A --ttl=300 --rrdatas=<STATIC_IP-from-step-1>
 done
@@ -285,7 +351,15 @@ dig +short impos-qualif.it-o-cm.fr      # must print the static IP
 
 Alternative for the console-minded: GCP console → project `mobipay-calife` →
 "Network services" → "Cloud DNS" → the `it-o-cm.fr` zone → "Add record set",
-three times (type A, TTL 300, the static IP).
+four times (type A, TTL 300, the static IP).
+
+Adding `imedge-qualif` to an environment already installed is this one command
+and nothing else — the address is new, the VM and its IP are not:
+
+```bash
+gcloud dns record-sets create imedge-qualif.it-o-cm.fr. --project=mobipay-calife \
+  --zone="$ZONE" --type=A --ttl=300 --rrdatas=<the same static IP>
+```
 
 This step matters because the HTTPS certificates are requested automatically
 by Caddy the first time someone visits — and that only works once the names
@@ -299,7 +373,7 @@ Send the installation files to the VM, open a terminal on it, and run the
 provisioning script:
 
 ```bash
-gcloud compute scp 02-provision.sh Caddyfile impos.service imvaluation.service imfid.service qualif:~
+gcloud compute scp 02-provision.sh Caddyfile impos.service imedge.service imvaluation.service imfid.service qualif:~
 gcloud compute ssh qualif
 ```
 
@@ -311,14 +385,19 @@ sudo DB_PASSWORD='choose-a-password-here' bash 02-provision.sh
 ```
 
 This installs Java, PostgreSQL and Caddy, creates the `imfid` database, puts
-the three services in place and enables everything. It ends with:
+the four services in place and enables everything. It ends with:
 
 ```
 Provisioning done. Deploy the jars with 03-deploy.sh, then services will start.
 ```
 
-Type `exit` to come back to your own computer. (At this point the three app
+Type `exit` to come back to your own computer. (At this point the four app
 services exist but have nothing to run yet — that is normal.)
+
+**Re-running this script on an installed VM is how a new application joins**:
+it reinstalls the units and the Caddyfile, and the package steps are no-ops.
+The `CREATE ROLE imfid` line then reports that the role already exists, which
+`psql` prints without stopping — that message is expected, not a failure.
 
 ### Step 4 — First deploy
 
@@ -577,8 +656,10 @@ gcloud compute snapshots list
 | `03-deploy.sh` | Builds and ships the applications (+ the simulator page) | at every new version |
 | `qualif.sh` | Start / stop / status of the VM | every day |
 | `Caddyfile` | Which web address goes to which application (+ serves the simulator) | never — installed by `02-provision.sh` |
-| `impos.service`, `imvaluation.service`, `imfid.service` | How each application is launched (port, database, wiring between apps) | never — installed by `02-provision.sh` |
+| `impos.service`, `imedge.service`, `imvaluation.service`, `imfid.service` | How each application is launched (port, database, wiring between apps) | never — installed by `02-provision.sh` |
 
 The wiring between applications (impos → imvaluation, impos → imfid,
-passwords, ports) lives entirely in the three `.service` files: that is the
-single place to look when a connection question arises.
+impos → imedge, imedge → imvaluation, passwords, ports) lives entirely in the
+four `.service` files: that is the single place to look when a connection
+question arises — including the one deliberately left commented, the
+register's pull from the node.

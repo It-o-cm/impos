@@ -3,7 +3,8 @@
  ! lines with selection anchors, totals, and the message zone. NAMING WART:
  ! the "error" zone is really the MESSAGE zone: confirmations ride it too,
  ! and say so — transientOk draws them green with an OK marker instead of
- ! red with an ERR. Keep this fragment self-contained: it is
+ ! red with an ERR, and transientWarn amber with a "!": a warning let the
+ ! gesture through and only asks the operator to look. Keep this fragment self-contained: it is
  ! replaced wholesale on every version change.
 !}
 {#if state.ticket.transientError}
@@ -13,6 +14,13 @@
             <strong>✔ {state.ticket.transientError}</strong>
         </div>
         <span class="price" style="color:var(--success);">OK</span>
+    </div>
+    {#else if state.ticket.transientWarn}
+    <div class="receipt-item warning-line">
+        <div class="item-details">
+            <strong>⚠️ {state.ticket.transientError}</strong>
+        </div>
+        <span class="price" style="color:var(--warning);">!</span>
     </div>
     {#else}
     <div class="receipt-item error-line">
