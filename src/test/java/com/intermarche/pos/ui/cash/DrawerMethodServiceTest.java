@@ -1,15 +1,24 @@
 package com.intermarche.pos.ui.cash;
 
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for the tenders the drawer offers to a withdrawal or a transfer
@@ -416,6 +425,142 @@ class DrawerMethodServiceTest {
             stubTender(panache, "TR", tender("TR", true, true));
             assertFalse(service.isTransferSource("TR"));
             assertFalse(service.isTransferDestination("TR"));
+        }
+    }
+
+    // --------------------------------------------------
+    // Coverage campaign — the real session-reading methods
+    // (the stand-in TestService above overrides them, so they
+    //  are exercised here on a real service with a mocked
+    //  CashSessionService and the Panache Ticket finder stubbed)
+    // --------------------------------------------------
+
+    /**
+     * Builds a real service whose session collaborator is a Mockito mock.
+     *
+     * @return the service with a mocked {@code CashSessionService}
+     */
+    private DrawerMethodService realService() {
+        DrawerMethodService drawerMethodService = new DrawerMethodService();
+        drawerMethodService.cashSessionService = mock(CashSessionService.class);
+        return drawerMethodService;
+    }
+
+    /**
+     * Builds a closed ticket carrying the given payments.
+     *
+     * @param number   the ticket number
+     * @param payments the settlements on the ticket
+     * @return the ticket
+     */
+    private Ticket ticketWith(String number,
+            com.intermarche.pos.domain.payment.TicketPayment... payments) {
+        Ticket ticket = new Ticket();
+        ticket.ticketNumber = number;
+        ticket.payments = new ArrayList<>(List.of(payments));
+        return ticket;
+    }
+
+    /**
+     * With no session open, {@code theoreticalByMethod} reads no report and
+     * returns an empty map — the null-session arm.
+     */
+    @Test
+    void theoreticalByMethodIsEmptyWithoutAnOpenSession() {
+        DrawerMethodService drawerMethodService = realService();
+        when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(null);
+        assertTrue(drawerMethodService.theoreticalByMethod().isEmpty());
+        verify(drawerMethodService.cashSessionService, never()).buildReport(any());
+    }
+
+    /**
+     * With a session open, {@code theoreticalByMethod} returns the report's
+     * totals by tender — the non-null-session arm.
+     */
+    @Test
+    void theoreticalByMethodReadsTheSessionReport() {
+        DrawerMethodService drawerMethodService = realService();
+        CashSession session = new CashSession();
+        when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(session);
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.totalsByMethod.put("CASH", new BigDecimal("50.00"));
+        when(drawerMethodService.cashSessionService.buildReport(session)).thenReturn(report);
+        Map<String, BigDecimal> totals = drawerMethodService.theoreticalByMethod();
+        assertEquals(new BigDecimal("50.00"), totals.get("CASH"));
+    }
+
+    /**
+     * With no session open, {@code countByMethod} counts nothing — the
+     * null-session arm.
+     */
+    @Test
+    void countByMethodIsEmptyWithoutAnOpenSession() {
+        DrawerMethodService drawerMethodService = realService();
+        when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(null);
+        assertTrue(drawerMethodService.countByMethod().isEmpty());
+    }
+
+    /**
+     * With a session open, {@code countByMethod} counts one per settlement
+     * across the closed tickets, summed by tender: two cash settlements and one
+     * card settlement yield a count of two for cash and one for card.
+     */
+    @Test
+    void countByMethodCountsSettlementsOfClosedTickets() {
+        DrawerMethodService drawerMethodService = realService();
+        CashSession session = new CashSession();
+        when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(session);
+        CashPayment cashOne = new CashPayment(new BigDecimal("10.00"), new BigDecimal("10.00"));
+        CashPayment cashTwo = new CashPayment(new BigDecimal("5.00"), new BigDecimal("5.00"));
+        CardPayment card = new CardPayment(new BigDecimal("7.00"));
+        String cashKey = cashOne.getMethodKey();
+        String cardKey = card.getMethodKey();
+        Ticket first = ticketWith("C04-1", cashOne, card);
+        Ticket second = ticketWith("C04-2", cashTwo);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.list("session = ?1 and status = ?2",
+                            session, Ticket.TicketStatus.CLOSED))
+                    .thenReturn(List.of(first, second));
+            Map<String, Integer> counts = drawerMethodService.countByMethod();
+            assertEquals(2, counts.get(cashKey));
+            assertEquals(1, counts.get(cardKey));
+        }
+    }
+
+    /**
+     * With no session open, {@code transactionsOf} lists nothing — the
+     * null-session arm.
+     */
+    @Test
+    void transactionsOfIsEmptyWithoutAnOpenSession() {
+        DrawerMethodService drawerMethodService = realService();
+        when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(null);
+        assertTrue(drawerMethodService.transactionsOf("CASH").isEmpty());
+    }
+
+    /**
+     * With a session open, {@code transactionsOf} lists one line per settlement
+     * of the asked tender, in ticket order, and skips the settlements of other
+     * tenders — the true and false arms of the key match. The amount is
+     * formatted with a French comma and the euro mark.
+     */
+    @Test
+    void transactionsOfListsOnlyTheAskedTender() {
+        DrawerMethodService drawerMethodService = realService();
+        CashSession session = new CashSession();
+        when(drawerMethodService.cashSessionService.getOpenSession()).thenReturn(session);
+        CashPayment cash = new CashPayment(new BigDecimal("10.00"), new BigDecimal("10.00"));
+        CardPayment card = new CardPayment(new BigDecimal("7.00"));
+        String cashKey = cash.getMethodKey();
+        Ticket ticket = ticketWith("C04-1", cash, card);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.list("session = ?1 and status = ?2",
+                            session, Ticket.TicketStatus.CLOSED))
+                    .thenReturn(List.of(ticket));
+            List<String[]> lines = drawerMethodService.transactionsOf(cashKey);
+            assertEquals(1, lines.size());
+            assertEquals("C04-1", lines.get(0)[0]);
+            assertEquals("10,00 E", lines.get(0)[1]);
         }
     }
 }
