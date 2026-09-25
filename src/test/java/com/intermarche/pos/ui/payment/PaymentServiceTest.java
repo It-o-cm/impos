@@ -1,16 +1,16 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.sync.register.FidEventOutboxService;
+import com.intermarche.pos.ui.valuation.ValuationReconciler;
+import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.service.sync.register.FidEventOutboxService;
 import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.hardware.terminal.AutoAcceptTerminalClient;
 import com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient;
 import com.intermarche.pos.ui.hardware.terminal.TerminalOutcome;
 import com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback;
-import com.intermarche.pos.ui.valuation.ValuationReconciler;
-import com.intermarche.pos.ui.valuation.ValuationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,10 +18,19 @@ import org.mockito.ArgumentCaptor;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link PaymentService}.
@@ -171,7 +180,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onRead =
-                    invocation.getArgument(1);
+                    (java.util.function.Consumer<String>) invocation.getArgument(1);
             onRead.accept(line);
             return null;
         }).when(chequeReadingService).read(any(), any(), any());
@@ -186,7 +195,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onError =
-                    invocation.getArgument(2);
+                    (java.util.function.Consumer<String>) invocation.getArgument(2);
             onError.accept(message);
             return null;
         }).when(chequeReadingService).read(any(), any(), any());
@@ -1099,7 +1108,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onRead =
-                    invocation.getArgument(1);
+                    (java.util.function.Consumer<String>) invocation.getArgument(1);
             service.cancelPendingCheque(state);
             onRead.accept("a0007639 a800000000909r 000000000000i");
             return null;
@@ -1120,7 +1129,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onError =
-                    invocation.getArgument(2);
+                    (java.util.function.Consumer<String>) invocation.getArgument(2);
             service.cancelPendingCheque(state);
             onError.accept("BOURRAGE");
             return null;
@@ -2719,5 +2728,192 @@ class PaymentServiceTest {
             service.finalizeTransaction(state);
         }
         verify(ticketPrinterService, never()).printChangeVoucher(any(), any());
+    }
+
+    // --------------------------------------------------
+    // Enrichment: remaining branches
+    // --------------------------------------------------
+
+    /**
+     * A change verdict that only INFORMS is shown AFTER the settlement is
+     * registered when the tender verdict itself stayed silent
+     * ({@code verdict.speaks()} false arm, {@code changeVerdict.speaks()} true
+     * arm of the closing message guard).
+     */
+    @Test
+    void anInformativeChangeVerdictSpeaksAfterSettlement() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.checkChange(eq("CASH"), any()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.INFO,
+                        "RENDU INHABITUEL"));
+        service.processCash(state, new BigDecimal("20.00"));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("RENDU INHABITUEL", state.ticket.transientError);
+    }
+
+    /**
+     * A closing whose {@code changeAsCreditNote} was cleared to null issues no
+     * credit note: the {@code owed == null} true arm of the issuance guard,
+     * unreachable through the money path (the field is initialized to zero and
+     * only ever added to) but defended here.
+     */
+    @Test
+    void finalizeTransactionWithNullChangeAsCreditNoteIssuesNone() {
+        state.payment.ticketDbId = 9L;
+        state.payment.changeAsCreditNote = null;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(ticketPersistenceService, never()).issueChangeCreditNote(any(), any());
+    }
+
+    /**
+     * Invokes the private {@code handlePaymentWithChange} with a null method key:
+     * {@code registeredCount} short-circuits on the null key ({@code methodKey ==
+     * null} true arm) and, when the rule holds for a supervisor,
+     * {@code overrideCovers} short-circuits on the null key ({@code methodKey !=
+     * null} false arm). Both are unreachable through the public API, where every
+     * caller passes a literal key.
+     *
+     * @throws Exception if reflective invocation fails
+     */
+    @Test
+    void handlePaymentWithChangeNullMethodKeyCountsZeroAndHolds() throws Exception {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.check(org.mockito.ArgumentMatchers.isNull(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                        "PLAFOND"));
+        Method m = PaymentService.class.getDeclaredMethod(
+                "handlePaymentWithChange", PosState.class, String.class, String.class, BigDecimal.class);
+        m.setAccessible(true);
+        Object result = m.invoke(service, state, null, "X", new BigDecimal("20.00"));
+        assertEquals(Boolean.FALSE, result);
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals(0, new BigDecimal("20.00").compareTo(state.payment.tenderHeldAmount));
+    }
+
+    /**
+     * An authorized hold whose replay is REFUSED by a blocking change ceiling
+     * registers nothing and opens no drawer ({@code registered} false arm of the
+     * post-authorization drawer guard).
+     */
+    @Test
+    void anAuthorizedHoldRefusedOnReplayOpensNoDrawer() {
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "PLAFOND");
+        service.processCash(state, new BigDecimal("40.00"));
+        when(endorsementService.authorize(any(), any(), any())).thenReturn(true);
+        when(tenderRulesService.checkChange(eq("CASH"), any()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                        "RENDU SUPERIEUR AU PLAFOND"));
+        assertFalse(service.authorizeHeldTender(state, "chef", "secret"));
+        assertTrue(state.payment.payments.isEmpty());
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * An authorized hold in TRAINING registers the held settlement but opens no
+     * drawer ({@code !state.trainingMode} false arm of the post-authorization
+     * drawer guard).
+     */
+    @Test
+    void anAuthorizedHoldInTrainingOpensNoDrawer() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "PLAFOND");
+        service.processCash(state, new BigDecimal("40.00"));
+        when(endorsementService.authorize(any(), any(), any())).thenReturn(true);
+        assertTrue(service.authorizeHeldTender(state, "chef", "secret"));
+        assertEquals(1, state.payment.payments.size());
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * An authorized hold registered while the drawer-open-on-payment rule is
+     * DISABLED opens no drawer ({@code opensDrawerFor} false arm of the
+     * post-authorization drawer guard).
+     */
+    @Test
+    void anAuthorizedHoldWithDrawerRuleDisabledOpensNoDrawer() {
+        when(posSettingsService.drawerOpenOnPayment()).thenReturn(false);
+        state.ticket.totalAmount = new BigDecimal("40.00");
+        state.payment.ticketDbId = 3L;
+        ruleOn("CASH", com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.SUPERVISOR,
+                "PLAFOND");
+        service.processCash(state, new BigDecimal("40.00"));
+        when(endorsementService.authorize(any(), any(), any())).thenReturn(true);
+        assertTrue(service.authorizeHeldTender(state, "chef", "secret"));
+        assertEquals(1, state.payment.payments.size());
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * A cheque settlement REFUSED by a blocking tender rule registers nothing and
+     * opens no drawer: {@code registerCheque} returns on the false arm of its
+     * {@code handlePaymentWithChange} guard. Exercised in training, where the
+     * cheque is registered directly without a reading.
+     */
+    @Test
+    void processChequeBlockedByRuleRegistersNothing() {
+        state.trainingMode = true;
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(tenderRulesService.check(eq("CHEQUE"), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new TenderRulesService.Verdict(
+                        com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
+                        "PLAFOND CHEQUE"));
+        service.processCheque(state, new BigDecimal("20.00"));
+        assertTrue(state.payment.payments.isEmpty());
+        assertEquals("PLAFOND CHEQUE", state.ticket.transientError);
+        verify(hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * Invokes the private {@code opensDrawerFor} on a fresh state whose
+     * {@code lastChangeAmount} is still null: the {@code lastChangeAmount != null}
+     * false arm of the change-due computation, unreachable through the public API
+     * (every settlement sets the field before the drawer is consulted).
+     *
+     * @throws Exception if reflective invocation fails
+     */
+    @Test
+    void opensDrawerForWithNullLastChangeAmount() throws Exception {
+        state.payment.lastChangeAmount = null;
+        Method m = PaymentService.class.getDeclaredMethod(
+                "opensDrawerFor", PosState.class, String.class);
+        m.setAccessible(true);
+        Object result = m.invoke(service, state, "CASH");
+        assertEquals(Boolean.TRUE, result);
+        verify(tenderRulesService).opensDrawer("CASH", false, false, true);
+    }
+
+    /**
+     * {@code creditTender} keeps an administered key the register KNOWS: a
+     * customer-credit settlement is then registered under that key
+     * ({@code forKey(administered) == null} false arm, versus the true arm the
+     * default tests exercise where the unstubbed key resolves to null).
+     */
+    @Test
+    void processCreditUsesTheKnownAdministeredTenderKey() {
+        when(posSettingsService.customerCreditTender()).thenReturn("CHEQUE");
+        state.ticket.totalAmount = new BigDecimal("15.00");
+        state.payment.ticketDbId = 3L;
+        service.processCredit(state, customer("C003", "GAMMA"), new BigDecimal("15.00"), false);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CHEQUE", state.payment.payments.get(0).method);
+        assertTrue(state.payment.transactionComplete);
     }
 }
