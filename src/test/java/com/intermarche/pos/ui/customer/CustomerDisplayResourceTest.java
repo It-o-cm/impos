@@ -15,8 +15,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link CustomerDisplayResource}, the read-only customer-facing
@@ -302,5 +309,33 @@ class CustomerDisplayResourceTest {
             assertEquals("", result.get("digitalPath"));
             assertFalse(result.containsKey("nonexistent"));
         }
+    }
+
+    /**
+     * LC-02-03-02: a non-weighed line sold under a unit of measure states the
+     * quantity with its unit — the true/true leg of the
+     * {@code unitName != null && !unitName.isBlank()} guard — while a line whose
+     * unit name is present but blank falls back to the plain count, the
+     * blank leg the null guard alone would miss.
+     */
+    @Test
+    void customerDataFormatsTheUnitOfMeasureAndFallsBackWhenBlank() {
+        CustomerDisplayResource resource = newResource();
+        resource.state.version = 4L;
+        when(resource.state.isLocked()).thenReturn(false);
+        when(resource.state.getRemainingFormatted()).thenReturn("0,00");
+        when(resource.state.ticket.getTotalFormatted()).thenReturn("0,00");
+        resource.state.payment.lastChangeAmount = null;
+        TicketState.TicketItem measured = item(null, new BigDecimal("2.36"), "CABLE", "5,00");
+        measured.unitName = "m";
+        TicketState.TicketItem blankUnit = item(null, new BigDecimal("2"), "LAIT", "2,00");
+        blankUnit.unitName = "   ";
+        resource.state.ticket.items.add(measured);
+        resource.state.ticket.items.add(blankUnit);
+        Map<String, Object> result = resource.customerData(null);
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> items = (List<Map<String, String>>) result.get("items");
+        assertEquals("2,36 m", items.get(0).get("qty"));
+        assertEquals("x2", items.get(1).get("qty"));
     }
 }
