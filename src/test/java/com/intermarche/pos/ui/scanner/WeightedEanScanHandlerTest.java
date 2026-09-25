@@ -2,8 +2,8 @@ package com.intermarche.pos.ui.scanner;
 
 import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
 import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
@@ -17,7 +17,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Unit tests for {@link WeightedEanScanHandler}.
@@ -819,6 +824,88 @@ class WeightedEanScanHandlerTest {
         ScanContext ctx = new ScanContext("   ", state);
         newHandler().handle(ctx);
         assertFalse(ctx.handled);
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A range administered WITH a check digit that RECEIVES a code whose EAN13
+     * key is valid proceeds to the line — the arm where {@code checkDigit} holds
+     * yet {@code !hasValidChecksum} is false, the one a bad-key case never runs.
+     */
+    @Test
+    void anAdministeredRangeWithACheckDigitAcceptsAValidKey() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        materializeAdds(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.checkDigit = true;
+        range.articlePosition = 2;
+        range.articleLength = 5;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        range.valueDecimals = 2;
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(newProduct(false));
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(newPrice("9.99", "0.055"));
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(new BigDecimal("1.50")), eq(BigDecimal.ONE), eq(new BigDecimal("0.055")));
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A range whose ARTICLE segment cannot be read in the scanned code lets it
+     * fall through untouched — the {@code articleCode == null} true leg of the
+     * {@code articleCode == null || value == null} guard, distinct from the
+     * unreadable-value leg an earlier case exercises.
+     */
+    @Test
+    void anUnreadableArticleSegmentLetsTheCodeFallThrough() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ArticleBarcodeRange range = administered("21", 13, ArticleBarcodeRange.ValueSource.PRICE);
+        range.articlePosition = 40;
+        range.articleLength = 5;
+        range.valuePosition = 7;
+        range.valueLength = 5;
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<ArticleBarcodeRange> ranges = administeredRange(range)) {
+            newHandler().handle(ctx);
+        }
+        assertFalse(ctx.handled);
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A weighed article whose current price names NO regime — its {@code vat} is
+     * null, so {@code vatRate()} is null — is ventilated at the injected default
+     * VAT rate: the arm of the {@code price != null && price.vatRate() != null}
+     * guard where the first leg holds and the second does not.
+     */
+    @Test
+    void weightEmbeddedWithPriceButNoVatRateUsesDefaultVat() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("2.99");
+        price.vat = null;
+        ScanContext ctx = new ScanContext(WEIGHT_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(EAN), eq(ARTICLE), eq("BANANE"),
+                eq(new BigDecimal("2.99")), eq(new BigDecimal("0.500")), eq(DEFAULT_VAT));
         verify(ticket, never()).setError(any());
     }
 }
