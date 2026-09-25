@@ -89,6 +89,7 @@ class TicketPersistenceServiceTest {
         service.cashSessionService = mock(CashSessionService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.syncOutboxService = mock(SyncOutboxService.class);
+        service.consumptionService = mock(com.intermarche.pos.service.sync.ConsumptionService.class);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
         return service;
     }
@@ -1830,6 +1831,31 @@ class TicketPersistenceServiceTest {
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_CANCELLED, "C04-00000001");
             verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.TICKET, 5L);
+            verify(service.consumptionService).enqueueCancellation(
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"),
+                    org.mockito.ArgumentMatchers.isNull(),
+                    org.mockito.ArgumentMatchers.any());
+        }
+    }
+
+    /**
+     * A cancelled draft carrying a store declares its consumption reversal with
+     * that store's code (the store-non-null arm of the reversal hook).
+     */
+    @Test
+    void cancelDraftDeclaresCancellationWithStoreCode() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        Store store = new Store();
+        store.code = "C04";
+        ticket.store = store;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.cancelDraft(5L);
+            verify(service.consumptionService).enqueueCancellation(
+                    org.mockito.ArgumentMatchers.eq("C04-00000001"),
+                    org.mockito.ArgumentMatchers.eq("C04"),
+                    org.mockito.ArgumentMatchers.any());
         }
     }
 

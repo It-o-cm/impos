@@ -115,6 +115,7 @@ class PaymentServiceTest {
         valuationReconciler = mock(ValuationReconciler.class);
         service.hardwareService = hardwareService;
         service.ticketPersistenceService = ticketPersistenceService;
+        service.consumptionService = mock(com.intermarche.pos.service.sync.ConsumptionService.class);
         ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.ticketPrinterService = ticketPrinterService;
         service.valuationService = valuationService;
@@ -1506,6 +1507,67 @@ class PaymentServiceTest {
         assertEquals(9L, state.lastClosedTicketId);
         verify(hardwareService).displayMessage("MERCI A BIENTOT");
         assertNull(state.payment.ticketDbId);
+    }
+
+    /**
+     * An engine-valued sale declares its campaign consumption at the fiscal
+     * moment, derived from the retained valuation, with the ticket's number,
+     * store code (null here) and closing date ({@code "ENGINE".equals} true,
+     * {@code valued != null} true).
+     */
+    @Test
+    void finalizeTransactionEnqueuesConsumptionForEngineValuation() {
+        state.payment.ticketDbId = 9L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationJson = "{\"advantages\":[]}";
+        com.intermarche.pos.domain.sale.Ticket valued =
+                org.mockito.Mockito.mock(com.intermarche.pos.domain.sale.Ticket.class);
+        valued.ticketNumber = "C04-000003";
+        valued.closingDate = java.time.LocalDateTime.of(2026, 8, 2, 10, 30);
+        valued.store = null;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.findById(9L)).thenReturn(valued);
+            service.finalizeTransaction(state);
+        }
+        verify(service.consumptionService).enqueueSale("C04-000003", null,
+                java.time.LocalDateTime.of(2026, 8, 2, 10, 30), "{\"advantages\":[]}");
+    }
+
+    /**
+     * An engine-valued sale whose ticket cannot be reloaded declares nothing
+     * ({@code "ENGINE".equals} true, {@code valued != null} false).
+     */
+    @Test
+    void finalizeTransactionDeclaresNoConsumptionWhenTicketVanished() {
+        state.payment.ticketDbId = 9L;
+        state.payment.valuationStatus = "ENGINE";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(service.consumptionService, never()).enqueueSale(any(), any(), any(), any());
+    }
+
+    /**
+     * A locally-valued sale declares no engine consumption ({@code
+     * "ENGINE".equals} false).
+     */
+    @Test
+    void finalizeTransactionDeclaresNoConsumptionForLocalValuation() {
+        state.payment.ticketDbId = 9L;
+        state.payment.valuationStatus = "LOCAL";
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        verify(service.consumptionService, never()).enqueueSale(any(), any(), any(), any());
     }
 
     /**

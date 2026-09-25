@@ -81,6 +81,13 @@ public class PaymentService {
     TicketPersistenceService ticketPersistenceService;
 
     /**
+     * Derives and enqueues the campaign consumption of a finalized sale
+     * (campaigns &amp; budgets spec §3).
+     */
+    @Inject
+    com.intermarche.pos.service.sync.ConsumptionService consumptionService;
+
+    /**
      * Prints the gift-card vouchers issued by a closed sale (phase: credit
      * notes & gift cards).
      */
@@ -1193,6 +1200,22 @@ public class PaymentService {
                 ticketPersistenceService.validateTicket(ticketId);
                 state.lastClosedTicketId = ticketId;
                 LOGGER.info("Ticket validé et fermé en BDD ID: " + ticketId);
+                // Campaigns & budgets spec §3: a finalized sale valued by the
+                // engine declares its consumption, derived from the retained
+                // valuation (read here, before clearTicket, since the verbatim
+                // offerCode lives only on the payment state). LOCAL/DEGRADED
+                // applied no engine advantage, so nothing is declared. This only
+                // enqueues a row — the delivery loop ships it, the sale never
+                // waits on it.
+                if ("ENGINE".equals(state.payment.valuationStatus)) {
+                    com.intermarche.pos.domain.sale.Ticket valued =
+                            com.intermarche.pos.domain.sale.Ticket.findById(ticketId);
+                    if (valued != null) {
+                        consumptionService.enqueueSale(valued.ticketNumber,
+                                valued.store == null ? null : valued.store.code,
+                                valued.closingDate, state.payment.valuationJson);
+                    }
+                }
                 // Loyalty fiscal sequence (imfid spec §5.2 + §6): confirm the
                 // lease (410 tolerated — the ingestion is authoritative), then
                 // enqueue the ticket-closed event with the verbatim couple. The

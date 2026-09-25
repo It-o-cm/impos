@@ -87,6 +87,13 @@ public class TicketPersistenceService {
     @Inject
     SyncOutboxService syncOutboxService;
 
+    /**
+     * Reverses a ticket's campaign consumption when it is cancelled (campaigns
+     * &amp; budgets spec §3).
+     */
+    @Inject
+    com.intermarche.pos.service.sync.ConsumptionService consumptionService;
+
     /** Payment factories indexed by their method key. */
     private final Map<String, TicketPayment.Factory> paymentFactories = new HashMap<>();
 
@@ -630,6 +637,13 @@ public class TicketPersistenceService {
             ticket.persist();
             technicalEventService.log(TechnicalEvent.EventType.TICKET_CANCELLED, ticket.ticketNumber);
             syncOutboxService.enqueue(SyncOutbox.EntityType.TICKET, ticket.id);
+            // Campaigns & budgets spec §3: reverse the campaign consumption if a
+            // sale was declared for this ticket. An abandoned draft never
+            // finalized, so it usually has none — the reversal is enqueued only
+            // when a matching SALE declaration exists.
+            consumptionService.enqueueCancellation(ticket.ticketNumber,
+                    ticket.store == null ? null : ticket.store.code,
+                    com.intermarche.pos.domain.util.DateTimeProvider.now());
             LOGGER.infof("Draft annulé ID: %d (%s)", ticket.id, ticket.ticketNumber);
         }
     }
