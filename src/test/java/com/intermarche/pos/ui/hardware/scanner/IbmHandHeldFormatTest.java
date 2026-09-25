@@ -250,4 +250,31 @@ class IbmHandHeldFormatTest {
     void itNamesItself() {
         assertEquals("IBM hand-held", format.name());
     }
+
+    /**
+     * A report whose second-to-last byte IS the trailer's first byte but whose
+     * last byte is NOT the trailer's second byte is not a trailer at all: the
+     * {@code 0xFF} stays in the label — the third-condition false arm of the
+     * trailer test — and, being neither a digit nor printable ASCII, makes the
+     * whole label undecodable.
+     */
+    @Test
+    void aByteFfNotFollowedByTheTrailerSecondByteIsNotATrailer() {
+        byte[] r = report(4 + 4, IbmHandHeldFormat.MESSAGE_TYPE_LABEL, 0x0F, 0x00,
+                'A', 'B', 0xFF, 0x07);
+        assertNull(format.decode(r, 64));
+    }
+
+    /**
+     * A label whose LEADING bytes are binary digits but which then carries a
+     * negative byte fails the digit test on that byte — the {@code b < 0} true
+     * arm of {@code allBinaryDigits}, reached only once the earlier bytes are
+     * all in 0-9 — and, being non-printable, is refused rather than half-read.
+     */
+    @Test
+    void aBinaryDigitRunEndedByANegativeByteIsRefused() {
+        byte[] r = report(4 + 2 + 1, IbmHandHeldFormat.MESSAGE_TYPE_LABEL, 0x03, 0x00,
+                0x03, 0xAB, IbmHandHeldFormat.TERMINATOR);
+        assertNull(format.decode(r, 64));
+    }
 }
