@@ -14,8 +14,13 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link AuthResource}.
@@ -437,5 +442,115 @@ class AuthResourceTest {
         assertEquals(200, response.getStatus());
         assertSame(view, response.getEntity());
         verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    // --- closeRegister ---
+
+    /**
+     * {@code closeRegister(...)} on a register holding no operator
+     * ({@code operatorBadgeId} null) goes back to the lock screen without
+     * closing anything (operator-badge guard true arm).
+     */
+    @Test
+    void closeRegisterOnALockedRegisterGoesToTheLockScreen() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = null;
+        Response response = resource.closeRegister("pw", "sup", "supPw");
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code closeRegister(...)} with a supervisor whose endorsement is
+     * accepted forces the close and records it as a forcing (badge guard
+     * false, supervisor both legs true, authorize true arm).
+     */
+    @Test
+    void closeRegisterForcesTheCloseOnSupervisorEndorsement() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
+        when(resource.endorsementService.authorize("mcurie", "1111",
+                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(true);
+        Response response = resource.closeRegister(null, "mcurie", "1111");
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService).close(resource.state, "superviseur en caisse");
+    }
+
+    /**
+     * {@code closeRegister(...)} with a supervisor whose endorsement is
+     * refused renders the closing page with the refusal message and does not
+     * close (authorize false arm).
+     */
+    @Test
+    void closeRegisterRefusesTheForcedCloseOnBadSupervisor() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
+        when(resource.endorsementService.authorize("mcurie", "bad",
+                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(false);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closeRegister(null, "mcurie", "bad");
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code closeRegister(...)} with no supervisor (supervisor null, first
+     * leg false) and the correct operator password closes the register
+     * (obstacle PASSWORD true, passwordMatches true arm).
+     */
+    @Test
+    void closeRegisterClosesOnCorrectOperatorPassword() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PASSWORD);
+        when(resource.sessionCloseService.passwordMatches(resource.state, "1234")).thenReturn(true);
+        Response response = resource.closeRegister("1234", null, null);
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService).close(resource.state, null);
+    }
+
+    /**
+     * {@code closeRegister(...)} with a BLANK supervisor (supervisor
+     * non-null, {@code !isBlank()} false) and a wrong operator password
+     * renders the page with the operator-code refusal (passwordMatches false
+     * arm, message PASSWORD arm).
+     */
+    @Test
+    void closeRegisterRefusesOnWrongOperatorPassword() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PASSWORD);
+        when(resource.sessionCloseService.passwordMatches(resource.state, "wrong")).thenReturn(false);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closeRegister("wrong", "   ", null);
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code closeRegister(...)} with no supervisor and a non-PASSWORD
+     * obstacle skips the password check and renders the page with the
+     * supervisor-required refusal (obstacle PASSWORD false, message else arm).
+     */
+    @Test
+    void closeRegisterShowsSupervisorRequiredOnPendingTickets() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle())
+                .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closeRegister(null, null, null);
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+        verify(resource.sessionCloseService, never()).passwordMatches(any(), any());
     }
 }
