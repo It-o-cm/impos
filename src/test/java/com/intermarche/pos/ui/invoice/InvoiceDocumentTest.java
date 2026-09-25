@@ -1,12 +1,19 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.payment.*;
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.ChequePayment;
+import com.intermarche.pos.domain.payment.CreditPayment;
 import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.payment.FidelityPayment;
 import com.intermarche.pos.domain.sale.Invoice;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.TicketRestoPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -14,7 +21,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests of {@link InvoiceDocument}.
@@ -647,5 +658,23 @@ class InvoiceDocumentTest {
         java.util.Map<?, ?> sellerData = (java.util.Map<?, ?>) data.get("seller");
         assertEquals("ANONYME", customerData.get("taxId"));
         assertNull(sellerData.get("taxId"));
+    }
+
+    /**
+     * A document whose number was never assigned restates it as the empty
+     * string rather than a null — the {@code value == null} arm of the private
+     * {@code nullToEmpty} guard that shields every layout from a null field.
+     */
+    @Test
+    void restatesAMissingNumberAsTheEmptyString() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        Invoice invoice = invoice(ticket, fullCustomer(), "N");
+        invoice.documentNumber = null;
+        Map<String, Object> data = InvoiceDocument.of(invoice, ticket, true).asDocumentData();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> head = (Map<String, Object>) data.get("document");
+        assertEquals("", head.get("number"));
     }
 }
