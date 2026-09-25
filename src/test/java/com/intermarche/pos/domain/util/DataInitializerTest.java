@@ -17,6 +17,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.catalog.Nomenclature;
+import com.intermarche.pos.domain.catalog.NomenclatureLevel;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link DataInitializer}.
@@ -178,6 +190,58 @@ class DataInitializerTest {
             assertEquals(0, stores.constructed().size());
             assertEquals(0, schemes.constructed().size());
             assertEquals(0, levels.constructed().size());
+        }
+    }
+
+    /**
+     * Drives {@code onStart} with the four seeded article names resolving to a
+     * non-null product, so {@code fileArticle} takes the {@code article != null}
+     * true arm and calls {@code ProductFamily.fileUnderNomenclature} for each of
+     * the four articles (the false arm alone is exercised by
+     * {@link #onStartWipesAndReloadsTheReferential()}). The nomenclature node
+     * lookup is stubbed to return null so the filing short-circuits before the
+     * relational walk, leaving the branch — not the downstream wiring — as the
+     * subject under test. The two absolute counts pin that the seeder resolves
+     * exactly the four articles by name and, because each is found, performs
+     * exactly four node lookups by code inside the true arm.
+     */
+    @Test
+    void onStartFilesSeededArticlesWhenTheyExist() {
+        DataInitializer initializer = new DataInitializer();
+        Employee marie = mock(Employee.class);
+        Employee admin = mock(Employee.class);
+        admin.mustChangePassword = true;
+        Product seededArticle = mock(Product.class);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Employee> employees = mockConstruction(Employee.class);
+             MockedConstruction<ProductFamily> families = mockConstruction(ProductFamily.class,
+                     (family, ctx) -> {
+                         family.products = new HashSet<>();
+                         family.productFamilies = new HashSet<>();
+                     });
+             MockedConstruction<Product> products = mockConstruction(Product.class);
+             MockedConstruction<Price> prices = mockConstruction(Price.class);
+             MockedConstruction<VatRate> vatRates = mockConstruction(VatRate.class);
+             MockedConstruction<CouponType> couponTypes = mockConstruction(CouponType.class);
+             MockedConstruction<Store> stores = mockConstruction(Store.class);
+             MockedConstruction<Nomenclature> schemes = mockConstruction(Nomenclature.class);
+             MockedConstruction<NomenclatureLevel> levels =
+                     mockConstruction(NomenclatureLevel.class)) {
+            PanacheQuery<Product> articleFound = mock(PanacheQuery.class);
+            when(articleFound.firstResult()).thenReturn(seededArticle);
+            panache.when(() -> Product.find(eq("name"), any(Object[].class)))
+                    .thenReturn(articleFound);
+            PanacheQuery<ProductFamily> noNode = mock(PanacheQuery.class);
+            when(noNode.firstResult()).thenReturn(null);
+            panache.when(() -> ProductFamily.find(eq("code"), any(Object[].class)))
+                    .thenReturn(noNode);
+            PanacheQuery<Employee> marieQuery = employeeQuery(marie);
+            panache.when(() -> Employee.find("loginName", "mcurie")).thenReturn(marieQuery);
+            PanacheQuery<Employee> adminQuery = employeeQuery(admin);
+            panache.when(() -> Employee.find("loginName", "admin")).thenReturn(adminQuery);
+            initializer.onStart(null);
+            panache.verify(() -> Product.find(eq("name"), any(Object[].class)), times(4));
+            panache.verify(() -> ProductFamily.find(eq("code"), any(Object[].class)), times(4));
         }
     }
 }
