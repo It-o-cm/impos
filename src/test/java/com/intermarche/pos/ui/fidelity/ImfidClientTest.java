@@ -15,6 +15,13 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link ImfidClient}.
@@ -925,5 +932,32 @@ class ImfidClientTest {
         assertEquals("Basic " + java.util.Base64.getEncoder()
                         .encodeToString("caisse-12:pos-password".getBytes()),
                 receivedAuthorization.get());
+    }
+
+    /**
+     * With NO settings service wired at all, {@code baseUrl} falls back to the
+     * deployment property — the null arm of the {@code posSettingsService !=
+     * null} ternary, which a boot before the CDI graph is complete can hit.
+     */
+    @Test
+    void baseUrlFallsBackToDeploymentWhenSettingsAreAbsent() {
+        ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = null;
+        bare.url = Optional.of("http://deploy:8080");
+        assertEquals("http://deploy:8080", bare.baseUrl());
+    }
+
+    /**
+     * With NO settings service wired, {@code authUser} falls back to the
+     * deployment property too — the null arm of the ternary and, the
+     * administered value being null, the {@code administered != null} false arm
+     * of the filled-value guard.
+     */
+    @Test
+    void authUserFallsBackToDeploymentWhenSettingsAreAbsent() {
+        ImfidClient bare = new ImfidClient();
+        bare.posSettingsService = null;
+        bare.user = Optional.of("pos-deploy");
+        assertEquals("pos-deploy", bare.authUser());
     }
 }
