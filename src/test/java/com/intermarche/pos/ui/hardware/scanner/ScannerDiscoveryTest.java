@@ -7,7 +7,9 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link ScannerDiscovery}: the name matching that keeps the
@@ -65,7 +67,7 @@ class ScannerDiscoveryTest {
     void usbKeyReducesToTheUsbDevice() {
         assertEquals("usb-0000:00:14.0-3", ScannerDiscovery.usbKey("usb-0000:00:14.0-3/input0"));
         assertEquals("usb-0000:00:14.0-3", ScannerDiscovery.usbKey("usb-0000:00:14.0-3"));
-        assertNull(ScannerDiscovery.usbKey(null));
+        assertEquals(null, ScannerDiscovery.usbKey(null));
     }
 
     /**
@@ -168,7 +170,7 @@ class ScannerDiscoveryTest {
      */
     @Test
     void usbKeyOfBlankPhysIsNull() {
-        assertNull(ScannerDiscovery.usbKey("   "));
+        assertEquals(null, ScannerDiscovery.usbKey("   "));
     }
 
     /**
@@ -739,5 +741,35 @@ class ScannerDiscoveryTest {
     @Test
     void nodeNumberOfAnOverflowingNameIsLast() {
         assertEquals(Integer.MAX_VALUE, ScannerDiscovery.nodeNumber("event99999999999999"));
+    }
+
+    /**
+     * A node name made of nothing but digits is consumed to its first
+     * character, the scan stopping on {@code start > 0} rather than on a
+     * non-digit — the {@code start > 0} false leg of the digit-run loop, the one
+     * a name carrying a non-digit prefix never reaches.
+     */
+    @Test
+    void nodeNumberOfAnAllDigitNameConsumesEveryCharacter() {
+        assertEquals(12345, ScannerDiscovery.nodeNumber("12345"));
+    }
+
+    /**
+     * A descriptor ending on a short-item prefix that ANNOUNCES a data byte it
+     * does not carry stops reading at the array end rather than past it — the
+     * {@code i + b < descriptor.length} false leg of the value-reading loop —
+     * and measures zero, no INPUT ever completing.
+     *
+     * @param root a temporary directory
+     * @throws Exception on file-creation failure
+     */
+    @Test
+    void aShortItemAnnouncingAMissingDataByteEndsAtTheArrayEnd(@TempDir File root) throws Exception {
+        File hidraw = new File(root, "hidraw");
+        hidrawNode(hidraw, "hidraw2", "Symbol Bar Code Scanner::EA",
+                "usb-0000:00:14.0-5.1/input0", "75");
+        ScannerDiscovery discovery = new ScannerDiscovery(
+                new File(root, "input"), hidraw, new File(root, "dev"), PATTERNS);
+        assertEquals(0, discovery.inputReportBytes(new File(hidraw, "hidraw2/device")));
     }
 }
