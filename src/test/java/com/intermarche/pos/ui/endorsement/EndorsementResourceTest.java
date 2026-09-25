@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.endorsement;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.home.HomeService;
 import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
@@ -13,9 +13,17 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link EndorsementResource}.
@@ -593,5 +601,142 @@ class EndorsementResourceTest {
         resource.selfEndorse();
         verify(resource.homeService).printOperatorBadge("5");
         verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /**
+     * {@code validateEndorsement()} undoes the settlements already taken before
+     * cancelling the ticket when a granted {@code CANCEL_TICKET} finds a
+     * non-empty payment state (the {@code !payments.isEmpty()} true arm,
+     * LC-04-04-07/09).
+     */
+    @Test
+    void validateEndorsementGrantedCancelTicketWithSettlementsUndoesThem() {
+        EndorsementResource resource = newResource();
+        resource.state.payment.payments.add(
+                new com.intermarche.pos.ui.payment.PaymentState.PaymentEntry("CASH", new BigDecimal("5.00")));
+        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
+        when(resource.endorsementService.authorize("m", "1234", "CANCEL_TICKET")).thenReturn(true);
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.paymentService).cancelPayments(resource.state);
+        verify(resource.ticketService).cancelTicket(resource.state);
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /**
+     * {@code selfEndorse} routes a granted {@code CASH_MOVEMENT} action to the
+     * cash-movement resource, forwarding the parked form and the logged
+     * operator's badge, and lands on the response that gesture returns (the
+     * CASH_MOVEMENT equals true arm, the {@code operatorBadge} non-null arm and
+     * the {@code landingOf} own-non-null arm together).
+     */
+    @Test
+    void selfEndorseDispatchesCashMovementAndLandsOnItsResponse() {
+        EndorsementResource resource = newResource();
+        resource.cashMovementResource = mock(com.intermarche.pos.ui.cash.CashMovementResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.CashMovementResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        resource.state.endorsement.pendingForm.put("amount", "10");
+        Response own = Response.ok().build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.cashMovementResource.performEndorsed(resource.state.endorsement.pendingForm, "MGR9"))
+                .thenReturn(own);
+        Response response = resource.selfEndorse();
+        assertSame(own, response);
+        verify(resource.cashMovementResource).performEndorsed(resource.state.endorsement.pendingForm, "MGR9");
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /**
+     * {@code selfEndorse} routes a granted {@code DRAWER_OPERATION} whose parked
+     * form says {@code op=transfer} to the transfer gesture and lands on its
+     * response (the DRAWER_OPERATION equals true arm and the
+     * {@code "transfer".equals(op)} true arm).
+     */
+    @Test
+    void selfEndorseDispatchesDrawerTransfer() {
+        EndorsementResource resource = newResource();
+        resource.drawerOperationsResource = mock(com.intermarche.pos.ui.cash.DrawerOperationsResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.DrawerOperationsResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        resource.state.endorsement.pendingForm.put("op", "transfer");
+        Response own = Response.ok().build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.drawerOperationsResource.performEndorsedTransfer(
+                resource.state.endorsement.pendingForm, "MGR9")).thenReturn(own);
+        Response response = resource.selfEndorse();
+        assertSame(own, response);
+        verify(resource.drawerOperationsResource).performEndorsedTransfer(
+                resource.state.endorsement.pendingForm, "MGR9");
+        verify(resource.drawerOperationsResource, never()).performEndorsedWithdrawal(any(), any());
+    }
+
+    /**
+     * {@code selfEndorse} routes a granted {@code DRAWER_OPERATION} whose parked
+     * form is not a transfer to the withdrawal gesture (the
+     * {@code "transfer".equals(op)} false arm, here with a null {@code op}).
+     */
+    @Test
+    void selfEndorseDispatchesDrawerWithdrawalWhenNotTransfer() {
+        EndorsementResource resource = newResource();
+        resource.drawerOperationsResource = mock(com.intermarche.pos.ui.cash.DrawerOperationsResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.DrawerOperationsResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        Response own = Response.ok().build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.drawerOperationsResource.performEndorsedWithdrawal(
+                resource.state.endorsement.pendingForm, "MGR9")).thenReturn(own);
+        Response response = resource.selfEndorse();
+        assertSame(own, response);
+        verify(resource.drawerOperationsResource).performEndorsedWithdrawal(
+                resource.state.endorsement.pendingForm, "MGR9");
+        verify(resource.drawerOperationsResource, never()).performEndorsedTransfer(any(), any());
+    }
+
+    /**
+     * {@code selfEndorse} lands on the parked return path when the gesture
+     * produced no response of its own and the path is a non-blank string (the
+     * {@code landingOf} own-null path, then {@code landing != null} true and
+     * {@code !landing.isBlank()} true).
+     */
+    @Test
+    void selfEndorseLandsOnNonBlankReturnPath() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "TRAINING_TOGGLE";
+        resource.state.endorsement.returnPath = "/pay";
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        Response response = resource.selfEndorse();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/pay", response.getLocation().toString());
+        verify(resource.homeService).performTrainingToggle();
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /**
+     * {@code selfEndorse} falls back to the main page when the gesture produced
+     * no response of its own and the parked return path is present but blank
+     * (the {@code landingOf} {@code landing != null} true but
+     * {@code !landing.isBlank()} false arm).
+     */
+    @Test
+    void selfEndorseFallsBackToMainWhenReturnPathBlank() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "TRAINING_TOGGLE";
+        resource.state.endorsement.returnPath = "   ";
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        Response response = resource.selfEndorse();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).performTrainingToggle();
     }
 }
