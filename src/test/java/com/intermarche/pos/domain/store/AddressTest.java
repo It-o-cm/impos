@@ -81,6 +81,19 @@ class AddressTest {
     }
 
     /**
+     * equals is called directly with a null and with a foreign type so both
+     * arms of the {@code o == null || getClass() != o.getClass()} guard are
+     * exercised: the surrounding {@code assertNotEquals(null, a)} passes its
+     * arguments in the order that never reaches {@code Address.equals}.
+     */
+    @Test
+    void equalsCalledDirectlyWithNullAndForeignType() {
+        Address a = reference();
+        Assertions.assertFalse(a.equals(null));
+        Assertions.assertFalse(a.equals("not an address"));
+    }
+
+    /**
      * equals returns true for two distinct instances with identical content
      * (this != o, o != null, same class, all seven field comparisons true).
      */
