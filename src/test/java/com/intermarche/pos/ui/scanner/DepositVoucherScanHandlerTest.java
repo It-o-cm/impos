@@ -15,7 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link DepositVoucherScanHandler}.
@@ -293,6 +297,35 @@ class DepositVoucherScanHandlerTest {
         }
         assertTrue(ctx.handled);
         verify(ticket).setError("BON BIENTOT PERIME");
+        verify(handler.couponCheckService).record(type, CODE);
+    }
+
+    /**
+     * An active loyalty card feeds its label to the administered controls,
+     * exercising the true arm of the {@code fidelity.active ? label : null}
+     * ternary: the check is invoked with the card label and, no control
+     * speaking, the valid deposit line is still added and the code recorded.
+     */
+    @Test
+    void activeFidelityForwardsCardLabelToTheControls() {
+        TicketState ticket = mock(TicketState.class);
+        PaymentState payment = mock(PaymentState.class);
+        PosState state = newState(ticket, payment);
+        state.fidelity.active = true;
+        state.fidelity.label = "CARTE FIDELITE";
+        CouponType type = newType(true);
+        when(type.extractAmount(CODE)).thenReturn(new BigDecimal("3.00"));
+        ScanContext ctx = new ScanContext(CODE, state);
+        DepositVoucherScanHandler handler = newHandler();
+        try (MockedStatic<CouponType> couponTypes = Mockito.mockStatic(CouponType.class)) {
+            couponTypes.when(CouponType::listActiveDepositTypes).thenReturn(List.of(type));
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(handler.couponCheckService).check(eq(type), eq(CODE),
+                org.mockito.ArgumentMatchers.any(), eq("CARTE FIDELITE"));
+        verify(ticket).addItem(eq(CODE), isNull(), eq("CONSIGNE"),
+                eq(new BigDecimal("-3.00")), eq(BigDecimal.ONE), eq(BigDecimal.ZERO));
         verify(handler.couponCheckService).record(type, CODE);
     }
 }
