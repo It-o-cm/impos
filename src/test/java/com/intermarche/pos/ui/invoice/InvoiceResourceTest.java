@@ -1,10 +1,10 @@
 package com.intermarche.pos.ui.invoice;
 
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.sale.DocumentType;
 import com.intermarche.pos.domain.sale.Invoice;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -14,10 +14,14 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link InvoiceResource}.
@@ -230,7 +234,7 @@ class InvoiceResourceTest {
         InvoiceResource resource = newResource();
         TemplateInstance view = stubRequest(resource);
         assertSame(view, resource.newCustomer());
-        assertTrue(resource.state.invoice.creatingCustomer);
+        assertEquals(true, resource.state.invoice.creatingCustomer);
         assertEquals("", resource.state.invoice.error);
         verify(resource.state).touch();
     }
@@ -442,7 +446,7 @@ class InvoiceResourceTest {
         stubRequest(resource);
         resource.state.invoice.editingCustomer = true;
         resource.newCustomer();
-        assertFalse(resource.state.invoice.editingCustomer);
+        assertEquals(false, resource.state.invoice.editingCustomer);
     }
 
     /**
@@ -492,5 +496,140 @@ class InvoiceResourceTest {
         verify(view).data("fields", filled);
         verify(view).data("formAction", "/invoice/customer/update");
         verify(resource.invoiceService, never()).customerFields();
+    }
+
+    /**
+     * {@code request()} exposes {@code hasDocumentStep} true when the service offers
+     * more than one eligible document kind — the {@code eligibleDocumentTypes().size() > 1}
+     * true arm of the comparison on line 105.
+     */
+    @Test
+    void requestFlagsTheDocumentStepWhenSeveralKindsAreEligible() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        when(resource.invoiceService.eligibleDocumentTypes())
+                .thenReturn(java.util.List.of(DocumentType.FACTURE, DocumentType.FACTURE));
+        assertSame(view, resource.showInvoiceScreen());
+        verify(view).data("hasDocumentStep", true);
+    }
+
+    /**
+     * {@code request()} exposes {@code hasDocumentStep} false when a single kind is
+     * eligible — the {@code eligibleDocumentTypes().size() > 1} false arm with a
+     * non-empty one-element list, distinct from the empty-list default.
+     */
+    @Test
+    void requestClearsTheDocumentStepWhenOnlyOneKindIsEligible() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        when(resource.invoiceService.eligibleDocumentTypes())
+                .thenReturn(java.util.List.of(DocumentType.FACTURE));
+        assertSame(view, resource.showInvoiceScreen());
+        verify(view).data("hasDocumentStep", false);
+    }
+
+    /**
+     * {@code chooseDocumentType()} delegates the touched kind to the service and renders
+     * the request page.
+     */
+    @Test
+    void chooseDocumentTypeDelegatesAndRendersRequest() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        assertSame(view, resource.chooseDocumentType("FACTURE"));
+        verify(resource.invoiceService).chooseDocumentType("FACTURE");
+    }
+
+    /**
+     * {@code chooseDocumentType()} passes a null kind through untouched to the service —
+     * the resource applies no guard of its own to the path parameter.
+     */
+    @Test
+    void chooseDocumentTypeWithNullTypeDelegatesNull() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        assertSame(view, resource.chooseDocumentType(null));
+        verify(resource.invoiceService).chooseDocumentType(null);
+    }
+
+    /**
+     * {@code issue()} of a document that comes out of the slip station redirects to the
+     * sheet-by-sheet screen — the {@code issued != null} arm with the
+     * {@code isOnInsertStep()} true arm on line 389.
+     */
+    @Test
+    void issueOnTheSlipStationRedirectsToTheSlipScreen() {
+        InvoiceResource resource = newResource();
+        when(resource.invoiceService.issue()).thenReturn(5L);
+        when(resource.state.invoice.isOnInsertStep()).thenReturn(true);
+        Response response = resource.issue();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/invoice/slip", response.getLocation().toString());
+    }
+
+    /**
+     * {@code showSlip()} renders the request page on its insertion step.
+     */
+    @Test
+    void showSlipRendersRequest() {
+        InvoiceResource resource = newResource();
+        TemplateInstance view = stubRequest(resource);
+        assertSame(view, resource.showSlip());
+    }
+
+    /**
+     * {@code printSlip()} while sheets remain prints the next and asks for another — the
+     * {@code printNextSlip()} true arm redirecting back to the slip screen.
+     */
+    @Test
+    void printSlipWithSheetsRemainingRedirectsToTheSlipScreen() {
+        InvoiceResource resource = newResource();
+        when(resource.invoiceService.printNextSlip()).thenReturn(true);
+        Response response = resource.printSlip();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/invoice/slip", response.getLocation().toString());
+    }
+
+    /**
+     * {@code printSlip()} once the last sheet has come out redirects to the issued
+     * document — the {@code printNextSlip()} false arm with the {@code issued == null}
+     * false arm (a known issued id).
+     */
+    @Test
+    void printSlipAfterTheLastSheetRedirectsToTheIssuedDocument() {
+        InvoiceResource resource = newResource();
+        when(resource.invoiceService.printNextSlip()).thenReturn(false);
+        resource.state.invoice.issuedInvoiceId = 8L;
+        Response response = resource.printSlip();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/invoice/document/8", response.getLocation().toString());
+    }
+
+    /**
+     * {@code printSlip()} with no sheets left and no issued id falls back to the flow
+     * entry — the {@code printNextSlip()} false arm with the {@code issued == null} true
+     * arm.
+     */
+    @Test
+    void printSlipWithNoIssuedIdRedirectsToTheFlowEntry() {
+        InvoiceResource resource = newResource();
+        when(resource.invoiceService.printNextSlip()).thenReturn(false);
+        resource.state.invoice.issuedInvoiceId = null;
+        Response response = resource.printSlip();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/invoice", response.getLocation().toString());
+    }
+
+    /**
+     * {@code backToDocumentType()} rewinds to the document-kind step and redirects to the
+     * screen.
+     */
+    @Test
+    void backToDocumentTypeRewindsAndRedirects() {
+        InvoiceResource resource = newResource();
+        Response response = resource.backToDocumentType();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/invoice", response.getLocation().toString());
+        verify(resource.invoiceService).backToDocumentStep();
     }
 }
