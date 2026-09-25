@@ -9,7 +9,10 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for the rules that surround the abandon of a ticket
@@ -339,5 +342,19 @@ class TicketAbandonServiceTest {
         assertTrue(state.abandonPrintRequested);
         assertNull(service.prepare("Client parti", false));
         assertFalse(state.abandonPrintRequested);
+    }
+
+    /**
+     * A settlement carrying no method key at all is treated as local, not external —
+     * the null-method arm of {@code isExternal}: with no authorization number and a
+     * null method the CARD test runs against an empty string and fails, so under BLOCK
+     * the settlement is refused with the LOCAL message.
+     */
+    @Test
+    void aSettlementWithoutAMethodIsTreatedAsLocal() {
+        settings.partialPayment = "BLOCK";
+        settle(null, "5.00", null);
+        assertEquals("REGLEMENT PARTIEL ENREGISTRE - ANNULEZ-LE D'ABORD",
+                service.blockingReason());
     }
 }
