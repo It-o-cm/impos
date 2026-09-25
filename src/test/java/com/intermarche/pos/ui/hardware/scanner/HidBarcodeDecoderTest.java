@@ -286,4 +286,16 @@ class HidBarcodeDecoderTest {
         decoder.feed(frame(0x03), 64);
         assertTrue(emitted.isEmpty());
     }
+
+    /**
+     * A report announcing ZERO valid bytes is dropped before anything is read —
+     * the {@code length <= 0} true leg of the opening guard, distinct from the
+     * idle-report leg: it emits nothing and is not even counted as unknown.
+     */
+    @Test
+    void aReportOfZeroLengthIsDropped() {
+        decoder.feed(frame(0x03, digits("3178530403022")), 0);
+        assertTrue(emitted.isEmpty());
+        assertEquals(0, decoder.unknownFrameCount());
+    }
 }
