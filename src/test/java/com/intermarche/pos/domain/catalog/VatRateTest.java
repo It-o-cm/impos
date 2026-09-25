@@ -187,4 +187,29 @@ class VatRateTest {
         VatRate rate = regime(1, "0.2000", "Taux normal");
         assertEquals(Objects.hash(rate.number, rate.rate, rate.label), rate.getChecksum());
     }
+
+    /**
+     * {@code findByRate} returns null at once for a null rate — the null-rate
+     * arm of its guard — without touching the referential.
+     */
+    @Test
+    void findByRateReturnsNullForANullRate() {
+        assertNull(VatRate.findByRate(null));
+    }
+
+    /**
+     * {@code findByRate} queries on a non-null rate and returns the first row —
+     * the non-null arm of its guard.
+     */
+    @Test
+    void findByRateReturnsTheQueriedRegime() {
+        VatRate expected = regime(1, "0.2000", "Taux normal");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<VatRate> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(expected);
+            panache.when(() -> VatRate.find("rate", new BigDecimal("0.2000"))).thenReturn(query);
+            assertSame(expected, VatRate.findByRate(new BigDecimal("0.2000")));
+        }
+    }
 }
