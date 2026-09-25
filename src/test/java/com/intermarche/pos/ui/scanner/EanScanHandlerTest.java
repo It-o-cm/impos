@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.scanner;
 
 import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -14,8 +14,15 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link EanScanHandler}.
@@ -548,5 +555,57 @@ class EanScanHandlerTest {
             newHandler().handle(ctx);
         }
         verify(ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * LC-02-03-01/03: an article the referential does not fully carry PARKS the
+     * add behind the entry prompt — {@code suspendForEntry} answers true, so the
+     * context is consumed and NO line is created (the true arm of the entry
+     * suspension, distinct from the age gate).
+     */
+    @Test
+    void entrySuspensionParksTheScanAndAddsNoLine() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(CODE, state);
+        EanScanHandler handler = newHandler(false);
+        when(handler.ticketService.suspendForEntry(state, p, null)).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubProductFind(panache, p);
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(handler.ticketService).suspendForEntry(state, p, null);
+        verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+        verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * A sellable product whose current price names NO regime — its {@code vat}
+     * is null, so {@code vatRate()} is null — freezes the price but falls back
+     * to the injected default VAT rate: the arm of the
+     * {@code price != null && price.vatRate() != null} guard where the first leg
+     * holds and the second does not.
+     */
+    @Test
+    void productWithPriceButNoVatRateUsesDefaultVat() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        Product p = newProduct(false);
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("2.3000");
+        price.vat = null;
+        ScanContext ctx = new ScanContext(CODE, state);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> prices = mockStatic(Price.class)) {
+            stubProductFind(panache, p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            newHandler().handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        verify(ticket).addItem(eq(CODE), isNull(), eq("COCA COLA"),
+                eq(new BigDecimal("2.3000")), eq(BigDecimal.ONE), eq(DEFAULT_VAT));
+        verify(ticket, never()).setError("PRODUIT INTERDIT À LA VENTE");
     }
 }
