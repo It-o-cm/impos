@@ -24,6 +24,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link ValuationService}.
@@ -1111,5 +1121,35 @@ class ValuationServiceTest {
         assertNull(dto.pricePerUnitInclTax);
         assertNull(dto.vatRate);
         assertNull(dto.pricePerUnitExclTax);
+    }
+
+    /**
+     * buildBasket carries the line's GS1 expiry date onto the request when the
+     * line bears one (the {@code gs1ExpiryDate != null} true arm of
+     * {@code buildBasket}): the ISO date string of the {@link java.time.LocalDate}
+     * lands on the request line's {@code expiryDate}, while a sibling line with
+     * no expiry leaves that field null (the false arm, already covered here for
+     * completeness).
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateCarriesGs1ExpiryDateWhenPresent() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("10.00"));
+        TicketState.TicketItem dated = item("E", "3560070000001", "10", "1");
+        dated.gs1ExpiryDate = java.time.LocalDate.of(2026, 12, 31);
+        TicketState.TicketItem plain = item("P", "3560070000002", "10", "1");
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Store> storeQuery = query(null);
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(dated, plain), null, LocalDateTime.of(2026, 8, 3, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        assertEquals("2026-12-31", captor.getValue().items.get(0).bestBeforeDate);
+        assertNull(captor.getValue().items.get(1).bestBeforeDate);
     }
 }
