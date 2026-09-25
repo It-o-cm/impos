@@ -14,9 +14,17 @@ import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link RemoteCloseService}.
@@ -380,5 +388,28 @@ class RemoteCloseServiceTest {
         for (HttpRequest request : sent(service)) {
             assertEquals("secret", request.headers().firstValue("X-Sync-Token").orElse(null));
         }
+    }
+
+    /**
+     * An acknowledgement answered BELOW 200 is a failure too — the low operand
+     * of the acknowledgement's own status guard, the mirror of the collection's
+     * {@code statusCode < 200} arm. The GET succeeds with a known close order,
+     * but the POST that acknowledges it comes back 1xx, so the whole turn throws
+     * on the ack path.
+     *
+     * @throws Exception never, the mocked send declares it
+     */
+    @Test
+    void anAcknowledgementAnsweredBelow200Fails() throws Exception {
+        RemoteCloseService service = newService("007");
+        when(service.httpClient.send(any(), any())).thenAnswer(invocation -> {
+            HttpRequest request = invocation.getArgument(0);
+            return "GET".equals(request.method())
+                    ? resp(200, "[{\"uid\":\"u-1\",\"type\":\"CLOSE_SESSION\"}]")
+                    : resp(100, "");
+        });
+        IllegalStateException failure = assertThrows(IllegalStateException.class, service::collectOnce);
+        assertTrue(failure.getMessage().contains("HTTP 100"));
+        assertTrue(failure.getMessage().contains("/api/commands/u-1/ack"));
     }
 }
