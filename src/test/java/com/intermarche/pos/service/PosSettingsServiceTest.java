@@ -882,4 +882,35 @@ class PosSettingsServiceTest {
         }
     }
 
+    /**
+     * {@code customerCreditTender} returns the stored key TRIMMED when it is
+     * present and non-blank (BO-10-04-09): both compound-guard legs are false
+     * ({@code key == null} false, {@code key.isBlank()} false) and the ternary
+     * takes its false arm, {@code key.trim()}.
+     */
+    @Test
+    void customerCreditTenderTrimsStoredKey() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.credit-tender", "  CB_CREDIT  ")));
+            assertEquals("CB_CREDIT", service.customerCreditTender());
+        }
+    }
+
+    /**
+     * {@code customerCreditTender} falls back to {@code CREDIT} when the stored
+     * value is blank (BO-10-04-09): the first guard leg {@code key == null} is
+     * false, the second leg {@code key.isBlank()} is true, and the ternary takes
+     * its true arm. The {@code key == null} true leg is UNREACHABLE through this
+     * accessor because {@code value("customer.credit-tender")} never yields null
+     * for a catalog key carrying the default {@code CREDIT}.
+     */
+    @Test
+    void customerCreditTenderFallsBackToCreditWhenBlank() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.credit-tender", "   ")));
+            assertEquals("CREDIT", service.customerCreditTender());
+        }
+    }
 }
