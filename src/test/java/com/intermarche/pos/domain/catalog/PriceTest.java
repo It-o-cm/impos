@@ -222,4 +222,17 @@ class PriceTest {
                 price.startDateTime, price.endDateTime);
         Assertions.assertEquals(expected, price.getChecksum());
     }
+
+    /**
+     * A price naming no regime reports a null rate and a null number — the
+     * null-regime arm of both readers, which every priced regime leaves
+     * uncovered.
+     */
+    @Test
+    void vatRateAndNumberAreNullWhenThePriceNamesNoRegime() {
+        Price price = new Price();
+        price.vat = null;
+        Assertions.assertNull(price.vatRate());
+        Assertions.assertNull(price.vatNumber());
+    }
 }
