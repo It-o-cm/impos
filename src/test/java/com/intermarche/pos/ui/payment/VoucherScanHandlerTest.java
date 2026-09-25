@@ -9,9 +9,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.never;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link VoucherScanHandler}, exercising every branch of its
@@ -314,5 +323,86 @@ class VoucherScanHandlerTest {
         verify(voucherService, never()).applyRegistryVoucher(any(), any(), any());
         verify(voucherService, never()).applyEncodedVoucher(any(), any(), any());
         assertFalse(state.payment.voucherPanelOpen);
+    }
+
+    /**
+     * An INFORMATIVE control level speaks then lets the voucher through: the
+     * message is posted on the ticket, {@code refusedByControls} returns false,
+     * and the encoded voucher is still applied and the scan consumed.
+     */
+    @Test
+    void handleInformativeControlSpeaksButDoesNotRefuse() {
+        PosState state = nominalState();
+        ScanContext ctx = new ScanContext("GIFT500", state);
+        CouponType type = couponType("GIFT_VOUCHER", "Chèque cadeau", false);
+        when(voucherService.resolveType("GIFT500")).thenReturn(type);
+        when(couponCheckService.worst(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(com.intermarche.pos.domain.barcode.AlertLevel.INFO);
+        when(couponCheckService.message(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("DATE BIENTOT DEPASSEE");
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        assertEquals("DATE BIENTOT DEPASSEE", state.ticket.transientError);
+        verify(voucherService).applyEncodedVoucher(state, type, "GIFT500");
+    }
+
+    /**
+     * A BLOCKING control level speaks then refuses: the message is posted, the
+     * scan is consumed, and nothing is registered — neither the encoded nor the
+     * registry path is reached.
+     */
+    @Test
+    void handleBlockingControlSpeaksAndRefuses() {
+        PosState state = nominalState();
+        ScanContext ctx = new ScanContext("GIFT500", state);
+        CouponType type = couponType("GIFT_VOUCHER", "Chèque cadeau", false);
+        when(voucherService.resolveType("GIFT500")).thenReturn(type);
+        when(couponCheckService.worst(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(com.intermarche.pos.domain.barcode.AlertLevel.BLOCK);
+        when(couponCheckService.message(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("BON DEJA UTILISE");
+        handler.handle(ctx);
+        assertTrue(ctx.handled);
+        assertEquals("BON DEJA UTILISE", state.ticket.transientError);
+        verify(voucherService, never()).applyEncodedVoucher(any(), any(), any());
+        verify(voucherService, never()).applyRegistryVoucher(any(), any(), any());
+        assertFalse(state.payment.voucherPanelOpen);
+    }
+
+    /**
+     * When fidelity is active, the ticket's fidelity label is passed to the
+     * control engine (the true arm of the fidelity ternary); the register being
+     * unadministered, the voucher still goes through the encoded path.
+     */
+    @Test
+    void handlePassesFidelityLabelToControlsWhenFidelityActive() {
+        PosState state = nominalState();
+        state.fidelity.active = true;
+        state.fidelity.label = "CARTE FIDELITE";
+        ScanContext ctx = new ScanContext("GIFT500", state);
+        CouponType type = couponType("GIFT_VOUCHER", "Chèque cadeau", false);
+        when(voucherService.resolveType("GIFT500")).thenReturn(type);
+        handler.handle(ctx);
+        verify(couponCheckService).check(eq(type), eq("GIFT500"),
+                eq(state.ticket.totalAmount), eq("CARTE FIDELITE"));
+        verify(voucherService).applyEncodedVoucher(state, type, "GIFT500");
+    }
+
+    /**
+     * When fidelity is inactive, a null label is passed to the control engine
+     * (the false arm of the fidelity ternary), leaving the encoded path intact.
+     */
+    @Test
+    void handlePassesNullLabelToControlsWhenFidelityInactive() {
+        PosState state = nominalState();
+        state.fidelity.active = false;
+        state.fidelity.label = "IGNORED";
+        ScanContext ctx = new ScanContext("GIFT500", state);
+        CouponType type = couponType("GIFT_VOUCHER", "Chèque cadeau", false);
+        when(voucherService.resolveType("GIFT500")).thenReturn(type);
+        handler.handle(ctx);
+        verify(couponCheckService).check(eq(type), eq("GIFT500"),
+                eq(state.ticket.totalAmount), eq((String) null));
+        verify(voucherService).applyEncodedVoucher(state, type, "GIFT500");
     }
 }
