@@ -337,8 +337,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         family.products.clear();
         for (String ean : requestedEans) {
             Product p = productMap.get(ean);
-            if (p != null) {
-                family.products.add(p);
+            if (p != null) {family.products.add(p);
             } else {
                 // Throw exception to trigger rollback and fallback
                 throw new IllegalArgumentException("Product EAN '" + ean + "' not found.");
@@ -363,7 +362,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
             List<ProductFamily> subFamilies = ProductFamily.list("code IN ?1", requestedSubCodes);
             for (ProductFamily sf : subFamilies) subFamilyMap.put(sf.code, sf);
         }
-        return subFamilyMap;
+        return subFamilyMap == null ? Collections.emptyMap() : subFamilyMap;
     }
 
     /**
@@ -381,7 +380,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         if (productMap == null && !requestedEans.isEmpty()) {
             productMap = productsByEan(requestedEans);
         }
-        return productMap;
+        return productMap==null ? Collections.emptyMap() : productMap;
     }
 
     /**
