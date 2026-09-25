@@ -7,7 +7,11 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests of {@link InvoiceState}: the three steps, the two shortlists and the
@@ -187,5 +191,53 @@ class InvoiceStateTest {
         List<Ticket> given = tickets(3);
         state.tickets = given;
         assertSame(given.get(1), state.getVisibleTickets().get(1));
+    }
+
+    /**
+     * The document step reports itself and excludes the others — both arms of
+     * {@code isOnDocumentStep}.
+     */
+    @Test
+    void reportsTheDocumentStep() {
+        InvoiceState state = new InvoiceState();
+        assertFalse(state.isOnDocumentStep());
+        state.step = InvoiceState.Step.DOCUMENT;
+        assertTrue(state.isOnDocumentStep());
+        assertFalse(state.isOnTicketStep());
+    }
+
+    /**
+     * The insert step reports itself and excludes the others — both arms of
+     * {@code isOnInsertStep}.
+     */
+    @Test
+    void reportsTheInsertStep() {
+        InvoiceState state = new InvoiceState();
+        assertFalse(state.isOnInsertStep());
+        state.step = InvoiceState.Step.INSERT;
+        assertTrue(state.isOnInsertStep());
+        assertFalse(state.isOnPreviewStep());
+    }
+
+    /**
+     * Naming no kind yet gives an empty title — the null arm of
+     * {@code getDocumentTitle}.
+     */
+    @Test
+    void getDocumentTitleEmptyWhenNoKindIsNamed() {
+        InvoiceState state = new InvoiceState();
+        assertNull(state.documentType);
+        assertEquals("", state.getDocumentTitle());
+    }
+
+    /**
+     * A named kind hands back its printed title — the non-null arm of
+     * {@code getDocumentTitle}.
+     */
+    @Test
+    void getDocumentTitleFromTheNamedKind() {
+        InvoiceState state = new InvoiceState();
+        state.documentType = com.intermarche.pos.domain.sale.DocumentType.FACTURE;
+        assertEquals("FACTURE", state.getDocumentTitle());
     }
 }
