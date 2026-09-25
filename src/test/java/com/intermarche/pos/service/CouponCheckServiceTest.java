@@ -1,6 +1,10 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.barcode.*;
+import com.intermarche.pos.domain.barcode.AlertLevel;
+import com.intermarche.pos.domain.barcode.CouponControl;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponScan;
+import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -17,7 +21,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link CouponCheckService}, targeting 100% branch coverage.
@@ -1237,5 +1246,71 @@ class CouponCheckServiceTest {
         control(type, CouponControl.Kind.OTHER_ISLAND, AlertLevel.BLOCK);
         Assertions.assertTrue(checkOnIsland(type, "POS01",
                 List.of(island("AVANT", "POS01"))).isEmpty());
+    }
+
+    // --- Branch completion (missed legs) ---
+
+    /**
+     * The mismatch control stays silent when the administered card position is
+     * present but reads BLANK — a non-null yet blank card part contradicts no
+     * card (the {@code expected.isBlank()} leg of the guard).
+     */
+    @Test
+    void theMismatchControlStaysSilentOnABlankCardPart() {
+        CouponType type = range(13);
+        control(type, CouponControl.Kind.FIDELITY_MISMATCH, AlertLevel.BLOCK);
+        field(type, CouponField.Role.CARD_MATCH, 7, 3).kind = CouponField.Kind.ALPHANUMERIC;
+        // Positions 7..9 of this code hold three spaces: a blank, non-null part.
+        Assertions.assertTrue(checkWithCard(type, "2990000   019", "3010000000123").isEmpty());
+    }
+
+    /**
+     * The key control finds nothing when the shop-number position is present but
+     * reads null on a code too short to carry it — the FIRST leg of the
+     * {@code rawNumber == null || rawCheck == null} guard, reached before the key
+     * position is read.
+     */
+    @Test
+    void storeCheckFindsNothingWhenTheNumberReadsNull() {
+        CouponType type = range(6);
+        field(type, CouponField.Role.STORE_NUMBER, 10, 4);
+        field(type, CouponField.Role.STORE_CHECK_DIGIT, 0, 1);
+        control(type, CouponControl.Kind.STORE_CHECK, AlertLevel.BLOCK);
+        Assertions.assertTrue(check(type, "010179", BigDecimal.ZERO).isEmpty());
+    }
+
+    /**
+     * The shop control falls back on character comparison when the code number
+     * is numeric but the register's own store code is NOT — the second leg
+     * ({@code b == null}) of the parse guard — and refuses a code that does not
+     * match those characters.
+     */
+    @Test
+    void otherStoreFallsBackWhenOnlyTheStoreCodeIsNonNumeric() {
+        CouponType type = range(8);
+        field(type, CouponField.Role.STORE_NUMBER, 4, 4);
+        control(type, CouponControl.Kind.OTHER_STORE, AlertLevel.BLOCK);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubStore(panache, "AB");
+            stubLedger(panache, false);
+            assertOnly(service.check(type, "12340202", BigDecimal.ZERO),
+                    CouponControl.Kind.OTHER_STORE, "BON D'UN AUTRE MAGASIN");
+        }
+    }
+
+    /**
+     * The key control refuses a shop number holding a character BELOW '0' — the
+     * {@code c < '0'} leg of the digit guard — the digit sum then being
+     * unreadable so the administered key cannot check out.
+     */
+    @Test
+    void storeCheckFiresOnAShopNumberBelowDigits() {
+        CouponType type = range(6);
+        field(type, CouponField.Role.STORE_NUMBER, 0, 4).kind = CouponField.Kind.ALPHANUMERIC;
+        field(type, CouponField.Role.STORE_CHECK_DIGIT, 4, 1);
+        control(type, CouponControl.Kind.STORE_CHECK, AlertLevel.BLOCK);
+        // Position 1 holds a space (0x20), which is below '0'.
+        assertOnly(check(type, "0 0129", BigDecimal.ZERO),
+                CouponControl.Kind.STORE_CHECK, "CLE MAGASIN INCORRECTE");
     }
 }
