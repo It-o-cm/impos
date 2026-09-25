@@ -6,7 +6,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests of the GS1 decoder ({@code LC-11-01-11}, {@code LC-11-02-01/03/06},
@@ -426,5 +430,95 @@ class Gs1ParserTest {
     void aKnownElementCarriesTheTablesIdentifier() {
         assertSame(Gs1ApplicationIdentifier.of("01"),
                 Gs1Parser.parse("(01)03560070123456").get("01").identifier());
+    }
+
+    // --------------------------------------------------
+    // Enrichment: the last uncovered branches
+    // --------------------------------------------------
+
+    /**
+     * A payload long enough to be a bare Element String but NOT starting with the
+     * article identifier is refused — the startsWith leg of the bare-form exception,
+     * distinct from the all-digits leg already covered.
+     */
+    @Test
+    void aLongPayloadNotStartingWithTheArticleIdentifierIsNotGs1() {
+        assertTrue(Gs1Parser.parse("999999999999999999").isEmpty());
+    }
+
+    /**
+     * A payload prefixed with a symbology identifier is stripped of the prefix and
+     * decoded — both true legs of the prefix guard in the Element String reader.
+     */
+    @Test
+    void aSymbologyPrefixedPayloadIsStrippedAndDecoded() {
+        Gs1Message message = Gs1Parser.parse("]C1010952600013436710A");
+        assertEquals("09526000134367", message.value("01"));
+        assertEquals("A", message.value("10"));
+    }
+
+    /**
+     * A parenthesised payload too short to carry a two-digit identifier decodes to
+     * nothing — the short-body leg of the prefix guard, the empty-element result and
+     * the truncated-unknown leg that returns before reading anything.
+     */
+    @Test
+    void aParenthesisPayloadTooShortToCarryAnIdentifierDecodesToNothing() {
+        assertTrue(Gs1Parser.parse("(1)").isEmpty());
+    }
+
+    /**
+     * An empty parenthesis pair leaves an empty body and decodes to nothing — the
+     * empty-body leg of the Element String reader.
+     */
+    @Test
+    void anEmptyParenthesisPairDecodesToNothing() {
+        assertTrue(Gs1Parser.parse("()").isEmpty());
+    }
+
+    /**
+     * A decimal identifier whose decimal-place position is not a digit takes zero
+     * decimal places rather than failing — the false leg of the decimal-digit ternary.
+     */
+    @Test
+    void aDecimalIdentifierFollowedByANonDigitTakesNoDecimals() {
+        assertEquals("BCDEF", Gs1Parser.parse("(310)ABCDEF").value("310"));
+    }
+
+    /**
+     * A Digital Link whose query string carries a valueless parameter, a non-digit
+     * name, a short unknown identifier, an unknown identifier whose stem is unknown and
+     * one whose stem is known but not decimal keeps the article the path names and
+     * drops none of it — every remaining leg of the query decoder and the pair adder.
+     */
+    @Test
+    void aDigitalLinkWithAwkwardQueryParametersKeepsWhatItCan() {
+        Gs1Message message = Gs1Parser.parse(
+                "https://example.com/01/09526000134367?flag&foo=bar&99=ZZ&999=X&011=Y");
+        assertEquals("09526000134367", message.value("01"));
+    }
+
+    /**
+     * A Digital Link with an empty path segment skips it and still reads the pairs on
+     * either side — the empty-string leg of the digits test.
+     */
+    @Test
+    void aDigitalLinkWithAnEmptyPathSegmentSkipsIt() {
+        Gs1Message message = Gs1Parser.parse("https://x.io/01/09526000134367//10/ABC");
+        assertEquals("09526000134367", message.value("01"));
+        assertEquals("ABC", message.value("10"));
+    }
+
+    /**
+     * An unknown identifier closed by a separator is read and the reading goes on to
+     * the elements that follow, and a known variable-length element closed by a
+     * separator stops there rather than at the payload's end — the separator-found legs
+     * of the unknown reader and of the known variable-length reader.
+     */
+    @Test
+    void separatedElementsAreEachClosedByTheirSeparator() {
+        Gs1Message message = Gs1Parser.parse("99AB" + GS + "10CD" + GS + "21EF");
+        assertEquals("CD", message.value("10"));
+        assertEquals("EF", message.value("21"));
     }
 }
