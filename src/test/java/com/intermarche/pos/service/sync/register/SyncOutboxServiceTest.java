@@ -1,21 +1,20 @@
 package com.intermarche.pos.service.sync.register;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intermarche.pos.domain.payment.CardPayment;
-import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.payment.VoucherPayment;
-import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.sale.RefundLine;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.SyncEndpoints;
-import com.intermarche.pos.service.sync.SyncPayloads;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.VoucherPayment;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -25,10 +24,21 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import com.intermarche.pos.service.sync.SyncPayloads;
 
 /**
  * Unit tests for {@link SyncOutboxService}.
@@ -163,7 +173,7 @@ class SyncOutboxServiceTest {
             SyncOutbox row = created.constructed().get(0);
             assertEquals(SyncOutbox.EntityType.SESSION, row.entityType);
             assertEquals(42L, row.entityId);
-            assertNotNull(row.createdAt);
+            assertTrue(row.createdAt != null);
             verify(row, times(1)).persist();
         }
     }
@@ -1229,6 +1239,100 @@ class SyncOutboxServiceTest {
                     .readValue(service.prepare(1L).json, SyncPayloads.DocumentDto.class);
             assertNull(out.customerDueDate);
             assertEquals(new BigDecimal("1.50"), out.totalEcoTax);
+        }
+    }
+
+    /**
+     * Covers the entity-gone arm of the DOCUMENT case of {@code prepare}: the
+     * outbox row exists but its invoice vanished, so preparation yields null
+     * (the {@code document == null} true arm).
+     */
+    @Test
+    void prepareDocumentReturnsNullWhenDocumentGone() {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.DOCUMENT;
+        row.entityId = 100L;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> com.intermarche.pos.domain.sale.Invoice.findById(100L))
+                    .thenReturn(null);
+            assertNull(service.prepare(1L));
+        }
+    }
+
+    /**
+     * Covers the non-null arm of the {@code modifierType} ternary in the TICKET
+     * line mapping (line 390): a line bearing a price modifier carries the enum
+     * WORD into the payload, which round-trips to the expected name.
+     */
+    @Test
+    void prepareTicketSerializesLineModifierWord() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.TICKET;
+        row.entityId = 100L;
+        Ticket ticket = new Ticket();
+        ticket.ticketNumber = "K5";
+        ticket.terminalId = "T5";
+        ticket.status = Ticket.TicketStatus.CLOSED;
+        ticket.valuationStatus = Ticket.ValuationStatus.VALUATED;
+        ticket.creationDate = LocalDateTime.of(2026, 5, 5, 10, 0, 0);
+        ticket.itemCount = 1;
+        ticket.totalExcludingTax = new BigDecimal("10.00");
+        ticket.totalIncludingTax = new BigDecimal("12.00");
+        ticket.totalVat = new BigDecimal("2.00");
+        TicketLine line = new TicketLine();
+        line.lineNumber = 1;
+        line.lineUid = "U5";
+        line.productLabel = "Pomme";
+        line.quantity = new BigDecimal("1");
+        line.unitPrice = new BigDecimal("12.00");
+        line.totalPrice = new BigDecimal("10.00");
+        line.modifierType = com.intermarche.pos.ui.PriceModType.REMISE;
+        line.modifierValue = new BigDecimal("2.00");
+        line.modifierLabel = "SAISIE REMISE (€)";
+        ticket.lines.add(line);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> Ticket.findById(100L)).thenReturn(ticket);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            SyncPayloads.TicketDto out = new ObjectMapper().readValue(item.json, SyncPayloads.TicketDto.class);
+            assertEquals(1, out.lines.size());
+            assertEquals("REMISE", out.lines.get(0).modifierType);
+            assertEquals(new BigDecimal("2.00"), out.lines.get(0).modifierValue);
+        }
+    }
+
+    /**
+     * Covers the null arms of the DOCUMENT mapping the {@link #billedDocument()}
+     * fixture never reaches: the {@code documentType == null} true arm (line
+     * 516), the {@code issueDate == null} true arm (line 518) and the
+     * {@code customerAddress != null} false arm (line 531). All three payload
+     * fields stay null after the round-trip.
+     */
+    @Test
+    void prepareDocumentSerializesWithNullTypeDateAndAddress() throws Exception {
+        SyncOutboxService service = enabledService("http://store");
+        SyncOutbox row = new SyncOutbox();
+        row.entityType = SyncOutbox.EntityType.DOCUMENT;
+        row.entityId = 100L;
+        com.intermarche.pos.domain.sale.Invoice document = billedDocument();
+        document.documentType = null;
+        document.issueDate = null;
+        document.customerAddress = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> SyncOutbox.findById(1L)).thenReturn(row);
+            mocked.when(() -> com.intermarche.pos.domain.sale.Invoice.findById(100L))
+                    .thenReturn(document);
+            SyncOutboxService.PreparedItem item = service.prepare(1L);
+            SyncPayloads.DocumentDto out =
+                    new ObjectMapper().readValue(item.json, SyncPayloads.DocumentDto.class);
+            assertNull(out.documentType);
+            assertNull(out.issueDate);
+            assertNull(out.customerStreet);
+            assertNull(out.customerPostalCode);
+            assertNull(out.customerCity);
         }
     }
 }
