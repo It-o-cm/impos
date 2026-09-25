@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -10,16 +10,30 @@ import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.qute.Template;
+import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for the two drawer gestures ({@code LC-12-03} withdrawal and
@@ -226,7 +240,7 @@ class DrawerOperationsResourceTest {
         private boolean supervisor = false;
 
         /** Whether the presented credentials are accepted. */
-        private final boolean authorized = false;
+        private boolean authorized = false;
 
         /** The action code of the last parked request, or null when none. */
         private String parkedAction;
@@ -893,6 +907,111 @@ class DrawerOperationsResourceTest {
     void aRecordedWithdrawalTouchesTheState() {
         long before = state.version;
         resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
-        assertNotEquals(state.version, before);
+        assertFalse(state.version == before);
+    }
+
+    /**
+     * Builds a Qute template whose every {@code data(key, value)} call, on the template
+     * and on the instance it hands back, records the pair into the given sink and returns
+     * that same self-chaining instance, so a rendered page can be asserted by its data.
+     *
+     * @param sink the map the recorded key-and-value pairs are written into
+     * @return a mock template that captures the whole chain into the sink
+     */
+    private Template recordingTemplate(Map<String, Object> sink) {
+        TemplateInstance instance = mock(TemplateInstance.class);
+        when(instance.data(anyString(), any())).thenAnswer(invocation -> {
+            sink.put(invocation.getArgument(0), invocation.getArgument(1));
+            return instance;
+        });
+        Template template = mock(Template.class);
+        when(template.data(anyString(), any())).thenAnswer(invocation -> {
+            sink.put(invocation.getArgument(0), invocation.getArgument(1));
+            return instance;
+        });
+        return template;
+    }
+
+    /**
+     * The withdrawal page feeds the template on every arm of its computed flags: no
+     * tender chosen leaves the selection null and every flag false; the cash tender is
+     * flagged as cash and, being above the threshold, as needing an endorsement; a
+     * non-cash tender below the threshold is neither. The saved flag and the error
+     * wording follow the presence of the {@code ok} and {@code error} query values.
+     */
+    @Test
+    void theWithdrawalPageFeedsEveryComputedFlag() {
+        Map<String, Object> sink = new LinkedHashMap<>();
+        resource.withdrawal = recordingTemplate(sink);
+        resource.withdrawalPage(null, null, null);
+        assertNull(sink.get("selected"));
+        assertEquals(Boolean.FALSE, sink.get("isCash"));
+        assertEquals(Boolean.FALSE, sink.get("needsEndorsement"));
+        assertEquals(Boolean.FALSE, sink.get("saved"));
+        assertNull(sink.get("error"));
+        assertEquals("100.00", sink.get("threshold"));
+        resource.withdrawalPage(CashMovement.CASH, "no-session", "1");
+        assertNotNull(sink.get("selected"));
+        assertEquals(Boolean.TRUE, sink.get("isCash"));
+        assertEquals(Boolean.TRUE, sink.get("needsEndorsement"));
+        assertEquals(Boolean.TRUE, sink.get("saved"));
+        assertEquals("AUCUNE SESSION OUVERTE", sink.get("error"));
+        resource.withdrawalPage("CHEQUE", null, null);
+        assertNotNull(sink.get("selected"));
+        assertEquals(Boolean.FALSE, sink.get("isCash"));
+        assertEquals(Boolean.FALSE, sink.get("needsEndorsement"));
+    }
+
+    /**
+     * The transfer page feeds the template with the saved flag and the error wording of
+     * both arms: an {@code ok} value and a known error code turn them on, their absence
+     * turns them off.
+     */
+    @Test
+    void theTransferPageFeedsSavedAndError() {
+        Map<String, Object> sink = new LinkedHashMap<>();
+        resource.transfer = recordingTemplate(sink);
+        resource.transferPage(null, null);
+        assertEquals(Boolean.FALSE, sink.get("saved"));
+        assertNull(sink.get("error"));
+        assertEquals("100.00", sink.get("threshold"));
+        resource.transferPage("training", "1");
+        assertEquals(Boolean.TRUE, sink.get("saved"));
+        assertEquals("INDISPONIBLE EN FORMATION", sink.get("error"));
+    }
+
+    /**
+     * A non-cash withdrawal above the threshold with no manager is parked, and the two
+     * fields it never received — the counted amount and the denomination detail, both
+     * meaningless for a whole-bundle tender — default to the empty string in the parked
+     * form rather than to null (the null arms of those two guards).
+     */
+    @Test
+    void aParkedNonCashWithdrawalDefaultsItsNullAmountAndDetail() {
+        methods.totals = Map.of(CashMovement.CASH, new BigDecimal("200.00"),
+                "CHEQUE", new BigDecimal("150.00"));
+        Response response = resource.recordWithdrawal("CHEQUE", null, null);
+        assertEquals("/withdrawal?method=CHEQUE", target(response));
+        assertNull(movements.recorded);
+        assertEquals("CHEQUE", endorsements.parkedForm.get("method"));
+        assertEquals("", endorsements.parkedForm.get("amount"));
+        assertEquals("", endorsements.parkedForm.get("detail"));
+    }
+
+    /**
+     * When an operator is logged, the movement is recorded against the employee the id
+     * resolves to (the non-null arm of the cashier lookup), so the withdrawal goes
+     * through and lands on the success screen.
+     */
+    @Test
+    void theCashierIsResolvedWhenAnOperatorIsLogged() {
+        state.auth.operatorId = 7L;
+        Employee cashier = new Employee();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            Response response = resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
+            assertEquals("/withdrawal?ok=1", target(response));
+        }
+        assertNotNull(movements.recorded);
     }
 }
