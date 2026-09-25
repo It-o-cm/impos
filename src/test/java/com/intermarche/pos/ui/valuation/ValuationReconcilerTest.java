@@ -702,4 +702,32 @@ class ValuationReconcilerTest {
             ms.verify(() -> Ticket.findById(DB_ID));
         }
     }
+
+    /**
+     * A draft-bearing apply with CORRECTION advantages persists the summed
+     * positive correction on the line (the correction.signum() &gt; 0 arm) and
+     * merges the correction labels: the same type twice takes the label-merge
+     * contains-true arm, a second distinct type takes the append arm.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyOnDraftPersistsCorrectionAmountAndMergesCorrectionLabels() throws Exception {
+        String response = json(
+                List.of(offer("O", "T", portion("L1", amount("2.00")))),
+                List.of(correction("EGALIM", detail("L1", "2.00")),
+                        correction("EGALIM", detail("L1", "3.00")),
+                        correction("CAP", detail("L1", "1.00"))));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<TicketLineValuation> mc = mockConstruction(TicketLineValuation.class)) {
+            Ticket draft = mock(Ticket.class);
+            ms.when(() -> Ticket.findById(DB_ID)).thenReturn(draft);
+            reconciler.apply(ticketWith(it), DB_ID, response);
+            TicketLineValuation trace = mc.constructed().get(0);
+            assertEquals(new BigDecimal("6.00"), trace.correctionAmount);
+            assertEquals("EGALIM; CAP", trace.correctionLabel);
+        }
+    }
 }
+
