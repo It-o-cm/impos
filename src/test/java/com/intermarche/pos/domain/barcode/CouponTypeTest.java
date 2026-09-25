@@ -1,14 +1,15 @@
 package com.intermarche.pos.domain.barcode;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
-
-import java.math.BigDecimal;
-import java.util.List;
-
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link CouponType}, targeting 100% branch coverage.
@@ -577,5 +578,132 @@ class CouponTypeTest {
     @Test
     void theAllNinesRuleIsOffByDefault() {
         Assertions.assertFalse(new CouponType().manualAmountOnAllNines);
+    }
+
+    // --- Îlots acceptés (BO-03-06-07) ---
+
+    /**
+     * acceptedOnIsland accepts everywhere when the range names no island: a null
+     * list (first leg of the first guard) is answered true for any island.
+     */
+    @Test
+    void acceptedOnIslandWithoutAListAcceptsEverywhere() {
+        CouponType type = new CouponType();
+        type.islandCodes = null;
+        Assertions.assertTrue(type.acceptedOnIsland("A"));
+    }
+
+    /**
+     * acceptedOnIsland accepts everywhere when the range names a blank list
+     * (second leg of the first guard).
+     */
+    @Test
+    void acceptedOnIslandWithABlankListAcceptsEverywhere() {
+        CouponType type = new CouponType();
+        type.islandCodes = "   ";
+        Assertions.assertTrue(type.acceptedOnIsland("A"));
+    }
+
+    /**
+     * acceptedOnIsland rejects a register belonging to no island when the range
+     * does name some (first leg of the second guard: null island).
+     */
+    @Test
+    void acceptedOnIslandRejectsANullIslandWhenAListIsNamed() {
+        CouponType type = new CouponType();
+        type.islandCodes = "A;B";
+        Assertions.assertFalse(type.acceptedOnIsland(null));
+    }
+
+    /**
+     * acceptedOnIsland rejects a register whose island is blank when the range
+     * names some (second leg of the second guard: blank island).
+     */
+    @Test
+    void acceptedOnIslandRejectsABlankIslandWhenAListIsNamed() {
+        CouponType type = new CouponType();
+        type.islandCodes = "A;B";
+        Assertions.assertFalse(type.acceptedOnIsland("   "));
+    }
+
+    /**
+     * acceptedOnIsland accepts a named island, trimming both the query and the
+     * stored entries before comparing (the loop match arm returns true).
+     */
+    @Test
+    void acceptedOnIslandAcceptsANamedIsland() {
+        CouponType type = new CouponType();
+        type.islandCodes = "A; B ;C";
+        Assertions.assertTrue(type.acceptedOnIsland(" B "));
+    }
+
+    /**
+     * acceptedOnIsland rejects an island absent from the named list (the loop
+     * exhausts without a match and returns false).
+     */
+    @Test
+    void acceptedOnIslandRejectsAnUnnamedIsland() {
+        CouponType type = new CouponType();
+        type.islandCodes = "A;B";
+        Assertions.assertFalse(type.acceptedOnIsland("Z"));
+    }
+
+    // --- findActiveByCode (LC-11-03-05/06) ---
+
+    /**
+     * findActiveByCode returns null for a null code (first leg of the ternary
+     * condition), never touching the finder.
+     */
+    @Test
+    void findActiveByCodeNullCodeIsNull() {
+        Assertions.assertNull(CouponType.findActiveByCode(null));
+    }
+
+    /**
+     * findActiveByCode returns null for a blank code (second leg of the ternary
+     * condition), never touching the finder.
+     */
+    @Test
+    void findActiveByCodeBlankCodeIsNull() {
+        Assertions.assertNull(CouponType.findActiveByCode("   "));
+    }
+
+    /**
+     * findActiveByCode delegates to the active-by-code finder on a real code,
+     * trimming it first (the false arm of the ternary), and hands back the first
+     * result.
+     */
+    @Test
+    void findActiveByCodeDelegatesToTheFinder() {
+        CouponType expected = new CouponType();
+        @SuppressWarnings("unchecked")
+        PanacheQuery<CouponType> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(expected);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> CouponType.find("code = ?1 and active = true", "ABC"))
+                    .thenReturn(query);
+            Assertions.assertSame(expected, CouponType.findActiveByCode("  ABC  "));
+        }
+    }
+
+    // --- hasAllNinesPrice: the empty-raw defensive arm ---
+
+    /**
+     * hasAllNinesPrice returns false when the administered price field reads an
+     * EMPTY (non-null) raw slice (second leg of the raw guard). A real
+     * {@link CouponField} never yields an empty slice, so the price field is a
+     * Mockito mock stubbed to return the empty string, exercising the defensive
+     * guard directly.
+     */
+    @Test
+    void hasAllNinesPriceOnAnEmptyRawIsFalse() {
+        CouponType type = new CouponType();
+        type.amountSource = CouponType.AmountSource.ENCODED;
+        type.manualAmountOnAllNines = true;
+        CouponField price = mock(CouponField.class);
+        price.role = CouponField.Role.PRICE;
+        when(price.raw("9999")).thenReturn("");
+        type.fields.add(price);
+        Assertions.assertFalse(type.hasAllNinesPrice("9999"));
     }
 }
