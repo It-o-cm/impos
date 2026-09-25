@@ -1,9 +1,13 @@
 package com.intermarche.pos.ui.invoice;
 
 import com.intermarche.pos.domain.payment.AccountCustomer;
-import com.intermarche.pos.domain.sale.*;
 import com.intermarche.pos.domain.store.Address;
 import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sale.DocumentOutput;
+import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
@@ -16,7 +20,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests of {@link InvoiceService}, the invoice flow.
@@ -2365,5 +2374,57 @@ class InvoiceServiceTest {
         service.chooseTicket("C04-00000417", "", "");
         service.chooseCustomer(2L);
         assertEquals("", service.preview().customerTaxId);
+    }
+
+    /**
+     * The correction reaches the dedicated business-name guard with a NULL name when
+     * the administered mask does not require the field: {@code firstMissing} lets a
+     * name the mask does not demand through, so the null arm of {@code companyName ==
+     * null} on {@code updateCustomer}'s own guard is exercised — an arm the
+     * administered-mask refusal at the previous guard cannot reach.
+     */
+    @Test
+    void theCorrectionRefusesANullNameEvenWhenTheMaskDoesNotRequireIt() {
+        settings.customerFields = "city";
+        state.invoice.customer = fullCustomer(42L);
+        repository.customers.add(state.invoice.customer);
+        service.updateCustomer(null, "", "", "", "VAUCRESSON", "", "", "", "", "", "");
+        assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
+        assertTrue(repository.savedCustomers.isEmpty());
+    }
+
+    /**
+     * The correction reaches the same guard with a BLANK name when the mask does not
+     * require the field: the {@code companyName == null} arm is false and the
+     * {@code companyName.isBlank()} arm is true, the second true leg of
+     * {@code updateCustomer}'s dedicated business-name guard.
+     */
+    @Test
+    void theCorrectionRefusesABlankNameEvenWhenTheMaskDoesNotRequireIt() {
+        settings.customerFields = "city";
+        state.invoice.customer = fullCustomer(42L);
+        repository.customers.add(state.invoice.customer);
+        service.updateCustomer("   ", "", "", "", "VAUCRESSON", "", "", "", "", "", "");
+        assertEquals("RAISON SOCIALE OBLIGATOIRE", state.invoice.error);
+        assertTrue(repository.savedCustomers.isEmpty());
+    }
+
+    /**
+     * A shop administering NO default identifier at all — the parameter reading null,
+     * not merely blank — never replaces the printed identifier: the true (null) arm of
+     * the first leg of the wording guard, which every other case reaches only as blank.
+     */
+    @Test
+    void aShopAdministeringANullDefaultIdentifierNeverReplaces() {
+        settings.defaultTaxId = null;
+        settings.defaultTaxIdLabel = "CONSUMIDOR FINAL";
+        Ticket ticket = ticket(1L, "C04-00000417");
+        AccountCustomer customer = customer(2L, "BOULANGERIE");
+        customer.taxId = "PT123456789";
+        repository.tickets.add(ticket);
+        repository.customers.add(customer);
+        service.chooseTicket("C04-00000417", "", "");
+        service.chooseCustomer(2L);
+        assertEquals("PT123456789", service.preview().customerTaxId);
     }
 }
