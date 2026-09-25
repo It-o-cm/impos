@@ -1,21 +1,29 @@
 package com.intermarche.pos.service.sync;
 
-import com.intermarche.pos.domain.barcode.*;
-import com.intermarche.pos.domain.catalog.*;
 import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.barcode.AlertLevel;
+import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
+import com.intermarche.pos.domain.barcode.CouponControl;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.store.Country;
 import com.intermarche.pos.domain.payment.Currency;
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.setting.EchelonLevel;
 import com.intermarche.pos.domain.setting.EchelonSetting;
-import com.intermarche.pos.domain.setting.PosSetting;
-import com.intermarche.pos.domain.setting.TouchGroupSetting;
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sync.EngineFeed;
 import com.intermarche.pos.domain.store.Enseigne;
 import com.intermarche.pos.domain.store.Pdv;
-import com.intermarche.pos.domain.sync.EngineFeed;
+import com.intermarche.pos.domain.setting.PosSetting;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.catalog.ProductType;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -28,8 +36,19 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link RefApplyService}.
@@ -747,7 +766,7 @@ class RefApplyServiceTest {
             RefState state = created.constructed().get(0);
             assertEquals("products", state.domain);
             assertEquals("fp-123", state.fingerprint);
-            assertNotNull(state.appliedAt);
+            assertTrue(state.appliedAt != null);
             verify(state, times(1)).persist();
         }
     }
@@ -765,7 +784,7 @@ class RefApplyServiceTest {
             mocked.when(() -> RefState.find("domain", "products")).thenReturn(existingQuery);
             service.recordApplied("products", "fp-456");
             assertEquals("fp-456", existing.fingerprint);
-            assertNotNull(existing.appliedAt);
+            assertTrue(existing.appliedAt != null);
             verify(existing, times(1)).persist();
         }
     }
@@ -1738,5 +1757,235 @@ class RefApplyServiceTest {
             assertNull(created.constructed().get(0).documentType);
             assertNull(created.constructed().get(1).documentType);
         }
+    }
+
+    // --------------------------------------------------
+    // applyTouchGroups — the seen-contains arm of the deletion sweep
+    // --------------------------------------------------
+
+    /**
+     * Covers the false arm of the {@code applyTouchGroups} deletion guard
+     * ({@code !seen.contains(...)}): a stored setting whose family code is still
+     * carried by the snapshot survives the sweep untouched — it is upserted, not
+     * deleted, so a group the back office still administers keeps its touch.
+     */
+    @Test
+    void applyTouchGroupsKeepsRowsStillInTheSnapshot() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.TouchGroupDto dto = new RefPayloads.TouchGroupDto();
+        dto.familyCode = "F1";
+        dto.pinned = false;
+        dto.buttonSize = "NORMAL";
+        dto.displayOrder = 1;
+        dto.salesVolume = 0L;
+        TouchGroupSetting kept = mock(TouchGroupSetting.class);
+        kept.familyCode = "F1";
+        PanacheQuery<TouchGroupSetting> existingQuery = queryReturning(kept);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> TouchGroupSetting.find("familyCode", "F1")).thenReturn(existingQuery);
+            mocked.when(() -> TouchGroupSetting.listAll()).thenReturn(List.of(kept));
+            service.applyTouchGroups(List.of(dto));
+            assertEquals("NORMAL", kept.buttonSize);
+            assertEquals(1, kept.displayOrder);
+            verify(kept, never()).delete();
+        }
+    }
+
+    // --------------------------------------------------
+    // feedContent
+    // --------------------------------------------------
+
+    /**
+     * Covers both arms of the {@code feedContent} ternary
+     * ({@code feed == null ? null : feed.content}): a feed this register holds
+     * returns its raw content, and a domain it holds no feed for returns null.
+     */
+    @Test
+    void feedContentReturnsRawWhenHeldAndNullOtherwise() {
+        RefApplyService service = new RefApplyService();
+        EngineFeed feed = mock(EngineFeed.class);
+        feed.content = "ean;plu\n3001;100";
+        PanacheQuery<EngineFeed> presentQuery = queryReturning(feed);
+        PanacheQuery<EngineFeed> absentQuery = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> EngineFeed.find("code", "PRODUCTS")).thenReturn(presentQuery);
+            mocked.when(() -> EngineFeed.find("code", "ABSENT")).thenReturn(absentQuery);
+            assertEquals("ean;plu\n3001;100", service.feedContent("PRODUCTS"));
+            assertNull(service.feedContent("ABSENT"));
+        }
+    }
+
+    // --------------------------------------------------
+    // applyFromFile
+    // --------------------------------------------------
+
+    /**
+     * Covers every arm of {@code applyFromFile}: the three served domains route
+     * to their importer and return its non-null answer (switch PRODUCTS /
+     * FAMILIES / PRICES arms, {@code answer == null} false arm), while an
+     * unserved domain falls to the switch default and returns null (default arm,
+     * {@code answer == null} true arm).
+     */
+    @Test
+    void applyFromFileRoutesEachDomainAndReturnsNullForUnknown() {
+        RefApplyService service = new RefApplyService();
+        service.productImporter = mock(com.intermarche.pos.imports.ProductCsvResource.class);
+        service.familyImporter = mock(com.intermarche.pos.imports.ProductFamilyCsvResource.class);
+        service.priceImporter = mock(com.intermarche.pos.imports.PriceCsvResource.class);
+        jakarta.ws.rs.core.Response productAnswer = mock(jakarta.ws.rs.core.Response.class);
+        jakarta.ws.rs.core.Response familyAnswer = mock(jakarta.ws.rs.core.Response.class);
+        jakarta.ws.rs.core.Response priceAnswer = mock(jakarta.ws.rs.core.Response.class);
+        when(productAnswer.getEntity()).thenReturn("42 produit(s)");
+        when(familyAnswer.getEntity()).thenReturn("7 famille(s)");
+        when(priceAnswer.getEntity()).thenReturn("3 prix");
+        when(service.productImporter.importProducts(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(productAnswer);
+        when(service.familyImporter.importProductFamilies(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(familyAnswer);
+        when(service.priceImporter.importPrices(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(priceAnswer);
+        assertSame(productAnswer, service.applyFromFile("PRODUCTS", "ean;plu\n3001;100"));
+        assertSame(familyAnswer, service.applyFromFile("FAMILIES", "code\nF1"));
+        assertSame(priceAnswer, service.applyFromFile("PRICES", "ean;price\n3001;1.20"));
+        assertNull(service.applyFromFile("STOCKS", "whatever"));
+    }
+
+    // --------------------------------------------------
+    // applyPostalCodes
+    // --------------------------------------------------
+
+    /**
+     * Covers every arm of {@code applyPostalCodes} and, through it, both
+     * ternaries of {@code pairOf}: an unknown pair is inserted (row-null true
+     * arm) with a non-null code and place (both {@code pairOf} false arms), a
+     * known pair is updated (row-null false arm) whose null code and null place
+     * exercise both {@code pairOf} true arms, then the deletion sweep keeps a
+     * row still named by the snapshot (seen-contains false arm) and deletes one
+     * the snapshot dropped (seen-contains true arm).
+     */
+    @Test
+    void applyPostalCodesUpsertsByPairAndDeletesAbsent() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.PostalCodeDto insert = new RefPayloads.PostalCodeDto();
+        insert.code = "69001";
+        insert.place = "Lyon";
+        insert.country = "FR";
+        RefPayloads.PostalCodeDto update = new RefPayloads.PostalCodeDto();
+        update.code = null;
+        update.place = null;
+        update.country = "PT";
+        com.intermarche.pos.domain.store.PostalCode existing =
+                mock(com.intermarche.pos.domain.store.PostalCode.class);
+        com.intermarche.pos.domain.store.PostalCode kept =
+                mock(com.intermarche.pos.domain.store.PostalCode.class);
+        kept.code = "69001";
+        kept.place = "Lyon";
+        com.intermarche.pos.domain.store.PostalCode stale =
+                mock(com.intermarche.pos.domain.store.PostalCode.class);
+        stale.code = "99999";
+        stale.place = "Gone";
+        PanacheQuery<com.intermarche.pos.domain.store.PostalCode> absentQuery = queryReturning(null);
+        PanacheQuery<com.intermarche.pos.domain.store.PostalCode> existingQuery = queryReturning(existing);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.store.PostalCode> created =
+                        mockConstruction(com.intermarche.pos.domain.store.PostalCode.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.store.PostalCode
+                    .find("code = ?1 and place = ?2", "69001", "Lyon")).thenReturn(absentQuery);
+            mocked.when(() -> com.intermarche.pos.domain.store.PostalCode
+                    .find("code = ?1 and place = ?2", (Object) null, (Object) null)).thenReturn(existingQuery);
+            mocked.when(com.intermarche.pos.domain.store.PostalCode::listAll)
+                    .thenReturn(List.of(kept, stale));
+            service.applyPostalCodes(List.of(insert, update));
+            com.intermarche.pos.domain.store.PostalCode inserted = created.constructed().get(0);
+            assertEquals("69001", inserted.code);
+            assertEquals("Lyon", inserted.place);
+            assertEquals("FR", inserted.country);
+            verify(inserted, times(1)).persist();
+            assertEquals("PT", existing.country);
+            verify(existing, times(1)).persist();
+            verify(kept, never()).delete();
+            verify(stale, times(1)).delete();
+        }
+    }
+
+    // --------------------------------------------------
+    // applyCustomers — origin, date and free-field branches
+    // --------------------------------------------------
+
+    /**
+     * Covers the arms of {@code applyCustomers} and its helpers untouched by the
+     * insert/update test: an existing customer whose free-field list is already
+     * non-null (address and free-field-null false arms) receives a rebuilt
+     * reserve from a non-null snapshot list ({@code dto.freeFields != null} true
+     * arm, one iterated field). Across three rows the {@code origin} helper sees
+     * a readable name (valueOf success), a blank string (isBlank true arm) and
+     * an unknown name (IllegalArgumentException catch), and the {@code date}
+     * helper sees a readable ISO date, a blank string and a malformed one
+     * (DateTimeParseException catch) — the null-false and isBlank-false arms of
+     * both guards included.
+     */
+    @Test
+    void applyCustomersCoversOriginDateAndFreeFieldBranches() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CustomerDto valid = customerDto("ACC1");
+        valid.origin = "INTEGRATED";
+        valid.dueDate = "2026-06-15";
+        RefPayloads.FreeFieldDto field = new RefPayloads.FreeFieldDto();
+        field.slot = 3;
+        field.label = "Contrat";
+        field.value = "V-99";
+        valid.freeFields = new java.util.ArrayList<>(List.of(field));
+        RefPayloads.CustomerDto blank = customerDto("ACC2");
+        blank.origin = "   ";
+        blank.dueDate = "   ";
+        blank.freeFields = null;
+        RefPayloads.CustomerDto bad = customerDto("ACC3");
+        bad.origin = "MARS";
+        bad.dueDate = "32/13/2026";
+        bad.freeFields = null;
+        AccountCustomer c1 = mock(AccountCustomer.class);
+        c1.address = new Address();
+        c1.freeFields = new java.util.ArrayList<>();
+        AccountCustomer c2 = mock(AccountCustomer.class);
+        c2.address = new Address();
+        c2.freeFields = new java.util.ArrayList<>();
+        AccountCustomer c3 = mock(AccountCustomer.class);
+        c3.address = new Address();
+        c3.freeFields = new java.util.ArrayList<>();
+        PanacheQuery<AccountCustomer> q1 = queryReturning(c1);
+        PanacheQuery<AccountCustomer> q2 = queryReturning(c2);
+        PanacheQuery<AccountCustomer> q3 = queryReturning(c3);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> AccountCustomer.find("accountNumber", "ACC1")).thenReturn(q1);
+            mocked.when(() -> AccountCustomer.find("accountNumber", "ACC2")).thenReturn(q2);
+            mocked.when(() -> AccountCustomer.find("accountNumber", "ACC3")).thenReturn(q3);
+            service.applyCustomers(List.of(valid, blank, bad));
+            assertEquals(AccountCustomer.Origin.INTEGRATED, c1.origin);
+            assertEquals(LocalDate.of(2026, 6, 15), c1.dueDate);
+            assertEquals(1, c1.freeFields.size());
+            assertEquals(3, c1.freeFields.get(0).slot);
+            assertEquals("Contrat", c1.freeFields.get(0).label);
+            assertEquals("V-99", c1.freeFields.get(0).value);
+            verify(c1, times(1)).persist();
+            assertEquals(AccountCustomer.Origin.REGISTER, c2.origin);
+            assertNull(c2.dueDate);
+            assertTrue(c2.freeFields.isEmpty());
+            assertEquals(AccountCustomer.Origin.REGISTER, c3.origin);
+            assertNull(c3.dueDate);
+        }
+    }
+
+    /**
+     * Builds a minimal account-customer payload leaving every optional field
+     * unset, so a test can override only the fields it exercises.
+     *
+     * @param account the account number (upsert key)
+     * @return the payload
+     */
+    private RefPayloads.CustomerDto customerDto(String account) {
+        RefPayloads.CustomerDto dto = new RefPayloads.CustomerDto();
+        dto.accountNumber = account;
+        dto.companyName = account + " SARL";
+        return dto;
     }
 }
