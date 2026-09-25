@@ -244,4 +244,19 @@ class NomenclatureTest {
         other.enseigneCode = "ITM";
         assertNotEquals(reference, other.getChecksum());
     }
+
+    /**
+     * A code whose level exists but whose level ABOVE is absent has no parent —
+     * the null-above arm of the parent guard, reached with a scheme that skips
+     * the intermediate rank.
+     */
+    @Test
+    void parentCodeOfHasNoParentWhenTheLevelAboveIsAbsent() {
+        Nomenclature itm = scheme("ITM_FR");
+        List<NomenclatureLevel> gapped = List.of(
+                level(0, "RACINE", 2, false), level(2, "SOUS", 8, false));
+        try (MockedStatic<PanacheEntityBase> mocked = withLevels(gapped)) {
+            assertNull(itm.parentCodeOf("10203040"));
+        }
+    }
 }
