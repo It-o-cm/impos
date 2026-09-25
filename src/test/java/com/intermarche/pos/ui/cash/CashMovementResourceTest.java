@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -24,7 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link CashMovementResource}.
@@ -230,7 +235,7 @@ class CashMovementResourceTest {
         TemplateInstance[] chain = stubPageChain(resource);
         assertSame(chain[4], resource.cashMovementPage("bogus", "1"));
         verify(chain[2]).data("saved", true);
-        verify(chain[3]).data("error", null);
+        verify(chain[3]).data("error", (String) null);
     }
 
     // --- record ---
@@ -495,5 +500,93 @@ class CashMovementResourceTest {
         assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null),
                 "/cash-movement?error=endorsement");
         verify(resource.state).touch();
+    }
+
+    /**
+     * An above-threshold record parked with a NULL amount, a NULL reason and a
+     * PRESENT tender exercises the opposite arm of three parking ternaries:
+     * {@code amountStr == null} true, {@code reason == null} true and
+     * {@code paymentMethod == null} false — the null fields land as empty
+     * strings and the present tender lands as itself in the parked form.
+     */
+    @Test
+    void recordParksNullAmountNullReasonAndPresentTender() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
+        assertRedirect(resource.record("WITHDRAWAL", null, null, "CB"),
+                "/cash-movement");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Map<String, String>> form = ArgumentCaptor.forClass(java.util.Map.class);
+        verify(resource.endorsementService).requestAuthorization(eq(resource.state),
+                eq("CASH_MOVEMENT"), form.capture(), eq("/cash-movement"));
+        assertEquals("WITHDRAWAL", form.getValue().get("type"));
+        assertEquals("", form.getValue().get("amount"));
+        assertEquals("", form.getValue().get("reason"));
+        assertEquals("CB", form.getValue().get("paymentMethod"));
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A parked movement replayed while the register slipped into training mode
+     * is blocked with the training redirect ({@code perform}'s
+     * {@code trainingMode} true arm, reachable only through
+     * {@code performEndorsed}); nothing is looked up or written.
+     */
+    @Test
+    void performEndorsedTrainingModeBlocked() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = true;
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("type", "WITHDRAWAL");
+        parked.put("amount", "150");
+        parked.put("reason", "Coffre");
+        parked.put("paymentMethod", null);
+        assertRedirect(resource.performEndorsed(parked, "22222222"),
+                "/cash-movement?error=training");
+        verifyNoInteractions(resource.cashSessionService);
+        verifyNoInteractions(resource.cashMovementService);
+    }
+
+    /**
+     * A parked movement replayed after the session closed is refused with the
+     * no-session redirect ({@code perform}'s {@code session == null} true arm);
+     * nothing reaches the movement service.
+     */
+    @Test
+    void performEndorsedNoSessionRedirects() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(null);
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("type", "WITHDRAWAL");
+        parked.put("amount", "150");
+        parked.put("reason", "Coffre");
+        parked.put("paymentMethod", null);
+        assertRedirect(resource.performEndorsed(parked, "22222222"),
+                "/cash-movement?error=no-session");
+        verifyNoInteractions(resource.cashMovementService);
+    }
+
+    /**
+     * A parked movement whose type name no longer parses is refused with the
+     * bad-type redirect ({@code perform}'s {@code type == null} true arm, via a
+     * null parked type); nothing reaches the movement service.
+     */
+    @Test
+    void performEndorsedBadTypeRedirects() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
+        parked.put("type", null);
+        parked.put("amount", "150");
+        parked.put("reason", "Coffre");
+        parked.put("paymentMethod", null);
+        assertRedirect(resource.performEndorsed(parked, "22222222"),
+                "/cash-movement?error=bad-type");
+        verifyNoInteractions(resource.cashMovementService);
     }
 }
