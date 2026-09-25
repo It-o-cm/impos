@@ -1,12 +1,12 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import org.mockito.MockedStatic;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.MockedStatic;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -19,10 +19,22 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link RefPullService}.
@@ -489,7 +501,7 @@ class RefPullServiceTest {
         method.setAccessible(true);
         InvocationTargetException wrapper = assertThrows(InvocationTargetException.class,
                 () -> method.invoke(service, "UNKNOWN", "fp"));
-        assertInstanceOf(IllegalArgumentException.class, wrapper.getCause());
+        assertTrue(wrapper.getCause() instanceof IllegalArgumentException);
         assertEquals("Domaine inconnu: UNKNOWN", wrapper.getCause().getMessage());
     }
 
@@ -655,5 +667,154 @@ class RefPullServiceTest {
         RefPullService service = service(mock(SyncEndpoints.class), mock(RefApplyService.class),
                 mock(ObjectMapper.class), mock(HttpClient.class));
         assertEquals(300L, service.getPullSeconds());
+    }
+
+    // --------------------------------------------------
+    // applyFromFeedFile (via applyDomain reflection)
+    // --------------------------------------------------
+
+    /**
+     * Invokes the private {@code applyDomain(String, String)} method by
+     * reflection, unwrapping the reflective wrapper on failure.
+     *
+     * @param service the target service
+     * @param domain the domain to apply
+     * @param fingerprint the fingerprint to record on success
+     * @throws Throwable the underlying cause if {@code applyDomain} throws
+     */
+    private void callApplyDomain(RefPullService service, String domain, String fingerprint) throws Throwable {
+        Method method = RefPullService.class.getDeclaredMethod("applyDomain", String.class, String.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(service, domain, fingerprint);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
+    }
+
+    /**
+     * Covers the file-served path of {@code applyFromFeedFile} and the true arm
+     * of the {@code &&} guard in {@code applyDomain} (early return): a
+     * {@code FILE_DOMAINS} domain whose feed content is present and non-blank
+     * and whose {@code applyFromFile} yields a non-null response is applied from
+     * the raw file, its fingerprint recorded, and the paging/switch path is
+     * never reached. This also covers the false arms of {@code content == null},
+     * {@code content.isBlank()} and {@code applyFromFile(...) == null}.
+     */
+    @Test
+    void applyDomainAppliesFromFeedFileWhenFilePresent() throws Throwable {
+        RefApplyService apply = mock(RefApplyService.class);
+        HttpClient client = mock(HttpClient.class);
+        when(apply.feedContent("PRODUCTS")).thenReturn("CSV;DATA");
+        when(apply.applyFromFile("PRODUCTS", "CSV;DATA")).thenReturn(mock(jakarta.ws.rs.core.Response.class));
+        RefPullService service = service(mock(SyncEndpoints.class), apply, mock(ObjectMapper.class), client);
+        callApplyDomain(service, "PRODUCTS", "fp-file");
+        verify(apply).applyFromFile("PRODUCTS", "CSV;DATA");
+        verify(apply).recordApplied("PRODUCTS", "fp-file");
+        verify(apply, never()).applyProducts(any());
+        verify(client, never()).send(any(), any());
+    }
+
+    /**
+     * Covers the blank arm of {@code content.isBlank()} in
+     * {@code applyFromFeedFile}: a {@code FILE_DOMAINS} domain whose feed
+     * content is present but blank falls back on the pages, so the file path
+     * neither applies nor records anything and the snapshot switch runs instead.
+     */
+    @Test
+    void applyDomainFallsBackToPagesWhenFeedContentBlank() throws Throwable {
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        when(apply.feedContent("PRICES")).thenReturn("   ");
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        RefPullService service = service(endpoints, apply, mapper, client);
+        callApplyDomain(service, "PRICES", "fp-blank");
+        verify(apply, never()).applyFromFile(any(), any());
+        verify(apply).applyPrices(any());
+        verify(apply).recordApplied("PRICES", "fp-blank");
+    }
+
+    /**
+     * Covers the true arm of {@code applyFromFile(...) == null} in
+     * {@code applyFromFeedFile}: a {@code FILE_DOMAINS} domain whose feed
+     * content is present and non-blank but whose {@code applyFromFile} returns
+     * null (the file was not served by that route) falls back on the pages, so
+     * the snapshot switch runs and records the fingerprint instead.
+     */
+    @Test
+    void applyDomainFallsBackToPagesWhenApplyFromFileReturnsNull() throws Throwable {
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        when(apply.feedContent("FAMILIES")).thenReturn("CSV;DATA");
+        when(apply.applyFromFile("FAMILIES", "CSV;DATA")).thenReturn(null);
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String query = request.uri().getQuery();
+            return resp(200, query != null && query.contains("page=0") ? "PAGE0" : "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        RefPullService service = service(endpoints, apply, mapper, client);
+        callApplyDomain(service, "FAMILIES", "fp-nullfile");
+        verify(apply).applyFromFile("FAMILIES", "CSV;DATA");
+        verify(apply).applyFamilies(any());
+        verify(apply).recordApplied("FAMILIES", "fp-nullfile");
+    }
+
+    /**
+     * Covers the four remaining switch arms of {@code applyDomain}
+     * (TOUCH_GROUPS, TENDERS, DOCUMENT_TEMPLATES, POSTAL_CODES) together with
+     * their anonymous {@link TypeReference} deserialization lines: none of the
+     * four belongs to {@code FILE_DOMAINS}, so each is pulled page by page
+     * through the snapshot switch and applied, then its fingerprint recorded.
+     */
+    @Test
+    void pullOnceAppliesRemainingSwitchDomains() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        Map<String, String> versions = Map.of(
+                "TOUCH_GROUPS", "t1", "TENDERS", "t2",
+                "DOCUMENT_TEMPLATES", "t3", "POSTAL_CODES", "t4");
+        doReturn(versions).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        RefPullService service = service(endpoints, apply, mapper, client);
+        service.pullOnce();
+        verify(apply).applyTouchGroups(any());
+        verify(apply).applyTenders(any());
+        verify(apply).applyDocumentTemplates(any());
+        verify(apply).applyPostalCodes(any());
+        verify(apply).recordApplied("TOUCH_GROUPS", "t1");
+        verify(apply).recordApplied("TENDERS", "t2");
+        verify(apply).recordApplied("DOCUMENT_TEMPLATES", "t3");
+        verify(apply).recordApplied("POSTAL_CODES", "t4");
     }
 }
