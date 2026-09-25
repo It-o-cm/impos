@@ -1,0 +1,82 @@
+{!
+ ! Campaign fiche (CampaignResource): edit a campaign's fields, associate or
+ ! dissociate offer codes, and duplicate it (GB-01-06-15). Outcome messages
+ ! arrive via ?error=.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campagne {campaign.code ?: ''}</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); margin: 0; padding: 24px; }
+    h1, h2 { text-transform: uppercase; letter-spacing: 1px; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 20px; margin-top: 20px; }
+    .form-row { display: flex; gap: 12px; align-items: center; margin: 10px 0; }
+    .form-row label { color: var(--text-muted); min-width: 12rem; text-transform: uppercase; }
+    input, select { padding: 8px; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; border-radius: 6px; }
+    a { color: var(--success); }
+    ul { list-style: none; padding: 0; }
+    li { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <p><a href="/admin/campaigns">← Campagnes</a></p>
+  {#if error}<div class="error-box">Erreur : {error}</div>{/if}
+  {#if campaign}
+  <h1>Campagne {campaign.code}</h1>
+  <div class="panel">
+    <h2>Fiche</h2>
+    <form method="post" action="/admin/campaigns/{campaign.code}">
+      <div class="form-row"><label>Libellé</label><input name="label" value="{campaign.label ?: ''}"></div>
+      <div class="form-row"><label>Début (AAAA-MM-JJ)</label><input name="validFrom" value="{campaign.validFrom ?: ''}"></div>
+      <div class="form-row"><label>Fin exclue (AAAA-MM-JJ)</label><input name="validTo" value="{campaign.validTo ?: ''}"></div>
+      <div class="form-row"><label>Plafond montant (€)</label><input name="maxAmount" value="{campaign.maxAmount ?: ''}"></div>
+      <div class="form-row"><label>Plafond applications</label><input name="maxApplications" value="{campaign.maxApplications ?: ''}"></div>
+      <div class="form-row"><label>Par PDV</label><input type="checkbox" name="perStore" {#if campaign.perStore}checked{/if}></div>
+      <div class="form-row"><label>Notes</label><input name="notes" value="{campaign.notes ?: ''}"></div>
+      <div class="form-row"><label>État</label><span>{campaign.status}</span></div>
+      <button type="submit" class="btn">Enregistrer</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Offres rattachées</h2>
+    <ul>
+      {#for offerCode in campaign.offerCodes}
+      <li>
+        <span>{offerCode}</span>
+        <form method="post" action="/admin/campaigns/{campaign.code}/offers">
+          <input type="hidden" name="offerCode" value="{offerCode}">
+          <input type="hidden" name="action" value="remove">
+          <button type="submit">Dissocier</button>
+        </form>
+      </li>
+      {/for}
+    </ul>
+    <form method="post" action="/admin/campaigns/{campaign.code}/offers">
+      <div class="form-row">
+        <label>Rattacher une offre</label>
+        <input name="offerCode">
+        <input type="hidden" name="action" value="add">
+        <button type="submit">Rattacher</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Dupliquer</h2>
+    <form method="post" action="/admin/campaigns/{campaign.code}/duplicate">
+      <div class="form-row"><label>Nouveau code</label><input name="newCode" required></div>
+      <div class="form-row"><label>Dupliquer aussi les offres</label><input type="checkbox" name="withOffers"></div>
+      <button type="submit">Dupliquer</button>
+    </form>
+  </div>
+  {#else}
+  <p>Campagne introuvable.</p>
+  {/if}
+</body>
+</html>

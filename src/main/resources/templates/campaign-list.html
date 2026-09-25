@@ -1,0 +1,66 @@
+{!
+ ! Campaign list (CampaignResource): the administered campaigns with their code,
+ ! label, period, budget, offer count, state and live consumption. A create form
+ ! opens a new campaign. Outcome messages arrive via ?error= / ?ok=.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campagnes</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); margin: 0; padding: 24px; }
+    h1 { text-transform: uppercase; letter-spacing: 1px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { border: 1px solid var(--border-color); padding: 8px 10px; text-align: left; }
+    th { background: var(--bg-panel); text-transform: uppercase; font-size: var(--fs-body); }
+    a { color: var(--success); }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 20px; margin-top: 24px; }
+    .form-row { display: flex; gap: 12px; align-items: center; margin: 10px 0; }
+    .form-row label { color: var(--text-muted); min-width: 12rem; text-transform: uppercase; }
+    input, select { padding: 8px; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; border-radius: 6px; }
+    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; border-radius: 6px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <h1>Campagnes</h1>
+  {#if saved}<div class="ok-box">Enregistré.</div>{/if}
+  {#if error}<div class="error-box">Erreur : {error}</div>{/if}
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Libellé</th><th>Période</th><th>Budget</th><th>Offres</th><th>État</th><th>Consommation</th></tr>
+    </thead>
+    <tbody>
+      {#for c in campaigns}
+      <tr>
+        <td><a href="/admin/campaigns/{c.code}">{c.code}</a></td>
+        <td>{c.label ?: '—'}</td>
+        <td>{c.validFrom ?: '∞'} → {c.validTo ?: '∞'}</td>
+        <td>{#if c.maxAmount}{c.maxAmount} €{/if}{#if c.maxApplications} / {c.maxApplications}{/if}{#if !c.hasBudget}—{/if}</td>
+        <td>{c.offerCodes.size}</td>
+        <td>{c.status}</td>
+        <td>{#if c.status.name == 'RUNNING'}voir la fiche{#else}—{/if}</td>
+      </tr>
+      {/for}
+    </tbody>
+  </table>
+
+  <div class="panel">
+    <h2>Nouvelle campagne</h2>
+    <form method="post" action="/admin/campaigns">
+      <div class="form-row"><label>Code</label><input name="code" required></div>
+      <div class="form-row"><label>Libellé</label><input name="label"></div>
+      <div class="form-row"><label>Début (AAAA-MM-JJ)</label><input name="validFrom"></div>
+      <div class="form-row"><label>Fin exclue (AAAA-MM-JJ)</label><input name="validTo"></div>
+      <div class="form-row"><label>Plafond montant (€)</label><input name="maxAmount"></div>
+      <div class="form-row"><label>Plafond applications</label><input name="maxApplications"></div>
+      <div class="form-row"><label>Par PDV</label><input type="checkbox" name="perStore"></div>
+      <div class="form-row"><label>Notes</label><input name="notes"></div>
+      <button type="submit" class="btn">Créer</button>
+    </form>
+  </div>
+</body>
+</html>
