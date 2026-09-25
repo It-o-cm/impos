@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -799,6 +800,64 @@ class DocumentTemplateServiceTest {
         data.put("store", "LYON");
         service.renderTemplate(template("{fmt.rule()}"), data);
         assertEquals(java.util.Set.of("store"), data.keySet());
+    }
+
+    /**
+     * {@code parseError} falls back to the exception's {@code toString} when the
+     * parse failure carries no message — the null-message arm of its ternary,
+     * exercised with an engine whose parse throws a message-less exception.
+     */
+    @Test
+    void parseErrorFallsBackToToStringWhenTheFailureHasNoMessage() {
+        DocumentTemplateService service = new DocumentTemplateService();
+        service.engine = mock(Engine.class);
+        when(service.engine.parse(anyString())).thenThrow(new RuntimeException());
+        String error = service.parseError("{broken");
+        assertEquals(new RuntimeException().toString(), error);
+    }
+
+    /**
+     * {@code singular} appends "Item" when the list name is not a plural: a key
+     * that does not end in "s" and a single-letter "s" key both take the else
+     * arm of the {@code endsWith("s") && length() > 1} guard.
+     */
+    @Test
+    void singularAppendsItemForANonPluralKey() throws Exception {
+        DocumentTemplateService service = new DocumentTemplateService();
+        java.lang.reflect.Method method =
+                DocumentTemplateService.class.getDeclaredMethod("singular", String.class);
+        method.setAccessible(true);
+        assertEquals("xItem", method.invoke(service, "x"));
+        assertEquals("sItem", method.invoke(service, "s"));
+    }
+
+    /**
+     * {@code text} maps a null demonstration value to the empty string — the
+     * null arm of its guard.
+     */
+    @Test
+    void textMapsNullToTheEmptyString() throws Exception {
+        DocumentTemplateService service = new DocumentTemplateService();
+        java.lang.reflect.Method method =
+                DocumentTemplateService.class.getDeclaredMethod("text", Object.class);
+        method.setAccessible(true);
+        assertEquals("", method.invoke(service, new Object[] {null}));
+    }
+
+    /**
+     * {@code listReferences} describes a list of plain values through a single
+     * {@code {item}} reference — the not-a-map arm taken when the first element
+     * is not a map.
+     */
+    @Test
+    void listReferencesDescribesAListOfPlainValues() throws Exception {
+        DocumentTemplateService service = new DocumentTemplateService();
+        java.lang.reflect.Method method = DocumentTemplateService.class.getDeclaredMethod(
+                "listReferences", String.class, java.util.List.class);
+        method.setAccessible(true);
+        java.util.List<?> references =
+                (java.util.List<?>) method.invoke(service, "items", java.util.List.of("PAIN"));
+        assertEquals(2, references.size());
     }
 
 }
