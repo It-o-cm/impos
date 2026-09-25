@@ -56,11 +56,43 @@ public final class ValuationPayloads {
         public String deliveryMode = "IN_STORE";
         /** The eligible lines of the cart. */
         public List<ItemDto> items = new ArrayList<>();
+        /**
+         * The loyalty card of the ticket, for the traceability of the
+         * card-borne advantages. Distinct from {@link #customerCode}, which
+         * travels only when the store administers card-linked store offers:
+         * this one names the card the promotions below belong to.
+         */
+        public String cardNumber;
+        /**
+         * The holder's immediate-discount promotions, or NULL when there is
+         * none. Null and not an empty list: the field is then absent from the
+         * request, so a basket without promotions is byte-for-byte the one
+         * the engine received before this block existed.
+         */
+        public List<CardPromotionDto> cardPromotions;
     }
 
     /**
      * One basket line.
      */
+    /**
+     * One card-borne promotion carried to the engine, which synthesizes a
+     * transient offer configuration from it. Only IMMEDIATE_DISCOUNT ones
+     * are sent: the cagnotte ones are imfid's to serve.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class CardPromotionDto implements Serializable {
+        private static final long serialVersionUID = 1L;
+        /** The promoted product EAN. */
+        public String ean;
+        /** How {@link #value} reads: PERCENT (fraction) or AMOUNT (euro per unit). */
+        public String promotionType;
+        /** The promotion value. */
+        public BigDecimal value;
+        /** How the benefit is served; always IMMEDIATE_DISCOUNT here. */
+        public String benefit;
+    }
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ItemDto implements Serializable {
         private static final long serialVersionUID = 1L;
@@ -86,7 +118,10 @@ public final class ValuationPayloads {
         public String priceDate;
         /**
          * The expiry date a GS1 code carried on this line (AI 17), ISO-8601, or null
-         * (LC-11-03-13).
+         * (LC-11-03-13). Named {@code bestBeforeDate} because that is the field of the
+         * engine's basket contract (its strict schema knows no other spelling): sent
+         * under any other name the date would be silently ignored and the anti-waste
+         * discount would never trigger from the register.
          * <p>
          * Sent so the engine can trigger a promotion on a short-dated article — that is
          * the requirement in so many words: "le logiciel doit donc envoyer l'AI (17) au
@@ -94,7 +129,7 @@ public final class ValuationPayloads {
          * the shop's alert level; deciding what a date is worth is the engine's job,
          * exactly as deciding what a basket is worth is.
          */
-        public String expiryDate;
+        public String bestBeforeDate;
     }
 
     // --------------------------------------------------
@@ -181,6 +216,67 @@ public final class ValuationPayloads {
         public BigDecimal totalEligibleAmount;
         /** The meal-voucher threshold, on MEAL_VOUCHER. */
         public BigDecimal threshold;
+        /**
+         * The per-line detail of a CORRECTION advantage, and what identifies
+         * one: an advantage that carries lines and their {@code correction}
+         * ADDS to the ticket, where every other advantage deducts from it.
+         * <p>
+         * The distinction is structural on purpose. Reading it from the
+         * {@code type} string would tie the register's arithmetic to a label
+         * the engine is free to rename, and a renamed label would silently
+         * turn an addition into nothing at all — the worst of the two
+         * failures, since the money simply disappears from the ticket.
+         */
+        public List<AdvantageDetailDto> details;
+    }
+
+    /**
+     * One line of a correction advantage: which line is corrected, and by how
+     * much the ticket goes UP for it.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class AdvantageDetailDto implements Serializable {
+        private static final long serialVersionUID = 1L;
+        /** The corrected line, echoed from the basket's lineId. */
+        public String lineId;
+        /** The corrected article, for the human reading the trace. */
+        public String ean;
+        /** The correction added to that line, tax included. */
+        public BigDecimal correction;
+    }
+
+    /**
+     * One line of the EGAlim guard report, as the engine explains its
+     * arithmetic — read and carried, never recomputed by the register.
+     * <p>
+     * The register does NOT act on this block: the money it must charge is in
+     * the correction advantage. It is kept because it travels verbatim to the
+     * loyalty service and because it is what explains a corrected ticket to
+     * whoever asks, months later.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class EgalimLineDto implements Serializable {
+        private static final long serialVersionUID = 1L;
+        /** The basket line this report concerns. */
+        public String lineId;
+        /** The article. */
+        public String ean;
+        /** FOOD_34, DPH_40 or EXEMPT. */
+        public String regime;
+        /** Displayed price times quantity. */
+        public BigDecimal nominalPrice;
+        /** Net kept after every advantage. */
+        public BigDecimal finalPrice;
+        /** Counted generosity over nominal, as a fraction. */
+        public BigDecimal generosityRate;
+        /** The generosity that counts against the cap. */
+        public BigDecimal countedGenerosity;
+        /** The generosity left out of the cap (anti-waste, manual gestures). */
+        public BigDecimal excludedGenerosity;
+        /** What is left before the cap bites, in euros; absent on EXEMPT. */
+        public BigDecimal remainingBeforeCap;
+        /** The correction applied to that line, present only when above zero. */
+        public BigDecimal correction;
     }
 
     /**
@@ -193,6 +289,12 @@ public final class ValuationPayloads {
         public List<OfferDto> offers = new ArrayList<>();
         /** The advantages of the valuation. */
         public List<AdvantageDto> advantages = new ArrayList<>();
+        /**
+         * The EGAlim guard report, one entry per initial basket line, emitted
+         * only when a guard is in force for the store and the basket is
+         * closed. Null the rest of the time, which is every basket today.
+         */
+        public List<EgalimLineDto> egalim;
         /** The engine's own total — compared in logs, never charged as-is (lot 1). */
         public AmountDto totalPrice;
     }

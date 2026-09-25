@@ -1,81 +1,82 @@
-Listening for transport dt_socket at address: 5005
-Debugger failed to attach: handshake failed - connection prematurally closed
-09:15:39 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-23) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+Listening for transport dt_socket at address: 5090
+16:15:05 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-12) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
 This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
 __  ____  __  _____   ___  __ ____  ______ 
  --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
  -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
 --\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
-09:15:41 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-09:15:41 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-09:15:41 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-09:15:41 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
-09:15:41 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
-09:15:41 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
-09:15:41 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
-09:15:41 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.816s. Listening on: http://localhost:8090
-09:15:41 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
-09:15:41 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
-09:15:42 INFO  [io.sm.health] (vert.x-eventloop-thread-0) SRHCK01001: Reporting health down status: {"status":"DOWN","checks":[{"name":"Database connections health check","status":"UP","data":{"<default>":"UP"}},{"name":"imvaluation-ready","status":"DOWN","data":{"stores":0,"offerSchemas":17,"missing":"stores"}}]}
-Debugger failed to attach: handshake failed - connection prematurally closed
-Debugger failed to attach: handshake failed - connection prematurally closed
-09:19:01 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:19:01 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1, Updated: 0
-09:19:01 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:19:01 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-09:19:01 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-09:19:01 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
-09:19:01 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 4, Updated: 0
-09:19:02 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:19:05 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 109204, Updated: 0
-09:19:05 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 468 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606060720001' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606262080001' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 68 with step 100. Retrying with step 10. Error: SubFamily code '606262190001' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606262190001' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606464060001' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606666000001' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '10020200' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '20282800' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '40464600' not found.
-09:19:08 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 8 with step 10. Retrying with step 1. Error: SubFamily code '60686800' not found.
-09:19:08 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1468, Updated: 0
-09:19:09 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:19:13 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 109204, Updated: 0
-09:19:14 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:19:14 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 5, Updated: 0
-09:19:14 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:20:14 ERROR [co.in.va.im.ImporterCsvResource] (executor-thread-1) Error reading input stream: java.io.IOException: java.io.IOException: io.vertx.core.http.StreamResetException: Stream reset: 8
+16:15:06 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:15:06 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:15:06 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:15:06 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+16:15:06 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+16:15:06 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+16:15:07 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+16:15:07 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 2.784s. Listening on: http://localhost:8090
+16:15:07 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+16:15:07 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+16:15:09 INFO  [io.sm.health] (vert.x-eventloop-thread-0) SRHCK01001: Reporting health down status: {"status":"DOWN","checks":[{"name":"imvaluation-ready","status":"DOWN","data":{"stores":0,"offerSchemas":19,"missing":"stores"}},{"name":"Database connections health check","status":"UP","data":{"<default>":"UP"}}]}
+16:18:33 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:33 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1, Updated: 0
+16:18:33 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:33 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 1000. Retrying with step 100. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+16:18:33 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 100. Retrying with step 10. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+16:18:33 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 4 with step 10. Retrying with step 1. Error: StoreGroup 'DEPT_59' not found. Check CSV order (Parent must be defined before Child).
+16:18:33 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 4, Updated: 0
+16:18:34 INFO  [co.in.va.im.EgalimCeilingCsvResource] (executor-thread-1) Entering method importEgalimCeilings
+16:18:34 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:34 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 3, Updated: 0
+16:18:34 INFO  [co.in.va.im.EgalimCeilingCsvResource] (executor-thread-1) Exiting method importEgalimCeilings
+16:18:34 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:37 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 109204, Updated: 0
+16:18:37 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 468 with step 1000. Retrying with step 100. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 100 with step 100. Retrying with step 10. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:40 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: Detached entity passed to persist: com.intermarche.valuation.domain.ProductFamily
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606060720001' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606262080001' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 68 with step 100. Retrying with step 10. Error: SubFamily code '606262190001' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606262190001' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606464060001' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '606666000001' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '10020200' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '20282800' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 10 with step 10. Retrying with step 1. Error: SubFamily code '40464600' not found.
+16:18:41 WARN  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Failed to process chunk of size 8 with step 10. Retrying with step 1. Error: SubFamily code '60686800' not found.
+16:18:41 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 1468, Updated: 0
+16:18:41 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:46 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 109204, Updated: 0
+16:18:46 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:18:46 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 5, Updated: 0
+16:18:46 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:19:46 ERROR [co.in.va.im.ImporterCsvResource] (executor-thread-1) Error reading input stream: java.io.IOException: java.io.IOException: io.vertx.core.http.StreamResetException: Stream reset: 8
 	at io.quarkus.vertx.http.runtime.VertxInputStream$VertxBlockingInput.readBlocking(VertxInputStream.java:255)
 	at io.quarkus.vertx.http.runtime.VertxInputStream.readIntoBuffer(VertxInputStream.java:122)
 	at io.quarkus.vertx.http.runtime.VertxInputStream.read(VertxInputStream.java:84)
@@ -198,521 +199,66 @@ Debugger failed to attach: handshake failed - connection prematurally closed
 	Caused by: io.vertx.core.http.StreamResetException: Stream reset: 8
 Caused by: [CIRCULAR REFERENCE: java.io.IOException: io.vertx.core.http.StreamResetException: Stream reset: 8]
 
-09:20:19 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:20:30 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 7204, Updated: 0
-09:20:30 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
-09:20:30 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 22, Updated: 0
-09:22:35 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:22:35 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:22:35 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:22:35 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-09:22:35 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-widget - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-09:22:36 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-item-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-09:22:36 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-unit-from - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
-09:22:43 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:22:43 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:22:43 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:22:50 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:22:50 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:22:50 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:22:54 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:22:54 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:22:54 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:22:59 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:22:59 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:22:59 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:23:51 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
-09:24:07 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method list
-09:24:09 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:10 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:11 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:12 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:13 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:14 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:15 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:16 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:17 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:18 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:19 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:20 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:21 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:22 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:23 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:24 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:25 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:26 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:27 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:28 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:29 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:30 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:31 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:32 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:33 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:34 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:35 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:36 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:37 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:38 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:39 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:40 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:41 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:42 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:43 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:44 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:45 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:46 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:47 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:48 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:49 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:50 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:51 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:52 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:53 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:54 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:24:55 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:25:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:32 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:33 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:34 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:25:34 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:25:34 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:25:43 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:25:44 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:25:45 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:25:46 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
-09:25:46 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method detail with id: 14
-09:27:01 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:27:01 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:27:01 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:27:08 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:27:08 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:27:08 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:27:21 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:27:21 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:27:21 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:27:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-09:27:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:27:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:31:58 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:31:58 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:31:58 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:32:05 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:32:05 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:32:05 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:32:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:32:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:32:27 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:32:53 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:32:53 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:32:53 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:33:10 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:33:10 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:33:10 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:33:12 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:33:12 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:33:12 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-09:33:23 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-09:33:23 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-09:33:23 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-Debugger failed to attach: handshake failed - connection prematurally closed
-10:20:12 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-10:20:12 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:20:12 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-10:20:12 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-
-10:20:12 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: 645927c7-8e96-4796-8ba7-0eda287a0572-1: org.jboss.resteasy.spi.UnhandledException: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-
-10:21:05 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:21:05 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:21:05 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-10:21:05 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-
-10:21:05 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: 645927c7-8e96-4796-8ba7-0eda287a0572-2: org.jboss.resteasy.spi.UnhandledException: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-
-10:21:25 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:21:25 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:21:25 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-10:21:25 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-
-10:21:25 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: 645927c7-8e96-4796-8ba7-0eda287a0572-3: org.jboss.resteasy.spi.UnhandledException: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-
-10:21:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:21:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:21:48 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 2
-10:21:48 ERROR [co.in.va.en.ValuationResource] (executor-thread-1) Valuation failed: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-
-10:21:48 ERROR [io.qu.ve.ht.ru.QuarkusErrorHandler] (executor-thread-1) HTTP Request to /valuation failed, error id: 645927c7-8e96-4796-8ba7-0eda287a0572-4: org.jboss.resteasy.spi.UnhandledException: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at org.jboss.resteasy.core.ExceptionHandler.handleApplicationException(ExceptionHandler.java:107)
-	at org.jboss.resteasy.core.ExceptionHandler.handleException(ExceptionHandler.java:344)
-	at org.jboss.resteasy.core.SynchronousDispatcher.writeException(SynchronousDispatcher.java:205)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:452)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invokePropagateNotFound$6(SynchronousDispatcher.java:275)
-	at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:154)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:157)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invokePropagateNotFound(SynchronousDispatcher.java:260)
-	at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:86)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)
-	at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler$1.run(VertxRequestHandler.java:97)
-	at io.quarkus.vertx.core.runtime.VertxCoreRecorder$15.runWith(VertxCoreRecorder.java:645)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.doRunWith(EnhancedQueueExecutor.java:2651)
-	at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2630)
-	at org.jboss.threads.EnhancedQueueExecutor.runThreadBody(EnhancedQueueExecutor.java:1622)
-	at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1589)
-	at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:11)
-	at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:11)
-	at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)
-	at java.base/java.lang.Thread.run(Thread.java:1474)
-Caused by: java.lang.IllegalStateException: Configuration Error: Product not found for EAN '3300000000007'
-	at com.intermarche.valuation.engine.EngineTrait.getProduct(EngineTrait.java:115)
-	at com.intermarche.valuation.engine.Basket$Item.getProduct(Basket.java:477)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory.buildAppliers(BasicOfferFactory.java:43)
-	at com.intermarche.valuation.engine.offers.BasicOfferFactory_ClientProxy.buildAppliers(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationEngine.createOfferAppliers(ValuationEngine.java:162)
-	at com.intermarche.valuation.engine.ValuationEngine.evaluate(ValuationEngine.java:70)
-	at com.intermarche.valuation.engine.ValuationEngine_ClientProxy.evaluate(Unknown Source)
-	at com.intermarche.valuation.engine.ValuationResource.calculate(ValuationResource.java:109)
-	at com.intermarche.valuation.engine.ValuationResource_ClientProxy.calculate(Unknown Source)
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:565)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:154)
-	at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:118)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:560)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:452)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:413)
-	at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:321)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:415)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:378)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:356)
-	at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:70)
-	at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:429)
-	... 17 more
-
-10:22:18 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
-10:22:18 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:22:18 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-10:22:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:22:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:22:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-10:22:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:22:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:22:40 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-10:22:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:22:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:22:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-10:22:56 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
-10:22:56 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
-10:22:56 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
-Debugger failed to attach: handshake failed - connection prematurally closed
+16:19:51 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:20:01 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 6204, Updated: 0
+16:20:02 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Starting Bulk Import from InputStream
+16:20:02 INFO  [co.in.va.im.ImporterCsvResource] (executor-thread-1) Import finished. Created: 23, Updated: 0
+16:25:09 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:25:09 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:25:09 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:25:09 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+16:25:09 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-widget - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+16:25:09 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-item-label - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+16:25:09 WARN  [co.ne.sc.UnknownKeywordFactory] (executor-thread-1) Unknown keyword x-unit-from - you should define your own Meta Schema. If the keyword is irrelevant for validation, just use a NonValidationKeyword or if it should generate annotations AnnotationKeyword
+16:25:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:25:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:25:17 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:25:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:25:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:25:31 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:25:35 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:25:35 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:25:35 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:25:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:25:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:25:46 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:26:06 DEBUG [co.in.va.ui.OfferUiResource] (executor-thread-1) Entering method list
+16:26:11 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method list
+16:26:12 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
+16:26:13 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
+16:26:14 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
+16:26:15 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method rows
+16:26:16 DEBUG [co.in.va.ui.ValuationUiResource] (executor-thread-1) Entering method detail with id: 5
+16:33:03 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:33:03 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:33:03 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:33:04 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: null
+16:33:04 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:33:04 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:34:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+16:34:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:34:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+16:34:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Received valuation request for customer: 2990000000019
+16:34:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Store: 0101, Mode: IN_STORE
+16:34:14 INFO  [co.in.va.en.ValuationResource] (executor-thread-1) Number of items in basket: 1
+13:49:10 WARN  [io.qu.de.de.JavaCompilationProvider] (vert.x-worker-thread-2) /Users/henridarmet/Documents/Workspaces/imvaluation/src/main/java/com/intermarche/valuation/domain/Offer.java uses or overrides a deprecated API., line -1 in /Users/henridarmet/Documents/Workspaces/imvaluation/src/main/java/com/intermarche/valuation/domain/Offer.java
+13:49:10 WARN  [io.qu.de.de.JavaCompilationProvider] (vert.x-worker-thread-2) Recompile with -Xlint:deprecation for details., line -1 in /Users/henridarmet/Documents/Workspaces/imvaluation/src/main/java/com/intermarche/valuation/domain/Offer.java
+13:49:10 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-2) Restarting quarkus due to changes in NPlusMOfferFactory$NPlusMOfferApplier.class, TierTable$Slice.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplier.class, TicketDiscountFactory$Contribution.class, GraphQLTrait.class, TicketDiscountFactory$DiscountType.class, ProductFamilyResource.class, VatBreakdown.class, AdvantageApplierFactory.class, DiscountApplication.class, TieredDiscountFactory$AwardType.class, VoucherGrantFactory.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplication.class, ValuationEngine$OfferApplierEvaluator.class, ProductScopedDiscount.class, OfferApplier.class, BasketEvaluation$Item.class, ProductCategoryStorage.class, TieredDiscountFactory$Mode.class, EgalimGuardFactory$EgalimGuardApplier.class, OfferApplication.class, AntiWasteDiscountFactory.class, ValuationTrace.class, MixedBundleUpsellAdvantageFactory.class, ReferentialReadinessCheck.class, VatRateCsvResource.class, InstrumentGrantFactory$Scope.class, AmountPerItemDiscountFactory.class, StoreGroup.class, OfferUiResource$Templates.class, VatRefundDiscountFactory$VatRefundDiscountApplication.class, DateTimeProvider.class, UserBootstrap.class, TieredDiscountFactory$TieredDiscountApplier.class, StoreCsvResource.class, VatRate.class, VatRefundDiscountFactory$VatRefundDiscountApplier.class, Basket$CardPromotion.class, CardPromotionDiscountFactory$CardPromotionDiscountApplier.class, DeliveryOfferFactory$DeliveryOfferApplier.class, OfferResource.class, ValuationTraceService.class, ProductResource$ProductRecord.class, ImmediateVoucherDiscountFactory.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplication.class, ValuationTraceConfig.class, GenericLineOfferFactory$GenericLineApplication.class, DataInitializer.class, ImportsUiResource$Templates.class, NPlusMUpsellAdvantageFactory$NPlusMUpsellAdvantageApplier.class, HtmlSafeJson.class, TieredDiscountFactory$Award.class, StoreGroupResource.class, NPlusMUpsellAdvantageFactory.class, GiftItemDiscountFactory$Candidate.class, AmountEvaluation.class, ImporterCsvResource$Executor.class, ConfigurationException.class, EngineTrait.class, VignetteDiscountFactory$DiscountType.class, LookupResource$Suggestion.class, TieredDiscountFactory$TieredDiscountApplier$Result.class, ValuationEngine$ArbitrationConfig.class, EgalimCeilingCsvResource.class, InstrumentGrantFactory$Contribution.class, GiftItemDiscountFactory$Selection.class, Basket$Address.class, AdvantageApplication.class, VatRefundDiscountFactory.class, ProductFamily.class, PlainBigDecimalCustomizer.class, UserUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleConfig.class, NPlusMUpsellAdvantageFactory$NPlusMOfferConfig.class, RepriceableApplication.class, OfferUiResource.class, VignetteDiscountFactory$VignetteDiscountApplication.class, ProductFamilyResource$ProductFamilyRecord.class, ItemValuation.class, ImporterCsvResource.class, TriggerResult.class, OfferSchemaRegistry.class, DeliveryOfferFactory$DeliveryTier.class, MinimumQuantityCondition.class, StoreGroupCsvResource.class, ValuationEngine$ArbitrationState.class, InstrumentGrantFactory$InstrumentGrantApplier.class, StoreGroupUiResource.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplier.class, EgalimGuardFactory$EgalimAdjustmentApplication.class, TicketDiscountFactory$TicketDiscountApplication.class, FreeDeliveryThresholdDiscountFactory$FreeDeliveryThresholdApplication.class, MealVoucherAdvantageFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplier.class, DeliveryOfferFactory$DeliveryApplication.class, TierTable.class, PasswordChangeFilter.class, TriggerCondition.class, StoreGroupUiResource$RejectedHierarchyException.class, DepositBasketOfferFactory.class, VatRefundDiscountFactory$Scope.class, NPlusMOfferFactory.class, ProductCategoryStorageResource$ProductCategoryStorageRecord.class, MixedBundleOfferFactory$MixedBundleApplication.class, StoreResource.class, BasicOfferFactory$BasicApplication.class, ValuationResource.class, StoreGroupUiResource$GroupPayload.class, TieredDiscountFactory$TieredDiscountApplier$1Unit.class, Basket.class, BaseEntity.class, TieredDiscountFactory$Contribution.class, NewPriceDiscountFactory.class, TieredDiscountFactory$Selection.class, ProductCategoryStorageResource.class, Store.class, Offer.class, TieredDiscountFactory$Scope.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplier.class, NewPriceDiscountFactory$NewPriceDiscountApplication.class, BasicOfferFactory$BasicOfferApplier.class, MixedBundleOfferFactory$MixedBundleOfferApplier.class, EgalimCeiling.class, AdvantageApplier.class, RootResource.class, PasswordResetService.class, ProductType.class, ProductCategoryStorageCsvResource.class, InstrumentGrantFactory$Mode.class, ImmediateVoucherDiscountFactory$DiscountType.class, AuthUiResource.class, Basket$Item.class, MealVoucherAdvantageFactory$MealVoucherAdvantageApplier.class, VignetteDiscountFactory.class, StoreGroupResource$StoreGroupRecord.class, Address.class, InstrumentGrantFactory$Unit.class, LookupResource.class, TieredDiscountFactory$TieredDiscountApplication.class, NewPriceDiscountFactory$NewPriceDiscountApplier.class, FreeDeliveryThresholdDiscountFactory$DiscountTier.class, GiftItemDiscountFactory$GiftItemDiscountApplication.class, InstrumentGrantFactory.class, MinimumAmountCondition.class, ProductFamilyCsvResource.class, DepositBasketOfferFactory$DepositBasketApplication.class, CurrentUser.class, AuthUiResource$Templates.class, ImporterCsvResource$LineData.class, CardPromotionDiscountFactory$CardPromotionDiscountApplication.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplier.class, AppUser.class, OfferResource$OfferRecord.class, FreeDeliveryThresholdDiscountFactory$DiscountType.class, GenericLineOfferFactory$GenericLineOfferApplier.class, NPlusMOfferFactory$NPlusMApplication.class, ValuationUiResource.class, InstrumentGrantFactory$Metric.class, ProductResource.class, PriceUsage.class, ManualGestureOfferFactory$ManualGestureOfferApplier.class, EgalimGuardFactory$CorrectionDetail.class, QuantitySerializer.class, AlreadyExistsException.class, ProductAwareOfferApplication.class, NPlusMOfferFactory$SelectionStrategy.class, VignetteDiscountFactory$VignetteRule.class, ImportsUiResource.class, DepositBasketOfferFactory$DepositBasketOfferApplier.class, CouponCodeCondition.class, EgalimRegime.class, GiftItemDiscountFactory$GiftItemDiscountApplier.class, ManualGestureOfferFactory.class, OfferApplierFactory.class, UserUiResource$Templates.class, OfferCsvResource.class, VignetteDiscountFactory$VignetteDiscountApplier.class, Price.class, TicketDiscountFactory$TicketDiscountApplier.class, NetAmounts.class, MixedBundleUpsellAdvantageFactory$UpsellSuggestion.class, EgalimGuardFactory.class, MinimumAmountCondition$Scope.class, PriceResource$PriceRecord.class, Trigger.class, InstrumentGrantFactory$Grant.class, ValuationUiResource$Templates.class, InstrumentGrantFactory$AwardType.class, ValuationEngine.class, StoreGroupUiResource$Templates.class, CardPromotionDiscountFactory.class, BasketEvaluation$EgalimLine.class, DeliveryOfferFactory.class, ManualGestureOfferFactory$ManualGestureApplication.class, PriceResource.class, PasswordResetToken.class, PriceCsvResource.class, AmountPerItemDiscountFactory$AmountPerItemDiscountApplication.class, TieredDiscountFactory.class, CouponGrantFactory.class, FreeDeliveryThresholdDiscountFactory.class, StoreResource$StoreRecord.class, ImmediateVoucherDiscountFactory$ImmediateVoucherApplication.class, Product.class, Basket$Item$SourceLine.class, NPlusMUpsellAdvantageFactory$UpsellSuggestion.class, MixedBundleOfferFactory$BundleComponent.class, StoreGroupUiResource$HierarchyPayload.class, GiftItemDiscountFactory.class, BasicOfferFactory.class, TierTable$Tier.class, MixedBundleOfferFactory.class, InstrumentGrantFactory$Award.class, GenericLineOfferFactory.class, AntiWasteDiscountFactory$AntiWasteDiscountApplication.class, ProductAwareOfferApplier.class, RejectedHierarchyMapper.class, MixedBundleUpsellAdvantageFactory$MixedBundleUpsellAdvantageApplication.class, InstrumentGrantFactory$InstrumentGrantApplication.class, NPlusMOfferFactory$DiscountType.class, ProductCsvResource.class, ImportsUiResource$ImportUpload.class, BasketEvaluation$VatLine.class, MixedBundleUpsellAdvantageFactory$UpsellBundleComponent.class, VatRefundDiscountFactory$Contribution.class, BasketEvaluation.class, TieredDiscountFactory$Metric.class, ListView.class, TicketDiscountFactory.class, BudgetGroupResource.class, ConsumptionService.class, ConsumptionService$Outcome.class, ConsumptionService$Declaration.class, BudgetGroupResource$BudgetStatus.class, BudgetGroupResource$StoreBudgetStatus.class, BudgetGroup.class, BudgetGroupResource$BudgetGroupRecord.class, ConsumptionService$Advantage.class, BudgetGroupCsvResource.class, ConsumptionResource.class, ConsumptionRecord.class, ConsumptionCounter.class.
+13:49:10 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation stopped in 0.038s
+13:49:10 WARN  [io.qu.re.mu.de.ResteasyMutinyProcessor] (build-2) The quarkus-resteasy-mutiny extension is deprecated. Switch to Quarkus REST instead.
+This extension adds support for Uni and Multi to RESTEasy Classic, without using the reactive execution model, as RESTEasy Classic does not use it. To properly integrate Mutiny and RESTEasy, use Quarkus REST. See https://quarkus.io/guides/getting-started-reactive for detailed instructions
+__  ____  __  _____   ___  __ ____  ______ 
+ --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+ -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+--\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+13:49:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.threading.virtual.enabled" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+13:49:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_inserts" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+13:49:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.order_updates" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+13:49:10 WARN  [io.qu.config] (Quarkus Main Thread) Unrecognized configuration key "quarkus.hibernate-orm.jdbc.batch_size" was provided; it will be ignored; verify that the dependency extension for this configuration is set or that you did not make a typo
+13:49:10 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.hibernate-orm.database.generation" config property is deprecated and should not be used anymore.
+13:49:10 WARN  [io.qu.config] (Quarkus Main Thread) The "quarkus.log.console.enable" config property is deprecated and should not be used anymore.
+13:49:11 WARN  [co.in.va.se.UserBootstrap] (Quarkus Main Thread) No user found: created bootstrap administrator 'admin'. Change its password before exposing this instance.
+13:49:11 INFO  [io.quarkus] (Quarkus Main Thread) imvaluation 1.0-SNAPSHOT on JVM (powered by Quarkus 3.30.6) started in 1.078s. Listening on: http://localhost:8090
+13:49:11 INFO  [io.quarkus] (Quarkus Main Thread) Profile dev activated. Live Coding activated.
+13:49:11 INFO  [io.quarkus] (Quarkus Main Thread) Installed features: [agroal, cdi, compose, hibernate-orm, hibernate-orm-panache, hibernate-validator, jdbc-h2, mailer, narayana-jta, qute, resteasy, resteasy-client, resteasy-client-jackson, resteasy-client-jaxb, resteasy-client-mutiny, resteasy-jackson, resteasy-jaxb, resteasy-multipart, resteasy-mutiny, resteasy-qute, scheduler, security, security-jpa, smallrye-context-propagation, smallrye-graphql, smallrye-graphql-client, smallrye-health, smallrye-openapi, swagger-ui, vertx]
+13:49:11 INFO  [io.qu.de.de.RuntimeUpdatesProcessor] (vert.x-worker-thread-2) Live reload total time: 2.191s 

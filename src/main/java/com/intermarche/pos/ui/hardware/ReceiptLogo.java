@@ -1,18 +1,14 @@
 package com.intermarche.pos.ui.hardware;
 
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.Rectangle;
-import java.awt.RenderingHints;
+import org.jboss.logging.Logger;
+
+import javax.imageio.ImageIO;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Base64;
 import java.util.Optional;
-
-import javax.imageio.ImageIO;
-
-import org.jboss.logging.Logger;
 
 /**
  * The store logo, turned into what a receipt printer can print.

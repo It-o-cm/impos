@@ -1,19 +1,20 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductFamily;
-import com.intermarche.pos.domain.store.Store;
-import com.intermarche.pos.domain.sync.SyncOutbox;
-import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.payment.StoredValue;
 import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.session.TicketCounter;
-import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.payment.StoredValue;
 import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketFidelityLine;
+import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.session.TicketCounter;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
@@ -26,31 +27,16 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
-import com.intermarche.pos.domain.sale.TicketFidelityLine;
-
 import java.math.BigDecimal;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link TicketPersistenceService}.
@@ -1820,7 +1806,7 @@ class TicketPersistenceServiceTest {
 
             assertEquals("SHA-256 indisponible", failure.getMessage());
             assertNotNull(failure.getCause());
-            assertTrue(failure.getCause() instanceof java.security.NoSuchAlgorithmException);
+            assertInstanceOf(NoSuchAlgorithmException.class, failure.getCause());
         }
     }
 

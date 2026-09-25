@@ -1,8 +1,9 @@
 package com.intermarche.pos.domain.payment;
 
-import java.math.BigDecimal;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
 
 /**
  * Unit tests for {@link RoundingPayment} and its nested {@link RoundingPayment.Factory},
@@ -117,7 +118,7 @@ class RoundingPaymentTest {
         BigDecimal amount = new BigDecimal("-0.0300");
         RoundingPayment.Factory factory = new RoundingPayment.Factory();
         TicketPayment payment = factory.create(amount, new BigDecimal("0.0000"));
-        Assertions.assertTrue(payment instanceof RoundingPayment);
+        Assertions.assertInstanceOf(RoundingPayment.class, payment);
         Assertions.assertSame(amount, payment.amount);
     }
 

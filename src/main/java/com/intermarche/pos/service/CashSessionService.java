@@ -1,13 +1,13 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.session.CashMovement;
-import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.CashMovement;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;

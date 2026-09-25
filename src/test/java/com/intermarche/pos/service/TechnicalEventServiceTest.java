@@ -1,23 +1,15 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link TechnicalEventService}.
@@ -72,7 +64,7 @@ class TechnicalEventServiceTest {
             assertEquals("C04-00000123", event.detail);
             assertNull(event.operatorBadgeId);
             assertNotNull(event.eventDate);
-            assertTrue(!event.eventDate.isBefore(before));
+            assertFalse(event.eventDate.isBefore(before));
             assertNotNull(event.eventUid);
             assertEquals(36, event.eventUid.length());
             verify(event, times(1)).persist();
@@ -118,7 +110,7 @@ class TechnicalEventServiceTest {
             TechnicalEvent second = created.constructed().get(1);
             assertNotNull(first.eventUid);
             assertNotNull(second.eventUid);
-            assertTrue(!first.eventUid.equals(second.eventUid));
+            assertFalse(first.eventUid.equals(second.eventUid));
         }
     }
 

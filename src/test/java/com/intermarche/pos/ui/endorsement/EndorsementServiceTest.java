@@ -1,10 +1,10 @@
 package com.intermarche.pos.ui.endorsement;
 
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.auth.AuthService;
 import com.intermarche.pos.ui.auth.AuthState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -16,10 +16,7 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link EndorsementService}.

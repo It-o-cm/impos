@@ -1,11 +1,13 @@
 package com.intermarche.pos.domain.barcode;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
-import java.math.BigDecimal;
-import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
+
+import java.math.BigDecimal;
+import java.util.List;
+
 import static org.mockito.Mockito.mockStatic;
 
 /**

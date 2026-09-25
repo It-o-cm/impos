@@ -1,27 +1,24 @@
 package com.intermarche.pos.ui.hardware;
 
 import com.intermarche.pos.domain.payment.CardPayment;
-import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.sale.RefundLine;
-import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.TicketLineValuation;
-import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.payment.TicketPayment;
-import com.intermarche.pos.domain.sale.VatBreakdown;
+import com.intermarche.pos.domain.sale.*;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.TechnicalEventService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
-import com.intermarche.pos.service.PosSettingsService;
-import com.intermarche.pos.service.CashSessionService;
-import com.intermarche.pos.service.TechnicalEventService;
-import org.jboss.logging.Logger;
 
 /**
  * Renders and prints receipts from the persisted entities.
@@ -96,6 +93,14 @@ public class TicketPrinterService {
 
     /** Standard 80mm receipt width, in characters. */
     private static final int WIDTH = 42;
+
+    /**
+     * The typesetting primitives of this register's paper, shared with the
+     * template renderer so a factory template lays out exactly as this class
+     * does rather than re-implementing the alignment.
+     */
+    private static final com.intermarche.pos.service.DocumentLayout LAYOUT =
+            new com.intermarche.pos.service.DocumentLayout(WIDTH);
 
     /**
      * Loads a ticket from the database and prints it. The first print is the
@@ -230,14 +235,29 @@ public class TicketPrinterService {
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
-            // Engine advantage on this line: printed as a signed delta
+            // Engine advantage on this line: printed as a signed delta, and
+            // the CORRECTION on its own line. The two are separated because
+            // they go opposite ways: printing a ticket that went up under an
+            // advantage label would tell the customer the exact contrary of
+            // what happened to their money.
             TicketLineValuation valuation = valuations.get(line.lineUid);
-            if (valuation != null && valuation.valuedTotal.compareTo(valuation.localTotal) != 0) {
-                java.math.BigDecimal delta = valuation.valuedTotal.subtract(valuation.localTotal);
-                String advLabel = valuation.advantageLabel != null ? valuation.advantageLabel
-                        : (valuation.offerLabel != null ? valuation.offerLabel : "AVANTAGE");
-                if (advLabel.length() > 26) advLabel = advLabel.substring(0, 26);
-                sb.append(formatLine("  " + advLabel, DF.format(delta) + " E"));
+            if (valuation != null) {
+                java.math.BigDecimal correction = valuation.correctionAmount != null
+                        ? valuation.correctionAmount : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal delta = valuation.valuedTotal
+                        .subtract(valuation.localTotal).subtract(correction);
+                if (delta.signum() != 0) {
+                    String advLabel = valuation.advantageLabel != null ? valuation.advantageLabel
+                            : (valuation.offerLabel != null ? valuation.offerLabel : "AVANTAGE");
+                    if (advLabel.length() > 26) advLabel = advLabel.substring(0, 26);
+                    sb.append(formatLine("  " + advLabel, DF.format(delta) + " E"));
+                }
+                if (correction.signum() > 0) {
+                    String corLabel = valuation.correctionLabel != null
+                            ? valuation.correctionLabel : "AJUSTEMENT";
+                    if (corLabel.length() > 26) corLabel = corLabel.substring(0, 26);
+                    sb.append(formatLine("  " + corLabel, "+" + DF.format(correction) + " E"));
+                }
             }
         }
         sb.append("-".repeat(WIDTH)).append("\n");
@@ -265,6 +285,21 @@ public class TicketPrinterService {
                     : ticket.fidelityLines) {
                 sb.append(formatLine("  " + earnLine.getLabel(),
                         "+" + DF.format(earnLine.amount) + " E"));
+            }
+        }
+        // BO-03-03-29/30: the loyalty service did not answer during the sale, so
+        // the shop's message takes the place of the advantages that could not be
+        // computed -- one text for a holder ("your advantages will follow"),
+        // another for a non-holder ("present your card next time"). It is wrapped
+        // to the paper width rather than truncated: a sentence cut in half on a
+        // receipt says nothing at all. The administered layout already received
+        // it through the document data; the built-in layout below is what prints
+        // until a template is administered, and it was the one staying silent.
+        String fidelityMessage = unavailableMessage(ticket,
+                ticket.fidelityCard != null && !ticket.fidelityCard.isBlank());
+        if (!fidelityMessage.isEmpty()) {
+            for (String messageLine : wrap(fidelityMessage, WIDTH)) {
+                sb.append(messageLine).append("\n");
             }
         }
         sb.append(formatLine("Dont TVA", DF.format(ticket.totalVat) + " E"));
@@ -1044,17 +1079,16 @@ public class TicketPrinterService {
      */
     public void printRefundVoucher(Refund refund, String number) {
         LOGGER.info("Entering method printRefundVoucher with refund: " + refund + ", number: " + number);
-        StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
-        sb.append(center("AVOIR", WIDTH)).append("\n");
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("MONTANT", DF.format(refund.totalAmount) + " E"));
-        sb.append(String.format("Emis le : %s%n",
-                refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
-        sb.append("\n").append(center("N° " + number, WIDTH)).append("\n");
-        sb.append(center("(scannable en caisse - solde au registre)", WIDTH)).append("\n");
-        sb.append("\n");
-        hardwareService.printReceipt(sb.toString());
+        String sb = center("INTERMARCHE", WIDTH) + "\n" +
+                center("AVOIR", WIDTH) + "\n" +
+                "-".repeat(WIDTH) + "\n" +
+                formatLine("MONTANT", DF.format(refund.totalAmount) + " E") +
+                String.format("Emis le : %s%n",
+                        refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))) +
+                "\n" + center("N° " + number, WIDTH) + "\n" +
+                center("(scannable en caisse - solde au registre)", WIDTH) + "\n" +
+                "\n";
+        hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printRefundVoucher");
     }
@@ -1068,14 +1102,13 @@ public class TicketPrinterService {
      */
     public void printLoyaltyCredit(java.math.BigDecimal amount) {
         LOGGER.info("Entering method printLoyaltyCredit with amount: " + amount);
-        StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
-        sb.append(center("REMBOURSEMENT EN CAGNOTTE", WIDTH)).append("\n");
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("CREDIT CARTE", "+" + DF.format(amount) + " E"));
-        sb.append(center("(visible sur la carte sous quelques minutes)", WIDTH)).append("\n");
-        sb.append("\n");
-        hardwareService.printReceipt(sb.toString());
+        String sb = center("INTERMARCHE", WIDTH) + "\n" +
+                center("REMBOURSEMENT EN CAGNOTTE", WIDTH) + "\n" +
+                "-".repeat(WIDTH) + "\n" +
+                formatLine("CREDIT CARTE", "+" + DF.format(amount) + " E") +
+                center("(visible sur la carte sous quelques minutes)", WIDTH) + "\n" +
+                "\n";
+        hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printLoyaltyCredit");
     }
@@ -1100,15 +1133,14 @@ public class TicketPrinterService {
             LOGGER.info("Exiting method printGiftCardVoucher");
             return;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
-        sb.append(center("CARTE CADEAU", WIDTH)).append("\n");
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("MONTANT CHARGE", DF.format(amount) + " E"));
-        sb.append("\n").append(center("N° " + number, WIDTH)).append("\n");
-        sb.append(center("(scannable en caisse - solde au registre)", WIDTH)).append("\n");
-        sb.append("\n");
-        hardwareService.printReceipt(sb.toString());
+        String sb = center("INTERMARCHE", WIDTH) + "\n" +
+                center("CARTE CADEAU", WIDTH) + "\n" +
+                "-".repeat(WIDTH) + "\n" +
+                formatLine("MONTANT CHARGE", DF.format(amount) + " E") +
+                "\n" + center("N° " + number, WIDTH) + "\n" +
+                center("(scannable en caisse - solde au registre)", WIDTH) + "\n" +
+                "\n";
+        hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printGiftCardVoucher");
     }
@@ -1136,15 +1168,14 @@ public class TicketPrinterService {
             LOGGER.info("Exiting method printChangeVoucher");
             return;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
-        sb.append(center("AVOIR - RENDU DE MONNAIE", WIDTH)).append("\n");
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
-        sb.append("\n").append(center("N° " + number, WIDTH)).append("\n");
-        sb.append(center("(scannable en caisse - solde au registre)", WIDTH)).append("\n");
-        sb.append("\n");
-        hardwareService.printReceipt(sb.toString());
+        String sb = center("INTERMARCHE", WIDTH) + "\n" +
+                center("AVOIR - RENDU DE MONNAIE", WIDTH) + "\n" +
+                "-".repeat(WIDTH) + "\n" +
+                formatLine("MONTANT", DF.format(amount) + " E") +
+                "\n" + center("N° " + number, WIDTH) + "\n" +
+                center("(scannable en caisse - solde au registre)", WIDTH) + "\n" +
+                "\n";
+        hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printChangeVoucher");
     }
@@ -1169,13 +1200,6 @@ public class TicketPrinterService {
     // --------------------------------------------------
 
     /**
-     * Centers a text within the given width by left-padding.
-     *
-     * @param text the text to center
-     * @param width the receipt width in characters
-     * @return the padded text
-     */
-    /**
      * Returns a printable string for a value that may be absent.
      *
      * @param value the value, possibly null
@@ -1185,23 +1209,45 @@ public class TicketPrinterService {
         return value == null ? "" : value;
     }
 
+    /**
+     * Centres a text on a given width.
+     *
+     * <p>Delegates to the shared primitives so an administered template that
+     * centres a banner produces the very same characters as this layout — the
+     * whole point of having ONE implementation.
+     *
+     * @param text the text to centre
+     * @param width the width to centre on
+     * @return the padded text, without its terminator
+     */
     private String center(String text, int width) {
-        if (text.length() >= width) return text;
-        int pad = (width - text.length()) / 2;
-        return " ".repeat(pad) + text;
+        return new com.intermarche.pos.service.DocumentLayout(width).centre(text);
+    }
+
+    /**
+     * Wraps a message onto lines no wider than the given width.
+     *
+     * @param text the message to wrap
+     * @param width the paper width in characters
+     * @return the wrapped lines, without their terminators
+     */
+    private List<String> wrap(String text, int width) {
+        return new com.intermarche.pos.service.DocumentLayout(width).wrap(text);
     }
 
     /**
      * Formats a label / value pair on one receipt line, value right-aligned.
+     *
+     * <p>Keeps the trailing newline the forty-odd call sites of this layout
+     * expect: the primitive returns a line, this helper returns a line AND its
+     * terminator, because a StringBuilder assembling a document needs both.
      *
      * @param left the left label
      * @param right the right value
      * @return the formatted line, newline included
      */
     private String formatLine(String left, String right) {
-        int space = WIDTH - left.length() - right.length();
-        if (space < 1) space = 1;
-        return left + " ".repeat(space) + right + "\n";
+        return LAYOUT.line(left, right) + "\n";
     }
     /**
      * Prints an operator's badge ticket (LC-01-06-01): the badge id in
@@ -1213,14 +1259,13 @@ public class TicketPrinterService {
      */
     public void printOperatorBadge(com.intermarche.pos.domain.people.Employee employee) {
         LOGGER.info("Entering method printOperatorBadge with employee: " + employee);
-        StringBuilder sb = new StringBuilder();
-        sb.append(center("BADGE OPERATEUR", WIDTH)).append("\n");
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("OPERATEUR", employee.loginName));
-        sb.append(formatLine("BADGE", employee.badgeId != null ? employee.badgeId : "-"));
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("SCANNEZ OU SAISISSEZ CE NUMERO", WIDTH)).append("\n");
-        hardwareService.printReceipt(sb.toString());
+        String sb = center("BADGE OPERATEUR", WIDTH) + "\n" +
+                "-".repeat(WIDTH) + "\n" +
+                formatLine("OPERATEUR", employee.loginName) +
+                formatLine("BADGE", employee.badgeId != null ? employee.badgeId : "-") +
+                "-".repeat(WIDTH) + "\n" +
+                center("SCANNEZ OU SAISISSEZ CE NUMERO", WIDTH) + "\n";
+        hardwareService.printReceipt(sb);
         LOGGER.info("Exiting method printOperatorBadge");
     }
     /**
@@ -1273,12 +1318,11 @@ public class TicketPrinterService {
             LOGGER.info("Exiting method printTicketIdentityBarcode");
             return;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append(center("IDENTIFIANT TICKET", WIDTH)).append("\n");
-        sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center(ticket.ticketNumber, WIDTH)).append("\n");
-        sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
-        hardwareService.printReceipt(sb.toString());
+        String sb = center("IDENTIFIANT TICKET", WIDTH) + "\n" +
+                "-".repeat(WIDTH) + "\n" +
+                center(ticket.ticketNumber, WIDTH) + "\n" +
+                "\n" + barcode(ticket.ticketNumber) + "\n";
+        hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printTicketIdentityBarcode");
     }

@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
@@ -19,20 +19,9 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link BackupPaymentService}.

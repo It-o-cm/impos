@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.reprintticket;
 
 import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -11,15 +11,9 @@ import org.mockito.MockedStatic;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ReprintService}.

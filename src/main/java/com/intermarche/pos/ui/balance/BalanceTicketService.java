@@ -10,6 +10,7 @@ import com.intermarche.pos.ui.ticket.TicketState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -17,7 +18,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.jboss.logging.Logger;
 
 /**
  * Turns a counter reference scanned at the till into ticket lines (LC-06-01-02).

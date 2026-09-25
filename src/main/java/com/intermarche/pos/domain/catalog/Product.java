@@ -1,14 +1,14 @@
 package com.intermarche.pos.domain.catalog;
 
+import com.intermarche.pos.domain.BaseEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * Entity representing a Product in a supermarket POS system.

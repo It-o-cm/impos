@@ -13,9 +13,10 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
+
 import java.net.URI;
 import java.util.List;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the drawer-count page, the middle step of the Z

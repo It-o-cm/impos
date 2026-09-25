@@ -1,24 +1,24 @@
 package com.intermarche.pos.ui.home;
 
-import com.intermarche.pos.ui.PriceModType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
-import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import org.mockito.MockedStatic;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
@@ -27,19 +27,9 @@ import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.mockStatic;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link HomeService}.

@@ -14,13 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link ImfidClient}.
@@ -232,7 +226,7 @@ class ImfidClientTest {
     @Test
     void earnThrowsOnErrorStatus() {
         stub("/api/earn", 500, "boom");
-        assertThrows(IllegalStateException.class, () -> client.earn("{}", "{}"));
+        assertThrows(ImfidUnavailableException.class, () -> client.earn("{}", "{}"));
     }
 
     /**
@@ -294,7 +288,70 @@ class ImfidClientTest {
     @Test
     void accountThrowsOnUnexpectedStatus() {
         stub("/api/accounts/2990000000019", 500, "");
-        assertThrows(IllegalStateException.class, () -> client.account("2990000000019"));
+        assertThrows(ImfidUnavailableException.class, () -> client.account("2990000000019"));
+    }
+
+    // --- promotions ---
+
+    /**
+     * The card promotions are read with the benefit filter IN THE QUERY, and
+     * parsed as served. The filter is the assertion that matters: it is what
+     * keeps a CAGNOTTE promotion — imfid's to serve — from ever reaching the
+     * register and being granted a second time as a discount.
+     *
+     * @throws Exception when the stub call fails
+     */
+    @Test
+    void promotionsAsksImfidForTheImmediateDiscountsOnly() throws Exception {
+        stub("/api/accounts/2990000000019/promotions", 200,
+                "[{\"ean\":\"3000000000018\",\"promotionType\":\"AMOUNT\","
+                        + "\"value\":0.50,\"benefit\":\"IMMEDIATE_DISCOUNT\"}]");
+
+        java.util.List<ImfidClient.CardPromotion> promotions =
+                client.promotions("2990000000019");
+
+        assertTrue(receivedRequestLine.get().contains("benefit=IMMEDIATE_DISCOUNT"));
+        assertEquals(1, promotions.size());
+        assertEquals("3000000000018", promotions.get(0).ean);
+        assertEquals("AMOUNT", promotions.get(0).promotionType);
+        assertEquals(0, new BigDecimal("0.50").compareTo(promotions.get(0).value));
+        assertEquals("IMMEDIATE_DISCOUNT", promotions.get(0).benefit);
+    }
+
+    /**
+     * A holder with no promotion answers an empty list, and the register
+     * carries nothing — the ordinary case of every sale.
+     *
+     * @throws Exception when the stub call fails
+     */
+    @Test
+    void promotionsOfAHolderWithoutAnyIsEmpty() throws Exception {
+        stub("/api/accounts/2990000000019/promotions", 200, "[]");
+        assertTrue(client.promotions("2990000000019").isEmpty());
+    }
+
+    /**
+     * An UNKNOWN card is an empty list and not an exception: for the basket
+     * about to be priced, a card imfid does not know and a card without
+     * promotion are the same thing, and the caller has no choice to make
+     * between them.
+     *
+     * @throws Exception when the stub call fails
+     */
+    @Test
+    void promotionsOfAnUnknownCardIsEmpty() throws Exception {
+        stub("/api/accounts/2990000000404/promotions", 404, "");
+        assertTrue(client.promotions("2990000000404").isEmpty());
+    }
+
+    /**
+     * An unexpected status throws — the breaker path, which leaves the sale
+     * priced without the personal discounts rather than blocked.
+     */
+    @Test
+    void promotionsThrowsOnUnexpectedStatus() {
+        stub("/api/accounts/2990000000019/promotions", 500, "");
+        assertThrows(ImfidUnavailableException.class, () -> client.promotions("2990000000019"));
     }
 
     // --- reserve ---
@@ -541,7 +598,7 @@ class ImfidClientTest {
     @Test
     void movementsThrowsOnUnexpectedStatus() {
         stub("/api/accounts/2990000000019/movements", 503, "");
-        assertThrows(IllegalStateException.class, () -> client.movements("2990000000019", 0, 15));
+        assertThrows(ImfidUnavailableException.class, () -> client.movements("2990000000019", 0, 15));
     }
 
     // --- unconfigured service ---
@@ -578,10 +635,14 @@ class ImfidClientTest {
     @Test
     void earnFailureMessageCarriesStatusAndBody() {
         stub("/api/earn", 503, "maintenance window");
-        IllegalStateException failure = assertThrows(IllegalStateException.class,
+        ImfidUnavailableException failure = assertThrows(ImfidUnavailableException.class,
                 () -> client.earn("{}", "{}"));
         assertTrue(failure.getMessage().contains("503"), failure.getMessage());
         assertTrue(failure.getMessage().contains("maintenance window"), failure.getMessage());
+        // The status travels as a NUMBER too: a caller deciding what to do
+        // must not have to parse the sentence to tell a 503 from a 404.
+        assertEquals(503, failure.getHttpStatus());
+        assertEquals("/api/earn", failure.getEndpoint());
     }
 
     /**
@@ -592,9 +653,10 @@ class ImfidClientTest {
     @Test
     void earnFailureMessageOnEmptyBodyKeepsTheStatus() {
         stub("/api/earn", 500, "");
-        IllegalStateException failure = assertThrows(IllegalStateException.class,
+        ImfidUnavailableException failure = assertThrows(ImfidUnavailableException.class,
                 () -> client.earn("{}", "{}"));
-        assertEquals("imfid /api/earn answered 500 ", failure.getMessage());
+        assertEquals("imfid /api/earn answered 500", failure.getMessage());
+        assertEquals(500, failure.getHttpStatus());
     }
 
     // --- credentials ---
@@ -720,7 +782,7 @@ class ImfidClientTest {
     @Test
     void lookupThrowsOnUnexpectedStatus() {
         stub("/api/cards/lookup", 503, "");
-        assertThrows(IllegalStateException.class,
+        assertThrows(ImfidUnavailableException.class,
                 () -> client.lookup(null, "jean@x.fr", null, null));
     }
 

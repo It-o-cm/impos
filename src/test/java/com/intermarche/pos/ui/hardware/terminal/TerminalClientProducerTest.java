@@ -5,8 +5,7 @@ import com.intermarche.pos.ui.hardware.HardwareClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -50,7 +49,7 @@ class TerminalClientProducerTest {
      */
     private PaymentTerminalClient configured() {
         PaymentTerminalClient produced = producer.paymentTerminalClient();
-        assertTrue(produced instanceof DegradedModePaymentTerminalClient);
+        assertInstanceOf(DegradedModePaymentTerminalClient.class, produced);
         return ((DegradedModePaymentTerminalClient) produced).configured();
     }
 
@@ -70,7 +69,7 @@ class TerminalClientProducerTest {
     @Test
     void autoModeReturnsAutoAccept() {
         producer.mode = "auto";
-        assertTrue(configured() instanceof AutoAcceptTerminalClient);
+        assertInstanceOf(AutoAcceptTerminalClient.class, configured());
     }
 
     /**
@@ -80,7 +79,7 @@ class TerminalClientProducerTest {
     @Test
     void verifoneModeReturnsVerifoneClient() {
         producer.mode = "verifone";
-        assertTrue(configured() instanceof VerifoneTerminalClient);
+        assertInstanceOf(VerifoneTerminalClient.class, configured());
     }
 
     /**
@@ -90,7 +89,7 @@ class TerminalClientProducerTest {
     @Test
     void bridgeModeReturnsHardwareBridgeClient() {
         producer.mode = "bridge";
-        assertTrue(configured() instanceof HardwareBridgeTerminalClient);
+        assertInstanceOf(HardwareBridgeTerminalClient.class, configured());
     }
 
     /**

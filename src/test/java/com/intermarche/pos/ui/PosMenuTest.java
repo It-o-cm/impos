@@ -2,9 +2,7 @@ package com.intermarche.pos.ui;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests of {@link PosMenu}: the five menus of the bottom bar and the tolerant

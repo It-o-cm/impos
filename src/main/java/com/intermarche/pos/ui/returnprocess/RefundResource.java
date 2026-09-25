@@ -8,9 +8,9 @@ import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.net.URI;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the refund screens: ticket search, line quantity

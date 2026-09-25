@@ -2,15 +2,14 @@ package com.intermarche.pos.domain.catalog;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.Objects;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
+
+import java.math.BigDecimal;
+import java.util.Objects;
+
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link Product}, targeting 100% branch coverage.

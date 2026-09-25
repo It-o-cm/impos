@@ -6,14 +6,13 @@ import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link BalanceTicketScanHandler}.
@@ -54,7 +53,7 @@ class BalanceTicketScanHandlerTest {
      */
     private BalanceTicketScanHandler newHandler(BalanceTicketService service) {
         BalanceTicketScanHandler handler = new BalanceTicketScanHandler();
-        handler.balanceTicketPrefixes = Arrays.asList("27");
+        handler.balanceTicketPrefixes = List.of("27");
         handler.balanceTicketService = service;
         return handler;
     }

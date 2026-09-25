@@ -6,13 +6,9 @@ import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.jboss.logging.Logger;
+
+import java.util.*;
 
 /**
  * Feeds the SAISIE DIRECTE screen: a drill-down of the family tree showing

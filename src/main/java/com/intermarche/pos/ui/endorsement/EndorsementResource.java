@@ -1,21 +1,19 @@
 package com.intermarche.pos.ui.endorsement;
 
-import com.intermarche.pos.ui.PriceModType;
-
 import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Response;
-
-import java.net.URI;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.Map;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the manager-endorsement modal: polling endpoint,

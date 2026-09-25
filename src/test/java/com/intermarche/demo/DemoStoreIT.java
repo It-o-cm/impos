@@ -1,6 +1,7 @@
 package com.intermarche.demo;
 
 import com.intermarche.e2e.E2eTestProfile;
+import com.intermarche.pos.ui.PosState;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Locator;
@@ -9,12 +10,11 @@ import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.RequestOptions;
 import io.quarkiverse.playwright.InjectPlaywright;
 import io.quarkiverse.playwright.WithPlaywright;
-import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
-import com.intermarche.pos.ui.PosState;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;

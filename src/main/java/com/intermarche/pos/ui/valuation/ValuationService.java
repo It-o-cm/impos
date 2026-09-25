@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import com.intermarche.pos.ui.fidelity.ImfidClient;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -249,6 +250,7 @@ public class ValuationService {
 
         ValuationOutcome outcome = valuate(state.ticket,
                 state.fidelity.active ? state.fidelity.label : null,
+                state.fidelity.cardPromotions,
                 java.time.LocalDateTime.now());
         state.payment.valuationStatus = outcome.status;
         state.payment.valuationJson = outcome.responseJson;
@@ -325,13 +327,31 @@ public class ValuationService {
      * @return the outcome: LOCAL, ENGINE (with the raw response) or DEGRADED
      */
     public ValuationOutcome valuate(TicketState ticket, String fidelityCard, LocalDateTime creationDate) {
+        return valuate(ticket, fidelityCard, null, creationDate);
+    }
+
+    /**
+     * Values the cart against the remote engine, carrying the holder's
+     * card-borne promotions, and degrading on any failure.
+     *
+     * @param ticket the in-memory cart
+     * @param fidelityCard the attached fidelity card, or null
+     * @param cardPromotions the holder's immediate-discount promotions, or
+     *                       null/empty when there is none
+     * @param creationDate the ticket creation date (price lookup alignment)
+     * @return the outcome: LOCAL, ENGINE (with the raw response) or DEGRADED
+     */
+    public ValuationOutcome valuate(TicketState ticket, String fidelityCard,
+                                    List<ImfidClient.CardPromotion> cardPromotions,
+                                    LocalDateTime creationDate) {
         LOGGER.info("Entering method valuate with ticket: " + ticket + ", fidelityCard: " + fidelityCard + ", creationDate: " + creationDate);
         if (!isEnabled()) {
             LOGGER.info("Exiting method valuate");
             return new ValuationOutcome("LOCAL", null, null);
         }
         try {
-            ValuationPayloads.BasketDto basket = buildBasket(ticket, fidelityCard, creationDate);
+            ValuationPayloads.BasketDto basket =
+                    buildBasket(ticket, fidelityCard, cardPromotions, creationDate);
             if (basket.items.isEmpty()) {
                 // An EMPTY CART, nothing else: there is no basket to price.
                 // This is not a filtering decision — every line of a non-empty
@@ -342,9 +362,13 @@ public class ValuationService {
             // The couple travels VERBATIM to imfid (spec §1): the request is
             // serialized ONCE, before the call, exactly as the client sends it.
             String requestJson = objectMapper.writeValueAsString(basket);
-            ValuationPayloads.ValuationResponseDto response = valuationClient.valuate(basket);
+            ValuationClient.ValuationResult result = valuationClient.valuate(basket);
+            ValuationPayloads.ValuationResponseDto response = result.response();
             BigDecimal engineTotal = response.totalPrice != null ? response.totalPrice.amountIncludingTax : null;
-            String json = objectMapper.writeValueAsString(response);
+            // The BODY, not the object re-serialized: what leaves for the
+            // loyalty service must carry everything the engine wrote,
+            // including the blocks this register does not model.
+            String json = result.rawJson();
             LOGGER.infof("Valorisation moteur: %d offre(s), %d advantage(s), total moteur=%s",
                     response.offers.size(), response.advantages.size(), engineTotal);
             LOGGER.info("Exiting method valuate");
@@ -367,10 +391,13 @@ public class ValuationService {
      *
      * @param ticket the in-memory cart
      * @param fidelityCard the attached fidelity card, or null
+     * @param cardPromotions the holder's immediate-discount promotions, or
+     *                       null/empty when there is none
      * @param creationDate the ticket creation date
      * @return the basket request
      */
     private ValuationPayloads.BasketDto buildBasket(TicketState ticket, String fidelityCard,
+                                                    List<ImfidClient.CardPromotion> cardPromotions,
                                                     LocalDateTime creationDate) {
         ValuationPayloads.BasketDto basket = new ValuationPayloads.BasketDto();
         // BO-10-03-22: the card travels to the promotion engine ONLY when the
@@ -380,6 +407,25 @@ public class ValuationService {
         boolean jvPromotion = posSettingsService.fidelityJvPromotionEnabled();
         basket.customerCode = (jvPromotion && fidelityCard != null && !fidelityCard.isBlank())
                 ? fidelityCard : null;
+        // The card-borne promotions, and the card they belong to, travel
+        // INDEPENDENTLY of the customerCode above: that one is a store
+        // setting about store offers, these are personal rights imfid
+        // already granted, and switching the setting off must not silently
+        // withdraw them. Absent promotions leave BOTH fields null, so the
+        // request is the one the engine used to receive, to the byte.
+        if (cardPromotions != null && !cardPromotions.isEmpty()) {
+            List<ValuationPayloads.CardPromotionDto> promotions = new ArrayList<>();
+            for (ImfidClient.CardPromotion promotion : cardPromotions) {
+                ValuationPayloads.CardPromotionDto dto = new ValuationPayloads.CardPromotionDto();
+                dto.ean = promotion.ean;
+                dto.promotionType = promotion.promotionType;
+                dto.value = promotion.value;
+                dto.benefit = promotion.benefit;
+                promotions.add(dto);
+            }
+            basket.cardPromotions = promotions;
+            basket.cardNumber = fidelityCard;
+        }
         Store store = Store.findAll().firstResult();
         basket.storeCode = store != null ? store.code : "0000";
         String isoDate = (creationDate != null ? creationDate : LocalDateTime.now())
@@ -402,7 +448,7 @@ public class ValuationService {
             // what decides that. The date travels with the line for the same reason
             // every line travels: the engine is the authority on the basket's value.
             if (item.gs1ExpiryDate != null) {
-                dto.expiryDate = item.gs1ExpiryDate.toString();
+                dto.bestBeforeDate = item.gs1ExpiryDate.toString();
             }
             if (item.priceEmbedded) {
                 // PRICE-EMBEDDED sticker (EAN 2x, prefixes 21-22): the price

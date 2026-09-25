@@ -1,20 +1,14 @@
 package com.intermarche.pos.ui.hardware;
 
+import org.junit.jupiter.api.Test;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ChequeReadingService}.
@@ -124,7 +118,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("ABC123", read.get());
-        assertEquals(null, error.get());
+        assertNull(error.get());
     }
 
     /**
@@ -150,7 +144,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("CHEQUE VOLE", error.get());
-        assertEquals(null, read.get());
+        assertNull(read.get());
     }
 
     /**
@@ -176,7 +170,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("XYZ789", read.get());
-        assertEquals(null, error.get());
+        assertNull(error.get());
     }
 
     /**
@@ -202,7 +196,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("CHEQUE NON LU", error.get());
-        assertEquals(null, read.get());
+        assertNull(read.get());
     }
 
     /**
@@ -228,7 +222,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("CHEQUE NON LU", error.get());
-        assertEquals(null, read.get());
+        assertNull(read.get());
     }
 
     /**
@@ -254,7 +248,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("LINE42", read.get());
-        assertEquals(null, error.get());
+        assertNull(error.get());
     }
 
     /**
@@ -279,7 +273,7 @@ class ChequeReadingServiceTest {
         serviceWith(client).read("", onRead, onError);
         await(latch);
         assertEquals("LECTEUR DE CHEQUES INJOIGNABLE", error.get());
-        assertEquals(null, read.get());
+        assertNull(read.get());
     }
 
     /**
@@ -331,7 +325,7 @@ class ChequeReadingServiceTest {
         service.read("", onRead, onError);
         await(latch);
         assertEquals("PAS DE REPONSE DU LECTEUR DE CHEQUES", error.get());
-        assertEquals(null, read.get());
+        assertNull(read.get());
     }
 
     /**

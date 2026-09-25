@@ -9,9 +9,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import java.time.LocalDateTime;
-import org.jboss.logging.Logger;
 
 /**
  * Authentication of operators at the register.

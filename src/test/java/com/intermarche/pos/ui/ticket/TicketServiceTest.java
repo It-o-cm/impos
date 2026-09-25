@@ -1,45 +1,36 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
-import com.intermarche.pos.ui.valuation.ValuationService;
-import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.scanner.ScanContext;
+import com.intermarche.pos.ui.valuation.ValuationService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.inject.Instance;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.util.List;
-import org.junit.jupiter.api.BeforeEach;
-import com.intermarche.pos.domain.session.TechnicalEvent;
-import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link TicketService}.
@@ -86,7 +77,7 @@ class TicketServiceTest {
 
     /** Mocked CDI handler instance feeding the scan chain. */
     @SuppressWarnings("unchecked")
-    private Instance<ScanContext.ScanHandler> scanHandlers = mock(Instance.class);
+    private final Instance<ScanContext.ScanHandler> scanHandlers = mock(Instance.class);
 
     /**
      * Builds a fresh service, an unlocked-agnostic real state and all mocks.

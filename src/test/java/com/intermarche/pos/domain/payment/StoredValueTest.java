@@ -8,14 +8,8 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link StoredValue}.
@@ -282,6 +276,6 @@ class StoredValueTest {
     void thePrefixesAreDistinctAndThreeCharacters() {
         assertEquals("297", StoredValue.CREDIT_NOTE_PREFIX);
         assertEquals("296", StoredValue.GIFT_CARD_PREFIX);
-        assertFalse(StoredValue.CREDIT_NOTE_PREFIX.equals(StoredValue.GIFT_CARD_PREFIX));
+        assertNotEquals(StoredValue.CREDIT_NOTE_PREFIX, StoredValue.GIFT_CARD_PREFIX);
     }
 }

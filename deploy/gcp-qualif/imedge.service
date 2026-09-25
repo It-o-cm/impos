@@ -1,0 +1,43 @@
+# systemd unit — imedge (Quarkus store node), port 8070, H2 FILE database.
+#
+# The node is the shop's referential authority: the registers pull their
+# catalogue, prices and staff from it, and it relays what they sell upwards.
+# One node per shop, so one instance here.
+#
+# H2 file and not PostgreSQL: the same rule as impos and imvaluation. The
+# central database is imfid's alone, because imfid is the only service that is
+# central by nature. A node belongs to its shop.
+# WHAT FEEDS THE ENGINE, and it is not this node. Its own delivery is cut by
+# an EMPTY pos.valuation.url: the register pulls the verbatim ENGINE_FEEDS
+# from here and serves imvaluation itself, which is the channel the demo
+# stack demonstrates -- node -> pull -> register -> delivery -> engine. Both
+# of them delivering would feed the same engine twice.
+#
+# The long transaction is imposed by the volume, not by comfort: answering
+# /api/referential/versions hashes EVERY line of EVERY domain, and at 109 204
+# articles the default 60s is reached, the reaper cancels, the call answers
+# 500 and the register's pull fails WHOLE -- no domain applied, no
+# ENGINE_FEEDS, a register left on its seed.
+[Unit]
+Description=imedge (Quarkus store node) - qualification
+After=network.target
+
+[Service]
+User=apps
+WorkingDirectory=/opt/apps/imedge
+ExecStart=/usr/bin/java \
+  -Dquarkus.http.port=8070 \
+  -Dquarkus.datasource.jdbc.url=jdbc:h2:file:/opt/apps/imedge/data/store-07039 \
+  -Dquarkus.hibernate-orm.database.generation=update \
+  -Dquarkus.transaction-manager.default-transaction-timeout=900 \
+  -Dpos.valuation.url= \
+  -jar /opt/apps/imedge/quarkus-app/quarkus-run.jar
+Restart=on-failure
+RestartSec=5
+Environment=QUARKUS_HTTP_PROXY_PROXY_ADDRESS_FORWARDING=true
+# Demonstrator profile: known accounts, no imposed password change, and a
+# referential that survives a restart. A real store node runs %prod.
+Environment=QUARKUS_PROFILE=demo
+
+[Install]
+WantedBy=multi-user.target

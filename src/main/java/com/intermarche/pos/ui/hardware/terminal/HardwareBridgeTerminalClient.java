@@ -1,15 +1,14 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
+import com.intermarche.pos.ui.hardware.HardwareClient;
+import org.jboss.logging.Logger;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import org.jboss.logging.Logger;
-
-import com.intermarche.pos.ui.hardware.HardwareClient;
 
 /**
  * The real payment terminal, reached through the hardware bridge.

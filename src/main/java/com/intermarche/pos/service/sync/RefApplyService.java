@@ -1,35 +1,27 @@
 package com.intermarche.pos.service.sync;
 
-import jakarta.inject.Inject;
 import com.intermarche.pos.domain.barcode.AlertLevel;
 import com.intermarche.pos.domain.barcode.CouponControl;
 import com.intermarche.pos.domain.barcode.CouponField;
 import com.intermarche.pos.domain.barcode.CouponType;
-import com.intermarche.pos.domain.store.Country;
+import com.intermarche.pos.domain.catalog.*;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.setting.EchelonLevel;
 import com.intermarche.pos.domain.setting.EchelonSetting;
-import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
+import com.intermarche.pos.domain.store.Country;
 import com.intermarche.pos.domain.store.Enseigne;
 import com.intermarche.pos.domain.store.Pdv;
-import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.catalog.ProductType;
-import com.intermarche.pos.domain.catalog.VatRate;
-import com.intermarche.pos.domain.catalog.ProductFamily;
 import com.intermarche.pos.domain.sync.RefState;
-import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Register-side application of a referential snapshot (phase 6 lot 3), one

@@ -4,10 +4,10 @@ import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.auth.AuthState;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -19,12 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link CashSessionResource}.
@@ -149,7 +144,7 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
         TemplateInstance[] chain = stubSessionChain(resource);
         assertSame(chain[3], resource.sessionPage("bogus"));
-        verify(chain[2]).data("error", (String) null);
+        verify(chain[2]).data("error", null);
     }
 
     // --- openSession ---

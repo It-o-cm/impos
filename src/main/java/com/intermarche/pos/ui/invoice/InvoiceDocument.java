@@ -1,23 +1,19 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.sale.Invoice;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.sale.VatBreakdown;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * A commercial document, laid out and ready to be shown — the ONE truth of what the

@@ -54,6 +54,27 @@ class DocumentTemplateServiceTest {
     }
 
     /**
+     * Builds the service over an engine that also resolves plain objects by
+     * reflection.
+     *
+     * <p>The register's own engine reaches {@link DocumentLayout} through the
+     * resolver its {@code @TemplateData} generates at build time, which a
+     * hand-assembled engine has no way to carry; reflection resolves the very
+     * same methods and is the stand-in a unit test can run. What this proves
+     * is the RENDERER's wiring — that the primitives are handed to the
+     * template, bound to its width — not the build-time generation, which only
+     * a running application can show.
+     *
+     * @return the wired service
+     */
+    private DocumentTemplateService newReflectiveService() {
+        DocumentTemplateService service = new DocumentTemplateService();
+        service.engine = Engine.builder().addDefaults()
+                .addValueResolver(new io.quarkus.qute.ReflectionValueResolver()).build();
+        return service;
+    }
+
+    /**
      * Builds an administered template of the sale receipt.
      *
      * @param source the Qute source
@@ -701,4 +722,83 @@ class DocumentTemplateServiceTest {
         }
         throw new AssertionError("référence absente du catalogue : " + expression);
     }
+
+    /**
+     * A template reaches the register's OWN typesetting primitives through
+     * {@code fmt}, and lays a value flush right exactly as the built-in
+     * receipt does — the wiring that makes a factory template able to
+     * reproduce a printed document instead of approximating it.
+     */
+    @Test
+    void atemplateLaysOutWithTheRegistersOwnPrimitives() {
+        DocumentTemplateService service = newReflectiveService();
+        String rendered = service.renderTemplate(
+                template("{fmt.line('TOTAL TTC', '4,62 E')}"), java.util.Map.of());
+        assertEquals("TOTAL TTC" + " ".repeat(27) + "4,62 E", rendered);
+        assertEquals(42, rendered.length());
+    }
+
+    /**
+     * The primitives are bound to the template's ADMINISTERED width, so the
+     * same source laid out on a narrower paper aligns on that paper. Until
+     * this lot the width was validated, stored and distributed, and no
+     * renderer ever read it.
+     */
+    @Test
+    void thePrimitivesFollowTheAdministeredWidth() {
+        DocumentTemplateService service = newReflectiveService();
+        DocumentTemplate narrow = template("{fmt.line('A', 'B')}");
+        narrow.width = 20;
+        assertEquals("A" + " ".repeat(18) + "B",
+                service.renderTemplate(narrow, java.util.Map.of()));
+    }
+
+    /**
+     * The width itself is exposed beside the primitives, for a template that
+     * needs the number rather than the alignment.
+     */
+    @Test
+    void thewidthIsExposedToTheTemplate() {
+        DocumentTemplateService service = newService();
+        assertEquals("42", service.renderTemplate(template("{width}"), java.util.Map.of()));
+    }
+
+    /**
+     * Centring and the rule are reachable too, and a template mixing them with
+     * its own values still reads those values — the enrichment ADDS, it does
+     * not replace what the printer assembled.
+     */
+    @Test
+    void atemplateCentresRulesAndStillReadsItsOwnValues() {
+        DocumentTemplateService service = newReflectiveService();
+        String rendered = service.renderTemplate(
+                template("{fmt.centre('MERCI')}|{fmt.rule()}|{store}"),
+                java.util.Map.of("store", "LYON"));
+        assertEquals(" ".repeat(18) + "MERCI|" + "-".repeat(42) + "|LYON", rendered);
+    }
+
+    /**
+     * A NULL data map still renders: the primitives are handed over all the
+     * same, which is the null arm of the enrichment.
+     */
+    @Test
+    void anullDataMapStillGetsThePrimitives() {
+        DocumentTemplateService service = newReflectiveService();
+        assertEquals("-".repeat(42), service.renderTemplate(template("{fmt.rule()}"), null));
+    }
+
+    /**
+     * The caller's map is COPIED and never enriched in place: the values a
+     * printer assembled for one document must not grow a key because they were
+     * passed through the renderer.
+     */
+    @Test
+    void thecallersMapIsNotEnrichedInPlace() {
+        DocumentTemplateService service = newReflectiveService();
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("store", "LYON");
+        service.renderTemplate(template("{fmt.rule()}"), data);
+        assertEquals(java.util.Set.of("store"), data.keySet());
+    }
+
 }

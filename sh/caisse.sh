@@ -205,6 +205,7 @@ timed_import() {
 # VAT_RATES before PRICES: a price attaches to the regime carrying its rate.
 import_feeds() {
   push_feed employees.csv /feeds/import/EMPLOYEES
+  push_feed egalim-regimes.csv /feeds/import/EGALIM_REGIMES
   push_feed stores.csv /feeds/import/STORES
   push_feed store-groups.csv /feeds/import/STORE_GROUPS
   push_feed products.csv /feeds/import/PRODUCTS
@@ -220,6 +221,7 @@ import_feeds() {
 # Articles, families, categories and prices: stores, groups, offers and
 # employees are not touched, so the demo set stays usable for everything else.
 import_catalogue_07039() {
+  push_feed egalim-regimes.csv /feeds/import/EGALIM_REGIMES
   push_feed products-07039.csv /feeds/import/PRODUCTS
   push_feed product-families-07039.csv /feeds/import/FAMILIES
   push_feed product-category-storages-07039.csv /feeds/import/CATEGORY_STORAGES

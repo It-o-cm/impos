@@ -1,11 +1,12 @@
 package com.intermarche.pos.domain;
 
 import com.intermarche.pos.domain.util.DateTimeProvider;
-import java.time.LocalDateTime;
-import java.util.Objects;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * Unit tests for {@link BaseEntity}, targeting 100% branch coverage.
@@ -115,7 +116,7 @@ class BaseEntityTest {
     void equalsSameReferenceIsTrue() {
         TestEntity e = new TestEntity(1);
         e.id = 5L;
-        Assertions.assertTrue(e.equals(e));
+        Assertions.assertEquals(e, e);
     }
 
     /**
@@ -125,7 +126,7 @@ class BaseEntityTest {
     void equalsNullIsFalse() {
         TestEntity e = new TestEntity(1);
         e.id = 5L;
-        Assertions.assertFalse(e.equals(null));
+        Assertions.assertNotEquals(null, e);
     }
 
     /**
@@ -136,7 +137,7 @@ class BaseEntityTest {
     void equalsForeignClassIsFalse() {
         TestEntity e = new TestEntity(1);
         e.id = 5L;
-        Assertions.assertFalse(e.equals("not an entity"));
+        Assertions.assertNotEquals("not an entity", e);
     }
 
     /**
@@ -149,7 +150,7 @@ class BaseEntityTest {
         a.id = 5L;
         OtherEntity b = new OtherEntity();
         b.id = 5L;
-        Assertions.assertFalse(a.equals(b));
+        Assertions.assertNotEquals(a, b);
     }
 
     /**
@@ -160,7 +161,7 @@ class BaseEntityTest {
         TestEntity a = new TestEntity(1);
         TestEntity b = new TestEntity(1);
         b.id = 5L;
-        Assertions.assertFalse(a.equals(b));
+        Assertions.assertNotEquals(a, b);
     }
 
     /**
@@ -173,7 +174,7 @@ class BaseEntityTest {
         a.id = 5L;
         TestEntity b = new TestEntity(1);
         b.id = 6L;
-        Assertions.assertFalse(a.equals(b));
+        Assertions.assertNotEquals(a, b);
     }
 
     /**
@@ -187,7 +188,7 @@ class BaseEntityTest {
         TestEntity b = new TestEntity(999);
         b.id = 5L;
         Assertions.assertNotSame(a, b);
-        Assertions.assertTrue(a.equals(b));
+        Assertions.assertEquals(a, b);
     }
 
     /**

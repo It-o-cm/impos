@@ -1,14 +1,10 @@
 package com.intermarche.pos.domain.store;
 
-import jakarta.persistence.Cacheable;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
+import com.intermarche.pos.domain.BaseEntity;
+import jakarta.persistence.*;
 
 import java.util.List;
 import java.util.Objects;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * The CENTRAL registry of a point de vente (BO-02-05-01, BO-02-05-05): its

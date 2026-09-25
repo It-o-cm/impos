@@ -299,7 +299,10 @@ public class DrawerOperationsResource {
         if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
             java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
             form.put("op", "transfer");
-            form.put("from", from == null ? "" : from);
+            // No null guard on the source: from.equals(to) above would have
+            // thrown on a null source, so reaching here proves it was given.
+            // The destination keeps its guard — nothing above dereferences it.
+            form.put("from", from);
             form.put("to", to == null ? "" : to);
             form.put("amount", amountStr == null ? "" : amountStr);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/transfer");

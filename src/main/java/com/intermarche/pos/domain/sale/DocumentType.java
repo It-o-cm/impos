@@ -1,10 +1,6 @@
 package com.intermarche.pos.domain.sale;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * A kind of commercial document the register issues on a closed ticket.

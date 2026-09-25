@@ -1,7 +1,7 @@
 package com.intermarche.e2e;
 
-import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.store.Store;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;

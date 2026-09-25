@@ -1,19 +1,9 @@
 package com.intermarche.pos.domain.sale;
 
+import com.intermarche.pos.domain.BaseEntity;
 import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.BaseEntity;
-import jakarta.persistence.AttributeOverride;
-import jakarta.persistence.Column;
-import jakarta.persistence.Embedded;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 

@@ -16,9 +16,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link ScannerReaderService}: the boot-time enable guard, the
@@ -266,7 +264,7 @@ class ScannerReaderServiceTest {
         reader.join(5000);
         LinuxInput.C.close(readFd);
         assertFalse(reader.isAlive());
-        assertEquals(null, failure.get());
+        assertNull(failure.get());
         assertEquals(0, source.decodeCalls);
     }
 

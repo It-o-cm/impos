@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -19,11 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for the two drawer gestures ({@code LC-12-03} withdrawal and
@@ -230,7 +226,7 @@ class DrawerOperationsResourceTest {
         private boolean supervisor = false;
 
         /** Whether the presented credentials are accepted. */
-        private boolean authorized = false;
+        private final boolean authorized = false;
 
         /** The action code of the last parked request, or null when none. */
         private String parkedAction;
@@ -897,6 +893,6 @@ class DrawerOperationsResourceTest {
     void aRecordedWithdrawalTouchesTheState() {
         long before = state.version;
         resource.recordWithdrawal(CashMovement.CASH, "50", "{}");
-        assertFalse(state.version == before);
+        assertNotEquals(state.version, before);
     }
 }

@@ -53,6 +53,9 @@ lsof -ti :8080 | xargs kill
 lsof -ti :8060 | xargs kill
 lsof -ti :8090 | xargs kill
 lsof -ti :8070 | xargs kill
+# Leftover JDWP debuggers: a previous run (or an IDE-launched app) holding a
+# debug port would make the next dev-mode JVM die with "bind failed".
+for p in 5005 5060 5070 5080 5090; do lsof -ti :$p | xargs kill; done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Location-agnostic: the script may live at the impos root OR under demo/ —
@@ -85,7 +88,7 @@ SIMULATOR_PAGE="simulateur.html"
 # domaine. A 312 articles c'est instantane, a 109 204 la transaction JTA du
 # calcul depasse les 60s par defaut, le Transaction Reaper l'annule, l'appel
 # repond 500 et le tirage de la caisse echoue EN ENTIER: aucun domaine
-# applique, donc pas d'ENGINE_FEEDS, donc ACK 0/8 et une caisse restee sur son
+# applique, donc pas d'ENGINE_FEEDS, donc ACK 0/9 et une caisse restee sur son
 # seed. Les trois valeurs ci-dessous sont ce que le volume impose, pas un
 # reglage de confort.
 NODE_TX_TIMEOUT=60
@@ -160,7 +163,12 @@ start_app() { # name dir port extra_args…
     exit 1
   fi
   echo "· Démarrage de $name ($dir, port $port)…"
-  ( cd "$dir" && nohup mvn -q quarkus:dev -Dquarkus.console.enabled=false "$@" \
+  # One JDWP debug port PER APP, derived from its HTTP port (8090->5090,
+  # 8060->5060, 8070->5070, 8080->5080): without this every quarkus:dev JVM
+  # binds the same default 5005 and every app but the first dies at startup
+  # with "JDWP bind failed: Address already in use".
+  ( cd "$dir" && nohup mvn -q quarkus:dev -Dquarkus.console.enabled=false \
+      -Ddebug=$((port - 3000)) "$@" \
       > "$RUN_DIR/$name.log" 2>&1 & echo $! > "$RUN_DIR/$name.pid" )
 }
 
@@ -272,6 +280,11 @@ fi
 echo "· Injection des flux dans le nœud magasin (ordre du catalogue)…"
 inject_feed "/feeds/import/STORES"               STORES            stores.csv
 inject_feed "/feeds/import/STORE_GROUPS"         STORE_GROUPS      store-groups.csv
+# Les regimes EGAlim passent AVANT les articles, comme les TVA passent avant
+# les prix : un article nomme un CODE de regime et jamais un pourcentage, et
+# un moteur qui recoit les articles sans les plafonds plafonne aux valeurs
+# compilees dans son propre enum -- soit un chiffre que personne n'administre.
+inject_feed "/feeds/import/EGALIM_REGIMES"       EGALIM_REGIMES    egalim-regimes.csv
 inject_feed "/feeds/import/PRODUCTS"             PRODUCTS          "products$FEED_SUFFIX.csv"
 inject_feed "/feeds/import/FAMILIES"             FAMILIES          "product-families$FEED_SUFFIX.csv"
 inject_feed "/feeds/import/CATEGORY_STORAGES"    CATEGORY_STORAGES "product-category-storages$FEED_SUFFIX.csv"
@@ -291,21 +304,21 @@ inject_nomenclature ITM_FR "Nomenclature+ITM+France" ITM hierarchies.csv
 # ---------- 5. attendre l'ACK du moteur sur les 8 flux ----------
 # Le statut est lu SUR LA CAISSE (8080): un flux n'y existe qu'une fois
 # tiré du nœud, et n'est 'applied' qu'une fois le moteur servi — ce
-# compteur 8/8 prouve donc la chaîne entière nœud → tirage → caisse →
+# compteur 9/9 prouve donc la chaîne entière nœud → tirage → caisse →
 # livraison → moteur.
 ACK_TIMEOUT=120
 if [ -n "$FEED_SUFFIX" ]; then ACK_TIMEOUT=900; fi
-printf "· Livraison au moteur (ACK 8/8 attendu, %ss max) " "$ACK_TIMEOUT"
+printf "· Livraison au moteur (ACK 9/9 attendu, %ss max) " "$ACK_TIMEOUT"
 waited=0
 while [ $waited -lt $ACK_TIMEOUT ]; do
   applied=$(curl -s -u "$ADMIN_AUTH" "http://localhost:8080/feeds/import/status" \
       | grep -o '"applied":true' | wc -l | tr -d ' ')
-  if [ "$applied" = "8" ]; then echo "— moteur à jour (${waited}s)."; break; fi
+  if [ "$applied" = "9" ]; then echo "— moteur à jour (${waited}s)."; break; fi
   sleep 2; waited=$((waited+2)); printf "."
 done
-if [ "${applied:-0}" != "8" ]; then
+if [ "${applied:-0}" != "9" ]; then
   echo
-  echo "✗ Moteur pas à jour après ${ACK_TIMEOUT}s ($applied/8 flux acquittés) :"
+  echo "✗ Moteur pas à jour après ${ACK_TIMEOUT}s ($applied/9 flux acquittés) :"
   curl -s -u "$ADMIN_AUTH" "http://localhost:8080/feeds/import/status"; echo
   echo "  — voir $RUN_DIR/store-node.log (imports), $RUN_DIR/impos.log (tirage" 
   echo "    + livraison) et $RUN_DIR/imvaluation.log"

@@ -1,14 +1,12 @@
 package com.intermarche.pos.domain.barcode;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.List;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import static org.mockito.Mockito.mockStatic;
 
 /**
  * Unit tests for {@link CouponField}, targeting 100% branch coverage.

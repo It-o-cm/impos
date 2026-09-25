@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.customer;
 
-import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
@@ -14,9 +14,7 @@ import org.mockito.Mockito;
 
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests of {@link TicketMailService}: the administered form of the sent ticket

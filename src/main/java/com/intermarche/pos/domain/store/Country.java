@@ -1,5 +1,6 @@
 package com.intermarche.pos.domain.store;
 
+import com.intermarche.pos.domain.BaseEntity;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -8,7 +9,6 @@ import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
 import java.util.Objects;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * A country echelon (Pays), the top of the organisation tree the AO describes

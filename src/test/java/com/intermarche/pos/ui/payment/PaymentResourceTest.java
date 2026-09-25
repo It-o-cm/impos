@@ -2,8 +2,8 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.qute.Template;
@@ -15,19 +15,10 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link PaymentResource}.
@@ -644,7 +635,7 @@ class PaymentResourceTest {
         }
         assertEquals("GIFT", resource.state.payment.pendingVoucherTypeCode);
         assertEquals("Chèque cadeau", resource.state.payment.pendingVoucherLabel);
-        assertEquals(false, resource.state.payment.pendingVoucherNeedsAmount);
+        assertFalse(resource.state.payment.pendingVoucherNeedsAmount);
         verify(resource.state).touch();
     }
 

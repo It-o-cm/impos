@@ -1,14 +1,14 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.time.LocalDateTime;
-import org.jboss.logging.Logger;
 
 /**
  * Appends entries to the technical event journal, stamped with this register's

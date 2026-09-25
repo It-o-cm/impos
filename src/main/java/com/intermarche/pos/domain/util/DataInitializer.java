@@ -1,23 +1,19 @@
 package com.intermarche.pos.domain.util;
 
-import com.intermarche.pos.domain.barcode.*;
+import com.intermarche.pos.domain.barcode.CouponField;
+import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.catalog.*;
-import com.intermarche.pos.domain.payment.*;
-import com.intermarche.pos.domain.people.*;
-import com.intermarche.pos.domain.sale.*;
-import com.intermarche.pos.domain.session.*;
-import com.intermarche.pos.domain.setting.*;
-import com.intermarche.pos.domain.store.*;
-import com.intermarche.pos.domain.sync.*;
-import com.intermarche.pos.domain.catalog.Nomenclature;
-import com.intermarche.pos.domain.catalog.NomenclatureLevel;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 import io.quarkus.arc.profile.IfBuildProfile;
+import org.jboss.logging.Logger;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.transaction.Transactional;
+
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 
@@ -49,6 +45,9 @@ import java.util.ArrayList;
 @IfBuildProfile(anyOf = {"dev", "test", "demo"})
 public class DataInitializer {
 
+    /** The class logger. */
+    private static final Logger LOGGER = Logger.getLogger(DataInitializer.class);
+
     /** Price window start shared with the engine's seed (12 Jan 2026). */
     private static final LocalDateTime PRICE_START = LocalDateTime.of(2026, 1, 12, 0, 0, 0);
 
@@ -77,12 +76,30 @@ public class DataInitializer {
     private final java.util.Map<String, VatRate> seededVatRates = new java.util.HashMap<>();
 
     /**
-     * Wipes and reloads the referential tables at startup (dev/test only).
+     * Loads the demonstration referential at startup, into a register that
+     * has none.
+     * <p>
+     * The tables are wiped before being written, because a partial seed laid
+     * over a previous one duplicates everything it does not overwrite. That
+     * wipe is precisely why the seed steps aside on a populated register: on
+     * a database that survives a restart, running it again would delete the
+     * referential pulled from the store node and the sales of the day, and it
+     * would fail doing so, the articles being referenced by their families.
+     * <p>
+     * Under dev and test the schema is recreated empty at every start, so the
+     * seed runs every time there, as it always has. On a demonstrator whose
+     * database is kept, the empty state is produced by the DELIVERY, which
+     * removes the database file before restarting the register: reseeding is
+     * then a deployment act, no longer a consequence of a reboot.
      *
      * @param ev the startup event
      */
     @Transactional
     void onStart(@Observes StartupEvent ev) {
+        if (Product.count() > 0) {
+            LOGGER.info("Référentiel déjà présent: seed de démonstration ignoré");
+            return;
+        }
         Employee.deleteAll();
         Price.deleteAll();
         Product.deleteAll();

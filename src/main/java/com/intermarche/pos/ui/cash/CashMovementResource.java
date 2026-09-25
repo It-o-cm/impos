@@ -138,7 +138,10 @@ public class CashMovementResource {
         if (cashMovementService.requiresEndorsement(parseAmount(amountStr))
                 && !endorsementService.operatorIsSupervisor(state)) {
             java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
-            form.put("type", typeStr == null ? "" : typeStr);
+            // No null guard on the type: the parse guard above refused the line
+            // when parseType answered null, and it answers null on a null input.
+            // Reaching here proves the type was given and names a movement.
+            form.put("type", typeStr);
             form.put("amount", amountStr == null ? "" : amountStr);
             form.put("reason", reason == null ? "" : reason);
             form.put("paymentMethod", paymentMethod == null ? "" : paymentMethod);

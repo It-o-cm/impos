@@ -1,17 +1,16 @@
 package com.intermarche.pos.ui.endorsement;
 
-import com.intermarche.pos.ui.PriceModType;
-
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.auth.AuthService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
-import org.jboss.logging.Logger;
 
 /**
  * Manager endorsement service: credential check and endorsement request

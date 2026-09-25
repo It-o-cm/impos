@@ -6,16 +6,10 @@ import com.intermarche.pos.domain.store.Enseigne;
 import com.intermarche.pos.domain.store.Pdv;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
+import org.jboss.logging.Logger;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import org.jboss.logging.Logger;
+import java.util.*;
 
 /**
  * The ECHELON INHERITANCE engine (BO-02-05-04, BO-03-12-07): given a point de

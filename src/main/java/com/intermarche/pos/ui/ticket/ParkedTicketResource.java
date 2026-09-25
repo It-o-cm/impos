@@ -1,22 +1,17 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.ui.ticket.TicketParkingService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.net.URI;
 import java.util.List;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving parked tickets: parking the current cart, listing

@@ -48,10 +48,17 @@ public class EngineFeedService {
      * engine attaches every price to the regime carrying its rate, so a price
      * file delivered to an engine with an empty regime table is rejected line
      * by line and the engine prices nothing.
+     *
+     * <p>EGALIM_REGIMES comes BEFORE PRODUCTS for the same kind of reason: an
+     * article states a regime CODE and never a ceiling, so an engine holding
+     * articles it has no ceilings for caps them at whatever its own code
+     * carries. Delivering the ceilings first makes the administered figure the
+     * one that computes, from the very first basket.
      */
     public static final List<FeedDef> CATALOG = List.of(
             new FeedDef("STORES", "/stores/import"),
             new FeedDef("STORE_GROUPS", "/store-groups/import"),
+            new FeedDef("EGALIM_REGIMES", "/egalim-regimes/import"),
             new FeedDef("PRODUCTS", "/products/import"),
             new FeedDef("FAMILIES", "/product-families/import"),
             new FeedDef("CATEGORY_STORAGES", "/product-category-storages/import"),

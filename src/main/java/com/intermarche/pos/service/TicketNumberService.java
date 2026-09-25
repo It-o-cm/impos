@@ -1,7 +1,7 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.session.DocumentCounter;
 import com.intermarche.pos.domain.sale.DocumentType;
+import com.intermarche.pos.domain.session.DocumentCounter;
 import com.intermarche.pos.domain.session.TicketCounter;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;

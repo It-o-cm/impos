@@ -164,7 +164,7 @@ class PosSettingsServiceTest {
 
     /**
      * {@code loadAll} swallows a read failure and falls back to defaults
-     * (exception arm): the cache is dropped and the default is returned.
+     * (exception arm): nothing is cached and the default is returned.
      */
     @Test
     void valueSurvivesReadFailure() {
@@ -732,4 +732,154 @@ class PosSettingsServiceTest {
             assertTrue(service.cashMovementTenders().isEmpty());
         }
     }
+
+    /**
+     * A FAILED read caches nothing, so the very next access tries the database
+     * again: two {@code value} calls issue two {@code listAll}.
+     * <p>
+     * This is the defect the guard exists for. {@code loadAll} used to clear
+     * the cache itself and hand back an empty map, which its own caller then
+     * stored — so the empty map became the register's parameters until someone
+     * saved a setting or restarted it. A register that cannot read its
+     * parameters at boot must recover on its own.
+     */
+    @Test
+    void aFailedReadIsNotCachedAndTheNextAccessRetries() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenThrow(new RuntimeException("no table"));
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            ms.verify(PanacheEntityBase::listAll, times(2));
+        }
+    }
+
+    /**
+     * A read that FAILS then SUCCEEDS serves the default first and the stored
+     * override next — the recovery the retry buys, asserted on the value and
+     * not only on the call count.
+     */
+    @Test
+    void aReadRecoveringAfterAFailureServesTheStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenThrow(new RuntimeException("no table"))
+                    .thenReturn(List.of(row("gesture.endorsement-required", "false")));
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            assertEquals("false", service.value("gesture.endorsement-required"));
+        }
+    }
+
+    /**
+     * A SUCCESSFUL read is cached, failure or not afterwards: once the table
+     * has answered, a later throw never reaches the caller because no reload
+     * is attempted.
+     */
+    @Test
+    void aSuccessfulReadIsCachedAndNeverReloaded() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("gesture.endorsement-required", "false")));
+            assertEquals("false", service.value("gesture.endorsement-required"));
+            assertEquals("false", service.value("gesture.endorsement-required"));
+            ms.verify(PanacheEntityBase::listAll, times(1));
+        }
+    }
+
+    /**
+     * {@code administeredValues} goes through the same cache as {@code value}:
+     * a failed read caches nothing there either, so the screen that renders the
+     * administered values does not freeze the defaults in.
+     */
+    @Test
+    void administeredValuesDoesNotCacheAFailedRead() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenThrow(new RuntimeException("no table"));
+            service.administeredValues();
+            service.administeredValues();
+            ms.verify(PanacheEntityBase::listAll, times(2));
+        }
+    }
+
+    /**
+     * A FAILED echelon resolution caches nothing: the next value read resolves
+     * the echelons again, instead of staying on the local overrides for good.
+     */
+    @Test
+    void aFailedEchelonResolutionIsNotCached() {
+        PosSettingsService service = new PosSettingsService();
+        service.echelonSettings = mock(EchelonSettingService.class);
+        service.nodePdvNumber = Optional.of("07039");
+        when(service.echelonSettings.resolveForPdv("07039"))
+                .thenThrow(new RuntimeException("echelons indisponibles"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            verify(service.echelonSettings, times(2)).resolveForPdv("07039");
+        }
+    }
+
+    /**
+     * A SUCCESSFUL echelon resolution is cached even when it yields NOTHING:
+     * "this node inherits no value" is a settled fact, not a failure, and
+     * re-resolving it on every read would query the echelons for nothing.
+     */
+    @Test
+    void anEmptyEchelonResolutionIsCached() {
+        PosSettingsService service = new PosSettingsService();
+        service.echelonSettings = mock(EchelonSettingService.class);
+        service.nodePdvNumber = Optional.of("07039");
+        when(service.echelonSettings.resolveForPdv("07039")).thenReturn(Map.of());
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            assertEquals("true", service.value("gesture.endorsement-required"));
+            verify(service.echelonSettings, times(1)).resolveForPdv("07039");
+        }
+    }
+
+    /**
+     * An echelon value INHERITED is served when the local table states nothing,
+     * and it is resolved once — the warm arm of the inherited cache carrying a
+     * real value rather than an empty map.
+     */
+    @Test
+    void anInheritedEchelonValueIsServedAndCachedOnce() {
+        PosSettingsService service = new PosSettingsService();
+        service.echelonSettings = mock(EchelonSettingService.class);
+        service.nodePdvNumber = Optional.of("07039");
+        when(service.echelonSettings.resolveForPdv("07039"))
+                .thenReturn(Map.of("gesture.endorsement-required", "false"));
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("false", service.value("gesture.endorsement-required"));
+            assertEquals("false", service.value("gesture.endorsement-required"));
+            verify(service.echelonSettings, times(1)).resolveForPdv("07039");
+        }
+    }
+
+    /**
+     * {@code invalidate} drops BOTH caches: after an admin save, the next read
+     * re-queries the table AND re-resolves the echelons.
+     */
+    @Test
+    void invalidateDropsTheEchelonCacheToo() {
+        PosSettingsService service = new PosSettingsService();
+        service.echelonSettings = mock(EchelonSettingService.class);
+        service.nodePdvNumber = Optional.of("07039");
+        when(service.echelonSettings.resolveForPdv("07039")).thenReturn(Map.of());
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            service.value("gesture.endorsement-required");
+            service.invalidate();
+            service.value("gesture.endorsement-required");
+            ms.verify(PanacheEntityBase::listAll, times(2));
+            verify(service.echelonSettings, times(2)).resolveForPdv("07039");
+        }
+    }
+
 }

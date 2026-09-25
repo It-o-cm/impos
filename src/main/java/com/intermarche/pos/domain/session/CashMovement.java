@@ -1,18 +1,12 @@
 package com.intermarche.pos.domain.session;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import com.intermarche.pos.domain.BaseEntity;
+import com.intermarche.pos.domain.people.Employee;
+import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
-import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * A cash movement of one register: a first-class WITNESS of a drawer

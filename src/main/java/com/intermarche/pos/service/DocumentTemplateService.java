@@ -108,13 +108,42 @@ public class DocumentTemplateService {
             // Null values and empty values are the same thing to the engine
             // (both raise on a template that reads something), and the catch
             // below answers for both: a guard here would never be observed.
-            return parsed.data(data).render();
+            return parsed.data(withLayout(template, data)).render();
         } catch (RuntimeException e) {
             // A paramétreur's mistake costs a fallback to the built-in layout,
             // never a sale that cannot be printed.
             LOGGER.errorf(e, "Gabarit %s non rendu, mise en page interne utilisée", template.code);
             return null;
         }
+    }
+
+    /**
+     * Hands the template its typesetting primitives and its paper width.
+     *
+     * <p>{@code fmt} carries the alignment, centring and wrapping the register
+     * uses for its own layouts, already bound to THIS template's width — so a
+     * template writing {@code {fmt.line("TOTAL TTC", totals.includingTax)}}
+     * produces the very characters the built-in receipt does, instead of
+     * padding with spaces its author counted by hand. {@code width} is exposed
+     * beside it for a template that needs the number itself.
+     *
+     * <p>Until now the administered width decided nothing: it was validated,
+     * stored, distributed by the referential pull, and read by no renderer.
+     *
+     * <p>The caller's map is COPIED, never enriched in place: the values a
+     * printer assembles for one document must not grow a key because they were
+     * passed through here.
+     *
+     * @param template the template being rendered, for its width
+     * @param data the values the caller assembled, possibly null
+     * @return the values plus the layout primitives
+     */
+    private Map<String, Object> withLayout(DocumentTemplate template, Map<String, Object> data) {
+        Map<String, Object> enriched =
+                data == null ? new java.util.HashMap<>() : new java.util.HashMap<>(data);
+        enriched.put("fmt", new DocumentLayout(template.width));
+        enriched.put("width", template.width);
+        return enriched;
     }
 
     /**

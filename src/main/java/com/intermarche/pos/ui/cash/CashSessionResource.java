@@ -4,10 +4,10 @@ import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -15,10 +15,10 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.net.URI;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the cash-session screen: session status page,

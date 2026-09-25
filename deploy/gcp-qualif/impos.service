@@ -3,10 +3,16 @@
 # PROFILE demo, and not prod: this host is a DEMONSTRATOR to be shared, not a
 # shop. The demo profile brings in the two beans a shared demonstrator needs
 # and a store must never see — MockHardwareResource, the simulator panel's own
-# hardware surface, and DataInitializer, the referential seed that repopulates
-# the register at every boot (the schema is drop-and-create, so each restart
-# starts from a known demonstration). A real till is built and deployed under
-# prod, from caisse.sh, and carries neither.
+# hardware surface, and DataInitializer, the referential seed that fills an
+# EMPTY register. A real till is built and deployed under prod, from
+# caisse.sh, and carries neither.
+#
+# WHEN THE REGISTER IS RESET, and it is not at every boot: the schema is kept
+# (generation=update) and the seed steps aside on a populated register, so a
+# restart -- the nightly 20:00 stop above all -- keeps the referential pulled
+# from the node and the sales of the day. The reset is a DELIVERY act:
+# 03-deploy.sh removes the database file before restarting the register, and
+# the seed then finds the empty register it is written for.
 #
 # Consequences of leaving prod, all deliberate:
 #   - RealHardwareResource (@IfBuildProfile prod) is gone and the mock takes
@@ -28,6 +34,7 @@ WorkingDirectory=/opt/apps/impos
 ExecStart=/usr/bin/java \
   -Dquarkus.http.port=8080 \
   -Dquarkus.datasource.jdbc.url=jdbc:h2:file:/opt/apps/impos/data/pos-c04 \
+  -Dquarkus.hibernate-orm.database.generation=update \
   -Dpos.terminal.id=C04 \
   -Dpos.valuation.url=http://127.0.0.1:8090 \
   -Dpos.valuation.feed-delivery-seconds=5 \

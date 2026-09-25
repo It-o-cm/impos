@@ -1,10 +1,9 @@
 package com.intermarche.pos.ui.home;
 
-import com.intermarche.pos.ui.PriceModType;
-
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import io.quarkus.qute.Location;
@@ -14,12 +13,12 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the home screen: drawer-error handling, main pages,

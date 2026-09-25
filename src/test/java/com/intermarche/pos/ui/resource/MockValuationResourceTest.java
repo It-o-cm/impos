@@ -9,13 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
+import java.util.Collections;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link MockValuationResource}, the embedded valuation-engine
@@ -63,9 +60,7 @@ class MockValuationResourceTest {
      */
     private ValuationPayloads.BasketDto basket(ValuationPayloads.ItemDto... items) {
         ValuationPayloads.BasketDto basket = new ValuationPayloads.BasketDto();
-        for (ValuationPayloads.ItemDto item : items) {
-            basket.items.add(item);
-        }
+        Collections.addAll(basket.items, items);
         return basket;
     }
 

@@ -1,8 +1,8 @@
 package com.intermarche.e2e;
 
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentService;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -20,7 +20,6 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;

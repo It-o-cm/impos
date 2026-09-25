@@ -4,10 +4,10 @@ import com.intermarche.pos.domain.payment.Currency;
 import com.intermarche.pos.ui.PosState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.util.List;
-import org.jboss.logging.Logger;
 
 /**
  * Takes a settlement in a foreign currency at the till ({@code LC-07-14}).

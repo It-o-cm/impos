@@ -3,15 +3,15 @@ package com.intermarche.pos.domain.catalog;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.Objects;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link Price}, targeting 100% branch coverage.

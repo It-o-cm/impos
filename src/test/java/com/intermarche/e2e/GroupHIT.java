@@ -1,9 +1,9 @@
 package com.intermarche.e2e;
 
-import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;

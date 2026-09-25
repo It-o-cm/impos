@@ -106,7 +106,7 @@ class FidelityResourceTest {
     @Test
     void lookupFidelityTelModeSearchesByPhone() {
         FidelityResource resource = newResource();
-        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards("0601", null, null, null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("tel", "  0601  ");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
@@ -125,7 +125,7 @@ class FidelityResourceTest {
     @Test
     void lookupFidelityEmailModeSearchesByEmail() {
         FidelityResource resource = newResource();
-        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards(null, "a@b.fr", null, null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("email", "a@b.fr");
         assertEquals("/fidelity", response.getLocation().toString());
@@ -141,7 +141,7 @@ class FidelityResourceTest {
     @Test
     void lookupFidelityNameModeWithSpaceSplitsName() {
         FidelityResource resource = newResource();
-        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards(null, null, "DURAND", "JACQUES")).thenReturn(lookup);
         Response response = resource.lookupFidelity("name", "DURAND JACQUES");
         assertEquals("/fidelity", response.getLocation().toString());
@@ -157,7 +157,7 @@ class FidelityResourceTest {
     @Test
     void lookupFidelityNameModeWithoutSpaceUsesLastNameOnly() {
         FidelityResource resource = newResource();
-        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards(null, null, "DURAND", null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("name", "DURAND");
         assertEquals("/fidelity", response.getLocation().toString());
@@ -174,7 +174,7 @@ class FidelityResourceTest {
     @Test
     void lookupFidelityNullModeAndValueDefaultsToNameEmpty() {
         FidelityResource resource = newResource();
-        FidelityService.LookupView lookup = new FidelityService.LookupView();
+        LookupView lookup = new LookupView();
         when(resource.fidelityService.lookupCards(null, null, "", null)).thenReturn(lookup);
         Response response = resource.lookupFidelity(null, null);
         assertEquals("/fidelity", response.getLocation().toString());

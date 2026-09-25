@@ -1,9 +1,9 @@
 package com.intermarche.demo;
 
 import com.intermarche.e2e.E2eTestProfile;
-import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLineValuation;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.ui.PosState;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
@@ -18,12 +18,7 @@ import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.inject.Inject;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.*;
 
 import java.math.BigDecimal;
 import java.net.URL;

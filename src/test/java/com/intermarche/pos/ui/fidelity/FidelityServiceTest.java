@@ -6,23 +6,9 @@ import org.mockito.InOrder;
 
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link FidelityService}.
@@ -180,6 +166,69 @@ class FidelityServiceTest {
                 service.reserveLease(state, BigDecimal.TEN, new BigDecimal("20.00"));
         assertEquals("CARTE FIDÉLITÉ REQUISE", verdict.refusalMessage);
         verifyNoInteractions(service.imfidClient);
+    }
+
+    /**
+     * Attaching a card reads the holder's immediate-discount promotions and
+     * keeps them on the state, ready for the valuation requests of the sale.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void validateCardLoadsTheCardPromotions() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        ImfidClient.CardPromotion promotion = new ImfidClient.CardPromotion();
+        promotion.ean = "3000000000018";
+        promotion.promotionType = "AMOUNT";
+        promotion.value = new BigDecimal("0.50");
+        promotion.benefit = "IMMEDIATE_DISCOUNT";
+        when(service.imfidClient.promotions("2990000000019"))
+                .thenReturn(new java.util.ArrayList<>(java.util.List.of(promotion)));
+
+        service.validateCard(state, "2990000000019");
+
+        assertEquals(1, state.fidelity.cardPromotions.size());
+        assertEquals("3000000000018", state.fidelity.cardPromotions.get(0).ean);
+    }
+
+    /**
+     * An imfid that fails leaves the promotion list EMPTY and the sale goes
+     * on: a personal discount is worth losing, a blocked register is not.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void validateCardKeepsSellingWhenThePromotionsCannotBeRead() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+        when(service.imfidClient.promotions("2990000000019"))
+                .thenThrow(new ImfidUnavailableException("/api/accounts", 503));
+
+        service.validateCard(state, "2990000000019");
+
+        assertTrue(state.fidelity.active);
+        assertTrue(state.fidelity.cardPromotions.isEmpty());
+    }
+
+    /**
+     * An UNCONFIGURED loyalty service is never called for promotions either:
+     * a register deployed without imfid prices its baskets exactly as it did
+     * before card promotions existed.
+     *
+     * @throws Exception when the mocked client declares one
+     */
+    @Test
+    void validateCardReadsNoPromotionWhenImfidIsNotConfigured() throws Exception {
+        FidelityService service = new FidelityService();
+        service.imfidClient = mock(ImfidClient.class);
+        when(service.imfidClient.isConfigured()).thenReturn(false);
+        com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
+
+        service.validateCard(state, "2990000000019");
+
+        verify(service.imfidClient, never()).promotions(any());
+        assertTrue(state.fidelity.cardPromotions.isEmpty());
     }
 
     /**
@@ -1464,7 +1513,7 @@ class FidelityServiceTest {
         FidelityService service = new FidelityService();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
-        FidelityService.LookupView view = service.lookupCards("06", null, null, null);
+        LookupView view = service.lookupCards("06", null, null, null);
         assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", view.message);
         assertNull(view.matches);
     }
@@ -1478,7 +1527,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsRequiresACriterion() throws Exception {
         FidelityService service = lookupService();
-        FidelityService.LookupView view = service.lookupCards("  ", "", "  ", "x");
+        LookupView view = service.lookupCards("  ", "", "  ", "x");
         assertEquals("SAISISSEZ UN TÉLÉPHONE, UN E-MAIL OU UN NOM", view.message);
         verify(service.imfidClient, never()).lookup(any(), any(), any(), any());
     }
@@ -1494,7 +1543,7 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.lookup(any(), any(), any(), any()))
                 .thenReturn(lookupResult(-1, true, null));
-        FidelityService.LookupView view = service.lookupCards(null, "jean@x.fr", null, null);
+        LookupView view = service.lookupCards(null, "jean@x.fr", null, null);
         assertEquals("IDENTITÉS GÉRÉES PAR LE CRM - RECHERCHE INDISPONIBLE EN CAISSE", view.message);
         assertNull(view.matches);
     }
@@ -1510,7 +1559,7 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.lookup(any(), any(), any(), any()))
                 .thenReturn(lookupResult(-1, false, "SOME_REASON"));
-        FidelityService.LookupView view = service.lookupCards(null, null, "Dupont", null);
+        LookupView view = service.lookupCards(null, null, "Dupont", null);
         assertEquals("RECHERCHE REFUSÉE PAR LE SERVICE FIDÉLITÉ", view.message);
         assertNull(view.matches);
     }
@@ -1526,7 +1575,7 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.lookup(any(), any(), any(), any()))
                 .thenReturn(lookupResult(0, false, null));
-        FidelityService.LookupView view = service.lookupCards(null, null, "Dupont", null);
+        LookupView view = service.lookupCards(null, null, "Dupont", null);
         assertEquals("AUCUNE CARTE TROUVÉE - ESSAYEZ UN AUTRE CRITÈRE", view.message);
         assertTrue(view.matches.isEmpty());
     }
@@ -1542,7 +1591,7 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.lookup(any(), any(), any(), any()))
                 .thenReturn(lookupResult(20, false, null));
-        FidelityService.LookupView view = service.lookupCards("0612345678", null, null, null);
+        LookupView view = service.lookupCards("0612345678", null, null, null);
         assertEquals("TROP DE CORRESPONDANCES - PRÉCISEZ LE CRITÈRE (TÉLÉPHONE)", view.message);
         assertEquals(20, view.matches.size());
     }
@@ -1558,7 +1607,7 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.lookup(any(), any(), any(), any()))
                 .thenReturn(lookupResult(3, false, null));
-        FidelityService.LookupView view = service.lookupCards(null, null, "Dupont", "Jean");
+        LookupView view = service.lookupCards(null, null, "Dupont", "Jean");
         assertNull(view.message);
         assertEquals(3, view.matches.size());
     }
@@ -1575,9 +1624,9 @@ class FidelityServiceTest {
         FidelityService service = lookupService();
         when(service.imfidClient.lookup(any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("boom"));
-        FidelityService.LookupView first = service.lookupCards("0612345678", null, null, null);
+        LookupView first = service.lookupCards("0612345678", null, null, null);
         assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", first.message);
-        FidelityService.LookupView second = service.lookupCards("0612345678", null, null, null);
+        LookupView second = service.lookupCards("0612345678", null, null, null);
         assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", second.message);
         verify(service.imfidClient, times(1)).lookup(any(), any(), any(), any());
     }

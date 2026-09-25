@@ -1,13 +1,13 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.domain.barcode.CouponType;
-import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import com.intermarche.pos.domain.barcode.AlertLevel;
+import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.barcode.gs1.Gs1ApplicationIdentifier;
 import com.intermarche.pos.domain.barcode.gs1.Gs1Message;
 import com.intermarche.pos.domain.barcode.gs1.Gs1Parser;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;

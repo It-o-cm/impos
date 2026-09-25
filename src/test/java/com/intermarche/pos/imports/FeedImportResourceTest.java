@@ -9,16 +9,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link FeedImportResource}.
@@ -65,6 +59,9 @@ class FeedImportResourceTest {
     /** The nomenclature importer behind the NOMENCLATURE entry. */
     private final NomenclatureCsvResource nomenclature = mock(NomenclatureCsvResource.class);
 
+    /** The EGAlim importer behind the EGALIM_REGIMES entry. */
+    private final EgalimRegimeCsvResource egalimRegimes = mock(EgalimRegimeCsvResource.class);
+
     /**
      * Builds the resource over the mocked collaborators.
      *
@@ -77,12 +74,30 @@ class FeedImportResourceTest {
         resource.productCsvResource = products;
         resource.productFamilyCsvResource = families;
         resource.vatRateCsvResource = vatRates;
+        resource.egalimRegimeCsvResource = egalimRegimes;
         resource.priceCsvResource = prices;
         resource.employeeCsvResource = employees;
         resource.accountCustomerCsvResource = customers;
         resource.postalCodeCsvResource = postalCodes;
         resource.nomenclatureCsvResource = nomenclature;
         return resource;
+    }
+
+    /**
+     * The EGAlim regimes are a DELEGATED code: the door hands the stream to
+     * their importer and stores nothing, the classification being a POS
+     * referential the engine does not receive as a feed.
+     */
+    @Test
+    void theEgalimRegimesAreDelegatedAndNotStored() {
+        FeedImportResource resource = newResource();
+        Response answer = Response.ok("{}").build();
+        when(egalimRegimes.importEgalimRegimes(any())).thenReturn(answer);
+        Response response = resource.importFeed("EGALIM_REGIMES", null, null, null, null,
+                stream("CODE|LABEL|CAP_RATE\nFOOD|Alimentaire|0.3400\n"));
+        assertSame(answer, response);
+        verify(egalimRegimes).importEgalimRegimes(any());
+        verifyNoInteractions(feeds);
     }
 
     /**
@@ -228,10 +243,10 @@ class FeedImportResourceTest {
     @Test
     void customersWithoutModeForwardNull() {
         Response counts = Response.ok("{\"createdCount\":8}").build();
-        when(customers.importCustomers(any(), eq((String) null))).thenReturn(counts);
+        when(customers.importCustomers(any(), eq(null))).thenReturn(counts);
         assertSame(counts, newResource()
                 .importFeed("CUSTOMERS", null, null, null, null, stream("CODE|NAME")));
-        verify(customers).importCustomers(any(), eq((String) null));
+        verify(customers).importCustomers(any(), eq(null));
     }
 
     /**

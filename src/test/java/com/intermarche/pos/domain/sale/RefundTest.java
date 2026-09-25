@@ -1,11 +1,12 @@
 package com.intermarche.pos.domain.sale;
 
 import com.intermarche.pos.domain.session.CashSession;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for {@link Refund}, targeting 100% branch coverage.

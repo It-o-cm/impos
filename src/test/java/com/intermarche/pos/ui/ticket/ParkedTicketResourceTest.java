@@ -1,6 +1,5 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.ui.ticket.TicketParkingService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -11,11 +10,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ParkedTicketResource}.

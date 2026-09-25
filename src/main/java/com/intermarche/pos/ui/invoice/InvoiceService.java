@@ -1,12 +1,8 @@
 package com.intermarche.pos.ui.invoice;
 
 import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.sale.*;
 import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.sale.DocumentOutput;
-import com.intermarche.pos.domain.sale.DocumentType;
-import com.intermarche.pos.domain.sale.Invoice;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.VatBreakdown;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;

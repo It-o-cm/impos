@@ -290,8 +290,8 @@ class FidelityStateTest {
      * @param count the number of matches to seed
      * @return a lookup view with a populated match list
      */
-    private FidelityService.LookupView viewWithMatches(int count) {
-        FidelityService.LookupView view = new FidelityService.LookupView();
+    private LookupView viewWithMatches(int count) {
+        LookupView view = new LookupView();
         view.matches = new java.util.ArrayList<>();
         for (int i = 0; i < count; i++) {
             ImfidClient.LookupMatch match = new ImfidClient.LookupMatch();
@@ -318,7 +318,7 @@ class FidelityStateTest {
     @Test
     void visibleMatchesEmptyWhenMatchesNull() {
         FidelityState fid = new FidelityState();
-        fid.lastLookup = new FidelityService.LookupView();
+        fid.lastLookup = new LookupView();
         fid.lastLookup.matches = null;
         assertTrue(fid.getVisibleMatches().isEmpty());
     }
@@ -408,7 +408,7 @@ class FidelityStateTest {
     @Test
     void hasLookupNextFalseWhenMatchesNull() {
         FidelityState fid = new FidelityState();
-        fid.lastLookup = new FidelityService.LookupView();
+        fid.lastLookup = new LookupView();
         fid.lastLookup.matches = null;
         assertFalse(fid.isHasLookupNext());
     }
@@ -465,7 +465,7 @@ class FidelityStateTest {
     @Test
     void lookupPageCountIsOneWhenMatchesNull() {
         FidelityState fid = new FidelityState();
-        fid.lastLookup = new FidelityService.LookupView();
+        fid.lastLookup = new LookupView();
         fid.lastLookup.matches = null;
         assertEquals(1, fid.getLookupPageCount());
     }

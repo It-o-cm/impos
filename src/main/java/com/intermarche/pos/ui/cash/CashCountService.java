@@ -1,9 +1,10 @@
 package com.intermarche.pos.ui.cash;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import org.jboss.logging.Logger;
+
 import java.util.ArrayList;
 import java.util.List;
-import org.jboss.logging.Logger;
 
 /**
  * Provides the denomination lists of the drawer-count page (Z closing).

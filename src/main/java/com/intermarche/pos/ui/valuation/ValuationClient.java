@@ -77,14 +77,31 @@ public class ValuationClient {
     }
 
     /**
-     * Posts a basket to the engine and parses the valuation.
+     * What one valuation call brings back: the parsed response AND the body
+     * as it arrived.
+     * <p>
+     * The raw body is kept because the register is not the only reader of
+     * this answer: it travels VERBATIM to the loyalty service, which reads
+     * blocks the register has no use for. Re-serializing the parsed object
+     * would silently drop every field the register does not model — the
+     * EGAlim report being the first of them — and the loss would be
+     * invisible, since the parser ignores unknown fields by design.
+     *
+     * @param response the parsed response, for the register's own arithmetic
+     * @param rawJson the body exactly as the engine wrote it
+     */
+    public record ValuationResult(ValuationPayloads.ValuationResponseDto response, String rawJson) {
+    }
+
+    /**
+     * Posts a basket to the engine, parses the valuation and keeps the body.
      *
      * @param basket the basket to value
-     * @return the parsed valuation response
+     * @return the parsed valuation response and the verbatim body
      * @throws Exception on any transport, authentication or parsing failure
      *         (the caller degrades to the local engine)
      */
-    public ValuationPayloads.ValuationResponseDto valuate(ValuationPayloads.BasketDto basket) throws Exception {
+    public ValuationResult valuate(ValuationPayloads.BasketDto basket) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url.orElseThrow() + "/valuation"))
                 .timeout(Duration.ofMillis(timeoutMillis))
@@ -100,6 +117,8 @@ public class ValuationClient {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IllegalStateException("HTTP " + response.statusCode() + " du moteur de valorisation");
         }
-        return objectMapper.readValue(response.body(), ValuationPayloads.ValuationResponseDto.class);
+        String body = response.body();
+        return new ValuationResult(
+                objectMapper.readValue(body, ValuationPayloads.ValuationResponseDto.class), body);
     }
 }

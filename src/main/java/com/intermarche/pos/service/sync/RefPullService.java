@@ -305,45 +305,45 @@ public class RefPullService {
         }
         switch (domain) {
             case "FAMILIES" -> refApplyService.applyFamilies(
-                    this.<RefPayloads.FamilyDto>pages(domain, new TypeReference<List<RefPayloads.FamilyDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.FamilyDto>>() {}));
             case "TOUCH_GROUPS" -> refApplyService.applyTouchGroups(
-                    this.<RefPayloads.TouchGroupDto>pages(domain, new TypeReference<List<RefPayloads.TouchGroupDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.TouchGroupDto>>() {}));
             case "PRODUCTS" -> refApplyService.applyProducts(
-                    this.<RefPayloads.ProductDto>pages(domain, new TypeReference<List<RefPayloads.ProductDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.ProductDto>>() {}));
             case "VAT_RATES" -> refApplyService.applyVatRates(
-                    this.<RefPayloads.VatRateDto>pages(domain, new TypeReference<List<RefPayloads.VatRateDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.VatRateDto>>() {}));
             case "PRICES" -> refApplyService.applyPrices(
-                    this.<RefPayloads.PriceDto>pages(domain, new TypeReference<List<RefPayloads.PriceDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.PriceDto>>() {}));
             case "EMPLOYEES" -> refApplyService.applyEmployees(
-                    this.<RefPayloads.EmployeeDto>pages(domain, new TypeReference<List<RefPayloads.EmployeeDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.EmployeeDto>>() {}));
             case "COUPON_TYPES" -> refApplyService.applyCouponTypes(
-                    this.<RefPayloads.CouponTypeDto>pages(domain, new TypeReference<List<RefPayloads.CouponTypeDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.CouponTypeDto>>() {}));
             case "ISLANDS" -> refApplyService.applyCheckoutIslands(
-                    this.<RefPayloads.CheckoutIslandDto>pages(domain, new TypeReference<List<RefPayloads.CheckoutIslandDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.CheckoutIslandDto>>() {}));
             case "TENDERS" -> refApplyService.applyTenders(
-                    this.<RefPayloads.TenderDefinitionDto>pages(domain, new TypeReference<List<RefPayloads.TenderDefinitionDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.TenderDefinitionDto>>() {}));
             case "DOCUMENT_TEMPLATES" -> refApplyService.applyDocumentTemplates(
-                    this.<RefPayloads.DocumentTemplateDto>pages(domain, new TypeReference<List<RefPayloads.DocumentTemplateDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.DocumentTemplateDto>>() {}));
             case "ARTICLE_RANGES" -> refApplyService.applyArticleBarcodeRanges(
-                    this.<RefPayloads.ArticleBarcodeRangeDto>pages(domain, new TypeReference<List<RefPayloads.ArticleBarcodeRangeDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.ArticleBarcodeRangeDto>>() {}));
             case "CUSTOMERS" -> refApplyService.applyCustomers(
-                    this.<RefPayloads.CustomerDto>pages(domain, new TypeReference<List<RefPayloads.CustomerDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.CustomerDto>>() {}));
             case "POSTAL_CODES" -> refApplyService.applyPostalCodes(
-                    this.<RefPayloads.PostalCodeDto>pages(domain, new TypeReference<List<RefPayloads.PostalCodeDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.PostalCodeDto>>() {}));
             case "CURRENCIES" -> refApplyService.applyCurrencies(
-                    this.<RefPayloads.CurrencyDto>pages(domain, new TypeReference<List<RefPayloads.CurrencyDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.CurrencyDto>>() {}));
             case "SETTINGS" -> refApplyService.applySettings(
-                    this.<RefPayloads.SettingDto>pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
             case "ENGINE_FEEDS" -> refApplyService.applyEngineFeeds(
-                    this.<RefPayloads.EngineFeedDto>pages(domain, new TypeReference<List<RefPayloads.EngineFeedDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.EngineFeedDto>>() {}));
             case "COUNTRIES" -> refApplyService.applyCountries(
-                    this.<RefPayloads.CountryDto>pages(domain, new TypeReference<List<RefPayloads.CountryDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.CountryDto>>() {}));
             case "ENSEIGNES" -> refApplyService.applyEnseignes(
-                    this.<RefPayloads.EnseigneDto>pages(domain, new TypeReference<List<RefPayloads.EnseigneDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.EnseigneDto>>() {}));
             case "PDVS" -> refApplyService.applyPdvs(
-                    this.<RefPayloads.PdvDto>pages(domain, new TypeReference<List<RefPayloads.PdvDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.PdvDto>>() {}));
             case "ECHELON_SETTINGS" -> refApplyService.applyEchelonSettings(
-                    this.<RefPayloads.EchelonSettingDto>pages(domain, new TypeReference<List<RefPayloads.EchelonSettingDto>>() {}));
+                    this.pages(domain, new TypeReference<List<RefPayloads.EchelonSettingDto>>() {}));
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         }
         refApplyService.recordApplied(domain, fingerprint);

@@ -10,13 +10,13 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource driving the product search screen: full-text search over

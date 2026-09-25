@@ -1,9 +1,10 @@
 package com.intermarche.pos.domain.sync;
 
 import com.intermarche.pos.domain.sync.SyncOutbox.EntityType;
-import java.time.LocalDateTime;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
 
 /**
  * Unit tests for {@link SyncOutbox}, targeting 100% branch coverage.

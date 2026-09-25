@@ -22,23 +22,9 @@ import org.mockito.MockedStatic;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.nullable;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link EmployeeIdentityProvider}.
@@ -226,7 +212,7 @@ class EmployeeIdentityProviderTest {
      */
     private AuthenticationRequestContext syncContext() {
         AuthenticationRequestContext context = mock(AuthenticationRequestContext.class);
-        when(context.runBlocking(org.mockito.ArgumentMatchers.<Supplier<SecurityIdentity>>any()))
+        when(context.runBlocking(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> {
                     Supplier<SecurityIdentity> supplier = invocation.getArgument(0);
                     return Uni.createFrom().item(supplier.get());

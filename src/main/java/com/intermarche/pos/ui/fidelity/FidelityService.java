@@ -98,6 +98,10 @@ public class FidelityService {
         LOGGER.info("Entering method validateCard with state: " + state + ", card: " + card);
         state.fidelity.assignCard(card);
         refreshAccountDisplay(state);
+        // BEFORE the revaluation, and that order carries: the basket about to
+        // leave must already hold the promotions, or the engine prices a sale
+        // the holder is entitled to a discount on without seeing it.
+        refreshCardPromotions(state);
         if (!state.ticket.items.isEmpty()) {
             ticketService.recalculateTotal(state);
         }
@@ -127,6 +131,32 @@ public class FidelityService {
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             LOGGER.warnf("Lecture compte fidélité indisponible (%s): affichage sans solde", e.getMessage());
+        }
+    }
+
+    /**
+     * Reads the attached card's immediate-discount promotions once, so the
+     * valuation requests of this sale can carry them.
+     * <p>
+     * Best effort under the same breaker as the account display: an imfid
+     * that does not answer leaves the list EMPTY and the sale goes on priced
+     * without the personal discounts — never blocked, never half-applied.
+     * The failure is logged because a holder silently losing an advantage is
+     * exactly what an operator cannot see.
+     *
+     * @param state the current POS state
+     */
+    private void refreshCardPromotions(PosState state) {
+        if (!state.fidelity.active || !imfidClient.isConfigured()
+                || System.currentTimeMillis() < fidSkipUntil) {
+            return;
+        }
+        try {
+            state.fidelity.cardPromotions = imfidClient.promotions(state.fidelity.label);
+        } catch (Exception e) {
+            fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
+            LOGGER.warnf("Promotions carte indisponibles (%s): vente valorisée sans elles",
+                    e.getMessage());
         }
     }
 
@@ -251,13 +281,6 @@ public class FidelityService {
      * Render-ready outcome of a holder lookup: the matches and/or the
      * message replacing or annotating them.
      */
-    public static class LookupView {
-        /** The matches to list, or null when the search did not run. */
-        public java.util.List<ImfidClient.LookupMatch> matches;
-        /** The message to display (empty result, degraded, CRM mode), or null. */
-        public String message;
-    }
-
     /**
      * Valuation-path hook — an ENGINE outcome was applied: the couple is
      * captured VERBATIM (spec §1) and the projection refreshes (spec §3:

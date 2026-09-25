@@ -1,19 +1,20 @@
 package com.intermarche.pos.domain.sale;
 
 import com.intermarche.pos.domain.BaseEntity;
+import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.store.Store;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import com.intermarche.pos.domain.payment.TicketPayment;
 
 /**
  * A sale ticket, persisted as a draft from the first scanned article

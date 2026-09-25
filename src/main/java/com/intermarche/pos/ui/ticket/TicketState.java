@@ -6,11 +6,7 @@ import com.intermarche.pos.ui.PriceModType;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * In-memory state of the ticket being built at the register.

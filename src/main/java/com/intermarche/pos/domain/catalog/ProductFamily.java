@@ -1,10 +1,11 @@
 package com.intermarche.pos.domain.catalog;
 
+import com.intermarche.pos.domain.BaseEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
+
 import java.util.*;
 import java.util.stream.Collectors;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * Entity representing a logical grouping of Products (ProductFamily).

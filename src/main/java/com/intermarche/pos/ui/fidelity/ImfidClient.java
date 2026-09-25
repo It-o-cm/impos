@@ -35,6 +35,9 @@ import java.util.Optional;
 @ApplicationScoped
 public class ImfidClient {
 
+    /** The benefit the REGISTER applies; the other one belongs to imfid. */
+    public static final String BENEFIT_IMMEDIATE_DISCOUNT = "IMMEDIATE_DISCOUNT";
+
     /** Base URL of the loyalty service; absent = fidelity earn/burn disabled. */
     @ConfigProperty(name = "pos.fid.url")
     Optional<String> url;
@@ -144,8 +147,7 @@ public class ImfidClient {
             // The body is appended unconditionally: a String body handler
             // yields "" for a bodiless answer, never null — the guarded
             // version could not take its false arm.
-            throw new IllegalStateException("imfid /api/earn answered "
-                    + response.statusCode() + " " + response.body());
+            throw new ImfidUnavailableException("/api/earn", response.statusCode(), response.body());
         }
         return objectMapper.readValue(response.body(), EarnProjection.class);
     }
@@ -170,9 +172,50 @@ public class ImfidClient {
             return null;
         }
         if (response.statusCode() != 200) {
-            throw new IllegalStateException("imfid /api/accounts answered " + response.statusCode());
+            throw new ImfidUnavailableException("/api/accounts", response.statusCode());
         }
         return objectMapper.readValue(response.body(), AccountInfo.class);
+    }
+
+    /**
+     * Reads the IMMEDIATE-DISCOUNT promotions of a card (addendum
+     * « Promotions spécialisées par carte » §2) — the EAN-level
+     * specializations the register carries into the basket so the valuation
+     * engine applies them as discounts.
+     * <p>
+     * The benefit filter travels in the REQUEST rather than being applied to
+     * the answer, and that is the whole point: the addendum's rule is that
+     * imfid serves the {@code CAGNOTTE} promotions itself and the register
+     * applies only the {@code IMMEDIATE_DISCOUNT} ones, never both, never
+     * the other way round. Asking imfid for the discounts alone states that
+     * boundary where it is enforced, so no cagnotte promotion can travel to
+     * the engine and be granted twice.
+     * <p>
+     * An unknown card answers an EMPTY list rather than null: a card without
+     * promotions and a card imfid does not know lead to the same basket, and
+     * the caller has no decision to make between them.
+     *
+     * @param card the card number
+     * @return the immediate-discount promotions, possibly empty
+     * @throws Exception on transport failure or unexpected status
+     */
+    public List<CardPromotion> promotions(String card) throws Exception {
+        HttpRequest request = authenticated("/api/accounts/" + card
+                        + "/promotions?benefit=" + BENEFIT_IMMEDIATE_DISCOUNT)
+                .timeout(Duration.ofMillis(2500))
+                .GET()
+                .build();
+        HttpResponse<String> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 404) {
+            return new ArrayList<>();
+        }
+        if (response.statusCode() != 200) {
+            throw new ImfidUnavailableException("/api/accounts/{card}/promotions", response.statusCode());
+        }
+        return objectMapper.readValue(response.body(),
+                objectMapper.getTypeFactory()
+                        .constructCollectionType(List.class, CardPromotion.class));
     }
 
     /**
@@ -222,7 +265,7 @@ public class ImfidClient {
             result.refusalReason = refusal.reason;
             return result;
         }
-        throw new IllegalStateException("imfid /api/cards/lookup answered " + response.statusCode());
+        throw new ImfidUnavailableException("/api/cards/lookup", response.statusCode());
     }
 
     /**
@@ -336,6 +379,24 @@ public class ImfidClient {
     }
 
     /** The 422 refusal body. */
+    /**
+     * One card-specialized promotion, as imfid serves it. Serializable
+     * because it is held by the session-scoped fidelity state between the
+     * card attachment and every later valuation of the same sale.
+     */
+    public static class CardPromotion implements java.io.Serializable {
+        /** Serialization identity of the promotion view. */
+        private static final long serialVersionUID = 1L;
+        /** The promoted product EAN. */
+        public String ean;
+        /** How {@link #value} reads: PERCENT (fraction) or AMOUNT (euro per unit). */
+        public String promotionType;
+        /** The promotion value. */
+        public BigDecimal value;
+        /** How the benefit is served: CAGNOTTE or IMMEDIATE_DISCOUNT. */
+        public String benefit;
+    }
+
     public static class RefusalBody {
         /** INSUFFICIENT_BALANCE | DAILY_RULE | ACCOUNT_STATUS. */
         public String reason;
@@ -403,7 +464,7 @@ public class ImfidClient {
             return null;
         }
         if (response.statusCode() != 200) {
-            throw new IllegalStateException("imfid /movements answered " + response.statusCode());
+            throw new ImfidUnavailableException("/movements", response.statusCode());
         }
         return objectMapper.readValue(response.body(), MovementsPage.class);
     }

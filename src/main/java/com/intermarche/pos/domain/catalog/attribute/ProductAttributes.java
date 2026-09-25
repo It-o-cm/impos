@@ -62,7 +62,7 @@ public final class ProductAttributes {
      */
     public static boolean flag(Product product, String code) {
         String value = raw(product, code);
-        return value != null && Boolean.parseBoolean(value);
+        return Boolean.parseBoolean(value);
     }
 
     /**

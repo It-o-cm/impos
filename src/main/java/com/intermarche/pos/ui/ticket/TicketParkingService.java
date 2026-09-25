@@ -1,20 +1,16 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.*;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.util.List;
-import com.intermarche.pos.service.PosSettingsService;
-import com.intermarche.pos.service.TechnicalEventService;
-import com.intermarche.pos.service.TicketRecoveryService;
-import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.TicketNumberService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 
 /**
  * Parks and resumes carts on this register (phase 3, single-register scope).

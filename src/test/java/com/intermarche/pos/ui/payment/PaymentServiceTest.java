@@ -1,16 +1,16 @@
 package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.ui.valuation.ValuationReconciler;
-import com.intermarche.pos.ui.valuation.ValuationService;
-import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.service.sync.register.FidEventOutboxService;
+import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.hardware.terminal.AutoAcceptTerminalClient;
 import com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient;
 import com.intermarche.pos.ui.hardware.terminal.TerminalOutcome;
 import com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback;
+import com.intermarche.pos.ui.valuation.ValuationReconciler;
+import com.intermarche.pos.ui.valuation.ValuationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,19 +18,10 @@ import org.mockito.ArgumentCaptor;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link PaymentService}.
@@ -180,7 +171,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onRead =
-                    (java.util.function.Consumer<String>) invocation.getArgument(1);
+                    invocation.getArgument(1);
             onRead.accept(line);
             return null;
         }).when(chequeReadingService).read(any(), any(), any());
@@ -195,7 +186,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onError =
-                    (java.util.function.Consumer<String>) invocation.getArgument(2);
+                    invocation.getArgument(2);
             onError.accept(message);
             return null;
         }).when(chequeReadingService).read(any(), any(), any());
@@ -1108,7 +1099,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onRead =
-                    (java.util.function.Consumer<String>) invocation.getArgument(1);
+                    invocation.getArgument(1);
             service.cancelPendingCheque(state);
             onRead.accept("a0007639 a800000000909r 000000000000i");
             return null;
@@ -1129,7 +1120,7 @@ class PaymentServiceTest {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onError =
-                    (java.util.function.Consumer<String>) invocation.getArgument(2);
+                    invocation.getArgument(2);
             service.cancelPendingCheque(state);
             onError.accept("BOURRAGE");
             return null;

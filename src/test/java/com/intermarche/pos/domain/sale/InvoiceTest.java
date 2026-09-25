@@ -2,11 +2,12 @@ package com.intermarche.pos.domain.sale;
 
 import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.domain.store.Address;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for {@link Invoice}, targeting 100% branch coverage.

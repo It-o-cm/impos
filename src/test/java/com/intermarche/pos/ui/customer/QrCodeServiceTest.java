@@ -2,9 +2,7 @@ package com.intermarche.pos.ui.customer;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link QrCodeService}.
@@ -80,6 +78,6 @@ class QrCodeServiceTest {
      * @param second the second SVG document
      */
     private void assertNotEqualsSvg(String first, String second) {
-        assertTrue(!first.equals(second), first + "\n!=\n" + second);
+        assertFalse(first.equals(second), first + "\n!=\n" + second);
     }
 }

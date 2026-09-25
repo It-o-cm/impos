@@ -1,11 +1,12 @@
 package com.intermarche.pos.domain.sale;
 
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.catalog.Product;
-import java.math.BigDecimal;
-import java.util.Objects;
+import com.intermarche.pos.ui.PriceModType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.util.Objects;
 
 /**
  * Unit tests for {@link TicketLine}, targeting 100% branch coverage.

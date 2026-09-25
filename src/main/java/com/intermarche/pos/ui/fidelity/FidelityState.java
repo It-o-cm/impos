@@ -22,6 +22,17 @@ public class FidelityState implements Serializable {
     public boolean active = false;
 
     /** The attached card number, or an empty string. */
+    /**
+     * The IMMEDIATE-DISCOUNT promotions imfid serves for the attached card,
+     * read ONCE at attachment and carried into every valuation of the sale.
+     * <p>
+     * Empty is the normal state: no card, a holder without promotion, or an
+     * imfid that could not be reached — the basket is then priced exactly as
+     * it was before this existed. The cagnotte promotions are never here:
+     * imfid serves those itself.
+     */
+    public java.util.List<ImfidClient.CardPromotion> cardPromotions = new java.util.ArrayList<>();
+
     public String label = "";
 
     /** Displayed earn projection total (imfid /api/earn), or null when none. */
@@ -111,7 +122,7 @@ public class FidelityState implements Serializable {
      * dropped with the process. Cleared when a card attaches or the ticket
      * ends.
      */
-    public transient FidelityService.LookupView lastLookup = null;
+    public transient LookupView lastLookup = null;
 
     /** The search mode of the last lookup (card | tel | email | name). */
     public String lastLookupMode = "card";
@@ -203,6 +214,9 @@ public class FidelityState implements Serializable {
             this.holderEmail = null;
             this.accountStatus = null;
             this.availableBalance = null;
+            // A card never inherits the promotions of the one it replaces:
+            // they are the former holder's personal rights.
+            this.cardPromotions = new java.util.ArrayList<>();
             clearLookup();
         }
     }

@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.scanner;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
 
 @ApplicationScoped
 @Priority(100) // Exécuté en tout dernier

@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.BaseEntity;
 import com.intermarche.pos.domain.catalog.Product;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;

@@ -7,14 +7,10 @@ import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import org.jboss.logging.Logger;
+import java.util.*;
 
 /**
  * The tenders the drawer holds, what the register believes it holds of each, and

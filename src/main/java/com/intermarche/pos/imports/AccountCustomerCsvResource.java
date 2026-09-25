@@ -10,12 +10,7 @@ import org.jboss.logging.Logger;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Integrates the CUSTOMERS IN ACCOUNT sent by the commercial management
@@ -161,8 +156,8 @@ public class AccountCustomerCsvResource extends ImporterCsvResource {
     public long blockAbsentAccounts(Set<String> seen) {
         LOGGER.info("Entering method blockAbsentAccounts with " + seen.size() + " account(s) seen");
         List<AccountCustomer> absent = seen.isEmpty()
-                ? AccountCustomer.<AccountCustomer>list("blocked = false")
-                : AccountCustomer.<AccountCustomer>list("blocked = false and accountNumber not in ?1", seen);
+                ? AccountCustomer.list("blocked = false")
+                : AccountCustomer.list("blocked = false and accountNumber not in ?1", seen);
         for (AccountCustomer customer : absent) {
             customer.blocked = true;
             customer.persist();

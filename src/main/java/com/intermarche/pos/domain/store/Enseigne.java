@@ -1,15 +1,11 @@
 package com.intermarche.pos.domain.store;
 
-import jakarta.persistence.Cacheable;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
+import com.intermarche.pos.domain.BaseEntity;
+import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
 import java.util.Objects;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * An enseigne echelon (e.g. ITM France, Netto), between {@link Country} and

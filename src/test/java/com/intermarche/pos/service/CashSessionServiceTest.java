@@ -1,13 +1,13 @@
 package com.intermarche.pos.service;
 
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.sync.SyncOutbox;
-import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -18,19 +18,8 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link CashSessionService}.

@@ -6,19 +6,10 @@ import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link PostalCodeCsvResource}.
@@ -147,7 +138,7 @@ class PostalCodeCsvResourceTest {
             when(missing.firstResult()).thenReturn(null);
             panache.when(() -> PostalCode.find(PAIR_QUERY, "75008", "Lyon")).thenReturn(missing);
             assertSame(known, resource.findEntityForLine(row(columns, "75008", "Paris")));
-            assertEquals(null, resource.findEntityForLine(row(columns, "75008", "Lyon")));
+            assertNull(resource.findEntityForLine(row(columns, "75008", "Lyon")));
         }
     }
 }

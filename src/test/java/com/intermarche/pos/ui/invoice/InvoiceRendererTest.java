@@ -1,22 +1,20 @@
 package com.intermarche.pos.ui.invoice;
 
 import com.intermarche.pos.domain.payment.AccountCustomer;
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.payment.CardPayment;
 import com.intermarche.pos.domain.sale.DocumentType;
 import com.intermarche.pos.domain.sale.Invoice;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests of {@link InvoiceRenderer}, the degraded rendering of a document onto a

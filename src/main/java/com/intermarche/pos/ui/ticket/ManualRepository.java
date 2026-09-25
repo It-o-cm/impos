@@ -1,16 +1,10 @@
 package com.intermarche.pos.ui.ticket;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.catalog.ProductFamily;
-
 import io.quarkus.hibernate.orm.panache.Panache;
 import jakarta.enterprise.context.ApplicationScoped;
+
+import java.util.*;
 
 /**
  * Every database read the SAISIE DIRECTE screen needs, and nothing else.

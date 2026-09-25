@@ -6,11 +6,11 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.Map;
-import org.jboss.logging.Logger;
 
 /**
  * Inbound endpoints of the simulated hardware: scanner, scale and, since

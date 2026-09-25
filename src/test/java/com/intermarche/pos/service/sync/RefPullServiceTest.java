@@ -1,12 +1,12 @@
 package com.intermarche.pos.service.sync;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import org.mockito.MockedStatic;
-import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -19,22 +19,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link RefPullService}.
@@ -501,7 +489,7 @@ class RefPullServiceTest {
         method.setAccessible(true);
         InvocationTargetException wrapper = assertThrows(InvocationTargetException.class,
                 () -> method.invoke(service, "UNKNOWN", "fp"));
-        assertTrue(wrapper.getCause() instanceof IllegalArgumentException);
+        assertInstanceOf(IllegalArgumentException.class, wrapper.getCause());
         assertEquals("Domaine inconnu: UNKNOWN", wrapper.getCause().getMessage());
     }
 

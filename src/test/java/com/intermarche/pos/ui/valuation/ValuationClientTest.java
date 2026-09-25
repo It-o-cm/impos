@@ -12,14 +12,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ValuationClient}.
@@ -182,7 +177,12 @@ class ValuationClientTest {
                 + "\"vatRate\":20.0},\"offers\":[{\"type\":\"BOGO\",\"amount\":{\"amountIncludingTax\":5.0}}],"
                 + "\"advantages\":[],\"unknownField\":true}";
         doReturn(resp(200, json)).when(http).send(any(HttpRequest.class), any());
-        ValuationPayloads.ValuationResponseDto result = client.valuate(basket());
+        ValuationClient.ValuationResult outcome = client.valuate(basket());
+        ValuationPayloads.ValuationResponseDto result = outcome.response();
+        // The body is kept EXACTLY as received, unknown field included: it is
+        // what travels to the loyalty service, which reads blocks this
+        // register does not model.
+        assertEquals(json, outcome.rawJson());
         ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
         verifyRequest(http, captor);
         HttpRequest request = captor.getValue();
@@ -231,7 +231,7 @@ class ValuationClientTest {
         ValuationClient client = client(http);
         client.user = Optional.of("   ");
         doReturn(resp(299, "{}")).when(http).send(any(HttpRequest.class), any());
-        ValuationPayloads.ValuationResponseDto result = client.valuate(basket());
+        ValuationPayloads.ValuationResponseDto result = client.valuate(basket()).response();
         ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
         verifyRequest(http, captor);
         assertFalse(captor.getValue().headers().firstValue("Authorization").isPresent());

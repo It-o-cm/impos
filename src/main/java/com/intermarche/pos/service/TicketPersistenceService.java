@@ -1,27 +1,27 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.store.Store;
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.sync.SyncOutbox;
-import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.payment.TicketPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.session.TicketCounter;
 import com.intermarche.pos.domain.sale.TicketFidelityLine;
 import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.sale.VatBreakdown;
-import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.session.TicketCounter;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.domain.sync.SyncOutbox;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.ticket.TicketState;
 import com.intermarche.pos.ui.payment.PaymentState;
+import com.intermarche.pos.ui.ticket.TicketState;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
@@ -31,11 +31,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.List;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Persists the in-memory ticket into the register's database.

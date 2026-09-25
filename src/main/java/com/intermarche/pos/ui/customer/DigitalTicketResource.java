@@ -3,7 +3,6 @@ package com.intermarche.pos.ui.customer;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.sale.VatBreakdown;
-import com.intermarche.pos.ui.customer.QrCodeService;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -13,8 +12,9 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import java.net.URI;
 import org.jboss.logging.Logger;
+
+import java.net.URI;
 
 /**
  * Public digital receipt (phase 4): the customer opens the short link printed

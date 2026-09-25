@@ -1,21 +1,16 @@
 package com.intermarche.pos.ui.returnprocess;
 
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.sale.*;
 import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.sync.SyncOutbox;
-import com.intermarche.pos.domain.sale.VatBreakdown;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.service.TicketNumberService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

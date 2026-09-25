@@ -3,12 +3,7 @@ package com.intermarche.pos.imports;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
@@ -92,6 +87,9 @@ public class FeedImportResource {
 
     /** The dedicated VAT importer (VAT_RATES delegation). */
     @Inject VatRateCsvResource vatRateCsvResource;
+
+    /** The dedicated EGAlim importer (EGALIM_REGIMES delegation). */
+    @Inject EgalimRegimeCsvResource egalimRegimeCsvResource;
 
     /** The dedicated price importer (PRICES delegation). */
     @Inject PriceCsvResource priceCsvResource;
@@ -191,6 +189,7 @@ public class FeedImportResource {
                 Map.entry("PRODUCTS", productCsvResource::importProducts),
                 Map.entry("FAMILIES", productFamilyCsvResource::importProductFamilies),
                 Map.entry("VAT_RATES", vatRateCsvResource::importVatRates),
+                Map.entry("EGALIM_REGIMES", egalimRegimeCsvResource::importEgalimRegimes),
                 Map.entry("PRICES", priceCsvResource::importPrices),
                 Map.entry("EMPLOYEES", employeeCsvResource::importEmployees),
                 Map.entry("CUSTOMERS",

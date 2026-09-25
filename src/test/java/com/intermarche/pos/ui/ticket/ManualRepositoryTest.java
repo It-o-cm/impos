@@ -1,20 +1,18 @@
 package com.intermarche.pos.ui.ticket;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
+import com.intermarche.pos.domain.catalog.Product;
+import io.quarkus.hibernate.orm.panache.Panache;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import com.intermarche.pos.domain.catalog.Product;
-
-import io.quarkus.hibernate.orm.panache.Panache;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.TypedQuery;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Unit tests for {@link ManualRepository}, the SAISIE DIRECTE database seam.

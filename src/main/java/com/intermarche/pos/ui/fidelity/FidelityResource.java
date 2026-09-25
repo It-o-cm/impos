@@ -109,7 +109,7 @@ public class FidelityResource {
                 name = input;
             }
         }
-        FidelityService.LookupView lookup =
+        LookupView lookup =
                 fidelityService.lookupCards(phone, email, name, firstName);
         state.fidelity.lastLookup = lookup;
         state.fidelity.lastLookupMode = mode != null ? mode : "name";
@@ -165,7 +165,7 @@ public class FidelityResource {
         if (refusal != null) {
             // The refusal replaces the stored result list; the search mode
             // and criterion are kept so the operator stays in context.
-            FidelityService.LookupView lookup = new FidelityService.LookupView();
+            LookupView lookup = new LookupView();
             lookup.message = refusal;
             state.fidelity.lastLookup = lookup;
             LOGGER.info("Exiting method selectFidelity");

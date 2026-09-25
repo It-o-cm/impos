@@ -1,6 +1,7 @@
 package com.intermarche.pos.domain.store;
 
 import jakarta.persistence.Embeddable;
+
 import java.util.Objects;
 
 /**

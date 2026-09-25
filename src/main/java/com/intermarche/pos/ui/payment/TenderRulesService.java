@@ -1,17 +1,13 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.payment.PaymentTypes;
+import com.intermarche.pos.domain.payment.TenderDefinition;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Reads the administered TENDER rules on behalf of the payment screen

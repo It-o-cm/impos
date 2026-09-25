@@ -1,10 +1,6 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.barcode.AlertLevel;
-import com.intermarche.pos.domain.barcode.CouponControl;
-import com.intermarche.pos.domain.barcode.CouponField;
-import com.intermarche.pos.domain.barcode.CouponScan;
-import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.barcode.*;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -21,12 +17,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link CouponCheckService}, targeting 100% branch coverage.

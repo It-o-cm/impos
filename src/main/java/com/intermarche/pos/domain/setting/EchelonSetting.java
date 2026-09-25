@@ -1,17 +1,10 @@
 package com.intermarche.pos.domain.setting;
 
-import jakarta.persistence.Cacheable;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import com.intermarche.pos.domain.BaseEntity;
+import jakarta.persistence.*;
 
 import java.util.List;
 import java.util.Objects;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * One back-office parameter posed at an echelon (BO-02-05-04, BO-03-12-07):

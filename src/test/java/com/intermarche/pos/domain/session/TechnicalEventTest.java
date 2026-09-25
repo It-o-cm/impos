@@ -1,8 +1,9 @@
 package com.intermarche.pos.domain.session;
 
-import java.time.LocalDateTime;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
 
 /**
  * Unit tests for {@link TechnicalEvent}, targeting 100% branch coverage.

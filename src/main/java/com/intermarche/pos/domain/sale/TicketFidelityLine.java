@@ -2,6 +2,7 @@ package com.intermarche.pos.domain.sale;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 

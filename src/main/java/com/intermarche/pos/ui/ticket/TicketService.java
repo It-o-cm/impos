@@ -6,24 +6,24 @@ import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
-import com.intermarche.pos.ui.valuation.ValuationService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.scanner.ScanContext;
+import com.intermarche.pos.ui.valuation.ValuationService;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.StreamSupport;
-import org.jboss.logging.Logger;
 
 /**
  * Ticket-building service: scan processing, item additions, price

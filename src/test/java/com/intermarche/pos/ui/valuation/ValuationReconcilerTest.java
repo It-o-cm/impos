@@ -10,14 +10,11 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.mockStatic;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ValuationReconciler}.
@@ -91,7 +88,7 @@ class ValuationReconcilerTest {
         ValuationPayloads.OfferDto o = new ValuationPayloads.OfferDto();
         o.offerId = offerId;
         o.type = type;
-        for (ValuationPayloads.OfferItemDto p : items) o.items.add(p);
+        Collections.addAll(o.items, items);
         return o;
     }
 
@@ -109,6 +106,38 @@ class ValuationReconcilerTest {
         a.type = type;
         a.discountAmount = amount;
         return a;
+    }
+
+    /**
+     * Builds a CORRECTION advantage: no offer reference, a ticket-level amount
+     * the reconciler must ignore, and the per-line details that carry the real
+     * arithmetic.
+     *
+     * @param type the advantage label
+     * @param details the per-line corrections
+     * @return the advantage DTO
+     */
+    private ValuationPayloads.AdvantageDto correction(String type,
+                                                      ValuationPayloads.AdvantageDetailDto... details) {
+        ValuationPayloads.AdvantageDto a = new ValuationPayloads.AdvantageDto();
+        a.type = type;
+        a.discountAmount = amount("99.00");
+        a.details = new java.util.ArrayList<>(List.of(details));
+        return a;
+    }
+
+    /**
+     * Builds one line detail of a correction advantage.
+     *
+     * @param lineId the corrected line, or null
+     * @param correction the correction added to it, or null
+     * @return the detail DTO
+     */
+    private ValuationPayloads.AdvantageDetailDto detail(String lineId, String correction) {
+        ValuationPayloads.AdvantageDetailDto d = new ValuationPayloads.AdvantageDetailDto();
+        d.lineId = lineId;
+        d.correction = correction == null ? null : new BigDecimal(correction);
+        return d;
     }
 
     /**
@@ -151,7 +180,7 @@ class ValuationReconcilerTest {
      */
     private TicketState ticketWith(TicketState.TicketItem... items) {
         TicketState t = new TicketState();
-        for (TicketState.TicketItem it : items) t.items.add(it);
+        Collections.addAll(t.items, items);
         return t;
     }
 
@@ -496,6 +525,99 @@ class ValuationReconcilerTest {
     // --------------------------------------------------
     // revert
     // --------------------------------------------------
+
+    /**
+     * A CORRECTION advantage puts money BACK on the lines it names: the valued
+     * total goes up by the correction, which is the whole point of a legal cap
+     * — the customer was granted more generosity than the law allows and the
+     * ticket is put right.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyAddsTheCorrectionToTheValuedLine() throws Exception {
+        String response = json(
+                List.of(offer("O", "T", portion("L1", amount("5.00")))),
+                List.of(correction("EGAlim Adjustment: EGALIM_FR", detail("L1", "1.60"))));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        BigDecimal adjustment = reconciler.apply(ticketWith(it), null, response);
+        assertEquals(new BigDecimal("6.60"), it.valuedTotal);
+        assertEquals(new BigDecimal("-3.40"), adjustment);
+    }
+
+    /**
+     * A correction and a discount on the SAME line compose in opposite
+     * directions, and neither is spread onto the other's lines: the discount
+     * follows its offer's shares, the correction stays where the engine put
+     * it.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyComposesCorrectionAndDiscountOnTheSameLine() throws Exception {
+        String response = json(
+                List.of(offer("O", "T", portion("L1", amount("10.00")))),
+                List.of(discount("O", "AD", amount("2.00")),
+                        correction("EGAlim", detail("L1", "0.50"))));
+        TicketState.TicketItem it = item("L1", "1", "12", "1");
+        reconciler.apply(ticketWith(it), null, response);
+        assertEquals(new BigDecimal("8.50"), it.valuedTotal);
+    }
+
+    /**
+     * A correction naming a line the cart does not hold changes nothing, and
+     * does not disturb the lines it does not name.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyIgnoresACorrectionOnAnUnknownLine() throws Exception {
+        String response = json(
+                List.of(offer("O", "T", portion("L1", amount("5.00")))),
+                List.of(correction("EGAlim", detail("L9", "1.60"))));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        reconciler.apply(ticketWith(it), null, response);
+        assertEquals(new BigDecimal("5.00"), it.valuedTotal);
+    }
+
+    /**
+     * The three legs of the detail guard, each of which must leave the line
+     * untouched: a detail without a line, a detail without an amount, and a
+     * detail whose amount is zero or below — a correction that takes money off
+     * is a discount, and it is not this advantage's business.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applySkipsDetailsWithoutLineWithoutAmountOrNotPositive() throws Exception {
+        String response = json(
+                List.of(offer("O", "T", portion("L1", amount("5.00")))),
+                List.of(correction("EGAlim",
+                        detail(null, "1.00"), detail("L1", null),
+                        detail("L1", "0.00"), detail("L1", "-2.00"))));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        reconciler.apply(ticketWith(it), null, response);
+        assertEquals(new BigDecimal("5.00"), it.valuedTotal);
+    }
+
+    /**
+     * An advantage carrying an EMPTY detail list is not a correction: it falls
+     * through to the discount path, where an unresolvable offer skips it —
+     * the false leg of the guard that recognizes a correction.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyTreatsAnAdvantageWithEmptyDetailsAsADiscount() throws Exception {
+        ValuationPayloads.AdvantageDto empty = discount("NOPE", "AD", amount("1.00"));
+        empty.details = new java.util.ArrayList<>();
+        String response = json(
+                List.of(offer("O", "T", portion("L1", amount("5.00")))),
+                List.of(empty));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        reconciler.apply(ticketWith(it), null, response);
+        assertEquals(new BigDecimal("5.00"), it.valuedTotal);
+    }
 
     /**
      * revert on a draft clears every valued total, wipes the trace and stamps

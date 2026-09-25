@@ -2,7 +2,6 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.payment.StoredValue;
-import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,15 +14,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link VoucherService}, exercising every branch of voucher

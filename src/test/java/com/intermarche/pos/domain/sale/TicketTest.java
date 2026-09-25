@@ -1,15 +1,16 @@
 package com.intermarche.pos.domain.sale;
 
-import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.store.Store;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.payment.TicketPayment;
 
 /**
  * Unit tests for {@link Ticket}, targeting 100% branch coverage.

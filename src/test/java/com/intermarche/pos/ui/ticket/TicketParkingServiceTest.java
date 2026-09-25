@@ -1,8 +1,10 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.*;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -11,23 +13,8 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
-import com.intermarche.pos.service.PosSettingsService;
-import com.intermarche.pos.service.TechnicalEventService;
-import com.intermarche.pos.service.TicketRecoveryService;
-import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.service.TicketNumberService;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link TicketParkingService}.

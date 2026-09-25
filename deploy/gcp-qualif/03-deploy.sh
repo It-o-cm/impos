@@ -97,11 +97,22 @@ for app in $APPS; do
   tar -czf "/tmp/${app}-qa.tgz" -C "$dir/target" quarkus-app
   gcloud compute scp --project="$PROJECT" --zone="$ZONE" "/tmp/${app}-qa.tgz" "$VM_NAME:/tmp/${app}-qa.tgz"
   rm -f "/tmp/${app}-qa.tgz"
+  # The register, and it alone, starts each delivery from an empty database.
+  # Its seed is written for an empty register and steps aside on a populated
+  # one, so removing the file here is what makes a delivery reseed the
+  # demonstration -- and what makes every OTHER restart, the nightly stop
+  # included, keep the referential pulled from the node and the day's sales.
+  # The node, the engine and the loyalty service keep their data across a
+  # delivery: theirs was fed, not seeded.
+  reset=""
+  if [ "$app" = "impos" ]; then
+    reset="sudo rm -f /opt/apps/impos/data/*.db && "
+  fi
   ssh_vm "rm -rf /tmp/${app}-qa && mkdir -p /tmp/${app}-qa \
           && tar -xzf /tmp/${app}-qa.tgz -C /tmp/${app}-qa \
           && sudo rsync -a --delete /tmp/${app}-qa/quarkus-app/ /opt/apps/${app}/quarkus-app/ \
           && sudo chown -R apps:apps /opt/apps/${app} \
-          && sudo systemctl restart ${app} \
+          && ${reset}sudo systemctl restart ${app} \
           && rm -rf /tmp/${app}-qa /tmp/${app}-qa.tgz"
   # Simulator page rides along with impos (static, no restart needed). Caddy
   # serves /opt/apps/impos/simulator as a file server under /simulateur, so the

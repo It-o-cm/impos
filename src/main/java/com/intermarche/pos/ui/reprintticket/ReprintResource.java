@@ -13,8 +13,9 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.net.URI;
 import org.jboss.logging.Logger;
+
+import java.net.URI;
 
 /**
  * JAX-RS resource of the reprint screen, under its own {@code /reprint}

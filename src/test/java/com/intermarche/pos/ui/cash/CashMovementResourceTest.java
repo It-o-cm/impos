@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.cash;
 
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.PosSettingsService;
@@ -24,12 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link CashMovementResource}.
@@ -235,7 +230,7 @@ class CashMovementResourceTest {
         TemplateInstance[] chain = stubPageChain(resource);
         assertSame(chain[4], resource.cashMovementPage("bogus", "1"));
         verify(chain[2]).data("saved", true);
-        verify(chain[3]).data("error", (String) null);
+        verify(chain[3]).data("error", null);
     }
 
     // --- record ---

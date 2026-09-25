@@ -523,12 +523,7 @@ public class PosSettingsService {
      */
     public String value(String key) {
         LOGGER.info("Entering method value with key: " + key);
-        Map<String, String> values = cache;
-        if (values == null) {
-            values = loadAll();
-            cache = values;
-        }
-        String stored = values.get(key);
+        String stored = settings().get(key);
         if (stored != null) { LOGGER.info("Exiting method value"); return stored; }
         Def d = def(key);
         if (d == null) { LOGGER.info("Exiting method value"); return null; }
@@ -551,18 +546,28 @@ public class PosSettingsService {
      */
     private Map<String, String> inherited() {
         Map<String, String> values = inheritedCache;
-        if (values == null) {
-            values = loadInherited();
-            inheritedCache = values;
+        if (values != null) {
+            return values;
         }
-        return values;
+        Map<String, String> loaded = loadInherited();
+        if (loaded == null) {
+            return Map.of();
+        }
+        inheritedCache = loaded;
+        return loaded;
     }
 
     /**
      * Resolves this node's echelon-inherited values, or an empty map when no
      * echelon layer applies (no engine wired, or no PDV number on this node).
+     * <p>
+     * An empty map and a NULL are two different answers, and the caller caches
+     * only the first: "no echelon layer applies here" is a settled fact worth
+     * remembering, "the echelons could not be resolved" is a transient failure
+     * that must be retried on the next access.
      *
-     * @return the inherited key-to-value map, never null
+     * @return the inherited key-to-value map, empty when no echelon layer
+     *         applies, or null when the resolution failed
      */
     private Map<String, String> loadInherited() {
         if (echelonSettings == null || nodePdvNumber == null || nodePdvNumber.isEmpty()) {
@@ -574,15 +579,23 @@ public class PosSettingsService {
             // A failed resolution (boot ordering, missing table) falls back to
             // the local overrides and defaults; the next access retries.
             LOGGER.warnf("Resolution des echelons impossible (%s): valeurs locales", e.getMessage());
-            inheritedCache = null;
-            return Map.of();
+            return null;
         }
     }
 
     /**
      * Reads every stored row — one query, called only on a cold cache.
+     * <p>
+     * A failed read answers NULL and not an empty map, because the two mean
+     * opposite things: an empty map is a register nobody has parameterised, a
+     * failure is a register whose parameters could not be read. The caller
+     * caches the first and must not cache the second — see {@link #settings()}.
+     * This method no longer clears the cache itself: it was clearing a field
+     * its own caller then overwrote with the empty map, so the announced retry
+     * never happened and the defaults stuck until the next explicit
+     * invalidation.
      *
-     * @return the key-to-value map of stored overrides
+     * @return the key-to-value map of stored overrides, or null when the read failed
      */
     private Map<String, String> loadAll() {
         Map<String, String> values = new HashMap<>();
@@ -594,9 +607,34 @@ public class PosSettingsService {
             // A failed read (boot ordering, missing table) falls back to the
             // defaults; the next access retries.
             LOGGER.warnf("Lecture des paramètres impossible (%s): valeurs par défaut", e.getMessage());
-            cache = null;
+            return null;
         }
         return values;
+    }
+
+    /**
+     * Returns the stored overrides, reading them once and caching them until
+     * the next invalidation.
+     * <p>
+     * The ONE place the local cache is populated, and it populates it only on
+     * a successful read: a failure serves the empty map for this call alone,
+     * so the very next access tries the database again. A register that could
+     * not read its parameters at boot must recover by itself, not stay on the
+     * defaults until someone saves a setting or restarts it.
+     *
+     * @return the key-to-value map of stored overrides, never null
+     */
+    private Map<String, String> settings() {
+        Map<String, String> values = cache;
+        if (values != null) {
+            return values;
+        }
+        Map<String, String> loaded = loadAll();
+        if (loaded == null) {
+            return Map.of();
+        }
+        cache = loaded;
+        return loaded;
     }
 
     /**
@@ -618,11 +656,7 @@ public class PosSettingsService {
      */
     public Map<String, String> administeredValues() {
         LOGGER.info("Entering method administeredValues");
-        Map<String, String> local = cache;
-        if (local == null) {
-            local = loadAll();
-            cache = local;
-        }
+        Map<String, String> local = settings();
         Map<String, String> echelon;
         if (echelonSettings == null || nodePdvNumber == null || nodePdvNumber.isEmpty()) {
             echelon = Map.of();

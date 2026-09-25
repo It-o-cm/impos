@@ -1,7 +1,7 @@
 package com.intermarche.pos.infra;
 
-import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.eclipse.microprofile.health.HealthCheckResponse;
 import org.junit.jupiter.api.Test;

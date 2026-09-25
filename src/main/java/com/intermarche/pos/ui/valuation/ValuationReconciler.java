@@ -89,10 +89,17 @@ public class ValuationReconciler {
             }
         }
 
-        // 2. Allocate discount advantages onto the lines of their offer
+        // 2. Allocate discount advantages onto the lines of their offer, and
+        //    CORRECTION advantages onto the lines they name themselves.
         Map<String, BigDecimal> advantageByLine = new HashMap<>();
         Map<String, String> advantageLabelByLine = new HashMap<>();
+        Map<String, BigDecimal> correctionByLine = new HashMap<>();
+        Map<String, String> correctionLabelByLine = new HashMap<>();
         for (ValuationPayloads.AdvantageDto advantage : response.advantages) {
+            if (advantage.details != null && !advantage.details.isEmpty()) {
+                collectCorrection(advantage, correctionByLine, correctionLabelByLine);
+                continue;
+            }
             if (advantage.discountAmount == null
                     || advantage.discountAmount.amountIncludingTax == null) continue; // upsell, MEAL_VOUCHER...
             ValuationPayloads.OfferDto offer = resolveOffer(response, advantage.offer);
@@ -118,8 +125,13 @@ public class ValuationReconciler {
                 continue;
             }
             BigDecimal cut = advantageByLine.getOrDefault(item.uid, BigDecimal.ZERO);
+            // The correction goes the OTHER way: a cap that has bitten gives
+            // the customer less generosity than the offers granted, and the
+            // line goes back up by exactly what the engine says.
+            BigDecimal correction = correctionByLine.getOrDefault(item.uid, BigDecimal.ZERO);
             BigDecimal localTotal = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
-            BigDecimal valuedTotal = valued.subtract(cut).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal valuedTotal = valued.subtract(cut).add(correction)
+                    .setScale(2, RoundingMode.HALF_UP);
             if (valuedTotal.signum() < 0) valuedTotal = BigDecimal.ZERO;
             item.valuedTotal = valuedTotal;
             adjustment = adjustment.add(valuedTotal.subtract(localTotal));
@@ -133,6 +145,9 @@ public class ValuationReconciler {
                 trace.offerLabel = truncate(offerLabelByLine.get(item.uid), 200);
                 trace.advantageLabel = truncate(advantageLabelByLine.get(item.uid), 200);
                 trace.advantageAmount = cut.signum() > 0 ? cut.setScale(2, RoundingMode.HALF_UP) : null;
+                trace.correctionLabel = truncate(correctionLabelByLine.get(item.uid), 200);
+                trace.correctionAmount = correction.signum() > 0
+                        ? correction.setScale(2, RoundingMode.HALF_UP) : null;
                 trace.persist();
             }
         }
@@ -197,6 +212,38 @@ public class ValuationReconciler {
             if (reference.equals(offer.type)) return offer;
         }
         return null;
+    }
+
+    /**
+     * Collects a CORRECTION advantage onto the lines it names.
+     * <p>
+     * Nothing is allocated here and that is the point: a correction already
+     * knows its lines and its per-line amount — the engine computed the cap
+     * line by line — so spreading it pro-rata, the way a discount is spread,
+     * would move money between lines the engine had already placed. An entry
+     * without a line or without an amount is skipped rather than guessed at.
+     * <p>
+     * The ticket-level {@code discountAmount} of such an advantage is read by
+     * nobody here: its tax rate is a single blended figure, while the lines it
+     * corrects may carry several. The register's own snapshot rates rule the
+     * fiscal ventilation, as they do for every other line-borne amount.
+     *
+     * @param advantage the correction advantage
+     * @param correctionByLine the per-line correction accumulator
+     * @param correctionLabelByLine the per-line label accumulator
+     */
+    private void collectCorrection(ValuationPayloads.AdvantageDto advantage,
+                                   Map<String, BigDecimal> correctionByLine,
+                                   Map<String, String> correctionLabelByLine) {
+        for (ValuationPayloads.AdvantageDetailDto detail : advantage.details) {
+            if (detail.lineId == null || detail.correction == null
+                    || detail.correction.signum() <= 0) {
+                continue;
+            }
+            correctionByLine.merge(detail.lineId, detail.correction, BigDecimal::add);
+            correctionLabelByLine.merge(detail.lineId, advantage.type,
+                    (a, b) -> a.contains(b) ? a : a + "; " + b);
+        }
     }
 
     /**

@@ -1,13 +1,7 @@
 package com.intermarche.pos.domain.sale;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 
@@ -58,4 +52,19 @@ public class TicketLineValuation extends PanacheEntity {
     /** The advantage amount allocated on this line (tax included), or null. */
     @Column(name = "advantage_amount", precision = 19, scale = 2)
     public BigDecimal advantageAmount;
+
+    /**
+     * The label of the CORRECTION that put money back on this line, or null
+     * when none did.
+     * <p>
+     * Kept apart from {@link #advantageLabel}: an advantage takes money off
+     * the line, a correction puts it back, and a reprint that confused the two
+     * would show the customer a discount where the ticket went up.
+     */
+    @Column(name = "correction_label", length = 200)
+    public String correctionLabel;
+
+    /** The correction added back to this line, tax included, or null. */
+    @Column(name = "correction_amount", precision = 19, scale = 2)
+    public BigDecimal correctionAmount;
 }

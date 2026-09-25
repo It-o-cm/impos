@@ -53,7 +53,7 @@ public class DepositVoucherScanHandler implements ScanContext.ScanHandler {
         if (state.isLocked()) return;
         if (state.payment.paymentInProgress) return;
 
-        for (CouponType type : CouponType.<CouponType>listActiveDepositTypes()) {
+        for (CouponType type : CouponType.listActiveDepositTypes()) {
             if (!type.matches(ctx.code)) continue;
 
             if (refusedByControls(state, type, ctx)) return;

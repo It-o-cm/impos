@@ -1,16 +1,12 @@
 package com.intermarche.pos.domain.payment;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Embedded;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
+import com.intermarche.pos.domain.BaseEntity;
+import com.intermarche.pos.domain.store.Address;
+import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 
 import java.math.BigDecimal;
 import java.util.Objects;
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * A professional customer, the party an invoice is addressed to.

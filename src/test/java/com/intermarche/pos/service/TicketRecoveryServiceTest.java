@@ -1,39 +1,23 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.domain.payment.BackupPayment;
-import com.intermarche.pos.domain.payment.CardPayment;
-import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.payment.CreditPayment;
-import com.intermarche.pos.domain.payment.ForeignCurrencyPayment;
-import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.payment.*;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.payment.TicketPayment;
-import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.math.BigDecimal;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link TicketRecoveryService}.

@@ -7,9 +7,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link ScannerDiscovery}: the name matching that keeps the
@@ -67,7 +65,7 @@ class ScannerDiscoveryTest {
     void usbKeyReducesToTheUsbDevice() {
         assertEquals("usb-0000:00:14.0-3", ScannerDiscovery.usbKey("usb-0000:00:14.0-3/input0"));
         assertEquals("usb-0000:00:14.0-3", ScannerDiscovery.usbKey("usb-0000:00:14.0-3"));
-        assertEquals(null, ScannerDiscovery.usbKey(null));
+        assertNull(ScannerDiscovery.usbKey(null));
     }
 
     /**
@@ -170,7 +168,7 @@ class ScannerDiscoveryTest {
      */
     @Test
     void usbKeyOfBlankPhysIsNull() {
-        assertEquals(null, ScannerDiscovery.usbKey("   "));
+        assertNull(ScannerDiscovery.usbKey("   "));
     }
 
     /**

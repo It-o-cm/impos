@@ -174,4 +174,44 @@ class VirtualTerminalClientTest {
         client.onRegisterClosed();
         assertEquals("virtual", client.name());
     }
+
+    /**
+     * A NEW request replaces the parked one WHOLE: the decision fires the new
+     * receiver with the new amount, and the previous receiver is never touched.
+     * <p>
+     * The receiver and its amount are one value since they are held as one
+     * record; this test pins that contract, which a future refactor splitting
+     * them back into two fields would break — silently, because the window is
+     * a race no single-threaded test can observe.
+     */
+    @Test
+    void aNewRequestReplacesTheParkedOneWhole() {
+        park("10.00");
+        TerminalTransactionCallback second = mock(TerminalTransactionCallback.class);
+        state.payment.pendingCardAmount = new BigDecimal("20.00");
+        client.requestDebit(new BigDecimal("20.00"), second);
+        assertTrue(client.accept());
+        verifyNoInteractions(callback);
+        org.mockito.ArgumentCaptor<TerminalOutcome> captor =
+                org.mockito.ArgumentCaptor.forClass(TerminalOutcome.class);
+        verify(second).onAccepted(captor.capture());
+        assertEquals(new BigDecimal("20.00"), captor.getValue().amount);
+    }
+
+    /**
+     * A taken decision leaves NOTHING behind: the request is consumed as one,
+     * so no amount survives its own transaction to be echoed into a later
+     * outcome. Asserted through {@code hasPending}, which the simulator panel
+     * polls, while the register's own pending flag is still raised.
+     */
+    @Test
+    void aTakenDecisionLeavesNothingBehind() {
+        park("10.00");
+        assertTrue(client.hasPending());
+        assertTrue(client.accept());
+        assertFalse(client.hasPending());
+        assertFalse(client.accept());
+        verify(callback).onAccepted(org.mockito.ArgumentMatchers.any());
+    }
+
 }

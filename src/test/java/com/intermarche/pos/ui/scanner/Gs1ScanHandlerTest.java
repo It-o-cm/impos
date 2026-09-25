@@ -1,14 +1,14 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.payment.VoucherService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
@@ -18,19 +18,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link Gs1ScanHandler}, the link of the scan chain that reads GS1

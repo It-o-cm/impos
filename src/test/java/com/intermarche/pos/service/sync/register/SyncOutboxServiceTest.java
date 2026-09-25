@@ -1,20 +1,21 @@
 package com.intermarche.pos.service.sync.register;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intermarche.pos.domain.payment.CardPayment;
+import com.intermarche.pos.domain.payment.CashPayment;
+import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sale.TicketLine;
 import com.intermarche.pos.domain.session.CashMovement;
 import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.SyncEndpoints;
-import com.intermarche.pos.domain.payment.CardPayment;
-import com.intermarche.pos.domain.payment.CashPayment;
-import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.sale.RefundLine;
-import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.payment.VoucherPayment;
+import com.intermarche.pos.service.sync.SyncPayloads;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -24,21 +25,10 @@ import org.mockito.MockedStatic;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import com.intermarche.pos.service.sync.SyncPayloads;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link SyncOutboxService}.
@@ -173,7 +163,7 @@ class SyncOutboxServiceTest {
             SyncOutbox row = created.constructed().get(0);
             assertEquals(SyncOutbox.EntityType.SESSION, row.entityType);
             assertEquals(42L, row.entityId);
-            assertTrue(row.createdAt != null);
+            assertNotNull(row.createdAt);
             verify(row, times(1)).persist();
         }
     }

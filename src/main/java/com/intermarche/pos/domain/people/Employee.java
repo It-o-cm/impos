@@ -1,5 +1,6 @@
 package com.intermarche.pos.domain.people;
 
+import com.intermarche.pos.domain.BaseEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -10,7 +11,6 @@ import org.mindrot.jbcrypt.BCrypt;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Set;
-import com.intermarche.pos.domain.BaseEntity;
 
 /**
  * Entity representing an employee working in a store.

@@ -21,3 +21,4 @@ PROMO_BIERE_20|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEan
 PROMO_APERO_2FOR1|N+M|{"targetEans": ["3000000011652"], "quantityToPay": 1, "discountedQuantity": 1, "selectionStrategy": "CHEAPEST", "discountType": "PERCENTAGE", "discountValue": 100.0}|0101|
 PROMO_COMTE_10|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3000000010907"], "discountType": "PERCENTAGE", "value": 10.0}|0101|
 PROMO_DOUCHE_30|IMMEDIATE_VOUCHER|{"targetOfferClass": ["BasicOffer"], "targetEans": ["3000000012451"], "discountType": "PERCENTAGE", "value": 30.0}|0101|
+EGALIM_GUARD_0101|EGALIM_GUARD|{}|0101|

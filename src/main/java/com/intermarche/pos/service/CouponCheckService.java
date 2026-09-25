@@ -1,10 +1,6 @@
 package com.intermarche.pos.service;
 
-import com.intermarche.pos.domain.barcode.AlertLevel;
-import com.intermarche.pos.domain.barcode.CouponControl;
-import com.intermarche.pos.domain.barcode.CouponField;
-import com.intermarche.pos.domain.barcode.CouponScan;
-import com.intermarche.pos.domain.barcode.CouponType;
+import com.intermarche.pos.domain.barcode.*;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.util.DateTimeProvider;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -358,7 +354,7 @@ public class CouponCheckService {
         }
         Integer expected = digitSumModTen(rawNumber);
         Integer actual = parseOrNull(rawCheck);
-        if (expected == null || actual == null || !expected.equals(actual)) {
+        if (expected == null || !expected.equals(actual)) {
             findings.add(new Finding(CouponControl.Kind.STORE_CHECK, level,
                     messageOf(type, CouponControl.Kind.STORE_CHECK)));
         }

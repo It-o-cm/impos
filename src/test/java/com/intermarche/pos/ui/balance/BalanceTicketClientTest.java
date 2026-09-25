@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.balance;
 
-import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.service.sync.SyncPayloads;
+import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -12,16 +12,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link BalanceTicketClient}.
@@ -118,8 +111,8 @@ class BalanceTicketClientTest {
      */
     @Test
     void availabilityMirrorsTheOutbox() throws Exception {
-        assertEquals(true, client(mock(HttpClient.class), true).isAvailable());
-        assertEquals(false, client(mock(HttpClient.class), false).isAvailable());
+        assertTrue(client(mock(HttpClient.class), true).isAvailable());
+        assertFalse(client(mock(HttpClient.class), false).isAvailable());
     }
 
     /**

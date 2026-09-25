@@ -35,23 +35,44 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
     @Inject
     PosState state;
 
-    /** The callback of the transaction awaiting a simulator decision, or null. */
-    private volatile TerminalTransactionCallback callback;
-
-    /** The amount of the awaited transaction, echoed in the outcome. */
-    private volatile BigDecimal amount;
+    /**
+     * One parked decision: the receiver and the amount it was parked with.
+     *
+     * <p>The two travel together because they mean nothing apart. Held as two
+     * loose fields, a decision taken between the two writes of a new request
+     * fired the PREVIOUS transaction's callback with the NEW amount, and a
+     * taken callback left its amount behind for the next reader.
+     *
+     * @param callback the decision receiver
+     * @param amount the amount the transaction was parked with
+     */
+    private record Pending(TerminalTransactionCallback callback, BigDecimal amount) {
+    }
 
     /**
-     * Parks the debit until the simulator decides; the callback replaces any
+     * The decision awaited by the simulator, or null when none is in flight.
+     *
+     * <p>Every write happens under this instance's monitor; the field stays
+     * {@code volatile} for {@link #hasPending()}, which the UI polls without
+     * taking the lock.
+     */
+    private volatile Pending pending;
+
+    /**
+     * Parks the debit until the simulator decides; the request replaces any
      * stale one left by a transaction whose pending flag was cleared elsewhere.
+     *
+     * <p>Synchronized on the same monitor as {@link #takePending()}: the
+     * receiver and its amount are posted in ONE step, so a decision taken
+     * concurrently sees either the whole previous request or the whole new
+     * one, never a half of each.
      *
      * @param amount the amount to debit
      * @param callback the decision receiver
      */
     @Override
-    public void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
-        this.amount = amount;
-        this.callback = callback;
+    public synchronized void requestDebit(BigDecimal amount, TerminalTransactionCallback callback) {
+        this.pending = new Pending(callback, amount);
     }
 
     /**
@@ -67,13 +88,12 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
     }
 
     /**
-     * Drops the in-flight callback; the register side already cleared the
+     * Drops the in-flight request; the register side already cleared the
      * pending flag.
      */
     @Override
-    public void abort() {
-        callback = null;
-        amount = null;
+    public synchronized void abort() {
+        pending = null;
     }
 
     /** No terminal session to open on the simulator. */
@@ -105,7 +125,7 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
      * @return true when accept/refuse would fire the callback
      */
     public boolean hasPending() {
-        return callback != null && state.payment.pendingCardAmount != null;
+        return pending != null && state.payment.pendingCardAmount != null;
     }
 
     /**
@@ -115,11 +135,11 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
      *         nothing was pending (the caller answers 409)
      */
     public boolean accept() {
-        TerminalTransactionCallback cb = takePendingCallback();
-        if (cb == null) return false;
-        TerminalOutcome outcome = TerminalOutcome.ofAmount(amount);
+        Pending taken = takePending();
+        if (taken == null) return false;
+        TerminalOutcome outcome = TerminalOutcome.ofAmount(taken.amount());
         outcome.authorizationNumber = generateAuthorizationNumber();
-        cb.onAccepted(outcome);
+        taken.callback().onAccepted(outcome);
         return true;
     }
 
@@ -141,22 +161,27 @@ public class VirtualTerminalClient implements PaymentTerminalClient {
      *         nothing was pending (the caller answers 409)
      */
     public boolean refuse() {
-        TerminalTransactionCallback cb = takePendingCallback();
-        if (cb == null) return false;
-        cb.onRefused(TerminalOutcome.ofAmount(amount));
+        Pending taken = takePending();
+        if (taken == null) return false;
+        taken.callback().onRefused(TerminalOutcome.ofAmount(taken.amount()));
         return true;
     }
 
     /**
-     * Atomically consumes the pending callback, or returns null when no
-     * decision is expected — a double click on the simulator fires once.
+     * Atomically consumes the parked request, or returns null when no decision
+     * is expected — a double click on the simulator fires once.
      *
-     * @return the callback to fire, or null
+     * <p>The receiver AND its amount leave together, so the amount can no
+     * longer survive its own transaction and be echoed into the next outcome.
+     * The callback is fired by the caller OUTSIDE this monitor: the register's
+     * payment processing must not run while the lock is held.
+     *
+     * @return the parked request to fire, or null
      */
-    private synchronized TerminalTransactionCallback takePendingCallback() {
+    private synchronized Pending takePending() {
         if (!hasPending()) return null;
-        TerminalTransactionCallback cb = callback;
-        callback = null;
-        return cb;
+        Pending taken = pending;
+        pending = null;
+        return taken;
     }
 }

@@ -1,8 +1,9 @@
 package com.intermarche.pos.domain.sale;
 
-import java.math.BigDecimal;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
 
 /**
  * Unit tests for {@link TicketLineValuation}, targeting 100% branch coverage.

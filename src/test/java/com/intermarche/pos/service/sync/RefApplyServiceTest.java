@@ -1,29 +1,21 @@
 package com.intermarche.pos.service.sync;
 
+import com.intermarche.pos.domain.barcode.*;
+import com.intermarche.pos.domain.catalog.*;
 import com.intermarche.pos.domain.payment.AccountCustomer;
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.barcode.AlertLevel;
-import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
-import com.intermarche.pos.domain.barcode.CouponControl;
-import com.intermarche.pos.domain.barcode.CouponField;
-import com.intermarche.pos.domain.barcode.CouponType;
-import com.intermarche.pos.domain.store.Country;
 import com.intermarche.pos.domain.payment.Currency;
+import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.setting.EchelonLevel;
 import com.intermarche.pos.domain.setting.EchelonSetting;
-import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.sync.EngineFeed;
+import com.intermarche.pos.domain.setting.PosSetting;
+import com.intermarche.pos.domain.setting.TouchGroupSetting;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Country;
 import com.intermarche.pos.domain.store.Enseigne;
 import com.intermarche.pos.domain.store.Pdv;
-import com.intermarche.pos.domain.setting.PosSetting;
-import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.catalog.ProductFamily;
-import com.intermarche.pos.domain.catalog.ProductType;
-import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.sync.EngineFeed;
 import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.service.PosSettingsService;
-import com.intermarche.pos.domain.setting.TouchGroupSetting;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -36,19 +28,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockConstruction;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link RefApplyService}.
@@ -766,7 +747,7 @@ class RefApplyServiceTest {
             RefState state = created.constructed().get(0);
             assertEquals("products", state.domain);
             assertEquals("fp-123", state.fingerprint);
-            assertTrue(state.appliedAt != null);
+            assertNotNull(state.appliedAt);
             verify(state, times(1)).persist();
         }
     }
@@ -784,7 +765,7 @@ class RefApplyServiceTest {
             mocked.when(() -> RefState.find("domain", "products")).thenReturn(existingQuery);
             service.recordApplied("products", "fp-456");
             assertEquals("fp-456", existing.fingerprint);
-            assertTrue(existing.appliedAt != null);
+            assertNotNull(existing.appliedAt);
             verify(existing, times(1)).persist();
         }
     }

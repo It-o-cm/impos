@@ -1,18 +1,11 @@
 package com.intermarche.pos.ui.scanner;
 
-import com.intermarche.pos.ui.ticket.TicketParkingService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.ticket.TicketParkingService;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ParkedTicketScanHandler}.

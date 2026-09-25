@@ -21,3 +21,4 @@ BASKET_CONSIGNMENT_0101|DEPOSIT_BASKET|{"basketVolume": 10.0, "basketPrice": 0.5
 MEAL_VOUCHER_0101|MEAL_VOUCHER|{"flag": "RESTAURANT_VOUCHER_ELIGIBLE", "threshold": 25.00}|0101|
 VOUCHER_TICKET_0101|VOUCHER_GRANT|{"scope": "TICKET", "metric": "AMOUNT", "mode": "HIGHEST_REACHED", "tiers": [{"threshold": 50.0, "award": {"type": "PERCENTAGE", "value": 5.0}}, {"threshold": 100.0, "award": {"type": "PERCENTAGE", "value": 10.0}}], "usage": {"validityDays": 30, "minimumPurchase": 10.0}}|0101|
 COUPON_POINTS_0101|COUPON_GRANT|{"scope": "TICKET", "metric": "AMOUNT", "mode": "PER_MULTIPLE", "unit": "POINTS", "every": {"step": 10.0, "award": {"type": "AMOUNT", "value": 1}}}|0101|
+EGALIM_GUARD_0101|EGALIM_GUARD|{}|0101|

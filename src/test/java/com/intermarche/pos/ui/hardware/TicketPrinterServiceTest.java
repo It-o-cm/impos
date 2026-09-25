@@ -1,20 +1,19 @@
 package com.intermarche.pos.ui.hardware;
 
-import com.intermarche.pos.domain.store.Address;
-import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.payment.CashPayment;
 import com.intermarche.pos.domain.payment.FidelityPayment;
-import com.intermarche.pos.domain.sale.Refund;
-import com.intermarche.pos.domain.sale.RefundLine;
+import com.intermarche.pos.domain.people.Employee;
+import com.intermarche.pos.domain.sale.*;
+import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.session.TechnicalEvent;
-import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.domain.sale.TicketLine;
-import com.intermarche.pos.domain.sale.TicketFidelityLine;
-import com.intermarche.pos.domain.sale.TicketLineValuation;
+import com.intermarche.pos.domain.setting.DocumentTemplate;
+import com.intermarche.pos.domain.store.Address;
+import com.intermarche.pos.domain.store.Store;
+import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.service.DocumentTemplateService;
+import com.intermarche.pos.service.PosSettingsService;
+import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -24,33 +23,11 @@ import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
-import com.intermarche.pos.domain.setting.DocumentTemplate;
-import com.intermarche.pos.service.DocumentTemplateService;
-import com.intermarche.pos.service.PosSettingsService;
-import com.intermarche.pos.service.CashSessionService;
-import com.intermarche.pos.service.TechnicalEventService;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link TicketPrinterService}.
@@ -625,6 +602,65 @@ class TicketPrinterServiceTest {
             service.printTicket(1L);
             String out = captureReceipt(service);
             assertTrue(out.contains("AVANTAGE"));
+        }
+    }
+
+    /**
+     * A CORRECTION is printed on its own line, with its own label and a plus
+     * sign: the ticket went UP, and printing that under an advantage label
+     * would tell the customer the exact contrary of what happened.
+     */
+    @Test
+    void printTicketPrintsTheCorrectionOnItsOwnLine() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "NUTELLA", "1", "10.00", "10.00"));
+        List<TicketLineValuation> valuations = new ArrayList<>();
+        TicketLineValuation valued = valuation("U1", "10.00", "6.60", "PROMO", "OFFRE");
+        valued.correctionLabel = "AJUSTEMENT EGALIM";
+        valued.correctionAmount = new BigDecimal("1.60");
+        valuations.add(valued);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L)).thenReturn(valuations);
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            // The advantage keeps its own amount, correction excluded: -5.00
+            // granted, 1.60 put back, 6.60 paid.
+            assertTrue(out.contains("PROMO"));
+            assertTrue(out.contains("-5,00 E"));
+            assertTrue(out.contains("AJUSTEMENT EGALIM"));
+            assertTrue(out.contains("+1,60 E"));
+        }
+    }
+
+    /**
+     * A correction with no label falls back to a generic one, and a label
+     * longer than the printable width is truncated — the two arms the
+     * correction line adds.
+     */
+    @Test
+    void printTicketFallsBackAndTruncatesTheCorrectionLabel() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "CAFE", "1", "10.00", "10.00"));
+        ticket.lines.add(line("U2", "THE", "1", "10.00", "10.00"));
+        List<TicketLineValuation> valuations = new ArrayList<>();
+        TicketLineValuation noLabel = valuation("U1", "10.00", "11.00", null, null);
+        noLabel.correctionAmount = new BigDecimal("1.00");
+        valuations.add(noLabel);
+        TicketLineValuation longLabel = valuation("U2", "10.00", "11.00", null, null);
+        longLabel.correctionLabel = "AJUSTEMENT EGALIM TRES TRES LONG LIBELLE";
+        longLabel.correctionAmount = new BigDecimal("1.00");
+        valuations.add(longLabel);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L)).thenReturn(valuations);
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("AJUSTEMENT"));
+            assertTrue(out.contains("AJUSTEMENT EGALIM TRES TRE"));
+            assertFalse(out.contains("LONG LIBELLE"));
         }
     }
 
@@ -2815,4 +2851,139 @@ class TicketPrinterServiceTest {
         assertFalse(out.contains("Caisse"));
         assertFalse(out.contains("Date"));
     }
+
+    /**
+     * BO-03-03-29 on the layout that actually prints: a holder's receipt SHOWS
+     * the administered message, token replaced.
+     * <p>
+     * The document data already carried it, but the built-in layout is what
+     * comes out of the printer until a template is administered — and nothing
+     * is administered out of the box. A message computed and never printed is
+     * an administered parameter nobody can observe.
+     */
+    @Test
+    void theReceiptPrintsTheHolderMessage() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessage())
+                .thenReturn("CARTE {carte} - FIDELITE INDISPONIBLE");
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = true;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            String printed = service.renderTicket(ticket, false, 0);
+            assertTrue(printed.contains("CARTE 2990000000019 - FIDELITE"), printed);
+        }
+    }
+
+    /**
+     * BO-03-03-30 on the same layout: a sale WITHOUT a card prints the other
+     * message.
+     */
+    @Test
+    void theReceiptPrintsTheNonHolderMessage() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessageNoCard())
+                .thenReturn("PRESENTEZ VOTRE CARTE LA PROCHAINE FOIS");
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityCard = null;
+        ticket.fidelityLines = new ArrayList<>();
+        ticket.fidelityUnavailable = true;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            String printed = service.renderTicket(ticket, false, 0);
+            assertTrue(printed.contains("PRESENTEZ VOTRE CARTE"), printed);
+        }
+    }
+
+    /**
+     * A sale the loyalty service DID answer prints no message at all — the
+     * false arm of the unavailability guard, which is the ordinary sale.
+     */
+    @Test
+    void anAnsweredSalePrintsNoMessage() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessage())
+                .thenReturn("CARTE {carte} - FIDELITE INDISPONIBLE");
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = false;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            assertFalse(service.renderTicket(ticket, false, 0).contains("FIDELITE INDISPONIBLE"));
+        }
+    }
+
+    /**
+     * A shop that administers NO message prints nothing, and the receipt is the
+     * very one it printed before this lot — the blank arm, which is the
+     * historical behaviour and must stay reachable.
+     */
+    @Test
+    void ashopWithoutAMessagePrintsTheHistoricalReceipt() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.fidelityOfflineMessage()).thenReturn("");
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = true;
+        Ticket answered = ticket(0, null);
+        freeze(answered, null);
+        answered.fidelityUnavailable = false;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            assertEquals(service.renderTicket(answered, false, 0),
+                    service.renderTicket(ticket, false, 0));
+        }
+    }
+
+    /**
+     * A message LONGER than the paper is wrapped on spaces, not truncated: every
+     * word survives and no line exceeds the width.
+     */
+    @Test
+    void alongMessageIsWrappedAndNotTruncated() {
+        TicketPrinterService service = newService();
+        String message = "FIDELITE INDISPONIBLE VOS AVANTAGES SERONT CREDITES "
+                + "LORS DE VOTRE PROCHAIN PASSAGE EN MAGASIN MERCI DE VOTRE COMPREHENSION";
+        when(service.posSettingsService.fidelityOfflineMessage()).thenReturn(message);
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = true;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            String printed = service.renderTicket(ticket, false, 0);
+            for (String word : message.split(" ")) {
+                assertTrue(printed.contains(word), word + " absent");
+            }
+            for (String line : printed.split("\n")) {
+                assertTrue(line.length() <= 42, "ligne trop large: '" + line + "'");
+            }
+        }
+    }
+
+    /**
+     * A single WORD longer than the paper is cut rather than dropped: the inner
+     * loop of the wrap, which only a message made of one long token reaches.
+     */
+    @Test
+    void awordLongerThanThePaperIsCut() {
+        TicketPrinterService service = newService();
+        String word = "A".repeat(100);
+        when(service.posSettingsService.fidelityOfflineMessage())
+                .thenReturn("DEBUT " + word + " FIN");
+        Ticket ticket = ticket(0, null);
+        freeze(ticket, null);
+        ticket.fidelityUnavailable = true;
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            String printed = service.renderTicket(ticket, false, 0);
+            assertTrue(printed.contains("A".repeat(42)), printed);
+            assertTrue(printed.contains("DEBUT"), printed);
+            assertTrue(printed.contains("FIN"), printed);
+            for (String line : printed.split("\n")) {
+                assertTrue(line.length() <= 42, "ligne trop large: '" + line + "'");
+            }
+        }
+    }
+
 }

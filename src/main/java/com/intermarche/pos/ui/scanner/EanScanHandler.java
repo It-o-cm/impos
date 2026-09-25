@@ -3,8 +3,8 @@ package com.intermarche.pos.ui.scanner;
 import com.intermarche.pos.domain.catalog.Price;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.attribute.ProductAttributes;
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.math.BigDecimal;

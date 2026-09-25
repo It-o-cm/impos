@@ -4,14 +4,10 @@ import com.intermarche.pos.domain.people.Employee;
 import io.quarkus.hibernate.orm.panache.Panache;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
+import org.jboss.logging.Logger;
 
 import java.io.InputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import org.jboss.logging.Logger;
+import java.util.*;
 
 /**
  * REST endpoint for bulk importing or updating Employees from a CSV stream —
@@ -223,8 +219,7 @@ public class EmployeeCsvResource extends ImporterCsvResource {
         if (!Objects.equals(cell(data, COL_LAST_NAME), employee.lastName)) return true;
         if (!Objects.equals(cell(data, COL_EMAIL), employee.email)) return true;
         if (parseRole(data) != employee.role) return true;
-        if (data.has(COL_ACTIVE) && safeParseBoolean(data, COL_ACTIVE) != employee.active) return true;
-        return false;
+        return data.has(COL_ACTIVE) && safeParseBoolean(data, COL_ACTIVE) != employee.active;
     }
 
     /**

@@ -2,13 +2,11 @@ package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState.TicketItem;
-import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.math.BigDecimal;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link TicketState} and its inner {@link TicketItem}.

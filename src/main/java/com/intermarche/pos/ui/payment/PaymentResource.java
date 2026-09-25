@@ -2,21 +2,20 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.DrawerMayBeOpen;
 import com.intermarche.pos.ui.DrawerMustBeClosed;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
-
-import java.math.BigDecimal;
-import java.net.URI;
-
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
+
+import java.math.BigDecimal;
+import java.net.URI;
 
 /**
  * JAX-RS resource driving the payment screen: payment method actions, voucher

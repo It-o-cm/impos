@@ -3,9 +3,10 @@ package com.intermarche.pos.ui.ticket;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.ProductFamily;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.jboss.logging.Logger;
+
 import java.util.ArrayList;
 import java.util.List;
-import org.jboss.logging.Logger;
 
 /**
  * Feeds the FRUITS &amp; LÉGUMES weighing screen: the grid of PLU products

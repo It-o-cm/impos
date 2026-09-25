@@ -1,12 +1,13 @@
 package com.intermarche.pos.ui.valuation;
 
-import com.intermarche.pos.ui.PriceModType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.fidelity.FidelityService;
+import com.intermarche.pos.ui.fidelity.ImfidClient;
 import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
@@ -17,19 +18,12 @@ import org.mockito.MockedStatic;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ValuationService}.
@@ -159,7 +153,7 @@ class ValuationServiceTest {
      */
     private TicketState ticketWith(TicketState.TicketItem... items) {
         TicketState t = new TicketState();
-        for (TicketState.TicketItem it : items) t.items.add(it);
+        Collections.addAll(t.items, items);
         return t;
     }
 
@@ -172,7 +166,7 @@ class ValuationServiceTest {
      */
     private PosState posStateWith(TicketState.TicketItem... items) {
         PosState state = new PosState();
-        for (TicketState.TicketItem it : items) state.ticket.items.add(it);
+        Collections.addAll(state.ticket.items, items);
         state.ticket.recomputeTotal();
         return state;
     }
@@ -204,18 +198,34 @@ class ValuationServiceTest {
     }
 
     /**
-     * Builds a response holding the given advantages and an optional total.
+     * Builds a client result holding the given advantages and an optional
+     * total, with a body serialized from that very object.
      *
      * @param total the tax-included engine total, or null
      * @param advantages the advantages
-     * @return the response DTO
+     * @return the client result: the parsed response and its body
      */
-    private ValuationPayloads.ValuationResponseDto response(String total,
-                                                           ValuationPayloads.AdvantageDto... advantages) {
+    private ValuationClient.ValuationResult response(String total,
+                                                     ValuationPayloads.AdvantageDto... advantages) {
         ValuationPayloads.ValuationResponseDto r = new ValuationPayloads.ValuationResponseDto();
-        for (ValuationPayloads.AdvantageDto a : advantages) r.advantages.add(a);
+        Collections.addAll(r.advantages, advantages);
         r.totalPrice = total == null ? null : amount(total);
-        return r;
+        return result(r);
+    }
+
+    /**
+     * Wraps a response into a client result whose body is that response
+     * serialized — what an engine answering exactly this object would write.
+     *
+     * @param dto the parsed response
+     * @return the client result
+     */
+    private ValuationClient.ValuationResult result(ValuationPayloads.ValuationResponseDto dto) {
+        try {
+            return new ValuationClient.ValuationResult(dto, MAPPER.writeValueAsString(dto));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     // --------------------------------------------------
@@ -277,7 +287,7 @@ class ValuationServiceTest {
         meal.type = "MEAL_VOUCHER";
         meal.totalEligibleAmount = new BigDecimal("19.00");
         meal.threshold = new BigDecimal("25.00");
-        String json = MAPPER.writeValueAsString(response(null, meal));
+        String json = response(null, meal).rawJson();
         ValuationService.EngineHints hints = service.extractHints(json);
         assertEquals(new BigDecimal("19.00"), hints.mealEligible);
         assertEquals(new BigDecimal("25.00"), hints.mealThreshold);
@@ -301,7 +311,7 @@ class ValuationServiceTest {
         up.suggestion.ean = "EAN1";
         up.suggestion.quantity = new BigDecimal("2.00");
         up.suggestion.offerCode = "3x2";
-        String json = MAPPER.writeValueAsString(response(null, up));
+        String json = response(null, up).rawJson();
         Product product = new Product();
         product.name = "Yaourt";
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
@@ -327,7 +337,7 @@ class ValuationServiceTest {
         up.type = "UPSELL";
         up.suggestion = new ValuationPayloads.SuggestionDto();
         up.suggestion.ean = "EAN9";
-        String json = MAPPER.writeValueAsString(response(null, up));
+        String json = response(null, up).rawJson();
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             PanacheQuery<Product> productQuery = query(null);
             ms.when(() -> Product.find("ean", "EAN9")).thenReturn(productQuery);
@@ -352,7 +362,7 @@ class ValuationServiceTest {
         ValuationPayloads.AdvantageDto nullEan = new ValuationPayloads.AdvantageDto();
         nullEan.type = "OTHER";
         nullEan.suggestion = new ValuationPayloads.SuggestionDto();
-        String json = MAPPER.writeValueAsString(response(null, noSuggestion, nullEan));
+        String json = response(null, noSuggestion, nullEan).rawJson();
         ValuationService.EngineHints hints = service.extractHints(json);
         assertTrue(hints.upsells.isEmpty());
     }
@@ -390,7 +400,7 @@ class ValuationServiceTest {
     void isEnabledDelegatesFalse() {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(false);
-        assertEquals(false, service.isEnabled());
+        assertFalse(service.isEnabled());
     }
 
     // --------------------------------------------------
@@ -513,7 +523,7 @@ class ValuationServiceTest {
     void doRevalueEngineSuccessWithTotalAndFidelity() throws Exception {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(true);
-        ValuationPayloads.ValuationResponseDto engineResponse = response("18.00");
+        ValuationClient.ValuationResult engineResponse = response("18.00");
         when(valuationClient.valuate(any())).thenReturn(engineResponse);
         when(valuationReconciler.apply(any(), any(), any())).thenReturn(new BigDecimal("-2.00"));
         PosState state = posStateWith(item("L1", "1", "10", "1"));
@@ -642,6 +652,131 @@ class ValuationServiceTest {
             assertEquals("LOCAL", outcome.status);
         }
         verify(valuationClient, never()).valuate(any());
+    }
+
+    /**
+     * What leaves for the loyalty service is the engine's BODY, not the parsed
+     * object written back out: a block the register does not model — the
+     * EGAlim report here — must survive the crossing, and re-serializing the
+     * DTO would drop it without a word, the parser ignoring unknown fields by
+     * design.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateCarriesTheEngineBodyVerbatim() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        ValuationPayloads.ValuationResponseDto dto = new ValuationPayloads.ValuationResponseDto();
+        dto.totalPrice = amount("42.00");
+        String body = "{\"totalPrice\":{\"amountIncludingTax\":42.00},"
+                + "\"egalim\":[{\"lineId\":\"L1\",\"regime\":\"FOOD_34\",\"correction\":1.60}]}";
+        when(valuationClient.valuate(any()))
+                .thenReturn(new ValuationClient.ValuationResult(dto, body));
+        Store store = new Store();
+        store.code = "0034";
+        PanacheQuery<Store> storeQuery = query(store);
+        ValuationService.ValuationOutcome outcome;
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            outcome = service.valuate(ticketWith(item("L1", "1", "10", "1")), null,
+                    LocalDateTime.of(2026, 9, 24, 10, 0));
+        }
+        assertEquals(body, outcome.responseJson);
+        assertEquals("ENGINE", outcome.status);
+    }
+
+    /**
+     * The holder's immediate-discount promotions travel in the basket, with
+     * the card they belong to — the register's half of the card-promotion
+     * contract. The card number is carried here and NOT as the customerCode,
+     * which answers to a store setting about store offers: a personal right
+     * imfid already granted must not be withdrawn by that switch.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateCarriesTheCardPromotionsAndTheirCard() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("42.00"));
+        ImfidClient.CardPromotion promotion = new ImfidClient.CardPromotion();
+        promotion.ean = "3000000000018";
+        promotion.promotionType = "AMOUNT";
+        promotion.value = new BigDecimal("0.50");
+        promotion.benefit = "IMMEDIATE_DISCOUNT";
+        Store store = new Store();
+        store.code = "0034";
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        // The query mock is built BEFORE the static stubbing: building it
+        // stubs a mock of its own, and a stubbing opened inside another one
+        // is what Mockito reports as an unfinished stubbing.
+        PanacheQuery<Store> storeQuery = query(store);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(item("L1", "1", "10", "1")), "2990000000019",
+                    java.util.List.of(promotion), LocalDateTime.of(2026, 9, 23, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        ValuationPayloads.BasketDto basket = captor.getValue();
+        assertEquals("2990000000019", basket.cardNumber);
+        assertEquals(1, basket.cardPromotions.size());
+        assertEquals("3000000000018", basket.cardPromotions.get(0).ean);
+        assertEquals("AMOUNT", basket.cardPromotions.get(0).promotionType);
+        assertEquals(new BigDecimal("0.50"), basket.cardPromotions.get(0).value);
+        assertEquals("IMMEDIATE_DISCOUNT", basket.cardPromotions.get(0).benefit);
+    }
+
+    /**
+     * An EMPTY promotion list leaves both fields null — the other leg of the
+     * guard, and the one that matters most: the request is then the one the
+     * engine received before card promotions existed, to the byte.
+     *
+     * @throws Exception on transport or serialization
+     */
+    void valuateWithoutPromotionsLeavesTheFieldsAbsent(java.util.List<ImfidClient.CardPromotion> none)
+            throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("42.00"));
+        Store store = new Store();
+        store.code = "0034";
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        // The query mock is built BEFORE the static stubbing: building it
+        // stubs a mock of its own, and a stubbing opened inside another one
+        // is what Mockito reports as an unfinished stubbing.
+        PanacheQuery<Store> storeQuery = query(store);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(storeQuery);
+            service.valuate(ticketWith(item("L1", "1", "10", "1")), "2990000000019",
+                    none, LocalDateTime.of(2026, 9, 23, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        assertNull(captor.getValue().cardPromotions);
+        assertNull(captor.getValue().cardNumber);
+    }
+
+    /**
+     * The empty-list leg of the guard.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateWithAnEmptyPromotionListCarriesNothing() throws Exception {
+        valuateWithoutPromotionsLeavesTheFieldsAbsent(java.util.List.of());
+    }
+
+    /**
+     * The null leg of the guard — what the three-argument form passes, so
+     * every caller that knows nothing of promotions keeps its old request.
+     *
+     * @throws Exception on transport or serialization
+     */
+    @Test
+    void valuateWithNullPromotionsCarriesNothing() throws Exception {
+        valuateWithoutPromotionsLeavesTheFieldsAbsent(null);
     }
 
     /**

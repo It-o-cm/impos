@@ -1,0 +1,27 @@
+               INTERMARCHE
+             INTERMARCHE LYON
+                   LYON
+------------------------------------------
+Ticket: C04-00000001
+Date   : 17/03/2026 10:42
+Vendeur: Jean Dupont
+------------------------------------------
+PAIN COMPLET          1,00 x   2,00
+                                      2,00
+SODA 1L               2,00 x   1,31
+                                      2,62
+------------------------------------------
+TOTAL TTC                           4,62 E
+CARTE 2990000000019 - FIDELITE
+INDISPONIBLE, VOS AVANTAGES SERONT
+CREDITES ULTERIEUREMENT
+Dont TVA                            0,77 E
+  TVA 20,00%             HT 3,85  TVA 0,77
+
+                REGLEMENT
+CASH                                4,62 E
+
+          MERCI DE VOTRE VISITE
+                A BIENTOT
+
+[[BARCODE C04-00000001]]

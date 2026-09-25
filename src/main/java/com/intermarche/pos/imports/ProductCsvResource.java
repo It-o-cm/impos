@@ -1,20 +1,15 @@
 package com.intermarche.pos.imports;
 
 import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.catalog.ProductType;
 import com.intermarche.pos.domain.catalog.ProductFamily;
+import com.intermarche.pos.domain.catalog.ProductType;
 import io.quarkus.hibernate.orm.panache.Panache;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.io.InputStream;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 /**
  * REST Endpoint for bulk importing or updating Products from a CSV file stream.

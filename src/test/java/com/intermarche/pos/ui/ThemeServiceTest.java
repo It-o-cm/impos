@@ -12,14 +12,8 @@ import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link ThemeService}.
@@ -466,7 +460,7 @@ class ThemeServiceTest {
         when(container.instance(PosState.class)).thenReturn(stHandle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(true, ThemeService.Globals.supervisorLogged());
+            assertTrue(ThemeService.Globals.supervisorLogged());
         }
     }
 
@@ -492,7 +486,7 @@ class ThemeServiceTest {
         when(container.instance(PosState.class)).thenReturn(stHandle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(false, ThemeService.Globals.supervisorLogged());
+            assertFalse(ThemeService.Globals.supervisorLogged());
         }
     }
 
@@ -514,7 +508,7 @@ class ThemeServiceTest {
         when(container.instance(PosState.class)).thenReturn(stHandle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(false, ThemeService.Globals.supervisorLogged());
+            assertFalse(ThemeService.Globals.supervisorLogged());
             verify(svc, never()).operatorIsSupervisor(stHandle.get());
         }
     }
@@ -534,7 +528,7 @@ class ThemeServiceTest {
         when(container.instance(PosState.class)).thenReturn(stHandle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(false, ThemeService.Globals.supervisorLogged());
+            assertFalse(ThemeService.Globals.supervisorLogged());
             verify(stHandle, never()).isAvailable();
         }
     }
@@ -547,7 +541,7 @@ class ThemeServiceTest {
     void supervisorLoggedReturnsFalseWhenResolutionThrows() {
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
-            assertEquals(false, ThemeService.Globals.supervisorLogged());
+            assertFalse(ThemeService.Globals.supervisorLogged());
         }
     }
 
@@ -572,7 +566,7 @@ class ThemeServiceTest {
         when(container.instance(PosSettingsService.class)).thenReturn(handle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(true, ThemeService.Globals.showEan());
+            assertTrue(ThemeService.Globals.showEan());
         }
     }
 
@@ -593,7 +587,7 @@ class ThemeServiceTest {
         when(container.instance(PosSettingsService.class)).thenReturn(handle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(false, ThemeService.Globals.showEan());
+            assertFalse(ThemeService.Globals.showEan());
         }
     }
 
@@ -610,7 +604,7 @@ class ThemeServiceTest {
         when(container.instance(PosSettingsService.class)).thenReturn(handle);
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenReturn(container);
-            assertEquals(false, ThemeService.Globals.showEan());
+            assertFalse(ThemeService.Globals.showEan());
             verify(handle, never()).get();
         }
     }
@@ -623,7 +617,7 @@ class ThemeServiceTest {
     void showEanReturnsFalseWhenResolutionThrows() {
         try (MockedStatic<Arc> arc = mockStatic(Arc.class)) {
             arc.when(Arc::container).thenThrow(new RuntimeException("boom"));
-            assertEquals(false, ThemeService.Globals.showEan());
+            assertFalse(ThemeService.Globals.showEan());
         }
     }
 

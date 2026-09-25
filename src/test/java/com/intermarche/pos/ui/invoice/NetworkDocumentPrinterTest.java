@@ -1,10 +1,10 @@
 package com.intermarche.pos.ui.invoice;
 
+import com.intermarche.pos.domain.sale.Invoice;
+import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.setting.DocumentTemplate;
 import com.intermarche.pos.domain.store.Address;
 import com.intermarche.pos.domain.store.Store;
-import com.intermarche.pos.domain.sale.Invoice;
-import com.intermarche.pos.domain.sale.Ticket;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.qute.Engine;
 import org.junit.jupiter.api.Test;
@@ -13,9 +13,7 @@ import org.mockito.MockedStatic;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mockStatic;
 
 /**

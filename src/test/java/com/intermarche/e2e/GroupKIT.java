@@ -1,9 +1,9 @@
 package com.intermarche.e2e;
 
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.TicketRecoveryService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.payment.PaymentService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import com.microsoft.playwright.APIResponse;

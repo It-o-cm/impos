@@ -1,10 +1,10 @@
 package com.intermarche.pos.ui.invoice;
 
-import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.sale.DocumentType;
 import com.intermarche.pos.domain.sale.Invoice;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -14,14 +14,10 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link InvoiceResource}.
@@ -234,7 +230,7 @@ class InvoiceResourceTest {
         InvoiceResource resource = newResource();
         TemplateInstance view = stubRequest(resource);
         assertSame(view, resource.newCustomer());
-        assertEquals(true, resource.state.invoice.creatingCustomer);
+        assertTrue(resource.state.invoice.creatingCustomer);
         assertEquals("", resource.state.invoice.error);
         verify(resource.state).touch();
     }
@@ -446,7 +442,7 @@ class InvoiceResourceTest {
         stubRequest(resource);
         resource.state.invoice.editingCustomer = true;
         resource.newCustomer();
-        assertEquals(false, resource.state.invoice.editingCustomer);
+        assertFalse(resource.state.invoice.editingCustomer);
     }
 
     /**

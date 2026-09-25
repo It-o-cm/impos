@@ -5,12 +5,12 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import org.jboss.logging.Logger;
 
 /**
  * The rules that surround the abandon of a ticket ({@code LC-04-04-06} to

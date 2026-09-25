@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.reprintticket;
 
 import com.intermarche.pos.domain.sale.Ticket;
-import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.TicketPrinterService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
