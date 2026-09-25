@@ -913,4 +913,605 @@ class PosSettingsServiceTest {
             assertEquals("CREDIT", service.customerCreditTender());
         }
     }
+
+    /**
+     * {@code passwordRequiredOnOpen} reads its stored boolean value
+     * (LC-01-01-03/09, BO-10-02-22).
+     */
+    @Test
+    void passwordRequiredOnOpenReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("auth.password-required-on-open", "false")));
+            assertFalse(service.passwordRequiredOnOpen());
+        }
+    }
+
+    /**
+     * {@code passwordRequiredOnClose} reads its stored boolean value
+     * (LC-01-02-02/03, BO-10-02-24).
+     */
+    @Test
+    void passwordRequiredOnCloseReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("auth.password-required-on-close", "true")));
+            assertTrue(service.passwordRequiredOnClose());
+        }
+    }
+
+    /**
+     * {@code closeEndorsementOnPending} reads its stored boolean value
+     * (LC-01-02-10, BO-10-02-08).
+     */
+    @Test
+    void closeEndorsementOnPendingReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("session.close-endorsement-on-pending", "false")));
+            assertFalse(service.closeEndorsementOnPending());
+        }
+    }
+
+    /**
+     * {@code printOpenReceipt} reads its stored boolean value
+     * (LC-01-01-08, BO-10-07-09).
+     */
+    @Test
+    void printOpenReceiptReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("session.print-open-receipt", "true")));
+            assertTrue(service.printOpenReceipt());
+        }
+    }
+
+    /**
+     * {@code printCloseReceipt} reads its stored boolean value
+     * (LC-01-02-11, BO-10-07-09).
+     */
+    @Test
+    void printCloseReceiptReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("session.print-close-receipt", "true")));
+            assertTrue(service.printCloseReceipt());
+        }
+    }
+
+    /**
+     * {@code volatileCustomerCreationEnabled} reads its stored boolean value
+     * (BO-10-04-01).
+     */
+    @Test
+    void volatileCustomerCreationEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.volatile-creation-enabled", "false")));
+            assertFalse(service.volatileCustomerCreationEnabled());
+        }
+    }
+
+    /**
+     * {@code accountCustomerCreationBlocked} reads its stored boolean value
+     * (BO-10-04-05, BO-02-04-12).
+     */
+    @Test
+    void accountCustomerCreationBlockedReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.account-creation-blocked", "false")));
+            assertFalse(service.accountCustomerCreationBlocked());
+        }
+    }
+
+    /**
+     * {@code showCustomerDetails} reads its stored boolean value (BO-10-04-02).
+     */
+    @Test
+    void showCustomerDetailsReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.show-details", "false")));
+            assertFalse(service.showCustomerDetails());
+        }
+    }
+
+    /**
+     * {@code customerUpdateEnabled} reads its stored boolean value
+     * (BO-10-04-03/04).
+     */
+    @Test
+    void customerUpdateEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.update-enabled", "true")));
+            assertTrue(service.customerUpdateEnabled());
+        }
+    }
+
+    /**
+     * {@code showCustomerDiscount} reads its stored boolean value (BO-10-04-08).
+     */
+    @Test
+    void showCustomerDiscountReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.show-discount", "false")));
+            assertFalse(service.showCustomerDiscount());
+        }
+    }
+
+    /**
+     * {@code customerDiscountSegment} reads its stored text value (BO-10-04-07).
+     */
+    @Test
+    void customerDiscountSegmentReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.discount-segment", "GOLD")));
+            assertEquals("GOLD", service.customerDiscountSegment());
+        }
+    }
+
+    /**
+     * {@code partialCreditAllowed} reads its stored boolean value (BO-10-04-10).
+     */
+    @Test
+    void partialCreditAllowedReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.partial-credit-allowed", "false")));
+            assertFalse(service.partialCreditAllowed());
+        }
+    }
+
+    /**
+     * {@code customerOfflineMessage} reads its stored text value (BO-10-04-11/12).
+     */
+    @Test
+    void customerOfflineMessageReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.offline-message", "HORS LIGNE")));
+            assertEquals("HORS LIGNE", service.customerOfflineMessage());
+        }
+    }
+
+    /**
+     * {@code customerOverLimitMessage} reads its stored text value (BO-10-04-13).
+     */
+    @Test
+    void customerOverLimitMessageReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.over-limit-message", "PLAFOND {plafond}")));
+            assertEquals("PLAFOND {plafond}", service.customerOverLimitMessage());
+        }
+    }
+
+    /**
+     * {@code defaultTaxId} reads its stored text value (BO-10-04-15).
+     */
+    @Test
+    void defaultTaxIdReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.default-tax-id", "123456789")));
+            assertEquals("123456789", service.defaultTaxId());
+        }
+    }
+
+    /**
+     * {@code defaultTaxIdLabel} reads its stored text value (BO-10-04-16).
+     */
+    @Test
+    void defaultTaxIdLabelReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.default-tax-id-label", "CLIENT FINAL")));
+            assertEquals("CLIENT FINAL", service.defaultTaxIdLabel());
+        }
+    }
+
+    /**
+     * {@code foreignTaxIdCountries} reads its stored text value (BO-10-04-17).
+     */
+    @Test
+    void foreignTaxIdCountriesReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.foreign-tax-id-countries", "ES,PT")));
+            assertEquals("ES,PT", service.foreignTaxIdCountries());
+        }
+    }
+
+    /**
+     * {@code invoiceExportDueDate} reads its stored boolean value (BO-10-04-19).
+     */
+    @Test
+    void invoiceExportDueDateReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.invoice-export-due-date", "false")));
+            assertFalse(service.invoiceExportDueDate());
+        }
+    }
+
+    /**
+     * {@code invoiceExportEcoTax} reads its stored boolean value (BO-10-04-14).
+     */
+    @Test
+    void invoiceExportEcoTaxReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.invoice-export-ecotax", "true")));
+            assertTrue(service.invoiceExportEcoTax());
+        }
+    }
+
+    /**
+     * {@code periodAutoCloseEnabled} reads its stored boolean value
+     * (LC-01-02-08, BO-09-01-06/09).
+     */
+    @Test
+    void periodAutoCloseEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("period.auto-close-enabled", "true")));
+            assertTrue(service.periodAutoCloseEnabled());
+        }
+    }
+
+    /**
+     * {@code periodEndTime} reads its stored text value (BO-09-01-06).
+     */
+    @Test
+    void periodEndTimeReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("period.end-time", "22:00")));
+            assertEquals("22:00", service.periodEndTime());
+        }
+    }
+
+    /**
+     * {@code periodCloseLeadMinutes} reads its stored integer value (BO-09-03-07).
+     */
+    @Test
+    void periodCloseLeadMinutesReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("period.close-lead-minutes", "15")));
+            assertEquals(15, service.periodCloseLeadMinutes());
+        }
+    }
+
+    /**
+     * {@code fidelityShowHolderName} reads its stored boolean value (BO-10-03-04).
+     */
+    @Test
+    void fidelityShowHolderNameReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fidelity.show-holder-name", "false")));
+            assertFalse(service.fidelityShowHolderName());
+        }
+    }
+
+    /**
+     * {@code customerAccountPattern} reads its stored text value (BO-03-06-52).
+     */
+    @Test
+    void customerAccountPatternReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("customer.account-pattern", "^CC\\d{8}$")));
+            assertEquals("^CC\\d{8}$", service.customerAccountPattern());
+        }
+    }
+
+    /**
+     * {@code fidelityCardPattern} reads its stored text value (BO-03-06-54).
+     */
+    @Test
+    void fidelityCardPatternReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fidelity.card-pattern", "^299\\d{10}$")));
+            assertEquals("^299\\d{10}$", service.fidelityCardPattern());
+        }
+    }
+
+    /**
+     * {@code fidelityJvPromotionEnabled} reads its stored boolean value
+     * (BO-10-03-22).
+     */
+    @Test
+    void fidelityJvPromotionEnabledReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fidelity.jv-promotion-enabled", "false")));
+            assertFalse(service.fidelityJvPromotionEnabled());
+        }
+    }
+
+    /**
+     * {@code fidelityUrl} reads its stored text value (BO-11-04-04).
+     */
+    @Test
+    void fidelityUrlReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fidelity.url", "https://fid.example")));
+            assertEquals("https://fid.example", service.fidelityUrl());
+        }
+    }
+
+    /**
+     * {@code fidelityUser} reads its stored text value (BO-11-04-04).
+     */
+    @Test
+    void fidelityUserReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("fidelity.user", "caisse-c04")));
+            assertEquals("caisse-c04", service.fidelityUser());
+        }
+    }
+
+    /**
+     * {@code trainingTheme} reads its stored text value (BO-10-07-08).
+     */
+    @Test
+    void trainingThemeReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("training.theme", "sombre")));
+            assertEquals("sombre", service.trainingTheme());
+        }
+    }
+
+    /**
+     * {@code lineMaxDiscountAmount} parses its stored decimal value (BO-03-07-04).
+     */
+    @Test
+    void lineMaxDiscountAmountReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("discount.line-max-amount", "12.50")));
+            assertEquals(0, new java.math.BigDecimal("12.50").compareTo(service.lineMaxDiscountAmount()));
+        }
+    }
+
+    /**
+     * {@code globalMaxDiscountAmount} parses its stored decimal value
+     * (BO-03-07-04).
+     */
+    @Test
+    void globalMaxDiscountAmountReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("discount.global-max-amount", "40.00")));
+            assertEquals(0, new java.math.BigDecimal("40.00").compareTo(service.globalMaxDiscountAmount()));
+        }
+    }
+
+    /**
+     * {@code invoiceDocumentTypes} reads its stored text value (LC-08-04-04).
+     */
+    @Test
+    void invoiceDocumentTypesReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("invoice.document-types", "FACTURE;BON_LIVRAISON")));
+            assertEquals("FACTURE;BON_LIVRAISON", service.invoiceDocumentTypes());
+        }
+    }
+
+    /**
+     * {@code invoiceDocumentOutput} reads its stored text value (LC-08-04-11).
+     */
+    @Test
+    void invoiceDocumentOutputReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("invoice.document-output", "FACTURE:A4")));
+            assertEquals("FACTURE:A4", service.invoiceDocumentOutput());
+        }
+    }
+
+    /**
+     * {@code invoiceSlipLines} reads its stored integer value (LC-08-04-12/13).
+     */
+    @Test
+    void invoiceSlipLinesReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("invoice.slip-lines", "12")));
+            assertEquals(12, service.invoiceSlipLines());
+        }
+    }
+
+    /**
+     * {@code invoiceAutoPrint} reads its stored text value (LC-08-04-16).
+     */
+    @Test
+    void invoiceAutoPrintReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("invoice.auto-print", "CREDIT:FACTURE")));
+            assertEquals("CREDIT:FACTURE", service.invoiceAutoPrint());
+        }
+    }
+
+    /**
+     * {@code gs1ExpiryAlert} reads its stored text value (LC-11-03-13).
+     */
+    @Test
+    void gs1ExpiryAlertReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("gs1.expiry-alert", "BLOCK")));
+            assertEquals("BLOCK", service.gs1ExpiryAlert());
+        }
+    }
+
+    /**
+     * {@code restrictedTenders} reads its stored text value (LC-09-01-11 to -18).
+     */
+    @Test
+    void restrictedTendersReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("tender.restricted", "TR:MEAL_VOUCHER_ELIGIBLE:Titre")));
+            assertEquals("TR:MEAL_VOUCHER_ELIGIBLE:Titre", service.restrictedTenders());
+        }
+    }
+
+    /**
+     * {@code abandonReasons} reads its stored text value (LC-04-04-10).
+     */
+    @Test
+    void abandonReasonsReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("abandon.reasons", "Erreur;Client parti")));
+            assertEquals("Erreur;Client parti", service.abandonReasons());
+        }
+    }
+
+    /**
+     * {@code drawerWithdrawalMethods} reads its stored text value
+     * (LC-12-03-02/03).
+     */
+    @Test
+    void drawerWithdrawalMethodsReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("drawer.withdrawal-methods", "CASH:Especes")));
+            assertEquals("CASH:Especes", service.drawerWithdrawalMethods());
+        }
+    }
+
+    /**
+     * {@code drawerWithdrawalPrint} reads its stored boolean value (LC-12-03-07).
+     */
+    @Test
+    void drawerWithdrawalPrintReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("drawer.withdrawal-print", "false")));
+            assertFalse(service.drawerWithdrawalPrint());
+        }
+    }
+
+    /**
+     * {@code drawerTransferMethods} reads its stored text value (LC-12-10-02).
+     */
+    @Test
+    void drawerTransferMethodsReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("drawer.transfer-methods", "CASH:Especes;CHEQUE:Cheques")));
+            assertEquals("CASH:Especes;CHEQUE:Cheques", service.drawerTransferMethods());
+        }
+    }
+
+    /**
+     * {@code drawerTransferPrint} reads its stored boolean value (LC-12-10-05).
+     */
+    @Test
+    void drawerTransferPrintReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("drawer.transfer-print", "false")));
+            assertFalse(service.drawerTransferPrint());
+        }
+    }
+
+    /**
+     * {@code abandonPartialPayment} reads its stored text value
+     * (LC-04-04-06 to -09).
+     */
+    @Test
+    void abandonPartialPaymentReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("abandon.partial-payment", "BLOCK")));
+            assertEquals("BLOCK", service.abandonPartialPayment());
+        }
+    }
+
+    /**
+     * {@code abandonPrint} reads its stored text value (LC-04-04-12).
+     */
+    @Test
+    void abandonPrintReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("abandon.print", "ALWAYS")));
+            assertEquals("ALWAYS", service.abandonPrint());
+        }
+    }
+
+    /**
+     * {@code abandonPrintDetail} reads its stored boolean value (LC-04-04-12).
+     */
+    @Test
+    void abandonPrintDetailReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("abandon.print-detail", "false")));
+            assertFalse(service.abandonPrintDetail());
+        }
+    }
+
+    /**
+     * {@code gs1ExpiryWarnDays} reads its stored integer value (LC-11-03-13).
+     */
+    @Test
+    void gs1ExpiryWarnDaysReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("gs1.expiry-warn-days", "7")));
+            assertEquals(7, service.gs1ExpiryWarnDays());
+        }
+    }
+
+    /**
+     * {@code gs1CouponExpiryAlert} reads its stored text value (LC-11-03-13).
+     */
+    @Test
+    void gs1CouponExpiryAlertReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("gs1.coupon-expiry-alert", "INFO")));
+            assertEquals("INFO", service.gs1CouponExpiryAlert());
+        }
+    }
+
+    /**
+     * {@code gs1GiftCouponTypes} reads its stored text value (LC-11-03-05).
+     */
+    @Test
+    void gs1GiftCouponTypesReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("gs1.gdti-coupon-types", "9526000:CADEAU")));
+            assertEquals("9526000:CADEAU", service.gs1GiftCouponTypes());
+        }
+    }
+
+    /**
+     * {@code gs1CouponType} reads its stored text value (LC-11-03-06).
+     */
+    @Test
+    void gs1CouponTypeReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("gs1.gcn-coupon-type", "COUPON")));
+            assertEquals("COUPON", service.gs1CouponType());
+        }
+    }
 }
