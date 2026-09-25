@@ -303,4 +303,26 @@ class PriceModStateTest {
         Assertions.assertNull(state.type);
         Assertions.assertEquals("MODIFICATION", state.getTypeLabel());
     }
+
+    /**
+     * A null type yields an empty mode name rather than throwing — the true arm
+     * of the {@code type == null} guard the templates compare against a literal.
+     */
+    @Test
+    void getTypeNameEmptyWhenTypeIsNull() {
+        PriceModState state = new PriceModState();
+        Assertions.assertNull(state.type);
+        Assertions.assertEquals("", state.getTypeName());
+    }
+
+    /**
+     * A set type yields its enum constant name — the false arm of the same
+     * guard, the literal a template switches on.
+     */
+    @Test
+    void getTypeNameReturnsTheEnumConstantName() {
+        PriceModState state = new PriceModState();
+        state.type = PriceModType.REMISE;
+        Assertions.assertEquals("REMISE", state.getTypeName());
+    }
 }
