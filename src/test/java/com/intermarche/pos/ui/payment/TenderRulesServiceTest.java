@@ -1,7 +1,7 @@
 package com.intermarche.pos.ui.payment;
 
-import com.intermarche.pos.domain.payment.PaymentTypes;
 import com.intermarche.pos.domain.payment.TenderDefinition;
+import com.intermarche.pos.domain.payment.PaymentTypes;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -12,8 +12,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TenderRulesService}.
@@ -354,5 +359,103 @@ class TenderRulesServiceTest {
     void theSweptCatalogIsTheRegistersOwnList() {
         assertEquals(List.copyOf(PaymentTypes.keys()).size(), PaymentTypes.keys().size());
         assertTrue(PaymentTypes.keys().contains("TR"));
+    }
+
+    /**
+     * A tender no row administers keeps the register's own change behaviour, so
+     * the fallback is returned both when it allows change and when it refuses it —
+     * the null arm of the ternary on both fallback values (BO-03-02-16).
+     */
+    @Test
+    void changeAllowedKeepsTheFallbackWhenUnadministered() {
+        TenderRulesService service = new TenderRulesService();
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertTrue(service.changeAllowed("TR", true));
+            assertFalse(service.changeAllowed("TR", false));
+        }
+    }
+
+    /**
+     * An administered row answers its own change permission and ignores the
+     * fallback entirely — the non-null arm of the ternary (BO-03-02-16).
+     */
+    @Test
+    void changeAllowedReadsTheAdministeredRow() {
+        TenderRulesService service = new TenderRulesService();
+        TenderDefinition tender = mealVoucher();
+        tender.changeAllowed = true;
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        queries.put("TR", queryOf(tender));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertTrue(service.changeAllowed("TR", false));
+        }
+    }
+
+    /**
+     * A tender no row administers gives its change back in itself, so the key is
+     * echoed unchanged — the null arm of the ternary (BO-03-02-16).
+     */
+    @Test
+    void changeTenderEchoesTheKeyWhenUnadministered() {
+        TenderRulesService service = new TenderRulesService();
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertEquals("TR", service.changeTender("TR"));
+        }
+    }
+
+    /**
+     * An administered row names the tender its change is given in — the non-null
+     * arm of the ternary (BO-03-02-16).
+     */
+    @Test
+    void changeTenderReadsTheAdministeredRow() {
+        TenderRulesService service = new TenderRulesService();
+        TenderDefinition tender = mealVoucher();
+        tender.changeTenderCode = "CASH";
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        queries.put("TR", queryOf(tender));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertEquals("CASH", service.changeTender("TR"));
+        }
+    }
+
+    /**
+     * A tender no row administers keeps the register's own drawer behaviour, so
+     * the fallback is returned both ways — the null arm of the ternary
+     * (BO-03-02-19).
+     */
+    @Test
+    void opensDrawerKeepsTheFallbackWhenUnadministered() {
+        TenderRulesService service = new TenderRulesService();
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertTrue(service.opensDrawer("TR", false, false, true));
+            assertFalse(service.opensDrawer("TR", false, false, false));
+        }
+    }
+
+    /**
+     * An administered row answers its own drawer behaviour and ignores the
+     * fallback — the non-null arm of the ternary (BO-03-02-19).
+     */
+    @Test
+    void opensDrawerReadsTheAdministeredRow() {
+        TenderRulesService service = new TenderRulesService();
+        TenderDefinition tender = mealVoucher();
+        tender.drawerOpening = TenderDefinition.DrawerOpening.AFTER_RECEIPT;
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        queries.put("TR", queryOf(tender));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertTrue(service.opensDrawer("TR", false, true, false));
+            assertFalse(service.opensDrawer("TR", false, false, true));
+        }
     }
 }
