@@ -16,9 +16,21 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link CreditClientService}.
@@ -892,5 +904,94 @@ class CreditClientServiceTest {
         when(service.posSettingsService.showCustomerDiscount()).thenReturn(true);
         when(service.posSettingsService.customerDiscountSegment()).thenReturn("PRO");
         assertFalse(service.discountAnnounced(discounted("5.00", null)));
+    }
+
+    /**
+     * A shop that forbids partial credit refuses an amount smaller than what is
+     * left ({@code BO-10-04-10}): the true arm of the amount-below-remaining leg
+     * of the partial-credit guard, which no other test reaches since they all
+     * settle exactly the remaining due.
+     */
+    @Test
+    void partialSettlementIsRefusedWhenTheShopForbidsIt() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.partialCreditAllowed()).thenReturn(false);
+        PosState state = newState("40.00");
+        AccountCustomer customer = newCustomer("1000.00", "0.00");
+        state.payment.creditCustomer = customer;
+        assertFalse(service.processCredit(state, new BigDecimal("20.00")));
+        assertEquals(CreditClientService.PARTIAL_REFUSED, state.payment.creditError);
+        verify(service.paymentService, never()).processCredit(any(), any(), any(), eq(false));
+    }
+
+    /**
+     * A shop that allows partial credit registers an amount smaller than what is
+     * left: the false arm of the first leg of the partial-credit guard, which
+     * short-circuits the amount-below-remaining comparison entirely.
+     */
+    @Test
+    void partialSettlementIsRegisteredWhenTheShopAllowsIt() {
+        CreditClientService service = newService();
+        when(service.posSettingsService.partialCreditAllowed()).thenReturn(true);
+        PosState state = newState("40.00");
+        AccountCustomer customer = newCustomer("1000.00", "0.00");
+        state.payment.creditCustomer = customer;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> AccountCustomer.findById(7L)).thenReturn(customer);
+            assertTrue(service.processCredit(state, new BigDecimal("20.00")));
+        }
+        verify(service.paymentService).processCredit(eq(state), eq(customer),
+                eq(new BigDecimal("20.00")), eq(false));
+    }
+
+    /**
+     * The offline alert uses the administered message when one is set, and falls
+     * back to the built-in refusal when the parameter was emptied to blank — the
+     * non-null arm and both the blank and non-blank arms of the offline message,
+     * the null arm already being covered by the plain degraded refusals.
+     */
+    @Test
+    void offlineMessageUsesTheAdministeredTextOrFallsBackWhenBlank() {
+        CreditClientService administered = newService();
+        when(administered.refPullService.getLastSuccessfulPull()).thenReturn(null);
+        when(administered.posSettingsService.customerOfflineMessage()).thenReturn("CREDIT HORS LIGNE");
+        PosState state = newState("10.00");
+        state.payment.creditCustomer = newCustomer("1000.00", "0.00");
+        assertFalse(administered.processCredit(state, new BigDecimal("10.00")));
+        assertEquals("CREDIT HORS LIGNE", state.payment.creditError);
+        CreditClientService blank = newService();
+        when(blank.refPullService.getLastSuccessfulPull()).thenReturn(null);
+        when(blank.posSettingsService.customerOfflineMessage()).thenReturn("   ");
+        PosState other = newState("10.00");
+        other.payment.creditCustomer = newCustomer("1000.00", "0.00");
+        assertFalse(blank.processCredit(other, new BigDecimal("10.00")));
+        assertEquals(CreditClientService.DEGRADED, other.payment.creditError);
+    }
+
+    /**
+     * The ceiling alert uses the administered sentence when one is set, its two
+     * tokens replaced by the figures, and falls back to the built-in template when
+     * the parameter was emptied to blank — the non-null arm and both the blank and
+     * non-blank arms of the over-limit message, the null arm already being covered
+     * by the plain over-ceiling holds.
+     */
+    @Test
+    void overLimitMessageUsesTheAdministeredTextOrFallsBackWhenBlank() {
+        CreditClientService administered = newService();
+        when(administered.posSettingsService.customerOverLimitMessage())
+                .thenReturn("PLAFOND {plafond} ENCOURS {encours}");
+        PosState state = newState("200.00");
+        AccountCustomer customer = newCustomer("10000.00", "9900.00");
+        state.payment.creditCustomer = customer;
+        assertFalse(administered.processCredit(state, new BigDecimal("200.00")));
+        assertEquals("PLAFOND 10000.00 ENCOURS 9900.00", state.payment.creditError);
+        CreditClientService blank = newService();
+        when(blank.posSettingsService.customerOverLimitMessage()).thenReturn("   ");
+        PosState other = newState("200.00");
+        AccountCustomer secondCustomer = newCustomer("10000.00", "9900.00");
+        other.payment.creditCustomer = secondCustomer;
+        assertFalse(blank.processCredit(other, new BigDecimal("200.00")));
+        assertTrue(other.payment.creditError.contains("PLAFOND DEPASSE"));
+        assertTrue(other.payment.creditError.contains("ENCOURS 9900.00"));
     }
 }
