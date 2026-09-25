@@ -335,6 +335,18 @@ class EngineFeedServiceTest {
      * @param result the entity the query returns, or null
      * @return the mocked query
      */
+    /**
+     * The BUDGET_GROUPS feed is delivered before OFFERS: an offer references
+     * the budget group it is rattached to, so the group must reach the engine
+     * first (catalog order is delivery order).
+     */
+    @Test
+    void budgetGroupsIsDeliveredBeforeOffers() {
+        List<String> codes = EngineFeedService.CATALOG.stream().map(EngineFeedService.FeedDef::code).toList();
+        assertTrue(codes.contains("BUDGET_GROUPS"));
+        assertTrue(codes.indexOf("BUDGET_GROUPS") < codes.indexOf("OFFERS"));
+    }
+
     @SuppressWarnings("unchecked")
     private static io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> queryOf(EngineFeed result) {
         io.quarkus.hibernate.orm.panache.PanacheQuery<EngineFeed> query =

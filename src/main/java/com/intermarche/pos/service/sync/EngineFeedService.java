@@ -54,6 +54,11 @@ public class EngineFeedService {
      * articles it has no ceilings for caps them at whatever its own code
      * carries. Delivering the ceilings first makes the administered figure the
      * one that computes, from the very first basket.
+     *
+     * <p>BUDGET_GROUPS comes BEFORE OFFERS by the same rule: an offer references
+     * the budget group (campaign) it is rattached to, so the group must exist
+     * on the engine before the offer that names it, or the offer line is
+     * rejected.
      */
     public static final List<FeedDef> CATALOG = List.of(
             new FeedDef("STORES", "/stores/import"),
@@ -64,6 +69,7 @@ public class EngineFeedService {
             new FeedDef("CATEGORY_STORAGES", "/product-category-storages/import"),
             new FeedDef("VAT_RATES", "/vat-rates/import"),
             new FeedDef("PRICES", "/prices/import"),
+            new FeedDef("BUDGET_GROUPS", "/budget-groups/import"),
             new FeedDef("OFFERS", "/offers/import"));
 
     /**
