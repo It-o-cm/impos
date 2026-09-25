@@ -1,16 +1,20 @@
 package com.intermarche.pos.ui.resource;
 
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
 import io.quarkus.arc.InstanceHandle;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -420,5 +424,121 @@ class MockHardwareResourceTest {
             assertEquals(409, refuse.getStatus());
             assertEquals("Aucune demande en attente", refuse.getEntity());
         }
+    }
+
+    /**
+     * Builds a Product with the four fields the catalogue serialises, leaving
+     * every other attribute at its default.
+     *
+     * @param ean the EAN, possibly null
+     * @param name the label, possibly null
+     * @param plu the PLU, possibly null or blank
+     * @param forbidden the forbidden-to-sale flag
+     * @return the populated Product
+     */
+    private Product product(String ean, String name, String plu, boolean forbidden) {
+        Product product = new Product();
+        product.ean = ean;
+        product.name = name;
+        product.plu = plu;
+        product.forbiddenToSale = forbidden;
+        return product;
+    }
+
+    /**
+     * Stubs the catalogue query so that {@code Product.find(...).page(0,
+     * expectedBound).list()} yields the given products, then invokes catalog
+     * with the given limit and returns the JSON body.
+     *
+     * @param limit the limit query parameter passed to catalog
+     * @param expectedBound the page size the bounded computation must resolve to
+     * @param products the products the paged query returns
+     * @return the JSON body produced by catalog
+     */
+    @SuppressWarnings("unchecked")
+    private String runCatalog(Integer limit, int expectedBound, List<Product> products) {
+        MockHardwareResource resource = new MockHardwareResource();
+        PanacheQuery<Product> query = Mockito.mock(PanacheQuery.class);
+        PanacheQuery<Product> paged = Mockito.mock(PanacheQuery.class);
+        Mockito.when(query.page(0, expectedBound)).thenReturn(paged);
+        Mockito.when(paged.list()).thenReturn(products);
+        try (MockedStatic<PanacheEntityBase> panache = Mockito.mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Product.find("active = true order by ean")).thenReturn(query);
+            Response response = resource.catalog(limit);
+            assertEquals(200, response.getStatus());
+            return (String) response.getEntity();
+        }
+    }
+
+    /**
+     * A null limit takes the {@code limit == null} arm of the bounded ternary
+     * (defaulting to page size 200) and, over an empty result set, the loop
+     * body is never entered: the body is the empty JSON array.
+     */
+    @Test
+    void catalogWithNullLimitDefaultsToBoundAndEmptyList() {
+        String body = runCatalog(null, 200, List.of());
+        assertEquals("[]", body);
+    }
+
+    /**
+     * A negative limit is non-null but takes the {@code limit <= 0} arm of the
+     * bounded ternary, again defaulting to page size 200.
+     */
+    @Test
+    void catalogWithNegativeLimitDefaultsToBound() {
+        String body = runCatalog(-5, 200, List.of());
+        assertEquals("[]", body);
+    }
+
+    /**
+     * A limit above the ceiling is non-null and positive but takes the
+     * {@code limit > 500} arm of the bounded ternary, defaulting to page size
+     * 200.
+     */
+    @Test
+    void catalogWithLimitAboveCeilingDefaultsToBound() {
+        String body = runCatalog(600, 200, List.of());
+        assertEquals("[]", body);
+    }
+
+    /**
+     * A valid in-range limit takes the false arm of the bounded ternary and is
+     * used verbatim as the page size; the single product exercises the
+     * {@code first} true arm, a non-blank PLU (quoted) and non-null ean/name
+     * passing untouched through escape.
+     */
+    @Test
+    void catalogWithValidLimitSerialisesSingleProduct() {
+        String body = runCatalog(10, 10, List.of(product("111", "MILK", "0100", false)));
+        assertEquals("[{\"ean\":\"111\",\"label\":\"MILK\",\"plu\":\"0100\",\"forbidden\":false}]", body);
+    }
+
+    /**
+     * Several products cover the remaining catalogue branches in one pass: the
+     * second product takes the {@code !first} arm (comma separator); a null PLU
+     * and a blank PLU both take the {@code null} arm of the PLU ternary; a null
+     * name takes the {@code value == null} arm of escape (rendered as an empty
+     * label); and the forbidden flag rides through as true.
+     */
+    @Test
+    void catalogSerialisesSeparatorPluVariantsAndNullEscape() {
+        List<Product> products = List.of(
+                product("111", "A", null, true),
+                product("222", null, "   ", false));
+        String body = runCatalog(5, 5, products);
+        assertEquals("[{\"ean\":\"111\",\"label\":\"A\",\"plu\":null,\"forbidden\":true},"
+                + "{\"ean\":\"222\",\"label\":\"\",\"plu\":null,\"forbidden\":false}]", body);
+    }
+
+    /**
+     * A label carrying a backslash, a double quote and a newline is escaped
+     * through every replacement in escape, proving the non-null arm and the
+     * full replace chain.
+     */
+    @Test
+    void catalogEscapesSpecialCharactersInLabel() {
+        String body = runCatalog(1, 1, List.of(product("999", "a\\b\"c\nd", "12", false)));
+        assertEquals("[{\"ean\":\"999\",\"label\":\"a\\\\b\\\"c d\",\"plu\":\"12\",\"forbidden\":false}]", body);
     }
 }
