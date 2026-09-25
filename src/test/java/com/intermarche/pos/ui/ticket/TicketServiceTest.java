@@ -1,36 +1,45 @@
 package com.intermarche.pos.ui.ticket;
 
-import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
-import com.intermarche.pos.domain.catalog.VatRate;
-import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.session.CashSession;
-import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.domain.catalog.Price;
+import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
-import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.PriceModType;
-import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
-import com.intermarche.pos.ui.scanner.ScanContext;
 import com.intermarche.pos.ui.valuation.ValuationService;
+import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.scanner.ScanContext;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.inject.Instance;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.BeforeEach;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TicketService}.
@@ -77,7 +86,7 @@ class TicketServiceTest {
 
     /** Mocked CDI handler instance feeding the scan chain. */
     @SuppressWarnings("unchecked")
-    private final Instance<ScanContext.ScanHandler> scanHandlers = mock(Instance.class);
+    private Instance<ScanContext.ScanHandler> scanHandlers = mock(Instance.class);
 
     /**
      * Builds a fresh service, an unlocked-agnostic real state and all mocks.
@@ -172,203 +181,6 @@ class TicketServiceTest {
      */
     private void openSession() {
         when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-    }
-
-    // --- avertissement prix eleve (warnOnExpensiveEntry) ---
-
-    /**
-     * Drives the post-mutation funnel the way an entry does: a line is added
-     * through the {@code addItem} funnel (which raises the entry flag on the
-     * state), then a scan with an empty handler chain runs the chain and the
-     * trailing sync.
-     *
-     * @param label the line label
-     * @param unitPrice the unit price of the line
-     */
-    private void enterLine(String label, String unitPrice) {
-        state.auth.isLocked = false;
-        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        when(scanHandlers.spliterator())
-                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
-        state.ticket.addItem("3000000000021", null, label,
-                new BigDecimal(unitPrice), BigDecimal.ONE, new BigDecimal("0.20"));
-        service.processScan("3000000000021");
-    }
-
-    /**
-     * An article dearer than the threshold warns: the message names the line
-     * and its price, and the zone is drawn as a WARNING — neither a refusal
-     * nor a confirmation.
-     */
-    @Test
-    void anArticleAboveTheThresholdWarns() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        enterLine("WHISKY 70CL", "24.90");
-        assertEquals("PRIX ÉLEVÉ : WHISKY 70CL 24,90 €", state.ticket.transientError);
-        assertTrue(state.ticket.transientWarn);
-        assertFalse(state.ticket.transientOk);
-    }
-
-    /**
-     * An article exactly AT the threshold does not warn: the comparison is
-     * strictly above, like every other administered ceiling of this register.
-     */
-    @Test
-    void anArticleAtTheThresholdDoesNotWarn() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        enterLine("LIVRE", "10.00");
-        assertNull(state.ticket.transientError);
-    }
-
-    /**
-     * An article below the threshold does not warn.
-     */
-    @Test
-    void anArticleBelowTheThresholdDoesNotWarn() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        enterLine("PAIN", "1.20");
-        assertNull(state.ticket.transientError);
-    }
-
-    /**
-     * A threshold at zero switches the warning off — the disabled arm.
-     */
-    @Test
-    void aZeroThresholdWarnsAboutNothing() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(BigDecimal.ZERO);
-        enterLine("WHISKY 70CL", "24.90");
-        assertNull(state.ticket.transientError);
-    }
-
-    /**
-     * A negative threshold is treated as disabled too — the other leg of the
-     * {@code signum() <= 0} guard, which a zero alone leaves uncovered.
-     */
-    @Test
-    void aNegativeThresholdWarnsAboutNothing() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("-1.00"));
-        enterLine("WHISKY 70CL", "24.90");
-        assertNull(state.ticket.transientError);
-    }
-
-    /**
-     * An unreadable setting (null) disables the warning rather than faulting
-     * the entry — the null leg of the same guard.
-     */
-    @Test
-    void aNullThresholdWarnsAboutNothing() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(null);
-        enterLine("WHISKY 70CL", "24.90");
-        assertNull(state.ticket.transientError);
-    }
-
-    /**
-     * A refusal already in the zone is never spoken over: the message that
-     * stopped a gesture outranks the one that comments on it.
-     */
-    @Test
-    void aWarningNeverSpeaksOverARefusal() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        state.auth.isLocked = false;
-        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        when(scanHandlers.spliterator()).thenReturn(List.<ScanContext.ScanHandler>of(
-                new ErrorHandler()).spliterator());
-        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
-                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
-        service.processScan("3000000000021");
-        assertEquals("REFUS", state.ticket.transientError);
-        assertFalse(state.ticket.transientWarn);
-    }
-
-    /**
-     * The entry flag is CONSUMED even when nothing is warned about, so a
-     * later gesture on the same cart — a discount, a quantity change — does
-     * not replay the warning of an entry already commented on.
-     */
-    @Test
-    void theEntryFlagIsConsumedSoAFollowingGestureDoesNotReplayIt() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        enterLine("WHISKY 70CL", "24.90");
-        state.ticket.transientError = null;
-        state.ticket.transientWarn = false;
-        service.processScan("3000000000021");
-        assertNull(state.ticket.transientError);
-        assertFalse(state.lineJustEntered);
-    }
-
-    /**
-     * Entering the same dear article twice warns twice: the second entry
-     * merges into the line already there, and a merge is an entry — the arm
-     * a uid comparison would have missed.
-     */
-    @Test
-    void enteringTheSameDearArticleTwiceWarnsTwice() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        enterLine("WHISKY 70CL", "24.90");
-        assertTrue(state.ticket.transientWarn);
-        state.ticket.transientError = null;
-        state.ticket.transientWarn = false;
-        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
-                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
-        service.processScan("3000000000021");
-        assertEquals(1, state.ticket.items.size());
-        assertTrue(state.ticket.transientWarn);
-    }
-
-    /**
-     * An entered line that is no longer in the ticket warns about nothing —
-     * the null arm of the lookup, reached when the line was removed between
-     * the entry and the sync.
-     */
-    @Test
-    void anEnteredLineNoLongerPresentWarnsAboutNothing() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        state.auth.isLocked = false;
-        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        when(scanHandlers.spliterator())
-                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
-        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
-                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
-        String uid = state.lastEnteredItemId;
-        state.ticket.addItem("3000000000038", null, "PAIN",
-                new BigDecimal("1.20"), BigDecimal.ONE, new BigDecimal("0.055"));
-        state.ticket.removeItemById(uid);
-        state.lastEnteredItemId = uid;
-        service.processScan("3000000000021");
-        assertNull(state.ticket.transientError);
-    }
-
-    /**
-     * No recorded entry at all — a sync driven by something other than an
-     * entry — warns about nothing, and the setting is not even consulted.
-     */
-    @Test
-    void aSyncWithoutAnEntryWarnsAboutNothing() {
-        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
-        state.auth.isLocked = false;
-        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        when(scanHandlers.spliterator())
-                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
-        state.ticket.addItem("3000000000038", null, "PAIN",
-                new BigDecimal("1.20"), BigDecimal.ONE, new BigDecimal("0.055"));
-        state.lineJustEntered = false;
-        state.lastEnteredItemId = null;
-        service.processScan("3000000000038");
-        assertNull(state.ticket.transientError);
-    }
-
-    /** A handler that refuses the scan, to occupy the message zone. */
-    private static class ErrorHandler implements ScanContext.ScanHandler {
-        /**
-         * Stamps a refusal on the ticket.
-         *
-         * @param ctx the scan context
-         */
-        @Override
-        public void handle(ScanContext ctx) {
-            ctx.state.ticket.setError("REFUS");
-            ctx.handled = true;
-        }
     }
 
     // --- processScan ---
@@ -2503,4 +2315,505 @@ class TicketServiceTest {
         service.applyGlobalDiscount(state, PriceModType.GLOBAL_DISCOUNT, new BigDecimal("40"));
         assertEquals("PERCENT", state.ticket.globalDiscountType);
     }
+
+    // --- enrichment: remaining reachable branches ---
+
+    /**
+     * Builds a current price row that carries no VAT regime, so
+     * {@link Price#vatRate()} answers null.
+     *
+     * @param incTax the price including tax
+     * @return the wired price with a null VAT
+     */
+    private Price priceNoVat(String incTax) {
+        Price pr = new Price();
+        pr.priceIncludingTax = new BigDecimal(incTax);
+        pr.vat = null;
+        return pr;
+    }
+
+    /**
+     * {@code suspendForEntry} formats an empty unit price when the catalog row
+     * exists but its tax-included price is null — the
+     * {@code price.priceIncludingTax == null} true arm of the format ternary.
+     */
+    @Test
+    void suspendForEntryFormatsEmptyWhenPriceIncludingTaxIsNull() {
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .QUANTITY_TO_ENTER, "true");
+        try (MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            Price pr = new Price();
+            pr.priceIncludingTax = null;
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(pr);
+            assertTrue(service.suspendForEntry(state, p, null));
+        }
+        assertEquals("", state.entryPrompt.unitPriceFormatted);
+    }
+
+    /**
+     * {@code confirmEntry} on a quantity-only article with no catalog price
+     * rings the line at a zero unit price and the default VAT rate — the
+     * {@code keyedPrice == null} then {@code price == null} arms of
+     * {@code addEnteredLine}.
+     */
+    @Test
+    void confirmEntryWithoutKeyedNorCatalogPriceUsesZeroAndDefaultVat() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        assertEquals(1, state.ticket.items.size());
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, BigDecimal.ZERO.compareTo(added.unitPrice));
+        assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
+    }
+
+    /**
+     * {@code confirmEntry} on an article whose catalog price carries no VAT
+     * regime falls back to the default VAT rate while keeping the catalog price
+     * — the {@code price.vatRate() != null} false arm of {@code addEnteredLine},
+     * price non-null.
+     */
+    @Test
+    void confirmEntryPriceWithNullVatUsesDefault() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(priceNoVat("4.99"));
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("4.99").compareTo(added.unitPrice));
+        assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
+    }
+
+    /**
+     * {@code confirmEntry} on a VAT-exempt article ventilates the entered line
+     * at rate 0 — the {@code vatExempt} true arm of {@code addEnteredLine}.
+     */
+    @Test
+    void confirmEntryVatExemptVentilatesAtZero() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.20"));
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        assertEquals(0, BigDecimal.ZERO.compareTo(state.ticket.items.get(0).vatRate));
+    }
+
+    /**
+     * {@code confirmEntry} flags a gift-card article rung through the prompt as
+     * a money product — the {@code giftCardAmount != null} true arm of
+     * {@code addEnteredLine}.
+     */
+    @Test
+    void confirmEntryFlagsGiftCardAsMoneyProduct() {
+        openSession();
+        Product p = product("CARTE CADEAU", "123", null);
+        p.giftCardAmount = new BigDecimal("25.00");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("25.00", "0.20"));
+            service.confirmEntry(state, new BigDecimal("1"));
+        }
+        assertTrue(state.ticket.items.get(0).moneyProduct);
+    }
+
+    /**
+     * {@code confirmEntry} snapshots a discount ban onto the entered line — the
+     * {@code discountForbidden} true arm of {@code addEnteredLine}.
+     */
+    @Test
+    void confirmEntrySnapshotsDiscountForbidden() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
+        state.entryPrompt.active = true;
+        state.entryPrompt.kind = PosState.EntryPromptState.QUANTITY;
+        state.entryPrompt.ean = "123";
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            products.when(() -> Product.findActiveByEan("123")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(price("4.99", "0.20"));
+            service.confirmEntry(state, new BigDecimal("2"));
+        }
+        assertTrue(state.ticket.items.get(0).discountForbidden);
+    }
+
+    /**
+     * {@code addItemByEan} on an article whose price must be entered suspends
+     * the add behind the entry prompt and rings nothing — the true arm of the
+     * {@code suspendForEntry} call site.
+     */
+    @Test
+    void addItemByEanSuspendsForEntry() {
+        openSession();
+        Product p = product("CABLE", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.PRICE_TO_ENTER, "true");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertTrue(state.entryPrompt.active);
+        assertTrue(state.ticket.items.isEmpty());
+        verify(ticketPersistenceService, never()).syncDraft(state);
+    }
+
+    /**
+     * {@code addItemByEan} with a current price carrying no VAT regime falls
+     * back to the default VAT rate — the {@code price.vatRate() != null} false
+     * arm of the VAT ternary, price non-null.
+     */
+    @Test
+    void addItemByEanPriceWithNullVatUsesDefault() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(priceNoVat("1.50"));
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("1.50").compareTo(added.unitPrice));
+        assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
+    }
+
+    /**
+     * {@code addItemByEan} lists the recalled lots of a registered article once
+     * the line is rung — the {@code message != null} true arm of
+     * {@code noticeRecalledLots}.
+     */
+    @Test
+    void addItemByEanNoticesRecalledLots() {
+        openSession();
+        Product p = product("MILK", "123", null);
+        p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.RECALL_LOTS, "LOT1,LOT2");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            @SuppressWarnings("unchecked")
+            PanacheQuery<Product> query = mock(PanacheQuery.class);
+            when(query.firstResult()).thenReturn(p);
+            panache.when(() -> Product.find("ean = ?1 and active = true", "123")).thenReturn(query);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(null);
+            service.addItemByEan(state, "123", BigDecimal.ONE);
+        }
+        assertEquals(1, state.ticket.items.size());
+        assertEquals("PRODUIT EN RAPPEL - LOTS : LOT1, LOT2", state.ticket.transientError);
+        assertTrue(state.ticket.transientOk);
+    }
+
+    /**
+     * {@code addItemByPlu} with a weighed price carrying no VAT regime falls
+     * back to the default VAT rate — the {@code price.vatRate() != null} false
+     * arm of the PLU VAT ternary, price non-null.
+     */
+    @Test
+    void addItemByPluPriceWithNullVatUsesDefault() {
+        openSession();
+        Product p = product("APPLE", "111", "1234");
+        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        try (MockedStatic<Product> productStatic = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(priceNoVat("3.00"));
+            service.addItemByPlu(state, "1234");
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("3.00").compareTo(added.unitPrice));
+        assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
+    }
+
+    /**
+     * {@code cancelTicket} prints the abandon ticket BEFORE cancelling the draft
+     * when the abandon rules ask for it — the {@code printsTicket()} true arm.
+     */
+    @Test
+    void cancelTicketPrintsAbandonTicketWhenConfigured() {
+        state.payment.ticketDbId = 9L;
+        state.auth.operatorName = "Marie";
+        state.abandonReason = "Client parti";
+        when(service.ticketAbandonService.printsTicket()).thenReturn(true);
+        when(service.posSettingsService.abandonPrintDetail()).thenReturn(true);
+        service.cancelTicket(state);
+        verify(ticketPrinterService).printAbandonTicket(9L, "Client parti", true, "Marie");
+        verify(ticketPersistenceService).cancelDraft(9L);
+    }
+
+    /**
+     * {@code cancelTicket} journals a plain abandon when the reason is null —
+     * the {@code abandonReason == null} true arm (the state default is the
+     * empty string, so a genuine null is set explicitly here).
+     */
+    @Test
+    void cancelTicketJournalsPlainAbandonWhenReasonNull() {
+        state.payment.ticketDbId = null;
+        state.abandonReason = null;
+        service.cancelTicket(state);
+        verify(technicalEventService).log(
+                TechnicalEvent.EventType.TICKET_CANCELLED, "Abandon ticket");
+    }
+
+    /**
+     * {@code cancelTicket} journals a plain abandon when the reason is present
+     * but blank — the {@code abandonReason == null} false arm followed by the
+     * {@code isBlank()} true arm.
+     */
+    @Test
+    void cancelTicketJournalsPlainAbandonWhenReasonBlank() {
+        state.payment.ticketDbId = null;
+        state.abandonReason = "   ";
+        service.cancelTicket(state);
+        verify(technicalEventService).log(
+                TechnicalEvent.EventType.TICKET_CANCELLED, "Abandon ticket");
+    }
+
+    /**
+     * {@code cancelTicket} journals the reason when it is present and not blank
+     * — the {@code abandonReason == null} false arm followed by the
+     * {@code isBlank()} false arm.
+     */
+    @Test
+    void cancelTicketJournalsReasonWhenPresent() {
+        state.payment.ticketDbId = null;
+        state.abandonReason = "Erreur caisse";
+        service.cancelTicket(state);
+        verify(technicalEventService).log(
+                TechnicalEvent.EventType.TICKET_CANCELLED, "Abandon ticket : Erreur caisse");
+    }
+
+
+    // --------------------------------------------------
+    // Restored warn-on-expensive-entry suite (main feature)
+    // --------------------------------------------------
+
+    /**
+     * Drives the post-mutation funnel the way an entry does: a line is added
+     * through the {@code addItem} funnel (which raises the entry flag on the
+     * state), then a scan with an empty handler chain runs the chain and the
+     * trailing sync.
+     *
+     * @param label the line label
+     * @param unitPrice the unit price of the line
+     */
+    private void enterLine(String label, String unitPrice) {
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        state.ticket.addItem("3000000000021", null, label,
+                new BigDecimal(unitPrice), BigDecimal.ONE, new BigDecimal("0.20"));
+        service.processScan("3000000000021");
+    }
+
+    /**
+     * An article dearer than the threshold warns: the message names the line
+     * and its price, and the zone is drawn as a WARNING — neither a refusal
+     * nor a confirmation.
+     */
+    @Test
+    void anArticleAboveTheThresholdWarns() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        assertEquals("PRIX ÉLEVÉ : WHISKY 70CL 24,90 €", state.ticket.transientError);
+        assertTrue(state.ticket.transientWarn);
+        assertFalse(state.ticket.transientOk);
+    }
+
+    /**
+     * An article exactly AT the threshold does not warn: the comparison is
+     * strictly above, like every other administered ceiling of this register.
+     */
+    @Test
+    void anArticleAtTheThresholdDoesNotWarn() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("LIVRE", "10.00");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * An article below the threshold does not warn.
+     */
+    @Test
+    void anArticleBelowTheThresholdDoesNotWarn() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("PAIN", "1.20");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A threshold at zero switches the warning off — the disabled arm.
+     */
+    @Test
+    void aZeroThresholdWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(BigDecimal.ZERO);
+        enterLine("WHISKY 70CL", "24.90");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A negative threshold is treated as disabled too — the other leg of the
+     * {@code signum() <= 0} guard, which a zero alone leaves uncovered.
+     */
+    @Test
+    void aNegativeThresholdWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("-1.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * An unreadable setting (null) disables the warning rather than faulting
+     * the entry — the null leg of the same guard.
+     */
+    @Test
+    void aNullThresholdWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(null);
+        enterLine("WHISKY 70CL", "24.90");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * A refusal already in the zone is never spoken over: the message that
+     * stopped a gesture outranks the one that comments on it.
+     */
+    @Test
+    void aWarningNeverSpeaksOverARefusal() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator()).thenReturn(List.<ScanContext.ScanHandler>of(
+                new ErrorHandler()).spliterator());
+        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
+                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
+        service.processScan("3000000000021");
+        assertEquals("REFUS", state.ticket.transientError);
+        assertFalse(state.ticket.transientWarn);
+    }
+
+    /**
+     * The entry flag is CONSUMED even when nothing is warned about, so a
+     * later gesture on the same cart — a discount, a quantity change — does
+     * not replay the warning of an entry already commented on.
+     */
+    @Test
+    void theEntryFlagIsConsumedSoAFollowingGestureDoesNotReplayIt() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        state.ticket.transientError = null;
+        state.ticket.transientWarn = false;
+        service.processScan("3000000000021");
+        assertNull(state.ticket.transientError);
+        assertFalse(state.lineJustEntered);
+    }
+
+    /**
+     * Entering the same dear article twice warns twice: the second entry
+     * merges into the line already there, and a merge is an entry — the arm
+     * a uid comparison would have missed.
+     */
+    @Test
+    void enteringTheSameDearArticleTwiceWarnsTwice() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        enterLine("WHISKY 70CL", "24.90");
+        assertTrue(state.ticket.transientWarn);
+        state.ticket.transientError = null;
+        state.ticket.transientWarn = false;
+        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
+                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
+        service.processScan("3000000000021");
+        assertEquals(1, state.ticket.items.size());
+        assertTrue(state.ticket.transientWarn);
+    }
+
+    /**
+     * An entered line that is no longer in the ticket warns about nothing —
+     * the null arm of the lookup, reached when the line was removed between
+     * the entry and the sync.
+     */
+    @Test
+    void anEnteredLineNoLongerPresentWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        state.ticket.addItem("3000000000021", null, "WHISKY 70CL",
+                new BigDecimal("24.90"), BigDecimal.ONE, new BigDecimal("0.20"));
+        String uid = state.lastEnteredItemId;
+        state.ticket.addItem("3000000000038", null, "PAIN",
+                new BigDecimal("1.20"), BigDecimal.ONE, new BigDecimal("0.055"));
+        state.ticket.removeItemById(uid);
+        state.lastEnteredItemId = uid;
+        service.processScan("3000000000021");
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * No recorded entry at all — a sync driven by something other than an
+     * entry — warns about nothing, and the setting is not even consulted.
+     */
+    @Test
+    void aSyncWithoutAnEntryWarnsAboutNothing() {
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.auth.isLocked = false;
+        when(cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(scanHandlers.spliterator())
+                .thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        state.ticket.addItem("3000000000038", null, "PAIN",
+                new BigDecimal("1.20"), BigDecimal.ONE, new BigDecimal("0.055"));
+        state.lineJustEntered = false;
+        state.lastEnteredItemId = null;
+        service.processScan("3000000000038");
+        assertNull(state.ticket.transientError);
+    }
+
+    /** A handler that refuses the scan, to occupy the message zone. */
+    private static class ErrorHandler implements ScanContext.ScanHandler {
+        /**
+         * Stamps a refusal on the ticket.
+         *
+         * @param ctx the scan context
+         */
+        @Override
+        public void handle(ScanContext ctx) {
+            ctx.state.ticket.setError("REFUS");
+            ctx.handled = true;
+        }
+    }
+
+
 }
+
