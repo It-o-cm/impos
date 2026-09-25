@@ -1,15 +1,29 @@
 package com.intermarche.pos.imports;
 
 import com.intermarche.pos.domain.store.PostalCode;
+import io.quarkus.hibernate.orm.panache.Panache;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link PostalCodeCsvResource}.
@@ -138,7 +152,81 @@ class PostalCodeCsvResourceTest {
             when(missing.firstResult()).thenReturn(null);
             panache.when(() -> PostalCode.find(PAIR_QUERY, "75008", "Lyon")).thenReturn(missing);
             assertSame(known, resource.findEntityForLine(row(columns, "75008", "Paris")));
-            assertNull(resource.findEntityForLine(row(columns, "75008", "Lyon")));
+            assertEquals(null, resource.findEntityForLine(row(columns, "75008", "Lyon")));
+        }
+    }
+
+    /**
+     * A pair the chunk does not carry is a CREATION: the null arm of the
+     * {@code postalCode == null} guard builds a fresh row, sets its three
+     * fields, counts one creation and persists it through the entity manager.
+     */
+    @Test
+    void anUnknownPairIsCreatedAndPersisted() {
+        List<String> columns = List.of(PostalCodeCsvResource.COL_CODE,
+                PostalCodeCsvResource.COL_PLACE, PostalCodeCsvResource.COL_COUNTRY);
+        int[] counters = {0, 0};
+        try (MockedStatic<Panache> panache = mockStatic(Panache.class)) {
+            EntityManager entityManager = mock(EntityManager.class);
+            panache.when(Panache::getEntityManager).thenReturn(entityManager);
+            resource.processLineLogic(row(columns, "75008", "Paris", "FR"),
+                    new HashMap<>(), counters);
+            assertEquals(1, counters[0]);
+            assertEquals(0, counters[1]);
+            verify(entityManager).persist(any(PostalCode.class));
+        }
+    }
+
+    /**
+     * A pair already in the chunk is an UPDATE: the non-null arm of the
+     * {@code postalCode == null} guard re-reads the row by its id and, the
+     * country having changed, overwrites it and counts one update — the true
+     * arm of the country-inequality guard.
+     */
+    @Test
+    void aKnownPairWithAChangedCountryIsUpdated() {
+        List<String> columns = List.of(PostalCodeCsvResource.COL_CODE,
+                PostalCodeCsvResource.COL_PLACE, PostalCodeCsvResource.COL_COUNTRY);
+        PostalCode indexed = entity("75008", "Paris");
+        indexed.id = 5L;
+        Map<String, Object> entityMap = new HashMap<>();
+        entityMap.put(PostalCodeCsvResource.pair("75008", "Paris"), indexed);
+        PostalCode managed = entity("75008", "Paris");
+        managed.id = 5L;
+        managed.country = "FR";
+        int[] counters = {0, 0};
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PostalCode.findById(5L)).thenReturn(managed);
+            resource.processLineLogic(row(columns, "75008", "Paris", "PT"), entityMap, counters);
+            assertEquals(0, counters[0]);
+            assertEquals(1, counters[1]);
+            assertEquals("PT", managed.country);
+        }
+    }
+
+    /**
+     * A pair already in the chunk whose country is unchanged is left untouched:
+     * the false arm of the country-inequality guard counts no update and keeps
+     * the stored country.
+     */
+    @Test
+    void aKnownPairWithTheSameCountryIsLeftUntouched() {
+        List<String> columns = List.of(PostalCodeCsvResource.COL_CODE,
+                PostalCodeCsvResource.COL_PLACE, PostalCodeCsvResource.COL_COUNTRY);
+        PostalCode indexed = entity("75008", "Paris");
+        indexed.id = 7L;
+        Map<String, Object> entityMap = new HashMap<>();
+        entityMap.put(PostalCodeCsvResource.pair("75008", "Paris"), indexed);
+        PostalCode managed = entity("75008", "Paris");
+        managed.id = 7L;
+        managed.country = "FR";
+        int[] counters = {0, 0};
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PostalCode.findById(7L)).thenReturn(managed);
+            resource.processLineLogic(row(columns, "75008", "Paris", "FR"), entityMap, counters);
+            assertEquals(0, counters[0]);
+            assertEquals(0, counters[1]);
+            assertEquals("FR", managed.country);
         }
     }
 }
