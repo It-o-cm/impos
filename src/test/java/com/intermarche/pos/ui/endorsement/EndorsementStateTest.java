@@ -5,7 +5,10 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link EndorsementState}.
@@ -133,5 +136,37 @@ class EndorsementStateTest {
         state.setScannedBadge("BADGE-42");
         state.clearScannedBadge();
         assertNull(state.scannedBadge);
+    }
+
+    /**
+     * The three-argument {@code request} with a null form defaults it to an empty
+     * map (the {@code form != null} false arm) while still recording the action
+     * and return path.
+     */
+    @Test
+    void requestWithNullFormDefaultsToEmptyMap() {
+        EndorsementState state = new EndorsementState();
+        state.request("DRAWER_OPEN", null, "/manual");
+        assertTrue(state.active);
+        assertEquals("DRAWER_OPEN", state.requestedAction);
+        assertEquals("/manual", state.returnPath);
+        assertTrue(state.pendingForm.isEmpty());
+        assertNull(state.error);
+        assertNull(state.scannedBadge);
+    }
+
+    /**
+     * The three-argument {@code request} with a non-null form copies its entries
+     * (the {@code form != null} true arm) into a fresh map.
+     */
+    @Test
+    void requestWithNonNullFormCopiesEntries() {
+        EndorsementState state = new EndorsementState();
+        state.request("TRANSFER", java.util.Map.of("amount", "12.00"), "/manual");
+        assertTrue(state.active);
+        assertEquals("TRANSFER", state.requestedAction);
+        assertEquals("/manual", state.returnPath);
+        assertEquals(1, state.pendingForm.size());
+        assertEquals("12.00", state.pendingForm.get("amount"));
     }
 }
