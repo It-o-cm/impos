@@ -1,14 +1,14 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.catalog.Price;
-import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.VatRate;
+import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.payment.VoucherService;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
@@ -18,9 +18,19 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link Gs1ScanHandler}, the link of the scan chain that reads GS1
@@ -962,5 +972,206 @@ class Gs1ScanHandlerTest {
         PosState other = newStateWithMockedTicket();
         scan(handler, other, ARTICLE, newProduct(), newPrice());
         verify(other.ticket, never()).setNotice(anyString());
+    }
+
+    // --------------------------------------------------
+    // Enrichment: the remaining product-attribute, pricing and
+    // settlement-selection arms.
+    // --------------------------------------------------
+
+    /**
+     * An article flagged as recalled at the reference level is refused outright, with no
+     * line created (BO-02-03-11) — the true arm of the blanket recall guard.
+     */
+    @Test
+    void aRecalledArticleIsRefused() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newStateWithMockedTicket();
+        Product product = newProduct();
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .RECALL, "true");
+        ScanContext ctx = scan(handler, state, ARTICLE, product, newPrice());
+        assertTrue(ctx.handled);
+        verify(state.ticket).setError("ARTICLE EN RETRAIT/RAPPEL");
+        verify(state.ticket, never()).addItem(any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A VAT-exempt article is ventilated at rate zero whatever its catalog price states
+     * (BO-02-03-26/27) — the true arm of the VAT-exemption guard.
+     */
+    @Test
+    void aVatExemptArticleIsVentilatedAtZero() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        Product product = newProduct();
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .VAT_EXEMPT, "true");
+        scan(handler, state, ARTICLE, product, newPrice());
+        assertEquals(BigDecimal.ZERO, onlyLine(state).vatRate);
+    }
+
+    /**
+     * An article that bans price reductions carries the discount-forbidden flag onto its
+     * line (BO-02-03-09) — the true arm of the discount-forbidden guard, with the false
+     * arm of an ordinary article beside it.
+     */
+    @Test
+    void aDiscountForbiddenArticleCarriesTheFlagOntoItsLine() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        Product product = newProduct();
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .DISCOUNT_FORBIDDEN, "true");
+        scan(handler, state, ARTICLE, newProduct(), newPrice());
+        assertFalse(onlyLine(state).discountForbidden);
+        PosState other = newState();
+        scan(handler, other, ARTICLE, product, newPrice());
+        assertTrue(onlyLine(other).discountForbidden);
+    }
+
+    /**
+     * A price naming no VAT regime — its {@code vatRate()} null — falls back to the
+     * configured default rate, the false arm of the {@code price != null &&
+     * price.vatRate() != null} guard reached with a non-null price.
+     */
+    @Test
+    void aPriceNamingNoRegimeFallsBackToTheDefaultRate() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        Price price = new Price();
+        price.priceIncludingTax = new BigDecimal("2.00");
+        scan(handler, state, ARTICLE, newProduct(), price);
+        TicketState.TicketItem line = onlyLine(state);
+        assertEquals(new BigDecimal("0.20"), line.vatRate);
+        assertEquals(new BigDecimal("2.00"), line.unitPrice);
+    }
+
+    /**
+     * A net-weight payload on an article the catalog prices at nothing is registered at
+     * a unit price of zero — the null-price arm of the weight-priced branch.
+     */
+    @Test
+    void aNetWeightWithoutACatalogPriceIsZero() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        scan(handler, state, ARTICLE + "(3103)000195", newProduct(), null);
+        TicketState.TicketItem line = onlyLine(state);
+        assertEquals(new BigDecimal("0.195"), line.quantity);
+        assertEquals(BigDecimal.ZERO, line.unitPrice);
+    }
+
+    /**
+     * A code carrying a lot identifier with a BLANK value on an article under lot recall
+     * rings the line and lists the recalled lots: a present-but-empty lot says no more
+     * than an absent one ({@code LC-02-03-13}) — the {@code isBlank} arm of the lot
+     * ternary.
+     */
+    @Test
+    void aBlankLotOnARecalledArticleListsTheRecalledOnes() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newStateWithMockedTicket();
+        Product product = newProduct();
+        product.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog
+                .RECALL_LOTS, "L123;L456");
+        ScanContext ctx = scan(handler, state, ARTICLE + "(10)", product, newPrice());
+        assertTrue(ctx.handled);
+        verify(state.ticket).addItem(any(), any(), any(), any(), any(), any());
+        verify(state.ticket).setNotice("PRODUIT EN RAPPEL - LOTS : L123, L456");
+    }
+
+    /**
+     * A gift document whose encoded number is blank is refused as unparametered: an empty
+     * issuer number names no administered type ({@code LC-11-03-05}) — the {@code isBlank}
+     * arm of {@code giftTypeOf}'s guard.
+     */
+    @Test
+    void aGiftDocumentWithABlankNumberIsRefused() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1GiftCouponTypes()).thenReturn("9526000:CADEAU");
+        PosState state = newStateWithMockedTicket();
+        state.payment.paymentInProgress = true;
+        ScanContext ctx = scanSettlement(handler, state, "(253)", null);
+        assertTrue(ctx.handled);
+        verify(state.ticket).setError("CHEQUE CADEAU GS1 NON PARAMETRE");
+        verifyNoInteractions(handler.voucherService);
+    }
+
+    /**
+     * The gift-prefix selection skips an empty administered prefix, skips one the number
+     * does not start with, and does not let a shorter matching prefix displace a longer
+     * one already chosen — the empty and non-matching arms of the entry guard and the
+     * shorter-prefix arm of the longest-wins guard, in one journey.
+     */
+    @Test
+    void theGiftPrefixSelectionSkipsEmptyNonMatchingAndShorterPrefixes() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1GiftCouponTypes())
+                .thenReturn(":EMPTY;999:NOPE;9526000:LONG;952:SHORT");
+        PosState state = newStateWithMockedTicket();
+        state.payment.paymentInProgress = true;
+        ScanContext ctx = new ScanContext("(253)9526000134367ABC", state);
+        try (MockedStatic<CouponType> types = mockStatic(CouponType.class)) {
+            types.when(() -> CouponType.findActiveByCode("LONG"))
+                    .thenReturn(newCouponType("LONG"));
+            handler.handle(ctx);
+        }
+        assertTrue(ctx.handled);
+        assertTrue(state.payment.voucherPanelOpen);
+        assertTrue(state.payment.pendingVoucherNeedsAmount);
+        verifyNoInteractions(handler.voucherService);
+    }
+
+    /**
+     * An UNMARKED payload that decodes to a settlement identifier is released to the
+     * chain in silence, never journalled and never applied: only a marked payload is
+     * claimed as a settlement — the false arm of {@code marked && handleSettlement}.
+     */
+    @Test
+    void anUnmarkedSettlementCodeIsReleasedToTheChain() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newStateWithMockedTicket();
+        ScanContext ctx = new ScanContext("0103017620422003" + "2539526000134367", state);
+        handler.handle(ctx);
+        assertFalse(ctx.handled);
+        verifyNoInteractions(handler.voucherService);
+        verifyNoInteractions(handler.technicalEventService);
+        verifyNoInteractions(state.ticket);
+    }
+
+    /**
+     * A coupon whose encoded amount is zero does not settle that amount: a zero is no
+     * amount, and the settlement type decides where the amount comes from — the
+     * {@code signum() > 0} false arm of the encoded-amount guard reached with a non-null
+     * amount.
+     */
+    @Test
+    void aCouponWhoseEncodedAmountIsZeroDoesNotSettleThatAmount() {
+        Gs1ScanHandler handler = newHandler();
+        when(handler.posSettingsService.gs1CouponType()).thenReturn("COUPON");
+        PosState state = newStateWithMockedTicket();
+        state.payment.paymentInProgress = true;
+        CouponType type = newCouponType("COUPON");
+        scanSettlement(handler, state, "(255)952600013436712345(3900)0", type);
+        assertTrue(state.payment.voucherPanelOpen);
+        assertTrue(state.payment.pendingVoucherNeedsAmount);
+        verify(handler.voucherService, never()).applyManualVoucher(any(), any(), any(), any());
+    }
+
+    /**
+     * A decoded payload longer than the journal column has its detail capped to 250
+     * characters ({@code LC-11-03-02}) — the truncating arm of the journal-detail
+     * ternary.
+     */
+    @Test
+    void aLongPayloadHasItsJournalDetailTruncated() {
+        Gs1ScanHandler handler = newHandler();
+        PosState state = newState();
+        String longLot = "L".repeat(300);
+        scan(handler, state, ARTICLE + "(10)" + longLot, newProduct(), newPrice());
+        org.mockito.ArgumentCaptor<String> detail = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(handler.technicalEventService).log(eq(TechnicalEvent.EventType.GS1_DECODED),
+                detail.capture());
+        assertEquals(250, detail.getValue().length());
     }
 }
