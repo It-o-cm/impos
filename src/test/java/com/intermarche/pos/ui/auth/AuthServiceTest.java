@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.auth;
 
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -10,9 +11,17 @@ import org.mockito.MockedStatic;
 
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link AuthService}.
@@ -433,6 +442,129 @@ class AuthServiceTest {
             assertEquals("HASH", employee.password);
             verify(employee).persist();
             verify(service.technicalEventService).log(TechnicalEvent.EventType.PASSWORD_CHANGED, null, "12341234");
+        }
+    }
+
+    // --- badgeOpensAlone ---
+
+    /**
+     * A keyed non-blank password disqualifies the badge-alone opening at the
+     * first guard (both operands true: password non-null and non-blank), so the
+     * settings service is never consulted.
+     */
+    @Test
+    void badgeOpensAloneRejectsWhenPasswordKeyed() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        PosState state = newState();
+        assertFalse(service.badgeOpensAlone(state, "alice", "1234"));
+        verify(service.posSettingsService, never()).passwordRequiredOnOpen();
+    }
+
+    /**
+     * A null password makes the first guard's first operand false; with the
+     * opening password turned off and the presented badge matching the keyed
+     * identifier, the badge opens the register alone (ternary both operands
+     * true).
+     */
+    @Test
+    void badgeOpensAloneAllowsWhenNullPasswordAndBadgeMatches() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.passwordRequiredOnOpen()).thenReturn(false);
+        PosState state = newState();
+        when(state.auth.takePresentedBadge()).thenReturn("alice");
+        assertTrue(service.badgeOpensAlone(state, "alice", null));
+    }
+
+    /**
+     * A blank password fails the first guard's second operand (isBlank true);
+     * with the opening password off but no badge physically presented, the
+     * ternary's first operand is false and the opening is refused.
+     */
+    @Test
+    void badgeOpensAloneRejectsWhenBlankPasswordAndNoPresentedBadge() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.passwordRequiredOnOpen()).thenReturn(false);
+        PosState state = newState();
+        when(state.auth.takePresentedBadge()).thenReturn(null);
+        assertFalse(service.badgeOpensAlone(state, "alice", "   "));
+    }
+
+    /**
+     * The back office requiring a password on open disqualifies the badge-alone
+     * opening at the second guard (passwordRequiredOnOpen true), so the presented
+     * badge is never read.
+     */
+    @Test
+    void badgeOpensAloneRejectsWhenPasswordRequiredOnOpen() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.passwordRequiredOnOpen()).thenReturn(true);
+        PosState state = newState();
+        assertFalse(service.badgeOpensAlone(state, "alice", null));
+        verify(state.auth, never()).takePresentedBadge();
+    }
+
+    /**
+     * A badge physically presented that does not match the keyed identifier
+     * fails the ternary's second operand (equals false) and refuses the opening.
+     */
+    @Test
+    void badgeOpensAloneRejectsWhenPresentedBadgeDiffers() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.passwordRequiredOnOpen()).thenReturn(false);
+        PosState state = newState();
+        when(state.auth.takePresentedBadge()).thenReturn("99999999");
+        assertFalse(service.badgeOpensAlone(state, "alice", null));
+    }
+
+    // --- login (badge-alone path) ---
+
+    /**
+     * A badge presented on a password-free register opens it alone: the operator
+     * is logged into the session and REGISTER_UNLOCKED is journaled (badge-alone
+     * branch true, employee found arm).
+     */
+    @Test
+    void loginBadgeAloneSuccess() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.passwordRequiredOnOpen()).thenReturn(false);
+        PosState state = newState();
+        when(state.auth.takePresentedBadge()).thenReturn("12341234");
+        Employee employee = mock(Employee.class);
+        employee.id = 42L;
+        employee.badgeId = "12341234";
+        when(employee.getFullName()).thenReturn("Alice Martin");
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("12341234")).thenReturn(employee);
+            AuthService.LoginResult result = service.login(state, "12341234", null);
+            assertEquals(AuthService.LoginResult.SUCCESS, result);
+            verify(state.auth).login(42L, "Alice Martin", "12341234");
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.REGISTER_UNLOCKED, null, "12341234");
+        }
+    }
+
+    /**
+     * A badge that opens the register alone but resolves to no active account
+     * returns INVALID without touching the session (badge-alone branch true,
+     * employee-null arm).
+     */
+    @Test
+    void loginBadgeAloneUnknownAccountReturnsInvalid() {
+        AuthService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.passwordRequiredOnOpen()).thenReturn(false);
+        PosState state = newState();
+        when(state.auth.takePresentedBadge()).thenReturn("12341234");
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("12341234")).thenReturn(null);
+            AuthService.LoginResult result = service.login(state, "12341234", null);
+            assertEquals(AuthService.LoginResult.INVALID, result);
+            verify(state.auth, never()).login(any(), any(), any());
         }
     }
 }
