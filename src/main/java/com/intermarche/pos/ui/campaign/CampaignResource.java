@@ -58,6 +58,10 @@ public class CampaignResource {
     @Inject
     CampaignFeedProjector campaignFeedProjector;
 
+    /** The live consumption reader (engine GraphQL), for the list and fiche. */
+    @Inject
+    BudgetStatusClient budgetStatusClient;
+
     /**
      * Shows the campaign list.
      *
@@ -71,9 +75,15 @@ public class CampaignResource {
     public TemplateInstance list(@QueryParam("error") String error, @QueryParam("ok") String ok) {
         LOGGER.info("Entering method list");
         List<Campaign> campaigns = Campaign.listAllOrdered();
+        java.util.Map<String, BudgetStatusClient.BudgetStatus> statuses =
+                new java.util.LinkedHashMap<>();
+        for (Campaign campaign : campaigns) {
+            statuses.put(campaign.code, budgetStatusClient.groupBudgetStatus(campaign.code));
+        }
         LOGGER.info("Exiting method list");
         return campaignList
                 .data("campaigns", campaigns)
+                .data("statuses", statuses)
                 .data("today", com.intermarche.pos.domain.util.DateTimeProvider.now().toLocalDate())
                 .data("saved", ok != null)
                 .data("error", error);
@@ -96,6 +106,7 @@ public class CampaignResource {
         LOGGER.info("Exiting method fiche");
         return campaignFiche
                 .data("campaign", campaign)
+                .data("status", budgetStatusClient.groupBudgetStatus(code))
                 .data("error", error);
     }
 

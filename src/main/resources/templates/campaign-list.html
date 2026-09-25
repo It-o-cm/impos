@@ -42,11 +42,12 @@
         <td>{#if c.maxAmount}{c.maxAmount} €{/if}{#if c.maxApplications} / {c.maxApplications}{/if}{#if !c.hasBudget}—{/if}</td>
         <td>{c.offerCodes.size}</td>
         <td>{c.status}</td>
-        <td>{#if c.status.name == 'RUNNING'}voir la fiche{#else}—{/if}</td>
+        <td>{#let s=statuses.get(c.code)}{#if s && s.available}{s.consumedAmount} / {s.maxAmount ?: '∞'} €{#else}moteur indisponible{/if}{/let}</td>
       </tr>
       {/for}
     </tbody>
   </table>
+  <p class="hint">Consommation lue en direct du moteur (budget global approximatif par construction).</p>
 
   <div class="panel">
     <h2>Nouvelle campagne</h2>

@@ -44,6 +44,22 @@
   </div>
 
   <div class="panel">
+    <h2>Consommation</h2>
+    {#if status && status.available}
+    <div class="form-row"><label>Montant</label><span>{status.consumedAmount} / {status.maxAmount ?: '∞'} € (reste {status.remainingAmount ?: '∞'})</span></div>
+    <div class="form-row"><label>Applications</label><span>{status.consumedCount} / {status.maxApplications ?: '∞'} (reste {status.remainingCount ?: '∞'})</span></div>
+    <ul>
+      {#for st in status.byStore}
+      <li>{st.storeCode} : {st.consumedAmount} € / {st.consumedCount}</li>
+      {/for}
+    </ul>
+    <p style="color: var(--text-muted);">Lu du moteur le {status.readAt} (budget global approximatif par construction).</p>
+    {#else}
+    <p>Moteur indisponible — consommation non lue.</p>
+    {/if}
+  </div>
+
+  <div class="panel">
     <h2>Offres rattachées</h2>
     <ul>
       {#for offerCode in campaign.offerCodes}

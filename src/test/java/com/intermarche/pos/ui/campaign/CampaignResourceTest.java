@@ -62,6 +62,7 @@ class CampaignResourceTest {
         when(resource.campaignFiche.data(anyString(), any())).thenReturn(instance);
         resource.campaignService = mock(CampaignService.class);
         resource.campaignFeedProjector = mock(CampaignFeedProjector.class);
+        resource.budgetStatusClient = mock(BudgetStatusClient.class);
     }
 
     /**
@@ -96,12 +97,15 @@ class CampaignResourceTest {
      */
     @Test
     void listRendersWithSavedNotice() {
+        Campaign campaign = new Campaign();
+        campaign.code = "PROMO1";
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
              MockedStatic<DateTimeProvider> clock = mockStatic(DateTimeProvider.class)) {
-            stubList(panache, List.of());
+            stubList(panache, List.of(campaign));
             clock.when(DateTimeProvider::now).thenReturn(LocalDateTime.of(2026, 1, 15, 10, 0));
             assertEquals(instance, resource.list(null, "1"));
             verify(instance).data("saved", true);
+            verify(resource.budgetStatusClient).groupBudgetStatus("PROMO1");
         }
     }
 
