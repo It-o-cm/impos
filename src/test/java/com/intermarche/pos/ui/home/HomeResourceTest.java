@@ -1,8 +1,8 @@
 package com.intermarche.pos.ui.home;
 
+import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModState;
-import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.payment.MoneticsDegradedService;
@@ -17,10 +17,17 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link HomeResource}.
@@ -891,6 +898,124 @@ class HomeResourceTest {
         verify(resource.ticketService).refuseAgeCheck(resource.state);
         assertEquals(303, response.getStatus());
         assertEquals(URI.create("/"), response.getLocation());
+    }
+
+    // --- Entry prompt & quantity arming (parseAmount branches) ---
+
+    /**
+     * {@code armQuantity()} parses a French-comma figure and arms it, then
+     * redirects to the sale screen (parseAmount: non-null, non-blank, parseable).
+     */
+    @Test
+    void armQuantityArmsParsedQuantity() {
+        HomeResource resource = newResource();
+        Response response = resource.armQuantity("2,5");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).armQuantity(new BigDecimal("2.5"));
+    }
+
+    /**
+     * {@code armQuantity()} arms null when the raw value is null (first leg of
+     * the parseAmount guard true, second leg short-circuited).
+     */
+    @Test
+    void armQuantityArmsNullWhenRawValueNull() {
+        HomeResource resource = newResource();
+        Response response = resource.armQuantity(null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).armQuantity(null);
+    }
+
+    /**
+     * {@code armQuantity()} arms null when the raw value is blank (first leg
+     * false, second leg {@code isBlank()} true).
+     */
+    @Test
+    void armQuantityArmsNullWhenRawValueBlank() {
+        HomeResource resource = newResource();
+        Response response = resource.armQuantity("   ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).armQuantity(null);
+    }
+
+    /**
+     * {@code confirmEntry()} parses a French-comma figure and confirms it on the
+     * ticket service, then redirects to the sale screen (parseAmount happy path).
+     */
+    @Test
+    void confirmEntryConfirmsParsedValue() {
+        HomeResource resource = newResource();
+        Response response = resource.confirmEntry("3,00");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.ticketService).confirmEntry(resource.state, new BigDecimal("3.00"));
+    }
+
+    /**
+     * {@code confirmEntry()} confirms null when the raw value is empty (first leg
+     * false, second leg {@code isBlank()} true on the empty string).
+     */
+    @Test
+    void confirmEntryConfirmsNullWhenRawValueEmpty() {
+        HomeResource resource = newResource();
+        Response response = resource.confirmEntry("");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.ticketService).confirmEntry(resource.state, null);
+    }
+
+    /**
+     * {@code confirmEntry()} confirms null when the raw value is unparsable: the
+     * parse throws and parseAmount swallows it as a refusal, not an incident
+     * (parseAmount: non-null, non-blank, NumberFormatException arm).
+     */
+    @Test
+    void confirmEntryConfirmsNullWhenRawValueUnparsable() {
+        HomeResource resource = newResource();
+        Response response = resource.confirmEntry("abc");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.ticketService).confirmEntry(resource.state, null);
+    }
+
+    /**
+     * {@code cancelEntry()} gives up the suspended add and redirects to the sale
+     * screen: nothing is registered.
+     */
+    @Test
+    void cancelEntryCancelsAndRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.cancelEntry();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.ticketService).cancelEntry(resource.state);
+    }
+
+    /**
+     * {@code repeatLastItem()} repeats the last registration and returns the home
+     * view.
+     */
+    @Test
+    void repeatLastItemRepeatsAndReturnsHome() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.repeatLastItem());
+        verify(resource.homeService).repeatLastItem();
+    }
+
+    /**
+     * {@code toggleCollect()} marks the selected line "à enlever" (or arms the
+     * next article for it) and returns the home view.
+     */
+    @Test
+    void toggleCollectTogglesAndReturnsHome() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.toggleCollect());
+        verify(resource.homeService).toggleCollect();
     }
 
 }
