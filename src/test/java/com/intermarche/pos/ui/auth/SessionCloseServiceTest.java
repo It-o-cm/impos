@@ -11,9 +11,17 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SessionCloseService}.
@@ -264,5 +272,23 @@ class SessionCloseServiceTest {
         ArgumentCaptor<String> receipt = ArgumentCaptor.forClass(String.class);
         verify(service.ticketPrinterService).printRenderedTicket(receipt.capture());
         assertTrue(receipt.getValue().contains("Opérateur : —"));
+    }
+
+    /**
+     * A null operator name prints a dash too — the {@code name == null} true
+     * arm, which the default {@link AuthState#operatorName} empty string never
+     * reaches (an empty name is non-null, so only an explicitly nulled name
+     * exercises this leg).
+     */
+    @Test
+    void receiptWithoutAnOperatorNameShowsDash() {
+        SessionCloseService service = newService();
+        when(service.posSettingsService.printOpenReceipt()).thenReturn(true);
+        PosState state = state("007");
+        state.auth.operatorName = null;
+        service.printOpening(state);
+        ArgumentCaptor<String> receipt = ArgumentCaptor.forClass(String.class);
+        verify(service.ticketPrinterService).printRenderedTicket(receipt.capture());
+        assertTrue(receipt.getValue().contains("Nom       : —"));
     }
 }
