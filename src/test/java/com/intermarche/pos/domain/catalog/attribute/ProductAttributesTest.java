@@ -271,4 +271,23 @@ class ProductAttributesTest {
         Assertions.assertEquals(java.math.BigDecimal.ZERO,
                 ProductAttributes.ecoTax(productWith(ProductAttributeCatalog.ECO_TAX, "gratuit")));
     }
+
+    /**
+     * {@code recalledLots} returns an empty list for an article carrying no
+     * recall attribute — the null-value arm of its guard.
+     */
+    @Test
+    void recalledLotsAreEmptyForAnArticleCarryingNone() {
+        Assertions.assertTrue(ProductAttributes.recalledLots(new Product()).isEmpty());
+    }
+
+    /**
+     * {@code ecoTax} treats an attribute explicitly set to null as none — the
+     * null-value arm of its guard, distinct from a blank or absent value.
+     */
+    @Test
+    void ecoTaxIsZeroForAnExplicitlyNullAttribute() {
+        Assertions.assertEquals(java.math.BigDecimal.ZERO,
+                ProductAttributes.ecoTax(productWith(ProductAttributeCatalog.ECO_TAX, null)));
+    }
 }
