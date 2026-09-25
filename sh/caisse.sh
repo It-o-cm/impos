@@ -213,6 +213,7 @@ import_feeds() {
   push_feed product-category-storages.csv /feeds/import/CATEGORY_STORAGES
   push_feed vat-rates.csv /feeds/import/VAT_RATES
   push_feed prices.csv /feeds/import/PRICES
+  push_feed budget-groups.csv /feeds/import/BUDGET_GROUPS
   push_feed offers.csv /feeds/import/OFFERS
   push_feed hierarchies.csv "/feeds/import/NOMENCLATURE?scheme=ITM_FR&label=Nomenclature+ITM+France&enseigne=ITM"
 }
@@ -226,6 +227,7 @@ import_catalogue_07039() {
   push_feed product-families-07039.csv /feeds/import/FAMILIES
   push_feed product-category-storages-07039.csv /feeds/import/CATEGORY_STORAGES
   push_feed prices-07039.csv /feeds/import/PRICES
+  push_feed budget-groups.csv /feeds/import/BUDGET_GROUPS
   push_feed offers-07039.csv /feeds/import/OFFERS
 }
 

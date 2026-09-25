@@ -154,6 +154,23 @@ class ConsumptionServiceTest {
     }
 
     /**
+     * A valuation carrying two engine advantages declares both, each with its
+     * offer code and absolute amount (spec §6-1).
+     */
+    @Test
+    void parseAdvantagesDeclaresTwoAdvantages() {
+        String json = "{\"advantages\":["
+                + "{\"offerCode\":\"OFF1\",\"discountAmount\":{\"amountIncludingTax\":-5.00}},"
+                + "{\"offerCode\":\"OFF2\",\"discountAmount\":{\"amountIncludingTax\":3.50}}]}";
+        List<ConsumptionService.DeclaredAdvantage> declared = service.parseAdvantages(json);
+        assertEquals(2, declared.size());
+        assertEquals("OFF1", declared.get(0).offerCode());
+        assertEquals(new BigDecimal("5.00"), declared.get(0).amount());
+        assertEquals("OFF2", declared.get(1).offerCode());
+        assertEquals(new BigDecimal("3.50"), declared.get(1).amount());
+    }
+
+    /**
      * {@code enqueueSale} declares nothing when the valuation carries no engine
      * advantage (no row constructed).
      */

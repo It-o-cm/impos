@@ -94,6 +94,8 @@ class DataInitializerTest {
              MockedConstruction<CouponType> couponTypes = mockConstruction(CouponType.class);
              MockedConstruction<Store> stores = mockConstruction(Store.class);
              MockedConstruction<Nomenclature> schemes = mockConstruction(Nomenclature.class);
+             MockedConstruction<com.intermarche.pos.domain.campaign.Campaign> campaigns =
+                     mockConstruction(com.intermarche.pos.domain.campaign.Campaign.class);
              MockedConstruction<NomenclatureLevel> levels =
                      mockConstruction(NomenclatureLevel.class)) {
             // The seeder files four articles under their sous-famille by name;
@@ -112,7 +114,7 @@ class DataInitializerTest {
             PanacheQuery<Employee> adminQuery = employeeQuery(admin);
             panache.when(() -> Employee.find("loginName", "admin")).thenReturn(adminQuery);
             initializer.onStart(null);
-            panache.verify(() -> Employee.deleteAll(), times(8));
+            panache.verify(() -> Employee.deleteAll(), times(9));
             assertEquals(4, employees.constructed().size());
             // Ten touch groups plus the twenty-one seeded nomenclature nodes.
             assertEquals(31, families.constructed().size());
@@ -176,6 +178,8 @@ class DataInitializerTest {
              MockedConstruction<CouponType> couponTypes = mockConstruction(CouponType.class);
              MockedConstruction<Store> stores = mockConstruction(Store.class);
              MockedConstruction<Nomenclature> schemes = mockConstruction(Nomenclature.class);
+             MockedConstruction<com.intermarche.pos.domain.campaign.Campaign> campaigns =
+                     mockConstruction(com.intermarche.pos.domain.campaign.Campaign.class);
              MockedConstruction<NomenclatureLevel> levels =
                      mockConstruction(NomenclatureLevel.class)) {
             panache.when(() -> Product.count()).thenReturn(312L);
@@ -225,6 +229,8 @@ class DataInitializerTest {
              MockedConstruction<CouponType> couponTypes = mockConstruction(CouponType.class);
              MockedConstruction<Store> stores = mockConstruction(Store.class);
              MockedConstruction<Nomenclature> schemes = mockConstruction(Nomenclature.class);
+             MockedConstruction<com.intermarche.pos.domain.campaign.Campaign> campaigns =
+                     mockConstruction(com.intermarche.pos.domain.campaign.Campaign.class);
              MockedConstruction<NomenclatureLevel> levels =
                      mockConstruction(NomenclatureLevel.class)) {
             PanacheQuery<Product> articleFound = mock(PanacheQuery.class);

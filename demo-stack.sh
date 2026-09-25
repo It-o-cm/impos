@@ -290,6 +290,7 @@ inject_feed "/feeds/import/FAMILIES"             FAMILIES          "product-fami
 inject_feed "/feeds/import/CATEGORY_STORAGES"    CATEGORY_STORAGES "product-category-storages$FEED_SUFFIX.csv"
 inject_feed "/feeds/import/VAT_RATES"            VAT_RATES         vat-rates.csv
 inject_feed "/feeds/import/PRICES"               PRICES            "prices$FEED_SUFFIX.csv"
+inject_feed "/feeds/import/BUDGET_GROUPS"        BUDGET_GROUPS     budget-groups.csv
 inject_feed "/feeds/import/OFFERS"               OFFERS            "offers$FEED_SUFFIX.csv"
 
 # La NOMENCLATURE passe par la même grammaire que tout le reste, mais elle

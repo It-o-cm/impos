@@ -65,6 +65,7 @@ push_feed "product-families${SUFFIX}.csv"        /feeds/import/FAMILIES
 push_feed "product-category-storages${SUFFIX}.csv" /feeds/import/CATEGORY_STORAGES
 push_feed "vat-rates.csv"                        /feeds/import/VAT_RATES
 push_feed "prices${SUFFIX}.csv"                  /feeds/import/PRICES
+push_feed "budget-groups.csv"                    /feeds/import/BUDGET_GROUPS
 push_feed "offers${SUFFIX}.csv"                  /feeds/import/OFFERS
 push_feed "hierarchies.csv" "/feeds/import/NOMENCLATURE?scheme=ITM_FR&label=Nomenclature+ITM+France&enseigne=ITM"
 
