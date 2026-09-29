@@ -31,6 +31,10 @@ public class ReprintService {
     @Inject
     StoreTicketClient storeTicketClient;
 
+    /** The shared ticket search engine (EXP-47), common to return and duplicata. */
+    @Inject
+    com.intermarche.pos.ui.ticket.TicketSearchService ticketSearchService;
+
     /**
      * Loads the closed tickets, most recent first, into the reprint state.
      */
@@ -41,6 +45,25 @@ public class ReprintService {
         );
         state.touch();
         LOGGER.info("Exiting method loadHistory");
+    }
+
+    /**
+     * Searches the closed tickets for the duplicata by number, date or amount
+     * (EXP-47) — the SAME engine the return search uses. A blank pattern falls
+     * back to the full history.
+     *
+     * @param pattern the value keyed on the search field
+     */
+    public void search(String pattern) {
+        LOGGER.info("Entering method search with pattern: " + pattern);
+        if (pattern == null || pattern.isBlank()) {
+            loadHistory();
+            LOGGER.info("Exiting method search");
+            return;
+        }
+        state.reprint.setTickets(ticketSearchService.searchByPattern(pattern));
+        state.touch();
+        LOGGER.info("Exiting method search");
     }
 
     /**

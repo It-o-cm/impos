@@ -406,6 +406,20 @@ public class HomeResource {
     }
 
     /**
+     * Places a SOUS-TOTAL marker after the last line (EXP-43).
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/subtotal")
+    public TemplateInstance markSubtotal() {
+        LOGGER.info("Entering method markSubtotal");
+        homeService.markSubtotal();
+        LOGGER.info("Exiting method markSubtotal");
+        return home();
+    }
+
+    /**
      * Ends an open supervisor session (EXP-33): the FIN SUPERVISEUR key. The
      * following gestures ask for an endorsement again.
      *

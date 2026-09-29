@@ -137,7 +137,30 @@ class TicketParkingServiceTest {
         TicketParkingService service = newService();
         addOneItem(service);
         when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(null);
-        assertEquals("SYNCHRONISATION IMPOSSIBLE", service.parkCurrent());
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            // EXP-45: parkCurrent now checks listParked() first — no ticket parked.
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class)))
+                    .thenReturn(java.util.List.of());
+            assertEquals("SYNCHRONISATION IMPOSSIBLE", service.parkCurrent());
+        }
+        verifyNoInteractions(service.technicalEventService);
+    }
+
+    /**
+     * Covers the EXP-45 single-parked guard: a ticket is already parked, so a
+     * second park is refused before any sync.
+     */
+    @Test
+    void parkCurrentRefusedWhenOneAlreadyParked() {
+        TicketParkingService service = newService();
+        addOneItem(service);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class)))
+                    .thenReturn(java.util.List.of(mock(Ticket.class)));
+            assertEquals("UN TICKET EST DÉJÀ EN ATTENTE - REPRENEZ-LE D'ABORD",
+                    service.parkCurrent());
+        }
+        verifyNoInteractions(service.ticketPersistenceService);
         verifyNoInteractions(service.technicalEventService);
     }
 
@@ -151,6 +174,7 @@ class TicketParkingServiceTest {
         addOneItem(service);
         when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(null);
             assertEquals("TICKET INTROUVABLE", service.parkCurrent());
             verifyNoInteractions(service.technicalEventService);
@@ -169,6 +193,7 @@ class TicketParkingServiceTest {
         when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
         Ticket draft = draft(Ticket.TicketStatus.PARKED, "C04-000001", TERMINAL);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertEquals("TICKET INTROUVABLE", service.parkCurrent());
             verify(draft, never()).persist();
@@ -189,6 +214,7 @@ class TicketParkingServiceTest {
         when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
         Ticket draft = draft(Ticket.TicketStatus.OPEN, "C04-000001", TERMINAL);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertNull(service.parkCurrent());
             assertEquals(Ticket.TicketStatus.PARKED, draft.status);
@@ -239,6 +265,7 @@ class TicketParkingServiceTest {
     void resumeRefusedWhenDraftNotFound() {
         TicketParkingService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(null);
             assertEquals("TICKET EN ATTENTE INTROUVABLE", service.resume(7L));
             verifyNoInteractions(service.ticketRecoveryService);
@@ -255,6 +282,7 @@ class TicketParkingServiceTest {
         TicketParkingService service = newService();
         Ticket draft = draft(Ticket.TicketStatus.OPEN, "C04-000001", TERMINAL);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertEquals("TICKET EN ATTENTE INTROUVABLE", service.resume(7L));
             verify(draft, never()).persist();
@@ -271,6 +299,7 @@ class TicketParkingServiceTest {
         TicketParkingService service = newService();
         Ticket draft = draft(Ticket.TicketStatus.PARKED, "C04-000001", "C09");
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertEquals("TICKET EN ATTENTE INTROUVABLE", service.resume(7L));
             verifyNoInteractions(service.ticketRecoveryService);
@@ -287,6 +316,7 @@ class TicketParkingServiceTest {
         TicketParkingService service = newService();
         Ticket draft = draft(Ticket.TicketStatus.PARKED, "C04-000001", TERMINAL);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertNull(service.resume(7L));
             assertEquals(Ticket.TicketStatus.OPEN, draft.status);
@@ -309,6 +339,7 @@ class TicketParkingServiceTest {
         when(service.ticketPersistenceService.syncDraft(service.state)).thenReturn(7L);
         Ticket draft = draft(Ticket.TicketStatus.OPEN, "C04-000001", TERMINAL);
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list(anyString(), any(Object[].class))).thenReturn(java.util.List.of());
             mocked.when(() -> Ticket.findById(7L)).thenReturn(draft);
             assertNull(service.parkCurrent());
             assertEquals(Ticket.TicketStatus.PARKED, draft.status);

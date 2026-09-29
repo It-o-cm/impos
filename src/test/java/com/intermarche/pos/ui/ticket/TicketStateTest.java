@@ -1313,4 +1313,80 @@ class TicketStateTest {
         org.junit.jupiter.api.Assertions.assertEquals(1, parent.ticket.items.size());
         org.junit.jupiter.api.Assertions.assertTrue(parent.lineJustEntered);
     }
+
+    /**
+     * {@code markSubtotal} on an empty ticket places nothing and returns false.
+     */
+    @Test
+    void markSubtotalOnEmptyTicketReturnsFalse() {
+        TicketState ts = new TicketState();
+        assertFalse(ts.markSubtotal());
+    }
+
+    /**
+     * {@code markSubtotal} marks the last line, breaks the merge chain and sums
+     * the group since the previous marker.
+     */
+    @Test
+    void markSubtotalMarksLastLineAndSumsGroup() {
+        PosState parent = new PosState();
+        parent.ticket.addItem("1", null, "A", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        parent.ticket.addItem("2", null, "B", new BigDecimal("3.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertTrue(parent.ticket.markSubtotal());
+        TicketItem last = parent.ticket.items.get(1);
+        assertTrue(last.subtotalBoundary);
+        assertEquals(0, last.subtotalAmount.compareTo(new BigDecimal("5.00")));
+        assertNull(parent.lastEnteredItemId);
+    }
+
+    /**
+     * A second marker sums only the lines since the first, and each boundary
+     * carries its own group total.
+     */
+    @Test
+    void markSubtotalSumsSinceThePreviousMarker() {
+        PosState parent = new PosState();
+        parent.ticket.addItem("1", null, "A", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        parent.ticket.markSubtotal();
+        parent.ticket.addItem("2", null, "B", new BigDecimal("3.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        parent.ticket.addItem("3", null, "C", new BigDecimal("4.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        parent.ticket.markSubtotal();
+        assertEquals(0, parent.ticket.items.get(0).subtotalAmount.compareTo(new BigDecimal("2.00")));
+        assertEquals(0, parent.ticket.items.get(2).subtotalAmount.compareTo(new BigDecimal("7.00")));
+    }
+
+    /**
+     * A non-boundary line reports no subtotal (the non-boundary arm of the
+     * recompute walk and of {@code getSubtotalFormatted}).
+     */
+    @Test
+    void nonBoundaryLineHasNoSubtotal() {
+        PosState parent = new PosState();
+        parent.ticket.addItem("1", null, "A", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        TicketItem only = parent.ticket.items.get(0);
+        assertNull(only.subtotalAmount);
+        assertNull(only.getSubtotalFormatted());
+    }
+
+    /**
+     * A boundary line formats its subtotal for display.
+     */
+    @Test
+    void boundaryLineFormatsItsSubtotal() {
+        PosState parent = new PosState();
+        parent.ticket.addItem("1", null, "A", new BigDecimal("2.50"), BigDecimal.ONE, BigDecimal.ZERO);
+        parent.ticket.markSubtotal();
+        assertEquals("2,50", parent.ticket.items.get(0).getSubtotalFormatted());
+    }
+
+    /**
+     * A boundary flag without a computed amount still formats to null (the
+     * null-amount arm of {@code getSubtotalFormatted}).
+     */
+    @Test
+    void boundaryWithoutAmountFormatsToNull() {
+        TicketItem item = new TicketItem("1", null, "A", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        item.subtotalBoundary = true;
+        assertNull(item.getSubtotalFormatted());
+    }
 }

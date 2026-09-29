@@ -88,6 +88,10 @@ public class RefundService {
     @Inject
     SyncOutboxService syncOutboxService;
 
+    /** The shared ticket search engine (EXP-47), common to return and duplicata. */
+    @Inject
+    com.intermarche.pos.ui.ticket.TicketSearchService ticketSearchService;
+
     /**
      * Searches the closed tickets of the last 30 days matching the typed
      * number fragment (3 characters minimum).
@@ -118,26 +122,10 @@ public class RefundService {
 
     public void searchTickets(PosState state) {
         LOGGER.info("Entering method searchTickets with state: " + state);
-        String pattern = state.refund.searchPattern;
-
-        if (pattern == null || pattern.trim().length() < 3) {
-            state.refund.foundTickets.clear();
-            state.touch();
-            LOGGER.info("Exiting method searchTickets");
-            return;
-        }
-
-        LocalDateTime limit = LocalDateTime.now().minusDays(EXPIRATION_DAYS);
-
-        List<Ticket> results = Ticket.find(
-                "status = ?1 and lower(ticketNumber) like lower(?2) and creationDate > ?3",
-                Ticket.TicketStatus.CLOSED,
-                "%" + pattern + "%",
-                limit
-        ).list();
-
-        LOGGER.info("Recherche Retour: Pattern=" + pattern + ", Résultats=" + results.size());
-
+        // EXP-47: the return search now runs through the ONE ticket search engine,
+        // so its single field accepts a number, a date or an amount — the same
+        // engine the duplicata search uses.
+        List<Ticket> results = ticketSearchService.searchByPattern(state.refund.searchPattern);
         state.refund.foundTickets = results;
         state.touch();
         LOGGER.info("Exiting method searchTickets");

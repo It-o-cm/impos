@@ -63,6 +63,14 @@
           </div>
           {/if}
         {/let}
+        {#let st=subtotals.get(line.lineUid)}
+          {#if st}
+          <div class="line" style="font-weight:bold;">
+            <span class="lbl">SOUS-TOTAL</span>
+            <span class="amt">{st} €</span>
+          </div>
+          {/if}
+        {/let}
         {/if}
       {/for}
       <hr>

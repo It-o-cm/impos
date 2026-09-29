@@ -227,11 +227,27 @@ public class DigitalTicketResource {
                 }
             }
         }
+        // EXP-43: the SOUS-TOTAL markers, per boundary line uid → running sum since
+        // the previous marker, so the dematerialized ticket restates each shopper's
+        // part exactly as the paper does.
+        java.util.Map<String, String> subtotals = new java.util.HashMap<>();
+        if (ticket != null) {
+            java.math.BigDecimal running = java.math.BigDecimal.ZERO;
+            for (TicketLine line : ticket.lines) {
+                if (line.cancelled) continue;
+                running = running.add(line.totalPrice);
+                if (line.subtotalBoundary) {
+                    subtotals.put(line.lineUid, fmt(running));
+                    running = java.math.BigDecimal.ZERO;
+                }
+            }
+        }
         return digitalTicket
                 .data("ticket", ticket)
                 .data("buckets", ticket != null ? breakdown.getBuckets() : java.util.List.of())
                 .data("lineAdvantages", lineAdvantages)
                 .data("footerAdvantages", footerAdvantages)
+                .data("subtotals", subtotals)
                 .data("path", "/t/" + id + "/" + key)
                 .data("sent", sent);
     }

@@ -373,6 +373,11 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 
 ## G. Après-vente [S]
 
+- **G7 Recherche ticket partagée** [S] (EXP-47) : le moteur unique cherche un ticket CLOSED
+  par numéro, par date (jj/mm/aaaa) ou par montant (0,00), branché des deux côtés — la
+  RECHERCHE TICKET du duplicata (`/reprint/search`) et la recherche du retour (`/return/search`).
+  Register-local : frontière magasin honorée par la localité.
+
 - **G1 Ticket dématérialisé** : QR/lien /t/{id}/{clé} → page publique du ticket CLOS ;
   mauvaise clé → 404 indistinct ; ticket encore OPEN → refus ; capture email →
   DIGITAL_TICKET_SENT journalisé.
@@ -398,6 +403,13 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   magasin / nœud injoignable → `TICKET INTROUVABLE AU MAGASIN : <n>`.
 
 ## H. Retours [S]
+
+- **H13 Sous-total sur le ticket** [S] (EXP-43) : touche SOUS-TOTAL → marqueur après la
+  dernière ligne, somme du groupe depuis le marqueur précédent affichée à l'écran et imprimée
+  (`SOUS-TOTAL x,xx`) sur le ticket, le duplicata et le ticket dématérialisé ; le total et les
+  offres à seuil voient toujours le ticket entier. Un second marqueur somme depuis le premier.
+- **H14 Un seul ticket en attente** [S] (EXP-45) : un ticket déjà en attente → la mise en
+  attente d'un second est refusée (« UN TICKET EST DÉJÀ EN ATTENTE - REPRENEZ-LE D'ABORD »).
 
 - **H1 Retour nominal espèces** : recherche ticket → quantités → avenant CASH →
   remboursement créé, TVA restituée, théorique tiroir diminué, journalisé.

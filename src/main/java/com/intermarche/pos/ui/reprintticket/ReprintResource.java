@@ -7,7 +7,10 @@ import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -52,6 +55,24 @@ public class ReprintResource {
         LOGGER.info("Entering method showReprintPage");
         reprintService.loadHistory();
         LOGGER.info("Exiting method showReprintPage");
+        return reprintTicketPage.data("state", state);
+    }
+
+    /**
+     * Searches the duplicata history by number, date or amount (EXP-47) — the
+     * shared ticket search engine. A blank value restores the full history.
+     *
+     * @param pattern the value keyed on the search field
+     * @return the reprint page with the matching tickets
+     */
+    @POST
+    @Path("/search")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance searchReprint(@FormParam("pattern") String pattern) {
+        LOGGER.info("Entering method searchReprint with pattern: " + pattern);
+        reprintService.search(pattern);
+        LOGGER.info("Exiting method searchReprint");
         return reprintTicketPage.data("state", state);
     }
 

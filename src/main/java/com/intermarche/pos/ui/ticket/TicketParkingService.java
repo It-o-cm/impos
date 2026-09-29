@@ -75,6 +75,12 @@ public class TicketParkingService {
             LOGGER.info("Exiting method parkCurrent");
             return "PAIEMENT EN COURS - MISE EN ATTENTE IMPOSSIBLE";
         }
+        // EXP-45: a single ticket may wait at a time. Several used to be allowed;
+        // the register now refuses a second park until the first is resumed.
+        if (!listParked().isEmpty()) {
+            LOGGER.info("Exiting method parkCurrent");
+            return "UN TICKET EST DÉJÀ EN ATTENTE - REPRENEZ-LE D'ABORD";
+        }
         Long ticketId = ticketPersistenceService.syncDraft(state);
         if (ticketId == null) {
             LOGGER.info("Exiting method parkCurrent");

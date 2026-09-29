@@ -168,6 +168,9 @@ public class TicketRecoveryService {
             // payment must not send to the customer's arms an article the desk
             // was going to hand over.
             item.toCollect = line.toCollect;
+            // EXP-43: the subtotal markers survive a restart so a recovered sale
+            // still shows each shopper's part on screen and on the ticket.
+            item.subtotalBoundary = line.subtotalBoundary;
             // LC-09-01-11 to -18: read back too, so the eligible bases shown during
             // the sale survive a restart instead of falling back to zero.
             item.restrictedTenders = line.restrictedTenders;

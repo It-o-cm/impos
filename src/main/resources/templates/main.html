@@ -220,6 +220,9 @@
                         <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
                     {/if}
                     <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
+                    <!-- EXP-43 : le sous-total sépare la part de chaque personne dans
+                         un panier commun ; il s'imprime sur le ticket. -->
+                    <a href="/action/subtotal" class="btn btn-muted">SOUS-TOTAL</a>
                     <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
                     <!-- Les quatre touches DERNIER agissent sur le meme objet — la
                          derniere vente cloturee — et obeissent donc a la meme regle

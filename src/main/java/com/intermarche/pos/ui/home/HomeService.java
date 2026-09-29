@@ -400,6 +400,22 @@ public class HomeService {
     }
 
     /**
+     * Places a SOUS-TOTAL marker after the last line (EXP-43): a subtotal of the
+     * group since the previous marker is drawn on the screen and printed on the
+     * ticket. Refuses out loud on an empty ticket.
+     */
+    public void markSubtotal() {
+        LOGGER.info("Entering method markSubtotal");
+        if (state.ticket.markSubtotal()) {
+            state.ticket.setNotice("SOUS-TOTAL POSÉ");
+        } else {
+            state.ticket.setError("AUCUN ARTICLE POUR UN SOUS-TOTAL");
+        }
+        state.touch();
+        LOGGER.info("Exiting method markSubtotal");
+    }
+
+    /**
      * Arms the cancel-by-scan mode (EXP-36): the next scanned code designates the
      * line to cancel instead of adding one. Mirrors {@link #armQuantity} — arms one
      * scan, disarmed by the scan entry once used.

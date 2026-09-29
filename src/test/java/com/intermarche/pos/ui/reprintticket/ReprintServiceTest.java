@@ -46,7 +46,42 @@ class ReprintServiceTest {
         // The store-node client (LC-08-05-05): left un-stubbed it reports no node,
         // which is what every case written before this lot assumed.
         service.storeTicketClient = mock(StoreTicketClient.class);
+        service.ticketSearchService = mock(com.intermarche.pos.ui.ticket.TicketSearchService.class);
         return service;
+    }
+
+    /**
+     * {@code search} with a blank pattern falls back to the full history (EXP-47,
+     * blank arm) — it does NOT query the search engine.
+     */
+    @Test
+    void searchBlankLoadsHistory() {
+        ReprintService service = newService();
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     mockStatic(io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            @SuppressWarnings("unchecked")
+            io.quarkus.hibernate.orm.panache.PanacheQuery<com.intermarche.pos.domain.sale.Ticket> q =
+                    mock(io.quarkus.hibernate.orm.panache.PanacheQuery.class);
+            when(q.list()).thenReturn(java.util.List.of());
+            panache.when(() -> com.intermarche.pos.domain.sale.Ticket.find(anyString(), any(Object[].class)))
+                    .thenReturn(q);
+            service.search("  ");
+        }
+        verifyNoInteractions(service.ticketSearchService);
+    }
+
+    /**
+     * {@code search} with a pattern runs the shared engine and stores its results
+     * (EXP-47, non-blank arm).
+     */
+    @Test
+    void searchPatternUsesTheEngine() {
+        ReprintService service = newService();
+        java.util.List<com.intermarche.pos.domain.sale.Ticket> hits =
+                java.util.List.of(mock(com.intermarche.pos.domain.sale.Ticket.class));
+        when(service.ticketSearchService.searchByPattern("14/03/2026")).thenReturn(hits);
+        service.search("14/03/2026");
+        verify(service.state.reprint).setTickets(hits);
     }
 
     // --- Bon pour échange (LC-08-05-10 to -13) ---

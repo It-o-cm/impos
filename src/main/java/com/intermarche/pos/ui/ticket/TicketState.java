@@ -255,10 +255,43 @@ public class TicketState implements Serializable {
     public void recomputeTotal() {
         allocateGlobalDiscount();
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal sinceMarker = BigDecimal.ZERO;
         for (TicketItem item : items) {
-            total = total.add(item.getTotalPrice().setScale(2, RoundingMode.HALF_UP));
+            BigDecimal lineTotal = item.getTotalPrice().setScale(2, RoundingMode.HALF_UP);
+            total = total.add(lineTotal);
+            // EXP-43: the running sum since the previous subtotal marker, exposed on
+            // the boundary line. It never splits the ticket — total above sums every
+            // line regardless of markers.
+            sinceMarker = sinceMarker.add(lineTotal);
+            if (item.subtotalBoundary) {
+                item.subtotalAmount = sinceMarker;
+                sinceMarker = BigDecimal.ZERO;
+            } else {
+                item.subtotalAmount = null;
+            }
         }
         this.totalAmount = total;
+    }
+
+    /**
+     * Places a SOUS-TOTAL marker after the last line (EXP-43): the sum since the
+     * previous marker is drawn as a subtotal there. The merge chain is broken so
+     * the next identical scan starts a new line — the next shopper's item does not
+     * fold into the previous shopper's last line.
+     *
+     * @return true when a marker was placed, false when the ticket is empty
+     */
+    public boolean markSubtotal() {
+        if (items.isEmpty()) {
+            return false;
+        }
+        items.get(items.size() - 1).subtotalBoundary = true;
+        if (parent != null) {
+            parent.lastEnteredItemId = null;
+        }
+        recomputeTotal();
+        onChange();
+        return true;
     }
 
     /**
@@ -648,6 +681,36 @@ public class TicketState implements Serializable {
          * printed after the receipt that lets the desk hand the goods over.
          */
         public boolean toCollect = false;
+
+        /**
+         * True when a SOUS-TOTAL is drawn AFTER this line (EXP-43): the marker the
+         * SOUS-TOTAL key places to separate one shopper's items from the next in a
+         * shared basket. It is a positional marker, NOT a basket split — the ticket
+         * total and the threshold offers still see the whole ticket, and the
+         * valuation payload is unchanged. Persisted on the draft line so the printed
+         * ticket, its duplicata and the dematerialized ticket carry it too.
+         */
+        public boolean subtotalBoundary = false;
+
+        /**
+         * The running sum of the line totals since the previous subtotal marker,
+         * set on a boundary line at each {@link #recomputeTotal()} (EXP-43). Transient
+         * display value: it is recomputed from the lines, never persisted.
+         */
+        public transient BigDecimal subtotalAmount = null;
+
+        /**
+         * Returns the subtotal amount carried by this boundary line, formatted for
+         * display (EXP-43), or null when this line is not a subtotal boundary.
+         *
+         * @return the formatted subtotal, or null
+         */
+        public String getSubtotalFormatted() {
+            if (!subtotalBoundary || subtotalAmount == null) {
+                return null;
+            }
+            return String.format("%.2f", subtotalAmount.setScale(2, RoundingMode.HALF_UP)).replace(".", ",");
+        }
 
         /**
          * The restricted-tender eligibilities the article carried when it was rung

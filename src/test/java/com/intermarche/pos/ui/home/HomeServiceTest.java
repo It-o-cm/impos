@@ -1567,4 +1567,24 @@ class HomeServiceTest {
         verify(service.endorsementService).requestAuthorization(service.state, "CANCEL_TICKET");
         verify(service.ticketService, never()).cancelTicket(org.mockito.ArgumentMatchers.any());
     }
+
+    /**
+     * {@code markSubtotal} confirms when a marker is placed (EXP-43, true arm).
+     */
+    @Test
+    void markSubtotalConfirmsWhenPlaced() {
+        when(service.state.ticket.markSubtotal()).thenReturn(true);
+        service.markSubtotal();
+        verify(service.state.ticket).setNotice("SOUS-TOTAL POSÉ");
+    }
+
+    /**
+     * {@code markSubtotal} refuses on an empty ticket (EXP-43, false arm).
+     */
+    @Test
+    void markSubtotalRefusesWhenEmpty() {
+        when(service.state.ticket.markSubtotal()).thenReturn(false);
+        service.markSubtotal();
+        verify(service.state.ticket).setError("AUCUN ARTICLE POUR UN SOUS-TOTAL");
+    }
 }

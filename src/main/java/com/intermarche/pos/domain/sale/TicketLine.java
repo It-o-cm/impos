@@ -175,6 +175,15 @@ public class TicketLine extends BaseEntity {
     public boolean toCollect;
 
     /**
+     * True when a SOUS-TOTAL is drawn AFTER this line (EXP-43). Persisted because
+     * the subtotal is part of the fiscal document: the printed ticket, its
+     * duplicata and the dematerialized ticket all render it from the CLOSED ticket,
+     * and each shopper of a shared basket reads their part on the paper.
+     */
+    @Column(name = "subtotal_boundary", nullable = false)
+    public boolean subtotalBoundary;
+
+    /**
      * The restricted-tender eligibilities the article carried when it was rung
      * ({@code LC-09-01-11} to {@code -18}), comma-joined, or null when it carried none.
      * <p>

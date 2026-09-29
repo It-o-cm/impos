@@ -205,10 +205,14 @@ public class TicketPrinterService {
         String lineOrder = TicketLineOrder.normalize(posSettingsService.ticketLineOrder());
         boolean groupByFamily = TicketLineOrder.groupsByFamily(lineOrder);
         String printedFamily = null;
+        // EXP-43: the running sum since the previous SOUS-TOTAL marker, printed at
+        // each boundary so each shopper of a shared basket reads their part.
+        java.math.BigDecimal subtotalRunning = java.math.BigDecimal.ZERO;
         for (TicketLine line : TicketLineOrder.apply(ticket.lines, lineOrder)) {
             // A cancelled article (lot C4, BO-04-01-16) is kept in the ticket
             // only as a journal witness; it never prints on the receipt.
             if (line.cancelled) continue;
+            subtotalRunning = subtotalRunning.add(line.totalPrice);
             if (groupByFamily) {
                 String family = TicketLineOrder.familyOf(line);
                 if (!family.equals(printedFamily)) {
@@ -266,6 +270,12 @@ public class TicketPrinterService {
                     if (corLabel.length() > 26) corLabel = corLabel.substring(0, 26);
                     sb.append(formatLine("  " + corLabel, "+" + DF.format(correction) + " E"));
                 }
+            }
+            // EXP-43: the SOUS-TOTAL drawn after this line, summing the lines since
+            // the previous marker. A ticket with no marker prints exactly as before.
+            if (line.subtotalBoundary) {
+                sb.append(formatLine("SOUS-TOTAL", DF.format(subtotalRunning) + " E"));
+                subtotalRunning = java.math.BigDecimal.ZERO;
             }
         }
         sb.append("-".repeat(WIDTH)).append("\n");

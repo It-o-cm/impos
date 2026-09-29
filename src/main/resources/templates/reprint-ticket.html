@@ -69,6 +69,13 @@
         <div class="list-header">
             Sélectionner un ticket
         </div>
+        <!-- EXP-47 : recherche par numéro, date (jj/mm/aaaa) ou montant (0,00) —
+             le moteur de recherche partagé avec le retour. -->
+        <form method="post" action="/reprint/search" style="display:flex; gap:8px; padding:8px 12px;">
+            <input type="text" name="pattern" placeholder="N° ticket, date jj/mm/aaaa ou montant"
+                   style="flex:1; padding:10px; font-size:var(--fs-body); background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
+            <button type="submit" class="btn btn-primary">RECHERCHER</button>
+        </form>
 
         <div class="items-scroll">
             {#if state.reprint.tickets.empty}

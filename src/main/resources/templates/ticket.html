@@ -73,6 +73,13 @@
                 </span>
             </div>
         </a>
+        {#if item.subtotalBoundary}
+        <!-- EXP-43 : le sous-total du groupe depuis le marqueur précédent. -->
+        <div class="receipt-item" style="border-left-color:var(--warning); color:var(--warning); font-weight:bold;">
+            <div class="item-details">SOUS-TOTAL</div>
+            <span class="price" style="color:var(--warning);">{item.subtotalFormatted} €</span>
+        </div>
+        {/if}
     {/for}
 
     {#if state.ticket.globalDiscountApplied != null}

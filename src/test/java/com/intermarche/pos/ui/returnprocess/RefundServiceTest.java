@@ -70,6 +70,7 @@ class RefundServiceTest {
         s.technicalEventService = mock(TechnicalEventService.class);
         s.hardwareService = mock(HardwareService.class);
         s.syncOutboxService = mock(SyncOutboxService.class);
+        s.ticketSearchService = mock(com.intermarche.pos.ui.ticket.TicketSearchService.class);
         // A return on a card-bearing ticket enqueues the loyalty event that
         // feeds imfid's RETURN_DEBIT recomputation — in the refund's own
         // transaction, so the collaborator belongs to the fixture.
@@ -133,8 +134,8 @@ class RefundServiceTest {
     // --- searchTickets ---
 
     /**
-     * {@code searchTickets} clears the results and returns without querying when
-     * the pattern is null (first arm of the guard's OR).
+     * {@code searchTickets} delegates to the shared engine (EXP-47) and stores
+     * whatever it returns — here the empty list the engine gives for a null pattern.
      */
     @Test
     void searchTicketsClearsOnNullPattern() {
@@ -142,18 +143,15 @@ class RefundServiceTest {
         PosState state = new PosState();
         state.refund.searchPattern = null;
         state.refund.foundTickets = new ArrayList<>(List.of(mock(Ticket.class)));
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            s.searchTickets(state);
-            panache.verifyNoInteractions();
-        }
+        when(s.ticketSearchService.searchByPattern(null)).thenReturn(List.of());
+        s.searchTickets(state);
         assertTrue(state.refund.foundTickets.isEmpty());
         assertEquals(1L, state.version);
     }
 
     /**
-     * {@code searchTickets} clears the results and returns without querying when
-     * the trimmed pattern is shorter than three characters (second arm of the
-     * OR: non-null pattern, length below the minimum).
+     * {@code searchTickets} delegates a short pattern to the engine, which returns
+     * an empty list (the engine owns the minimum-length guard now).
      */
     @Test
     void searchTicketsClearsOnShortPattern() {
@@ -161,17 +159,15 @@ class RefundServiceTest {
         PosState state = new PosState();
         state.refund.searchPattern = "  ab  ";
         state.refund.foundTickets = new ArrayList<>(List.of(mock(Ticket.class)));
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            s.searchTickets(state);
-            panache.verifyNoInteractions();
-        }
+        when(s.ticketSearchService.searchByPattern("  ab  ")).thenReturn(List.of());
+        s.searchTickets(state);
         assertTrue(state.refund.foundTickets.isEmpty());
         assertEquals(1L, state.version);
     }
 
     /**
-     * {@code searchTickets} runs the closed-ticket query and stores the results
-     * when the pattern reaches the minimum length (both arms of the OR false).
+     * {@code searchTickets} stores the engine's results for a valid pattern
+     * (EXP-47: number, date or amount, resolved by the shared engine).
      */
     @Test
     void searchTicketsStoresResultsOnValidPattern() {
@@ -179,14 +175,8 @@ class RefundServiceTest {
         PosState state = new PosState();
         state.refund.searchPattern = "abc";
         List<Ticket> results = List.of(mock(Ticket.class), mock(Ticket.class));
-        @SuppressWarnings("unchecked")
-        PanacheQuery<Ticket> query = mock(PanacheQuery.class);
-        when(query.list()).thenReturn(results);
-        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
-            panache.when(() -> Ticket.find(eq(SEARCH_QUERY), eq(Ticket.TicketStatus.CLOSED),
-                    eq("%abc%"), any(LocalDateTime.class))).thenReturn(query);
-            s.searchTickets(state);
-        }
+        when(s.ticketSearchService.searchByPattern("abc")).thenReturn(results);
+        s.searchTickets(state);
         assertSame(results, state.refund.foundTickets);
         assertEquals(1L, state.version);
     }
