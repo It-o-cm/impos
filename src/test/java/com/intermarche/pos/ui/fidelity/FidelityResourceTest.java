@@ -107,11 +107,11 @@ class FidelityResourceTest {
     void lookupFidelityTelModeSearchesByPhone() {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards("0601", null, null, null)).thenReturn(lookup);
+        when(resource.fidelityService.lookupCards("0601", null, null, null, null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("tel", "  0601  ");
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards("0601", null, null, null);
+        verify(resource.fidelityService).lookupCards("0601", null, null, null, null);
         assertSame(lookup, resource.state.fidelity.lastLookup);
         assertEquals("tel", resource.state.fidelity.lastLookupMode);
         assertEquals("0601", resource.state.fidelity.lastLookupValue);
@@ -126,10 +126,10 @@ class FidelityResourceTest {
     void lookupFidelityEmailModeSearchesByEmail() {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, "a@b.fr", null, null)).thenReturn(lookup);
+        when(resource.fidelityService.lookupCards(null, "a@b.fr", null, null, null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("email", "a@b.fr");
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, "a@b.fr", null, null);
+        verify(resource.fidelityService).lookupCards(null, "a@b.fr", null, null, null);
         assertEquals("email", resource.state.fidelity.lastLookupMode);
         assertEquals("a@b.fr", resource.state.fidelity.lastLookupValue);
     }
@@ -142,10 +142,10 @@ class FidelityResourceTest {
     void lookupFidelityNameModeWithSpaceSplitsName() {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, null, "DURAND", "JACQUES")).thenReturn(lookup);
+        when(resource.fidelityService.lookupCards(null, null, "DURAND", "JACQUES", null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("name", "DURAND JACQUES");
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, null, "DURAND", "JACQUES");
+        verify(resource.fidelityService).lookupCards(null, null, "DURAND", "JACQUES", null);
         assertEquals("name", resource.state.fidelity.lastLookupMode);
         assertEquals("DURAND JACQUES", resource.state.fidelity.lastLookupValue);
     }
@@ -158,12 +158,33 @@ class FidelityResourceTest {
     void lookupFidelityNameModeWithoutSpaceUsesLastNameOnly() {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, null, "DURAND", null)).thenReturn(lookup);
+        when(resource.fidelityService.lookupCards(null, null, "DURAND", null, null)).thenReturn(lookup);
         Response response = resource.lookupFidelity("name", "DURAND");
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, null, "DURAND", null);
+        verify(resource.fidelityService).lookupCards(null, null, "DURAND", null, null);
         assertEquals("name", resource.state.fidelity.lastLookupMode);
         assertEquals("DURAND", resource.state.fidelity.lastLookupValue);
+    }
+
+    /**
+     * {@code lookupFidelity()} with a null mode and null value takes the value
+     * ternary false arm (input defaults to empty), falls through to the name
+     * leg, and echoes {@code "name"} via the mode ternary false arm.
+     */
+    /**
+     * EXP-74: {@code lookupFidelity()} in {@code ville} mode searches by city —
+     * the city is the only criterion passed, the other four null.
+     */
+    @Test
+    void lookupFidelityVilleModeSearchesByCity() {
+        FidelityResource resource = newResource();
+        LookupView lookup = new LookupView();
+        when(resource.fidelityService.lookupCards(null, null, null, null, "LYON")).thenReturn(lookup);
+        Response response = resource.lookupFidelity("ville", "LYON");
+        assertEquals("/fidelity", response.getLocation().toString());
+        verify(resource.fidelityService).lookupCards(null, null, null, null, "LYON");
+        assertEquals("ville", resource.state.fidelity.lastLookupMode);
+        assertEquals("LYON", resource.state.fidelity.lastLookupValue);
     }
 
     /**
@@ -175,10 +196,10 @@ class FidelityResourceTest {
     void lookupFidelityNullModeAndValueDefaultsToNameEmpty() {
         FidelityResource resource = newResource();
         LookupView lookup = new LookupView();
-        when(resource.fidelityService.lookupCards(null, null, "", null)).thenReturn(lookup);
+        when(resource.fidelityService.lookupCards(null, null, "", null, null)).thenReturn(lookup);
         Response response = resource.lookupFidelity(null, null);
         assertEquals("/fidelity", response.getLocation().toString());
-        verify(resource.fidelityService).lookupCards(null, null, "", null);
+        verify(resource.fidelityService).lookupCards(null, null, "", null, null);
         assertEquals("name", resource.state.fidelity.lastLookupMode);
         assertEquals("", resource.state.fidelity.lastLookupValue);
     }

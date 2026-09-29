@@ -52,6 +52,7 @@
 
         {#if error}<div class="error">{error}</div>{/if}
         {#if sent}<div class="sent">TICKET ENVOYÉ À {address}</div>{/if}
+        {#if smsSent}<div class="sent">TICKET ENVOYÉ PAR SMS AU {phone}</div>{/if}
         {#if !relayConfigured}<div class="note">Aucun relais de messagerie configuré sur cette caisse : la demande est journalisée, le message ne part pas.</div>{/if}
 
         <form class="work" method="post" action="/ticket-email">
@@ -83,6 +84,18 @@
                 <button class="btn btn-success" type="submit" style="width:16.25rem;">ENVOYER</button>
             </div>
             {/if}
+        </form>
+
+        {! EXP-48 : ticket dématérialisé par téléphone — même geste, canal SMS. !}
+        <form class="work" method="post" action="/ticket-email/sms">
+            <div class="entry">
+                <div class="entry-title">Numéro de téléphone (SMS)</div>
+                <input type="text" name="phone" class="display" value="{phone}" placeholder="06 12 34 56 78">
+                <div class="actions">
+                    <button class="btn btn-primary" type="submit">ENVOYER PAR SMS</button>
+                </div>
+                {#if !smsRelayConfigured}<div class="note">Aucune passerelle SMS configurée : la demande est journalisée, le message ne part pas.</div>{/if}
+            </div>
         </form>
 
     </div>

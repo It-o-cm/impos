@@ -352,4 +352,36 @@ class VerifoneTerminalClientTest {
         assertTrue(callback.latch.await(5, TimeUnit.SECONDS), "exchange never ended");
         assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, callback.error.get());
     }
+
+    /**
+     * EXP-54: {@code mapEntryMode} maps a contactless entry-mode tag to
+     * {@code "SANS_CONTACT"} (each known contactless code).
+     */
+    @Test
+    void mapEntryModeMapsContactlessCodes() {
+        assertEquals("SANS_CONTACT", VerifoneTerminalClient.mapEntryMode("C"));
+        assertEquals("SANS_CONTACT", VerifoneTerminalClient.mapEntryMode("ctls"));
+        assertEquals("SANS_CONTACT", VerifoneTerminalClient.mapEntryMode("NFC"));
+    }
+
+    /**
+     * EXP-54: {@code mapEntryMode} maps a chip-and-PIN entry-mode tag to
+     * {@code "CODE"} (each known PIN code).
+     */
+    @Test
+    void mapEntryModeMapsPinCodes() {
+        assertEquals("CODE", VerifoneTerminalClient.mapEntryMode("P"));
+        assertEquals("CODE", VerifoneTerminalClient.mapEntryMode("pin"));
+        assertEquals("CODE", VerifoneTerminalClient.mapEntryMode("CHIP"));
+    }
+
+    /**
+     * EXP-54: {@code mapEntryMode} returns null for a null tag (not
+     * discriminated) and for an unknown tag value.
+     */
+    @Test
+    void mapEntryModeReturnsNullWhenNullOrUnknown() {
+        org.junit.jupiter.api.Assertions.assertNull(VerifoneTerminalClient.mapEntryMode(null));
+        org.junit.jupiter.api.Assertions.assertNull(VerifoneTerminalClient.mapEntryMode("ZZ"));
+    }
 }

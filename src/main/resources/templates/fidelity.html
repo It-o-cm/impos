@@ -83,6 +83,7 @@
                 <button class="fid-toggle" id="btnTel" onclick="setFidMode('tel', this)">TÉLÉPHONE</button>
                 <button class="fid-toggle" id="btnEmail" onclick="setFidMode('email', this)">E-MAIL</button>
                 <button class="fid-toggle" id="btnName" onclick="setFidMode('name', this)">NOM / PRÉNOM</button>
+                <button class="fid-toggle" id="btnVille" onclick="setFidMode('ville', this)">VILLE</button>
             </div>
 
             <!-- Card mode ATTACHES directly (/action/fidelity) ; the three
@@ -230,7 +231,8 @@
             card: 'Numéro complet de la carte (299…)',
             tel: 'Numéro complet, format libre : 06 12 34 56 78, +33…',
             email: 'Adresse complète, la casse est ignorée',
-            name: 'Quelques lettres suffisent : « DUR », ou « DURAND J »'
+            name: 'Quelques lettres suffisent : « DUR », ou « DURAND J »',
+            ville: 'Nom de la ville, quelques lettres suffisent'
         };
         document.getElementById('fidHint').textContent = hints[mode];
 
@@ -238,6 +240,7 @@
         if (mode === 'name')  { kb = 'alpha'; im = 'text'; max = 40; }
         if (mode === 'email') { kb = 'email'; im = 'text'; max = 60; }
         if (mode === 'tel')   { kb = 'numpad'; im = 'text'; max = 20; }
+        if (mode === 'ville') { kb = 'alpha'; im = 'text'; max = 40; }
 
         PosInput.setup({
             displayId: 'fidDisplay',
@@ -263,7 +266,7 @@
     (function() {
         var init = document.getElementById('fidInit');
         var mode = init.dataset.mode || 'card';
-        var btns = { card: 'btnCard', tel: 'btnTel', email: 'btnEmail', name: 'btnName' };
+        var btns = { card: 'btnCard', tel: 'btnTel', email: 'btnEmail', name: 'btnName', ville: 'btnVille' };
         if (!btns[mode]) mode = 'card';
         setFidMode(mode, document.getElementById(btns[mode]), init.dataset.value || '');
         var results = document.getElementById('fidResultsWrap');

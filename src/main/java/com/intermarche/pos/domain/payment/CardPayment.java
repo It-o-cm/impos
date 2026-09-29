@@ -59,6 +59,17 @@ public class CardPayment extends TicketPayment {
     public boolean degradedMode;
 
     /**
+     * The real card entry mode returned by the terminal (EXP-54, LC-07-07-04):
+     * {@code "SANS_CONTACT"} (contactless) or {@code "CODE"} (chip &amp; PIN), or
+     * null when the terminal did not discriminate. DESCRIBES THE SALE (what the
+     * terminal returned), so — like the authorization number and the degraded
+     * indicator — it is carried by the store synchronization. Nullable on the
+     * shared payment table; the other methods leave it untouched.
+     */
+    @Column(name = "card_entry_mode", length = 16)
+    public String cardEntryMode;
+
+    /**
      * Default constructor for JPA.
      */
     protected CardPayment() {}

@@ -94,12 +94,16 @@ public class FidelityResource {
     public Response lookupFidelity(@FormParam("mode") String mode,
                                            @FormParam("value") String value) {
         LOGGER.info("Entering method lookupFidelity with mode: " + mode + ", value: " + value);
-        String phone = null, email = null, name = null, firstName = null;
+        String phone = null, email = null, name = null, firstName = null, city = null;
         String input = value != null ? value.trim() : "";
         if ("tel".equals(mode)) {
             phone = input;
         } else if ("email".equals(mode)) {
             email = input;
+        } else if ("ville".equals(mode)) {
+            // EXP-74: the city criterion — one more search axis alongside
+            // phone / e-mail / name.
+            city = input;
         } else {
             int space = input.indexOf(' ');
             if (space > 0) {
@@ -110,7 +114,7 @@ public class FidelityResource {
             }
         }
         LookupView lookup =
-                fidelityService.lookupCards(phone, email, name, firstName);
+                fidelityService.lookupCards(phone, email, name, firstName, city);
         state.fidelity.lastLookup = lookup;
         state.fidelity.lastLookupMode = mode != null ? mode : "name";
         state.fidelity.lastLookupValue = input;

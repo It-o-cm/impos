@@ -265,11 +265,30 @@ public class ImfidClient {
      */
     public LookupResult lookup(String phone, String email, String name, String firstName)
             throws Exception {
+        return lookup(phone, email, name, firstName, null);
+    }
+
+    /**
+     * Looks up cards by identity, city included (EXP-74). Same contract as the
+     * four-argument overload; the {@code city} criterion is one more query
+     * parameter, sent only when non-blank.
+     *
+     * @param phone the holder's phone, any format, or null
+     * @param email the holder's e-mail, or null
+     * @param name the holder's last name, or null
+     * @param firstName the optional first name refining a name search, or null
+     * @param city the holder's city, or null
+     * @return the typed lookup outcome
+     * @throws Exception on transport failure or unexpected status
+     */
+    public LookupResult lookup(String phone, String email, String name, String firstName,
+            String city) throws Exception {
         StringBuilder qs = new StringBuilder();
         appendParam(qs, "phone", phone);
         appendParam(qs, "email", email);
         appendParam(qs, "name", name);
         appendParam(qs, "firstName", firstName);
+        appendParam(qs, "city", city);
         HttpRequest request = authenticated("/api/cards/lookup" + qs)
                 .timeout(Duration.ofMillis(2500))
                 .GET()

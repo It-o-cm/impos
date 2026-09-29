@@ -49,6 +49,7 @@ class TicketEmailResourceTest {
         resource.state = mock(PosState.class);
         resource.state.fidelity = new FidelityState();
         resource.ticketMailService = mock(TicketMailService.class);
+        resource.ticketSmsService = mock(TicketSmsService.class);
         resource.ticketService = mock(TicketService.class);
         resource.posSettingsService = mock(PosSettingsService.class);
         resource.ticketEmailPage = mock(Template.class);
@@ -224,5 +225,71 @@ class TicketEmailResourceTest {
         verify(view).data("editable", true);
         verify(view).data("sent", true);
         verify(resource.posSettingsService, never()).ticketEmailEditable();
+    }
+
+    // --- sendSms (EXP-48) ---
+
+    /**
+     * {@code sendSms()} refuses in training mode without sending (training guard
+     * true arm).
+     */
+    @Test
+    void sendSmsRefusesInTrainingMode() {
+        TicketEmailResource resource = newResource();
+        resource.state.trainingMode = true;
+        TemplateInstance view = stubPage(resource);
+        assertSame(view, resource.sendSms("0612345678"));
+        verify(view).data("error", PosState.TRAINING_FORBIDDEN);
+        verify(resource.ticketSmsService, never()).send(any(), anyString());
+    }
+
+    /**
+     * {@code sendSms()} refuses when no last ticket is known (no-ticket guard true arm).
+     */
+    @Test
+    void sendSmsRefusesWhenNoLastTicketId() {
+        TicketEmailResource resource = newResource();
+        resource.state.trainingMode = false;
+        resource.state.lastClosedTicketId = null;
+        TemplateInstance view = stubPage(resource);
+        assertSame(view, resource.sendSms("0612345678"));
+        verify(view).data("error", PosState.NO_LAST_TICKET);
+        verify(resource.ticketSmsService, never()).send(any(), anyString());
+    }
+
+    /**
+     * {@code sendSms()} rejects a phone number that is not a plausible one (number
+     * format guard true arm) without sending.
+     */
+    @Test
+    void sendSmsRejectsInvalidNumber() {
+        TicketEmailResource resource = newResource();
+        resource.state.trainingMode = false;
+        resource.state.lastClosedTicketId = 5L;
+        TemplateInstance view = stubPage(resource);
+        assertSame(view, resource.sendSms("abc"));
+        verify(view).data("error", "NUMÉRO INVALIDE");
+        verify(resource.ticketSmsService, never()).send(any(), anyString());
+    }
+
+    /**
+     * {@code sendSms()} sends when the number is valid and the ticket present
+     * ({@code findById} null guard false arm), delegating to the SMS service and
+     * rendering the SMS success.
+     */
+    @Test
+    void sendSmsSendsWhenNumberValidAndTicketPresent() {
+        TicketEmailResource resource = newResource();
+        resource.state.trainingMode = false;
+        resource.state.lastClosedTicketId = 5L;
+        Ticket ticket = mock(Ticket.class);
+        TemplateInstance view = stubPage(resource);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            assertSame(view, resource.sendSms("06 12 34 56 78"));
+        }
+        verify(resource.ticketSmsService).send(ticket, "06 12 34 56 78");
+        verify(view).data("phone", "06 12 34 56 78");
+        verify(view).data("smsSent", true);
     }
 }

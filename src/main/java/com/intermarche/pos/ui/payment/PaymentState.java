@@ -62,6 +62,14 @@ public class PaymentState implements Serializable {
     public boolean pendingCardDegraded = false;
 
     /**
+     * The real card entry mode the terminal reported for the card payment being
+     * registered (EXP-54): {@code "SANS_CONTACT"} or {@code "CODE"}, or null.
+     * Carried from the accept callback to the persisted {@code CardPayment};
+     * ephemeral, cleared once the entry is built.
+     */
+    public String pendingCardEntryMode = null;
+
+    /**
      * True when a card payment of this transaction asked for the customer's
      * handwritten signature (LC-08-03-11): the conditional-printing rule adds
      * the card receipt back whatever the cashier chose. Held in memory for the
@@ -283,7 +291,24 @@ public class PaymentState implements Serializable {
      * @param degradedMode true when accepted in degraded mode
      */
     public void addCardPayment(BigDecimal amount, String authorizationNumber, boolean degradedMode) {
-        payments.add(new PaymentEntry("CARD", amount, degradedMode, authorizationNumber));
+        addCardPayment(amount, authorizationNumber, degradedMode, null);
+    }
+
+    /**
+     * Registers a card payment carrying the terminal traces AND the real entry
+     * mode (EXP-54): contactless vs chip-and-PIN, traced onto the entry so it
+     * reaches the persisted {@code CardPayment}.
+     *
+     * @param amount the paid amount
+     * @param authorizationNumber the terminal authorization number, or null
+     * @param degradedMode true when accepted in degraded mode
+     * @param cardEntryMode the real card entry mode, or null when undiscriminated
+     */
+    public void addCardPayment(BigDecimal amount, String authorizationNumber, boolean degradedMode,
+            String cardEntryMode) {
+        PaymentEntry entry = new PaymentEntry("CARD", amount, degradedMode, authorizationNumber);
+        entry.cardEntryMode = cardEntryMode;
+        payments.add(entry);
         paidAmount = paidAmount.add(amount);
         goToLastPage();
         clearTemporaryInputs();
@@ -615,6 +640,7 @@ public class PaymentState implements Serializable {
         chequeReadFailure = null;
         pendingCardAuthNumber = null;
         pendingCardDegraded = false;
+        pendingCardEntryMode = null;
         cardSignatureRequired = false;
         printChoice = null;
         printApplied = false;
@@ -763,6 +789,9 @@ public class PaymentState implements Serializable {
 
         /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
         public boolean degradedMode;
+
+        /** The real card entry mode (EXP-54): SANS_CONTACT, CODE, or null. */
+        public String cardEntryMode;
 
         /** The CMC7 magnetic line read off the cheque, or null. */
         public String magneticLine;

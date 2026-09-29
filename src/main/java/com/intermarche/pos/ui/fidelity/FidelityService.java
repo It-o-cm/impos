@@ -179,21 +179,36 @@ public class FidelityService {
      * @return the lookup view (matches, or a display message)
      */
     public LookupView lookupCards(String phone, String email, String name, String firstName) {
-        LOGGER.info("Entering method lookupCards with phone: " + phone + ", email: " + email + ", name: " + name + ", firstName: " + firstName);
+        return lookupCards(phone, email, name, firstName, null);
+    }
+
+    /**
+     * Looks up cards by identity with the city criterion (EXP-74).
+     *
+     * @param phone the typed phone, or null
+     * @param email the typed e-mail, or null
+     * @param name the typed last name, or null
+     * @param firstName the typed first name, or null
+     * @param city the typed city, or null
+     * @return the lookup view (matches, or a display message)
+     */
+    public LookupView lookupCards(String phone, String email, String name, String firstName,
+            String city) {
+        LOGGER.info("Entering method lookupCards with phone: " + phone + ", email: " + email + ", name: " + name + ", firstName: " + firstName + ", city: " + city);
         LookupView view = new LookupView();
         if (!imfidClient.isConfigured() || System.currentTimeMillis() < fidSkipUntil) {
             view.message = "SERVICE FIDÉLITÉ INDISPONIBLE";
             LOGGER.info("Exiting method lookupCards");
             return view;
         }
-        boolean hasCriterion = notBlank(phone) || notBlank(email) || notBlank(name);
+        boolean hasCriterion = notBlank(phone) || notBlank(email) || notBlank(name) || notBlank(city);
         if (!hasCriterion) {
-            view.message = "SAISISSEZ UN TÉLÉPHONE, UN E-MAIL OU UN NOM";
+            view.message = "SAISISSEZ UN TÉLÉPHONE, UN E-MAIL, UN NOM OU UNE VILLE";
             LOGGER.info("Exiting method lookupCards");
             return view;
         }
         try {
-            ImfidClient.LookupResult result = imfidClient.lookup(phone, email, name, firstName);
+            ImfidClient.LookupResult result = imfidClient.lookup(phone, email, name, firstName, city);
             if (result.crmManaged) {
                 // Addendum §2: identity lives in the CRM — out of imfid's
                 // contract, and no CRM connector exists on this register.
@@ -729,6 +744,7 @@ public class FidelityService {
             fid.earnTotal = projection.total;
             fid.burnableBase = projection.burnableBase;
             stageEntries(fid, projection);
+            stageWarnings(fid, projection);
             if (projection.balances != null) {
                 fid.projectedAfterEarn = projection.balances.projectedAfterEarn;
                 fid.balanceAsOf = projection.balances.asOf;
@@ -759,6 +775,7 @@ public class FidelityService {
             fid.burnableBase = projection.burnableBase;
             fid.anonymousProjection = true;
             stageEntries(fid, projection);
+            stageWarnings(fid, projection);
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             fid.clearEarn();
@@ -776,6 +793,22 @@ public class FidelityService {
      * @param fid the fidelity sub-state
      * @param projection the parsed earn projection
      */
+    /**
+     * Stages the projection's non-blocking warnings on the fidelity state so the
+     * cashier sees the fidelity service's messages (EXP-76): the {@code warnings}
+     * field was deserialized but never surfaced. A null or empty list leaves the
+     * channel empty.
+     *
+     * @param fid the fidelity sub-state
+     * @param projection the parsed earn projection
+     */
+    private void stageWarnings(FidelityState fid, ImfidClient.EarnProjection projection) {
+        if (projection.warnings == null || projection.warnings.isEmpty()) {
+            return;
+        }
+        fid.fidelityWarnings = new java.util.ArrayList<>(projection.warnings);
+    }
+
     private void stageEntries(FidelityState fid, ImfidClient.EarnProjection projection) {
         if (projection.entries == null) {
             return;

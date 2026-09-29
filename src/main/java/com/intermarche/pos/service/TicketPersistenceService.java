@@ -334,6 +334,7 @@ public class TicketPersistenceService {
         if (payment instanceof com.intermarche.pos.domain.payment.CardPayment cardPayment) {
             cardPayment.authorizationNumber = entry.authorizationNumber;
             cardPayment.degradedMode = entry.degradedMode;
+            cardPayment.cardEntryMode = entry.cardEntryMode;
         }
         if (payment instanceof com.intermarche.pos.domain.payment.ChequePayment chequePayment) {
             chequePayment.magneticLine = entry.magneticLine;

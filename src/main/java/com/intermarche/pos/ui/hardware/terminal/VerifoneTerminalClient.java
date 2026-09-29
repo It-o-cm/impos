@@ -207,6 +207,27 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
         outcome.rawResponse = response;
         outcome.meanCode = tags.getOrDefault(VerifoneTags.PAYMENT_MEAN,
                 tags.get(VerifoneTags.PAYMENT_MEAN_FALLBACK));
+        // EXP-54: trace the real card entry mode the terminal returns.
+        outcome.entryMode = mapEntryMode(tags.get(VerifoneTags.ENTRY_MODE));
         callback.onError(MSG_NOT_IMPLEMENTED);
+    }
+
+    /**
+     * Maps the terminal's raw entry-mode tag to the traced value (EXP-54): a
+     * contactless tap and a chip-and-PIN transaction are the two the requirement
+     * names; any other or absent value is not discriminated (null).
+     *
+     * @param raw the raw {@code D17} entry-mode tag, or null
+     * @return {@code "SANS_CONTACT"}, {@code "CODE"}, or null
+     */
+    static String mapEntryMode(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        return switch (raw.trim().toUpperCase()) {
+            case "C", "CTLS", "NFC", "SANS_CONTACT" -> "SANS_CONTACT";
+            case "P", "PIN", "CHIP", "CODE" -> "CODE";
+            default -> null;
+        };
     }
 }

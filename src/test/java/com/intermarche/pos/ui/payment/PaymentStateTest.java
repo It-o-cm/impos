@@ -578,4 +578,29 @@ class PaymentStateTest {
         assertFalse(state.removePayment(1));
         assertEquals(1, state.payments.size());
     }
+
+    /**
+     * EXP-54: the 4-arg {@code addCardPayment} records the real card entry mode
+     * on the entry, while the 3-arg one leaves it null.
+     */
+    @Test
+    void addCardPaymentRecordsEntryMode() {
+        PaymentState withMode = new PaymentState();
+        withMode.addCardPayment(new BigDecimal("10.00"), "AUTH1", false, "SANS_CONTACT");
+        assertEquals("SANS_CONTACT", withMode.payments.get(0).cardEntryMode);
+        PaymentState withoutMode = new PaymentState();
+        withoutMode.addCardPayment(new BigDecimal("10.00"), "AUTH1", false);
+        assertNull(withoutMode.payments.get(0).cardEntryMode);
+    }
+
+    /**
+     * EXP-54: {@code reset} clears the pending card entry mode.
+     */
+    @Test
+    void resetClearsPendingCardEntryMode() {
+        PaymentState state = new PaymentState();
+        state.pendingCardEntryMode = "CODE";
+        state.reset();
+        assertNull(state.pendingCardEntryMode);
+    }
 }

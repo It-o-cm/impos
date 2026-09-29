@@ -370,7 +370,8 @@ public class PaymentService {
                 // The card entry carries the terminal traces (authorization
                 // number, degraded-mode indicator) parked by the accept leg.
                 state.payment.addCardPayment(amountToPay,
-                        state.payment.pendingCardAuthNumber, state.payment.pendingCardDegraded);
+                        state.payment.pendingCardAuthNumber, state.payment.pendingCardDegraded,
+                        state.payment.pendingCardEntryMode);
             } else if ("CHEQUE".equals(methodKey)) {
                 // The cheque entry carries the magnetic line parked by the reading.
                 state.payment.addChequePayment(amountToPay, state.payment.pendingChequeLine);
@@ -793,6 +794,9 @@ public class PaymentService {
         state.payment.pendingCardAmount = null;
         state.payment.pendingCardAuthNumber = outcome.authorizationNumber;
         state.payment.pendingCardDegraded = outcome.degradedMode;
+        // EXP-54: trace the real card entry mode (contactless / chip-and-PIN)
+        // the terminal returned, parked here for the money path to carry it.
+        state.payment.pendingCardEntryMode = outcome.entryMode;
         // LC-08-03-11: a slip the customer must sign forces the card receipt
         // whatever the cashier chooses. One signed card in the transaction is
         // enough, so the flag only ever goes up.
@@ -802,6 +806,7 @@ public class PaymentService {
         handlePaymentWithChange(state, "CARD", "CARTE", amount);
         state.payment.pendingCardAuthNumber = null;
         state.payment.pendingCardDegraded = false;
+        state.payment.pendingCardEntryMode = null;
         state.touch();
     }
 

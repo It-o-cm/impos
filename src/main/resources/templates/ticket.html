@@ -47,6 +47,16 @@
     </div>
 {/for}
 
+{#! EXP-76 : messages non bloquants du service fidélité (imfid warnings). !}
+{#for warning in state.fidelity.fidelityWarnings}
+    <div class="receipt-item notice-line">
+        <div class="item-details">
+            <strong>FIDÉLITÉ : {warning}</strong>
+        </div>
+        <span class="price" style="color:var(--warning);">ℹ</span>
+    </div>
+{/for}
+
 {#if state.ticket.items.empty}
     <div class="receipt-empty">{waitingLabel}</div>
 {#else}

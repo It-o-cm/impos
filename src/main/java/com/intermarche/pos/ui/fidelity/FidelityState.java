@@ -41,6 +41,13 @@ public class FidelityState implements Serializable {
     /** Per-rule projection lines (label + amount) — printed labels come from here. */
     public java.util.List<EarnLine> earnEntries = new java.util.ArrayList<>();
 
+    /**
+     * Non-blocking messages the fidelity service sent back with the projection
+     * (imfid response {@code warnings}, EXP-76): shown to the cashier on the
+     * sale screen. Deserialized before but never surfaced — this is the channel.
+     */
+    public java.util.List<String> fidelityWarnings = new java.util.ArrayList<>();
+
     /** Burnable base of the current ticket (caps the fidelity payment), or null. */
     public java.math.BigDecimal burnableBase = null;
 
@@ -145,6 +152,7 @@ public class FidelityState implements Serializable {
         projectedAfterEarn = null;
         balanceAsOf = null;
         anonymousProjection = false;
+        fidelityWarnings = new java.util.ArrayList<>();
     }
 
     /**

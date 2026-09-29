@@ -24,6 +24,15 @@ public class TerminalOutcome {
      */
     public String meanCode;
 
+    /**
+     * The real CARD ENTRY MODE the terminal reported (EXP-54, LC-07-07-04):
+     * {@code "SANS_CONTACT"} for a contactless tap, {@code "CODE"} for a
+     * chip-and-PIN transaction, or null when the terminal does not
+     * discriminate (virtual terminal, specification pending). The register only
+     * DELEGATED one flow to the TPE before; now the mode it returns is traced.
+     */
+    public String entryMode;
+
     /** The customer receipt frame to print verbatim, or null when none. */
     public String customerReceiptFrame;
 

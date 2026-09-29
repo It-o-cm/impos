@@ -1576,8 +1576,8 @@ class FidelityServiceTest {
     void lookupCardsRequiresACriterion() throws Exception {
         FidelityService service = lookupService();
         LookupView view = service.lookupCards("  ", "", "  ", "x");
-        assertEquals("SAISISSEZ UN TÉLÉPHONE, UN E-MAIL OU UN NOM", view.message);
-        verify(service.imfidClient, never()).lookup(any(), any(), any(), any());
+        assertEquals("SAISISSEZ UN TÉLÉPHONE, UN E-MAIL, UN NOM OU UNE VILLE", view.message);
+        verify(service.imfidClient, never()).lookup(any(), any(), any(), any(), any());
     }
 
     /**
@@ -1589,7 +1589,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsReportsCrmMode() throws Exception {
         FidelityService service = lookupService();
-        when(service.imfidClient.lookup(any(), any(), any(), any()))
+        when(service.imfidClient.lookup(any(), any(), any(), any(), any()))
                 .thenReturn(lookupResult(-1, true, null));
         LookupView view = service.lookupCards(null, "jean@x.fr", null, null);
         assertEquals("IDENTITÉS GÉRÉES PAR LE CRM - RECHERCHE INDISPONIBLE EN CAISSE", view.message);
@@ -1605,7 +1605,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsReportsRefusal() throws Exception {
         FidelityService service = lookupService();
-        when(service.imfidClient.lookup(any(), any(), any(), any()))
+        when(service.imfidClient.lookup(any(), any(), any(), any(), any()))
                 .thenReturn(lookupResult(-1, false, "SOME_REASON"));
         LookupView view = service.lookupCards(null, null, "Dupont", null);
         assertEquals("RECHERCHE REFUSÉE PAR LE SERVICE FIDÉLITÉ", view.message);
@@ -1621,7 +1621,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsReportsNoMatch() throws Exception {
         FidelityService service = lookupService();
-        when(service.imfidClient.lookup(any(), any(), any(), any()))
+        when(service.imfidClient.lookup(any(), any(), any(), any(), any()))
                 .thenReturn(lookupResult(0, false, null));
         LookupView view = service.lookupCards(null, null, "Dupont", null);
         assertEquals("AUCUNE CARTE TROUVÉE - ESSAYEZ UN AUTRE CRITÈRE", view.message);
@@ -1637,7 +1637,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsWarnsWhenCapped() throws Exception {
         FidelityService service = lookupService();
-        when(service.imfidClient.lookup(any(), any(), any(), any()))
+        when(service.imfidClient.lookup(any(), any(), any(), any(), any()))
                 .thenReturn(lookupResult(20, false, null));
         LookupView view = service.lookupCards("0612345678", null, null, null);
         assertEquals("TROP DE CORRESPONDANCES - PRÉCISEZ LE CRITÈRE (TÉLÉPHONE)", view.message);
@@ -1653,7 +1653,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsExposesBoundedMatches() throws Exception {
         FidelityService service = lookupService();
-        when(service.imfidClient.lookup(any(), any(), any(), any()))
+        when(service.imfidClient.lookup(any(), any(), any(), any(), any()))
                 .thenReturn(lookupResult(3, false, null));
         LookupView view = service.lookupCards(null, null, "Dupont", "Jean");
         assertNull(view.message);
@@ -1670,13 +1670,13 @@ class FidelityServiceTest {
     @Test
     void lookupCardsTransportFailureOpensBreaker() throws Exception {
         FidelityService service = lookupService();
-        when(service.imfidClient.lookup(any(), any(), any(), any()))
+        when(service.imfidClient.lookup(any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("boom"));
         LookupView first = service.lookupCards("0612345678", null, null, null);
         assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", first.message);
         LookupView second = service.lookupCards("0612345678", null, null, null);
         assertEquals("SERVICE FIDÉLITÉ INDISPONIBLE", second.message);
-        verify(service.imfidClient, times(1)).lookup(any(), any(), any(), any());
+        verify(service.imfidClient, times(1)).lookup(any(), any(), any(), any(), any());
     }
 
     // --- attachLookedUpCard ---

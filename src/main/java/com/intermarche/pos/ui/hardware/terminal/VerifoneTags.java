@@ -14,6 +14,9 @@ public final class VerifoneTags {
     /** Fallback payment mean when {D16} is unknown (LC-07-07-04). */
     public static final String PAYMENT_MEAN_FALLBACK = "D46";
 
+    /** Card entry mode returned by the terminal — contactless vs chip-and-PIN (EXP-54). */
+    public static final String ENTRY_MODE = "D17";
+
     /** Terminal serial number, in the c18 response (LC-01-01-06). */
     public static final String TERMINAL_SERIAL = "D5Y";
 

@@ -45,6 +45,10 @@ public class TicketEmailResource {
     @Inject
     TicketMailService ticketMailService;
 
+    /** Delivers the receipt by SMS and journals the request (EXP-48). */
+    @Inject
+    TicketSmsService ticketSmsService;
+
     /** Resolves the last sale of this register, recovering it after a restart. */
     @Inject
     com.intermarche.pos.ui.ticket.TicketService ticketService;
@@ -141,6 +145,21 @@ public class TicketEmailResource {
      *         closed no sale yet
      */
     private TemplateInstance page(String address, String error, boolean sent) {
+        return page(address, "", error, sent, false);
+    }
+
+    /**
+     * Renders the screen, carrying the SMS channel too (EXP-48).
+     *
+     * @param address the e-mail address shown
+     * @param phone the phone number shown in the SMS block
+     * @param error the operator-facing refusal, empty when there is none
+     * @param sent whether the e-mail send was just taken
+     * @param smsSent whether the SMS send was just taken
+     * @return the rendered page
+     */
+    private TemplateInstance page(String address, String phone, String error, boolean sent,
+            boolean smsSent) {
         boolean known = state.fidelity.holderEmail != null
                 && !state.fidelity.holderEmail.isBlank();
         boolean editable = !known || posSettingsService.ticketEmailEditable();
@@ -151,6 +170,48 @@ public class TicketEmailResource {
                 .data("editable", editable)
                 .data("error", error)
                 .data("sent", sent)
+                .data("phone", phone == null ? "" : phone)
+                .data("smsSent", smsSent)
+                .data("smsRelayConfigured", ticketSmsService.isConfigured())
                 .data("relayConfigured", ticketMailService.isConfigured());
+    }
+
+    /**
+     * Sends the last closed ticket by SMS to the phone number typed by the operator
+     * (EXP-48). Same guards as the e-mail send; a phone that is not a plausible
+     * number is refused before anything is sent.
+     *
+     * @param phone the phone number to send to
+     * @return the send page, carrying the outcome
+     */
+    @POST
+    @Path("/sms")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML)
+    @Transactional
+    public TemplateInstance sendSms(@FormParam("phone") String phone) {
+        LOGGER.info("Entering method sendSms with phone: " + phone);
+        String number = phone == null ? "" : phone.trim();
+        String address = state.fidelity.holderEmail == null ? "" : state.fidelity.holderEmail;
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method sendSms");
+            return page(address, number, PosState.TRAINING_FORBIDDEN, false, false);
+        }
+        if (state.lastClosedTicketId == null) {
+            LOGGER.info("Exiting method sendSms");
+            return page(address, number, PosState.NO_LAST_TICKET, false, false);
+        }
+        if (!number.matches("[+0-9][0-9 .]{5,19}")) {
+            LOGGER.info("Exiting method sendSms");
+            return page(address, number, "NUMÉRO INVALIDE", false, false);
+        }
+        Ticket ticket = Ticket.findById(state.lastClosedTicketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method sendSms");
+            return page(address, number, "AUCUN TICKET À ENVOYER", false, false);
+        }
+        ticketSmsService.send(ticket, number);
+        LOGGER.info("Exiting method sendSms");
+        return page(address, number, "", false, true);
     }
 }

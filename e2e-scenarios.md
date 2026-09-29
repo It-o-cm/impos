@@ -204,6 +204,11 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 
 ## D. Fidélité [S]
 
+- **D20 Recherche client par ville** [S] (EXP-74) : mode VILLE sur l'écran fidélité →
+  `lookupCards` reçoit le critère ville, les autres axes null ; s'ajoute à téléphone /
+  e-mail / nom.
+- **D21 Message du service fidélité** [S] (EXP-76) : le champ `warnings` renvoyé par imfid
+  s'affiche dans la zone message du ticket (ligne FIDÉLITÉ, non bloquante).
 - **D1 Scan carte en cours de panier** → attachée (affichage), persiste sur le draft,
   survit à un redémarrage (croiser K1).
 - **D2 Saisie manuelle** (fallback) → même effet ; deuxième carte → la dernière gagne.
@@ -303,6 +308,13 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   de l'offre, défaut).
 
 ## F. Paiement & clôture [S] ([V] pour F7)
+
+- **F30 Mode CB réel tracé** [S] (EXP-54) : un paiement carte enregistre le mode d'entrée
+  réel renvoyé par le TPE (SANS_CONTACT / CODE) sur le `CardPayment` (tracé au ticket et
+  aux états), là où un seul flux indifférencié était délégué au TPE.
+- **G30 Ticket par SMS** [S] (EXP-48) : sur l'écran d'envoi du ticket, la saisie d'un
+  numéro de téléphone envoie le ticket dématérialisé par SMS (passerelle stubée, journalisé
+  `DIGITAL_TICKET_SENT` même sans passerelle), en parallèle du mail.
 
 - **F1 Espèces exactes** → complétion ; trop-perçu → rendu calculé affiché + afficheur
   client, tiroir ouvert.
