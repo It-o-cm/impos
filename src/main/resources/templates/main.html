@@ -137,6 +137,7 @@
     {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">*** MODE DÉGRADÉ MONÉTIQUE FORCÉ ***</div>{/if}
     {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} ***</div>{/if}
     {#if state.supervisorSessionBadge??}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">SUPERVISEUR {state.supervisorSessionBadge} — <a href="/action/supervisor-session/end" style="color:#fff;text-decoration:underline;">FIN SUPERVISEUR</a></div>{/if}
+    {#if state.returnMode}<div class="overlay-banner overlay-monetics" style="background:var(--danger);color:#fff;">*** MODE RETOUR — LES ARTICLES SONT REPRIS *** — <a href="/action/return-mode" style="color:#fff;text-decoration:underline;">FIN MODE RETOUR</a></div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
@@ -223,6 +224,7 @@
                     <!-- EXP-43 : le sous-total sépare la part de chaque personne dans
                          un panier commun ; il s'imprime sur le ticket. -->
                     <a href="/action/subtotal" class="btn btn-muted">SOUS-TOTAL</a>
+                    <a href="/action/return-mode" class="btn {#if state.returnMode}btn-danger{#else}btn-muted{/if}">{#if state.returnMode}FIN MODE RETOUR{#else}MODE RETOUR{/if}</a>
                     <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
                     <!-- Les quatre touches DERNIER agissent sur le meme objet — la
                          derniere vente cloturee — et obeissent donc a la meme regle

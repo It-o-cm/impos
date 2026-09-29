@@ -420,6 +420,22 @@ public class HomeService {
      * line to cancel instead of adding one. Mirrors {@link #armQuantity} — arms one
      * scan, disarmed by the scan entry once used.
      */
+    /**
+     * Toggles RETURN MODE (EXP-40): the day's return till, where each article
+     * entered rings as a return (a negative line) instead of a sale. A day mode,
+     * not a per-sale one — it stays on across tickets until toggled off, and a
+     * banner keeps it visible. Return-without-ticket (EXP-39) is exactly this
+     * mode applied to an article that has no original ticket to recall.
+     */
+    public void toggleReturnMode() {
+        LOGGER.info("Entering method toggleReturnMode");
+        state.returnMode = !state.returnMode;
+        state.ticket.setNotice(state.returnMode
+                ? "MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS" : "MODE RETOUR TERMINÉ");
+        state.touch();
+        LOGGER.info("Exiting method toggleReturnMode");
+    }
+
     public void armCancelByScan() {
         LOGGER.info("Entering method armCancelByScan");
         state.cancelByScanArmed = true;

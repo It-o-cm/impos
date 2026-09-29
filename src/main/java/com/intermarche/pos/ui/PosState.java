@@ -276,6 +276,15 @@ public class PosState implements Serializable {
     public boolean cancelByScanArmed = false;
 
     /**
+     * True while the register runs in RETURN MODE (EXP-40): the day's return till,
+     * where every article entered rings as a return (a negative line) instead of a
+     * sale. A DAY mode, not a per-sale one — deliberately NOT reset by
+     * {@link #clearTicket()}: it stays on across tickets until the operator turns it
+     * off, and a banner keeps it visible so no sale is rung as a return by surprise.
+     */
+    public boolean returnMode = false;
+
+    /**
      * True while the register runs in training mode: nothing is persisted
      * (no draft, no ticket number, no fiscal chain, no sync), the drawer
      * stays shut, refunds and session actions are blocked, and every screen
@@ -608,6 +617,29 @@ public class PosState implements Serializable {
      */
     public boolean isLocked() {
         return auth.isLocked;
+    }
+
+    /**
+     * Indicates whether the current ticket is a NET REFUND (EXP-38): its signed
+     * total is negative, so the returns outweigh the purchases and the register
+     * owes the customer money. The pay screen then offers the refund direction
+     * instead of the ordinary collection.
+     *
+     * @return true when the signed ticket total is strictly negative
+     */
+    public boolean isNetRefund() {
+        return ticket.totalAmount.signum() < 0;
+    }
+
+    /**
+     * Returns the amount the register owes the customer on a net-refund ticket
+     * (EXP-38), formatted for display (French comma) — the absolute value of the
+     * negative remaining.
+     *
+     * @return the formatted refund due
+     */
+    public String getRefundDueFormatted() {
+        return String.format("%.2f", getRemaining().abs()).replace(".", ",");
     }
 
     /**

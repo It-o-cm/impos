@@ -471,6 +471,20 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **H14 Lignes déjà retournées grisées** [S] (EXP-37) : sur la fiche retour, une ligne entièrement
   retournée par un retour antérieur est grisée (`.receipt-line.refunded`, « DÉJÀ RETOURNÉ ») et non
   sélectionnable ; les lignes encore retournables restent actives.
+- **H16 Ticket mixte : retour + achats, total signé** [S] (EXP-38) : un article repris (ligne
+  négative, `returnLine`) et des achats cohabitent sur UN ticket ; le total est SIGNÉ. Positif → on
+  encaisse (flux habituel) ; négatif → l'écran de paiement bascule en remboursement
+  (`isNetRefund`, `pay-net-refund` règle le net dû au client dans le moyen choisi) ; une ligne de
+  retour n'est PAS envoyée au valorisateur (contrat inchangé), le total la porte quand même.
+- **H17 Retour sans ticket** [S] (EXP-39) : en mode retour, un article sans ticket d'origine crée une
+  ligne négative à son prix courant sous le drapeau d'aval `gesture.endorsement-return`.
+- **H18 Mode caisse retour de la journée** [S] (EXP-40) : bascule MODE RETOUR (`/action/return-mode`,
+  bandeau visible) → chaque article entré est repris (ligne négative), jusqu'à extinction du mode ;
+  c'est un mode JOUR (non remis à zéro entre tickets).
+- **H19 Annulation d'un ticket payé** [S] (EXP-49) : rappel par numéro d'un ticket CLÔTURÉ →
+  « ANNULER CE TICKET PAYÉ » sous aval superviseur (`/return/cancel-paid`, action
+  `CANCEL_PAID_TICKET`) → l'original reste INTACT et un second document de reversal (négatif de
+  l'original) est produit et journalisé `PAID_TICKET_CANCELLED` ; refus superviseur → message, rien.
 
 ## I. Session & clôture Z [S]
 

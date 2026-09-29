@@ -37,6 +37,8 @@ public class RefundResource {
     PosState state;
     @Inject RefundService refundService;
     @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
+    /** Checks and journals the supervisor endorsement of a paid-ticket cancellation (EXP-49). */
+    @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
     @Inject @Location("return-search") Template returnSearchPage;
     @Inject @Location("return-detail") Template returnDetailPage;
 
@@ -88,6 +90,35 @@ public class RefundResource {
         refundService.selectTicket(state, id);
         LOGGER.info("Exiting method selectTicket");
         return detail();
+    }
+
+    /**
+     * Cancels the recalled PAID ticket in full (EXP-49): a supervisor-endorsed
+     * fiscal reversal that leaves the original untouched and produces a second
+     * document. Reached from the "ANNULER CE TICKET PAYÉ" form of the detail page.
+     *
+     * @param supervisor the supervisor's identifier
+     * @param supervisorPassword the supervisor's password
+     * @return a 303 redirect to the refund screen carrying the outcome
+     */
+    @POST
+    @Path("/cancel-paid")
+    @Consumes("application/x-www-form-urlencoded")
+    public Response cancelPaidTicket(@FormParam("supervisor") String supervisor,
+                                     @FormParam("supervisorPassword") String supervisorPassword) {
+        LOGGER.info("Entering method cancelPaidTicket");
+        if (!state.refund.isTicketSelected()) {
+            LOGGER.info("Exiting method cancelPaidTicket");
+            return redirectReturn();
+        }
+        if (endorsementService.authorize(supervisor, supervisorPassword, "CANCEL_PAID_TICKET")) {
+            refundService.cancelPaidTicket(state, Refund.RefundMethod.CASH, supervisor);
+        } else {
+            state.refund.errorMessage = "AUTORISATION SUPERVISEUR REFUSÉE";
+            state.touch();
+        }
+        LOGGER.info("Exiting method cancelPaidTicket");
+        return redirectReturn();
     }
 
     /**

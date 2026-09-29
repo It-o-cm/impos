@@ -463,6 +463,19 @@ class HomeResourceTest {
         verify(resource.state).nextPage();
     }
 
+    /**
+     * {@code toggleReturnMode()} delegates to the service and returns the home view
+     * (EXP-40).
+     */
+    @Test
+    void toggleReturnModeDelegatesAndReturnsHome() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.toggleReturnMode());
+        verify(resource.homeService).toggleReturnMode();
+    }
+
     // --- Selection & cancellation ---
 
     /**

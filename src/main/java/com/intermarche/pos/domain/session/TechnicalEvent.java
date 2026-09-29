@@ -117,7 +117,14 @@ public class TechnicalEvent extends PanacheEntity {
          * no rule for alike (LC-11-03-02). It is the technical half of that
          * requirement; the transactional half is carried by the ticket line.
          */
-        GS1_DECODED
+        GS1_DECODED,
+        /**
+         * A PAID ticket was cancelled (EXP-49): an already-CLOSED sale recalled and
+         * reversed under a supervisor endorsement. The original ticket is left
+         * untouched; the reversal is a second document. The detail carries the
+         * original ticket number and the endorsing supervisor.
+         */
+        PAID_TICKET_CANCELLED
     }
 
     /** The type of the event. */

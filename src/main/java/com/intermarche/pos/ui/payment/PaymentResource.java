@@ -198,6 +198,25 @@ public class PaymentResource {
     }
 
     /**
+     * Pays out the net refund of a mixed ticket whose signed total is negative
+     * (EXP-38): the returns outweigh the purchases and the register gives the
+     * difference back in the chosen tender.
+     *
+     * @param methodKey the tender the refund is paid out in (default CASH)
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-net-refund")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doNetRefund(@FormParam("method") String methodKey) {
+        LOGGER.info("Entering method doNetRefund with method: " + methodKey);
+        paymentService.processNetRefund(state,
+                (methodKey == null || methodKey.isBlank()) ? "CASH" : methodKey.trim());
+        LOGGER.info("Exiting method doNetRefund");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
      * Registers a meal-ticket payment.
      *
      * @param amountStr the amount typed by the cashier

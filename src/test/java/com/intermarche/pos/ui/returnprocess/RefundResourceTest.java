@@ -45,6 +45,7 @@ class RefundResourceTest {
         resource.state.refund = mock(RefundState.class);
         resource.refundService = mock(RefundService.class);
         resource.posSettingsService = mock(PosSettingsService.class);
+        resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         resource.returnSearchPage = mock(Template.class);
         resource.returnDetailPage = mock(Template.class);
         return resource;
@@ -131,6 +132,53 @@ class RefundResourceTest {
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.reason(null));
         verify(resource.refundService).selectReason(resource.state, null);
+    }
+
+    // --- cancelPaidTicket (EXP-49) ---
+
+    /**
+     * {@code cancelPaidTicket} with no ticket recalled redirects to the return
+     * screen without endorsing or reversing anything (isTicketSelected false arm).
+     */
+    @Test
+    void cancelPaidTicketWithoutSelectionRedirectsAndDoesNothing() {
+        RefundResource resource = newResource();
+        when(resource.state.refund.isTicketSelected()).thenReturn(false);
+        Response response = resource.cancelPaidTicket("M1", "1234");
+        assertEquals("/return", response.getLocation().toString());
+        verify(resource.endorsementService, never()).authorize(any(), any(), any());
+        verify(resource.refundService, never()).cancelPaidTicket(any(), any(), any());
+    }
+
+    /**
+     * {@code cancelPaidTicket} refused by the supervisor sets the refusal message
+     * and reverses nothing (authorize false arm).
+     */
+    @Test
+    void cancelPaidTicketRefusedBySupervisor() {
+        RefundResource resource = newResource();
+        when(resource.state.refund.isTicketSelected()).thenReturn(true);
+        when(resource.endorsementService.authorize("M1", "9999", "CANCEL_PAID_TICKET"))
+                .thenReturn(false);
+        Response response = resource.cancelPaidTicket("M1", "9999");
+        assertEquals("/return", response.getLocation().toString());
+        assertEquals("AUTORISATION SUPERVISEUR REFUSÉE", resource.state.refund.errorMessage);
+        verify(resource.refundService, never()).cancelPaidTicket(any(), any(), any());
+    }
+
+    /**
+     * {@code cancelPaidTicket} endorsed by the supervisor reverses the recalled
+     * paid ticket in cash and redirects (authorize true arm, EXP-49).
+     */
+    @Test
+    void cancelPaidTicketEndorsedReversesTheTicket() {
+        RefundResource resource = newResource();
+        when(resource.state.refund.isTicketSelected()).thenReturn(true);
+        when(resource.endorsementService.authorize("M1", "1111", "CANCEL_PAID_TICKET"))
+                .thenReturn(true);
+        Response response = resource.cancelPaidTicket("M1", "1111");
+        assertEquals("/return", response.getLocation().toString());
+        verify(resource.refundService).cancelPaidTicket(resource.state, Refund.RefundMethod.CASH, "M1");
     }
 
     // --- showSearchPage ---

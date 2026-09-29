@@ -261,6 +261,55 @@ class PosStateTest {
     }
 
     /**
+     * {@code isNetRefund()} is true when the signed ticket total is strictly
+     * negative — the returns outweigh the purchases (EXP-38, negative arm).
+     */
+    @Test
+    void isNetRefundTrueWhenTotalNegative() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        assertTrue(state.isNetRefund());
+    }
+
+    /**
+     * {@code isNetRefund()} is false when the signed total is zero or positive —
+     * an ordinary sale to collect (EXP-38, non-negative arm).
+     */
+    @Test
+    void isNetRefundFalseWhenTotalZeroOrPositive() {
+        PosState zero = newState();
+        zero.ticket.totalAmount = new BigDecimal("0.00");
+        assertFalse(zero.isNetRefund());
+        PosState positive = newState();
+        positive.ticket.totalAmount = new BigDecimal("5.00");
+        assertFalse(positive.isNetRefund());
+    }
+
+    /**
+     * {@code getRefundDueFormatted()} renders the absolute value of the negative
+     * remaining with a French comma (EXP-38).
+     */
+    @Test
+    void getRefundDueFormattedRendersAbsoluteRemaining() {
+        PosState state = newState();
+        state.ticket.totalAmount = new BigDecimal("-10.00");
+        state.payment.paidAmount = new BigDecimal("0.00");
+        assertEquals("10,00", state.getRefundDueFormatted());
+    }
+
+    /**
+     * {@code clearTicket()} does NOT turn off return mode (EXP-40): it is a DAY
+     * mode that survives the end of a ticket, until the operator toggles it off.
+     */
+    @Test
+    void clearTicketKeepsReturnMode() {
+        PosState state = newState();
+        state.returnMode = true;
+        state.clearTicket();
+        assertTrue(state.returnMode);
+    }
+
+    /**
      * {@code getRemainingFormatted()} renders the remaining due with a French
      * comma decimal separator.
      */

@@ -905,6 +905,57 @@ class RefundServiceTest {
         }
     }
 
+    // --- cancelPaidTicket (EXP-49) ---
+
+    /**
+     * {@code cancelPaidTicket} does nothing when no ticket is recalled (null
+     * guard true arm): no reversal, no journal.
+     */
+    @Test
+    void cancelPaidTicketDoesNothingWithoutSelectedTicket() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = null;
+        s.cancelPaidTicket(state, Refund.RefundMethod.CASH, "M1");
+        verify(s.technicalEventService, never())
+                .log(eq(TechnicalEvent.EventType.PAID_TICKET_CANCELLED), any(), any());
+        assertTrue(state.refund.returnQuantities.isEmpty());
+    }
+
+    /**
+     * {@code cancelPaidTicket} reverses every NON-cancelled line of the recalled
+     * paid ticket (the {@code cancelled} skip arm and the {@code refundable > 0}
+     * arm), produces the reversal document through the refund machinery and
+     * journals {@code PAID_TICKET_CANCELLED} naming the original ticket and the
+     * endorsing supervisor.
+     */
+    @Test
+    void cancelPaidTicketReversesNonCancelledLinesAndJournals() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine kept = line(1L, "3", "10.00", "0.20", "MILK");
+        TicketLine dropped = line(2L, "1", "5.00", "0.20", "BREAD");
+        dropped.cancelled = true;
+        state.refund.selectedTicket = ticket(10L, "T-9", "35.00", kept, dropped);
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            stubTender(panache, "CASH", tender("CASH", true));
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> RefundLine.list("originalLineId", 2L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.cancelPaidTicket(state, Refund.RefundMethod.CASH, "M1");
+            assertFalse(mc.constructed().isEmpty());
+        }
+        verify(s.technicalEventService).log(
+                eq(TechnicalEvent.EventType.PAID_TICKET_CANCELLED), contains("T-9"), eq("M1"));
+    }
+
     // --- performRefund ---
 
     /**

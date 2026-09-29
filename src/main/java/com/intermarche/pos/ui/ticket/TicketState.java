@@ -170,8 +170,15 @@ public class TicketState implements Serializable {
         // Reading the flag here rather than at each entry point is what makes the
         // three of them behave the same without any of them knowing about the desk.
         boolean toCollect = parent != null && parent.collectArmed;
-        // Only unit EAN sales are mergeable (weighed lines: one line per weighing)
-        boolean mergeable = (plu == null || plu.isEmpty()) && ean != null && !ean.isEmpty();
+        // EXP-38/40: in return mode (the day's return till) an entered article
+        // rings as a RETURN — a negative line the customer is refunded for — so
+        // the funnel negates the quantity and marks the line. The same funnel
+        // serves the ordinary sale, so one flag turns every entry path around.
+        boolean asReturn = parent != null && parent.returnMode;
+        // Only unit EAN sales are mergeable (weighed lines: one line per weighing).
+        // A RETURN never merges: folding it into a positive sale line would quietly
+        // reduce that line instead of standing as its own refunded line (EXP-38).
+        boolean mergeable = (plu == null || plu.isEmpty()) && ean != null && !ean.isEmpty() && !asReturn;
         // LC-02-13-04/05/06: an armed quantity replaces the one the caller passed —
         // on a UNIT line only. A weighed line's quantity is a weight the scale
         // measured, and no key may overwrite a measurement; the arming is consumed
@@ -216,8 +223,10 @@ public class TicketState implements Serializable {
             }
         }
 
-        TicketItem newItem = new TicketItem(ean, plu, label, unitPrice, quantity, vatRate);
+        TicketItem newItem = new TicketItem(ean, plu, label, unitPrice,
+                asReturn ? quantity.negate() : quantity, vatRate);
         newItem.toCollect = toCollect;
+        newItem.returnLine = asReturn;
         items.add(newItem);
         recomputeTotal();
 
@@ -691,6 +700,16 @@ public class TicketState implements Serializable {
          * ticket, its duplicata and the dematerialized ticket carry it too.
          */
         public boolean subtotalBoundary = false;
+
+        /**
+         * True when this line is a RETURN — an article the customer brings back,
+         * carried as a negative contribution inside a mixed ticket (EXP-38/39/40).
+         * <p>
+         * It is excluded from the valuation as a promo-eligible SALE line — one does
+         * not earn an offer on a returned article — and never merges into a positive
+         * sale line. Persisted on the draft so a mixed ticket survives a recovery.
+         */
+        public boolean returnLine = false;
 
         /**
          * The running sum of the line totals since the previous subtotal marker,

@@ -184,6 +184,28 @@ class PaymentResourceTest {
     }
 
     /**
+     * {@code doNetRefund} defaults a blank tender to CASH and redirects to /pay
+     * (EXP-38, blank/null arm of the method guard).
+     */
+    @Test
+    void doNetRefundDefaultsToCash() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doNetRefund(null));
+        verify(resource.paymentService).processNetRefund(resource.state, "CASH");
+    }
+
+    /**
+     * {@code doNetRefund} trims a supplied tender and pays the net refund back in
+     * it (EXP-38, non-blank arm).
+     */
+    @Test
+    void doNetRefundTrimsGivenMethod() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doNetRefund("  CARD  "));
+        verify(resource.paymentService).processNetRefund(resource.state, "CARD");
+    }
+
+    /**
      * {@code showPaymentPage()} yields a null digital path when the draft id
      * matches no ticket (first guard false, {@code ticket == null} true).
      */

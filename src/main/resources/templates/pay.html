@@ -187,6 +187,20 @@
                 </div>
             </div>
 
+            {#if state.netRefund}
+            <!-- EXP-38 : ticket mixte à total signé négatif — le sens du règlement
+                 bascule vers le remboursement. La caisse rend la différence au
+                 client dans le moyen choisi ; un seul document, le total signé. -->
+            <div class="pay-top-row" style="border:2px solid var(--danger); border-radius:8px; padding:10px; margin-bottom:10px;">
+                <div class="total-label" style="color:var(--danger);">MONTANT À REMBOURSER</div>
+                <div class="total-amount" style="color:var(--danger);">{state.refundDueFormatted} €</div>
+                <form action="/action/pay-net-refund" method="POST" style="margin-left:auto;">
+                    <input type="hidden" name="method" value="CASH">
+                    <button type="submit" class="btn btn-danger">REMBOURSER EN ESPÈCES</button>
+                </form>
+            </div>
+            {/if}
+
             <div class="pay-body">
                 <div class="pay-main">
                     <div class="pay-history" id="payHistory">

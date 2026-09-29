@@ -1389,4 +1389,39 @@ class TicketStateTest {
         item.subtotalBoundary = true;
         assertNull(item.getSubtotalFormatted());
     }
+
+    /**
+     * addItem in RETURN MODE (EXP-40) rings the article as a return: a negative
+     * line marked {@code returnLine}, dragging the signed total below zero
+     * (the {@code parent.returnMode} true arm).
+     */
+    @Test
+    void addItemInReturnModeCreatesNegativeReturnLine() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        parent.returnMode = true;
+        ts.setParent(parent);
+        ts.addItem("123", null, "Milk", new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.2000"));
+        assertEquals(1, ts.items.size());
+        assertTrue(ts.items.get(0).returnLine);
+        assertTrue(ts.items.get(0).isNegative());
+        assertEquals(0, ts.totalAmount.compareTo(new BigDecimal("-2.00")));
+    }
+
+    /**
+     * A return line never merges into a positive sale line of the same EAN
+     * (EXP-38): folding it in would quietly reduce the sale line instead of
+     * standing as its own refunded line (the {@code !asReturn} mergeable arm).
+     */
+    @Test
+    void returnLineDoesNotMergeIntoPositiveSaleLine() {
+        TicketState ts = new TicketState();
+        PosState parent = new PosState();
+        ts.setParent(parent);
+        ts.addItem("123", null, "Milk", new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.2000"));
+        parent.returnMode = true;
+        ts.addItem("123", null, "Milk", new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.2000"));
+        assertEquals(2, ts.items.size());
+        assertEquals(0, ts.totalAmount.compareTo(BigDecimal.ZERO));
+    }
 }

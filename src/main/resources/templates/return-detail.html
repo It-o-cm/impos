@@ -233,6 +233,14 @@
             <input type="text" name="number" placeholder="N° compte client" value="{state.refund.creditAccountNumber ?: ''}" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;">
             <button type="submit" class="btn btn-muted">CLIENT</button>
           </form>
+          {! EXP-49 : annulation d'un ticket PAYÉ — geste fiscal sous aval
+           ! superviseur, laissant deux documents (l'original intact + le reversal).
+           ! Distinct d'un retour client : reprend TOUTES les lignes en espèces. !}
+          <form action="/return/cancel-paid" method="POST" style="grid-column: 1 / -1; display:flex; gap:6px; border-top:1px solid var(--danger); padding-top:8px; margin-top:4px;">
+            <input type="text" name="supervisor" placeholder="Superviseur" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <input type="password" name="supervisorPassword" placeholder="Code" style="width:6rem; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <button type="submit" class="btn btn-danger">ANNULER CE TICKET PAYÉ</button>
+          </form>
         </div>
       </div>
     </div>

@@ -1490,9 +1490,52 @@ public class PaymentService {
      * @param state the current POS state
      */
     private void checkCompletion(PosState state) {
-        if (state.getRemaining().signum() <= 0) {
+        BigDecimal remaining = state.getRemaining();
+        // EXP-38: a mixed ticket carries a SIGNED total. A positive (or zero) total
+        // completes when the due is covered (remaining <= 0, the overpay is change).
+        // A NEGATIVE total is a net refund the register OWES the customer: it is
+        // complete only once the refund has actually been paid OUT (remaining == 0)
+        // — otherwise the historical "<= 0" would mark it complete the instant the
+        // pay screen opened, closing it without giving the money back.
+        boolean complete = state.ticket.totalAmount.signum() >= 0
+                ? remaining.signum() <= 0
+                : remaining.signum() == 0;
+        if (complete) {
             state.payment.transactionComplete = true;
             state.touch();
+        }
+    }
+
+    /**
+     * Settles the net refund of a mixed ticket whose signed total is NEGATIVE
+     * (EXP-38): the returns outweigh the purchases, so the register pays the
+     * difference back to the customer through the chosen tender. Records the
+     * payout as a negative settlement on the SAME ticket — one document, signed
+     * total — bringing the remaining to zero and completing the transaction.
+     * Guarded to the refund direction: it does nothing when money is still due
+     * (a positive remaining is collected through the ordinary tender methods).
+     *
+     * @param state the current POS state
+     * @param methodKey the tender the refund is paid out in (CASH, CARD...)
+     * @return true when the refund was settled, false when nothing was owed
+     */
+    public boolean processNetRefund(PosState state, String methodKey) {
+        LOGGER.info("Entering method processNetRefund with methodKey: " + methodKey);
+        synchronized (state) {
+            BigDecimal remaining = state.getRemaining();
+            if (remaining.signum() >= 0) {
+                LOGGER.info("Exiting method processNetRefund");
+                return false;
+            }
+            // A negative settlement: paying the customer back brings paidAmount
+            // down to the (negative) total, i.e. remaining to zero.
+            state.payment.addPayment(methodKey, remaining);
+            savePayment(state, methodKey);
+            hardwareService.displayMessage(String.format("REMBOURSEMENT %s E", df.format(remaining.abs())));
+            checkCompletion(state);
+            state.touch();
+            LOGGER.info("Exiting method processNetRefund");
+            return true;
         }
     }
 }

@@ -483,6 +483,12 @@ public class ValuationService {
         // computes a total by itself ONLY when the engine cannot answer
         // (unreachable or in error), which is the degraded path below.
         for (TicketState.TicketItem item : ticket.items) {
+            // EXP-38: a RETURN line is not a sale — it earns no offer and must not
+            // reach the engine as a promo-eligible basket line. The signed total
+            // still carries it; the valuation simply does not see it.
+            if (item.returnLine) {
+                continue;
+            }
             ValuationPayloads.ItemDto dto = new ValuationPayloads.ItemDto();
             dto.lineId = item.uid;
             dto.produceEan = item.ean;

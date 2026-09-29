@@ -184,6 +184,14 @@ public class TicketLine extends BaseEntity {
     public boolean subtotalBoundary;
 
     /**
+     * True when this line is a RETURN carried inside a mixed ticket (EXP-38): a
+     * negative contribution the customer is refunded for. Persisted so a mixed
+     * ticket survives a draft recovery and prints its return lines as such.
+     */
+    @Column(name = "return_line", nullable = false)
+    public boolean returnLine;
+
+    /**
      * The restricted-tender eligibilities the article carried when it was rung
      * ({@code LC-09-01-11} to {@code -18}), comma-joined, or null when it carried none.
      * <p>

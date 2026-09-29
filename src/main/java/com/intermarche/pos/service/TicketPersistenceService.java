@@ -261,6 +261,7 @@ public class TicketPersistenceService {
                 // EXP-43: the SOUS-TOTAL marker is placed AFTER a line already exists,
                 // so it is refreshed on update, not only at line creation.
                 line.subtotalBoundary = item.subtotalBoundary;
+                line.returnLine = item.returnLine;
             }
             lineNumber++;
         }
@@ -735,6 +736,7 @@ public class TicketPersistenceService {
         line.toCollect = item.toCollect;
         // EXP-43: a SOUS-TOTAL marker is fiscal data — printed, duplicated, dematerialized.
         line.subtotalBoundary = item.subtotalBoundary;
+        line.returnLine = item.returnLine;
         // LC-09-01-11 to -18: what the article was payable with, snapshotted.
         line.restrictedTenders = item.restrictedTenders;
         // LC-02-03-02: the unit of measure the article was sold in.

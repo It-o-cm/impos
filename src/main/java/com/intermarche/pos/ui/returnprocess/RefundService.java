@@ -635,6 +635,51 @@ public class RefundService {
     }
 
     /**
+     * Cancels an already-PAID ticket recalled by number (EXP-49): a fiscal
+     * REVERSAL, distinct from a customer return. It reverses every non-cancelled
+     * line of the recalled CLOSED ticket in full, leaving the original ticket
+     * UNTOUCHED and producing a second document (the reversal, negative of the
+     * original) through the same refund machinery — never one modified document.
+     * A dedicated journal event names the original ticket and the endorsing
+     * supervisor, so the audit trail tells a paid-ticket cancellation apart from
+     * an ordinary return. The caller has already checked the supervisor
+     * endorsement (action {@code CANCEL_PAID_TICKET}).
+     *
+     * @param state the current POS state carrying the recalled ticket
+     * @param method the tender the reversal is paid back in
+     * @param endorserBadge the supervisor who authorized the cancellation
+     */
+    @Transactional
+    public void cancelPaidTicket(PosState state, Refund.RefundMethod method, String endorserBadge) {
+        LOGGER.info("Entering method cancelPaidTicket with method: " + method);
+        Ticket original = state.refund.selectedTicket;
+        if (original == null) {
+            LOGGER.info("Exiting method cancelPaidTicket");
+            return;
+        }
+        // Reverse the WHOLE ticket: every non-cancelled line at its full remaining
+        // quantity. The refund cap in performRefund still guards a ticket already
+        // partly returned, so a double reversal cannot slip through.
+        state.refund.returnQuantities.clear();
+        for (TicketLine line : original.lines) {
+            if (line.cancelled) {
+                continue;
+            }
+            BigDecimal refundable = line.quantity.subtract(alreadyRefunded(line.id));
+            if (refundable.signum() > 0) {
+                state.refund.returnQuantities.put(line.id, refundable);
+            }
+        }
+        state.refund.returnReason = "ANNULATION TICKET PAYÉ";
+        String originalNumber = original.ticketNumber;
+        performRefund(state, method);
+        technicalEventService.log(TechnicalEvent.EventType.PAID_TICKET_CANCELLED,
+                originalNumber + " par " + (endorserBadge != null ? endorserBadge : "?"),
+                endorserBadge);
+        LOGGER.info("Exiting method cancelPaidTicket");
+    }
+
+    /**
      * Applies the side effects of the chosen refund method: drawer opening
      * for cash, printed store voucher (scannable as a payment voucher when
      * its amount is encodable), loyalty journal note until the real balance

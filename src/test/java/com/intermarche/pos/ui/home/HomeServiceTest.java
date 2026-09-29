@@ -1512,6 +1512,31 @@ class HomeServiceTest {
     }
 
     /**
+     * {@code toggleReturnMode()} turns return mode ON from off (EXP-40): the day's
+     * articles ring as returns, announced on the message zone.
+     */
+    @Test
+    void toggleReturnModeTurnsItOn() {
+        service.state.returnMode = false;
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS");
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code toggleReturnMode()} turns return mode OFF from on (EXP-40, other arm).
+     */
+    @Test
+    void toggleReturnModeTurnsItOff() {
+        service.state.returnMode = true;
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR TERMINÉ");
+        verify(service.state).touch();
+    }
+
+    /**
      * {@code cancelByScan()} cancels the line whose EAN matches the scanned code
      * (EXP-36), disarms the mode, and runs through the shared cancel decision.
      */

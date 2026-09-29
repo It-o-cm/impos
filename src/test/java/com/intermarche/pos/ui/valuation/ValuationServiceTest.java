@@ -947,6 +947,32 @@ class ValuationServiceTest {
     }
 
     /**
+     * A RETURN line is NOT sent to the engine (EXP-38): it earns no offer and
+     * must not reach the basket as a promo-eligible sale line, while the ordinary
+     * sale line still travels (the {@code returnLine} true/false arms).
+     */
+    @Test
+    void valuateExcludesReturnLinesFromTheEngine() throws Exception {
+        ValuationService service = newService();
+        when(valuationClient.isEnabled()).thenReturn(true);
+        when(valuationClient.valuate(any())).thenReturn(response("10.00"));
+        TicketState.TicketItem goods = item("G", "10", "10", "1");
+        TicketState.TicketItem returned = item("R", "20", "-4.00", "1");
+        returned.returnLine = true;
+        ArgumentCaptor<ValuationPayloads.BasketDto> captor =
+                ArgumentCaptor.forClass(ValuationPayloads.BasketDto.class);
+        PanacheQuery<Store> noStore = query(null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(Store::findAll).thenReturn(noStore);
+            service.valuate(ticketWith(goods, returned), null,
+                    LocalDateTime.of(2026, 8, 3, 10, 0));
+        }
+        verify(valuationClient).valuate(captor.capture());
+        assertEquals(1, captor.getValue().items.size());
+        assertEquals("G", captor.getValue().items.get(0).lineId);
+    }
+
+    /**
      * valuate builds a customer code from a non-blank fidelity card (present
      * arm) and defaults the store code to "0000" when no store exists (store
      * null arm), applying a FORCE_PRICE gesture on a zero-quantity line whose

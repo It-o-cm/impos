@@ -237,4 +237,16 @@ class TicketLineTest {
         line.totalPrice = new BigDecimal("4.9800");
         Assertions.assertNotEquals(before, line.getChecksum());
     }
+
+    /**
+     * The return-line flag defaults false and is read/write (EXP-38): a mixed
+     * ticket's return line is persisted as such.
+     */
+    @Test
+    void returnLineFlagIsReadWriteAndDefaultsFalse() {
+        TicketLine line = new TicketLine();
+        Assertions.assertFalse(line.returnLine);
+        line.returnLine = true;
+        Assertions.assertTrue(line.returnLine);
+    }
 }

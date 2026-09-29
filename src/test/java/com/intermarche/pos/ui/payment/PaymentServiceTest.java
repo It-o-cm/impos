@@ -3015,4 +3015,42 @@ class PaymentServiceTest {
         assertEquals("CHEQUE", state.payment.payments.get(0).method);
         assertTrue(state.payment.transactionComplete);
     }
+
+    // --------------------------------------------------
+    // processNetRefund (EXP-38 signed settlement direction)
+    // --------------------------------------------------
+
+    /**
+     * {@code processNetRefund} does nothing when money is still due (a positive
+     * remaining): the ordinary tender methods collect it, so the refund direction
+     * refuses and leaves the sale untouched (remaining.signum() &gt;= 0 arm).
+     */
+    @Test
+    void processNetRefundReturnsFalseWhenNothingOwed() {
+        state.ticket.totalAmount = new BigDecimal("10.00");
+        state.payment.ticketDbId = 3L;
+        boolean settled = service.processNetRefund(state, "CASH");
+        assertFalse(settled);
+        assertTrue(state.payment.payments.isEmpty());
+        assertFalse(state.payment.transactionComplete);
+    }
+
+    /**
+     * {@code processNetRefund} on a mixed ticket whose signed total is negative
+     * pays the difference back: it records the negative settlement, drives the
+     * display, brings the remaining to zero and completes the transaction
+     * (remaining.signum() &lt; 0 arm; negative-total completion == 0 arm).
+     */
+    @Test
+    void processNetRefundPaysBackNegativeTotal() {
+        state.ticket.totalAmount = new BigDecimal("-5.00");
+        state.payment.ticketDbId = 3L;
+        boolean settled = service.processNetRefund(state, "CASH");
+        assertTrue(settled);
+        assertEquals(1, state.payment.payments.size());
+        assertEquals(0, state.payment.paidAmount.compareTo(new BigDecimal("-5.00")));
+        assertEquals(0, state.getRemaining().compareTo(BigDecimal.ZERO));
+        assertTrue(state.payment.transactionComplete);
+        verify(hardwareService).displayMessage("REMBOURSEMENT 5,00 E");
+    }
 }

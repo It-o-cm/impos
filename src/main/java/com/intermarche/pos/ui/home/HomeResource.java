@@ -420,6 +420,21 @@ public class HomeResource {
     }
 
     /**
+     * Toggles the day's RETURN MODE (EXP-40): each article entered rings as a
+     * return until the mode is turned off again.
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/return-mode")
+    public TemplateInstance toggleReturnMode() {
+        LOGGER.info("Entering method toggleReturnMode");
+        homeService.toggleReturnMode();
+        LOGGER.info("Exiting method toggleReturnMode");
+        return home();
+    }
+
+    /**
      * Ends an open supervisor session (EXP-33): the FIN SUPERVISEUR key. The
      * following gestures ask for an endorsement again.
      *
