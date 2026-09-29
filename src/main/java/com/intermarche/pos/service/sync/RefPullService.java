@@ -381,14 +381,6 @@ public class RefPullService {
                     this.pages(domain, new TypeReference<List<RefPayloads.SettingDto>>() {}));
             case "ENGINE_FEEDS" -> refApplyService.applyEngineFeeds(
                     this.pages(domain, new TypeReference<List<RefPayloads.EngineFeedDto>>() {}));
-            case "COUNTRIES" -> refApplyService.applyCountries(
-                    this.pages(domain, new TypeReference<List<RefPayloads.CountryDto>>() {}));
-            case "ENSEIGNES" -> refApplyService.applyEnseignes(
-                    this.pages(domain, new TypeReference<List<RefPayloads.EnseigneDto>>() {}));
-            case "PDVS" -> refApplyService.applyPdvs(
-                    this.pages(domain, new TypeReference<List<RefPayloads.PdvDto>>() {}));
-            case "ECHELON_SETTINGS" -> refApplyService.applyEchelonSettings(
-                    this.pages(domain, new TypeReference<List<RefPayloads.EchelonSettingDto>>() {}));
             default -> throw new IllegalArgumentException("Domaine inconnu: " + domain);
         }
         refApplyService.recordApplied(domain, fingerprint);

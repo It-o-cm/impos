@@ -6,12 +6,7 @@ import com.intermarche.pos.domain.barcode.CouponField;
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.catalog.*;
 import com.intermarche.pos.domain.people.Employee;
-import com.intermarche.pos.domain.setting.EchelonLevel;
-import com.intermarche.pos.domain.setting.EchelonSetting;
 import com.intermarche.pos.domain.setting.TouchGroupSetting;
-import com.intermarche.pos.domain.store.Country;
-import com.intermarche.pos.domain.store.Enseigne;
-import com.intermarche.pos.domain.store.Pdv;
 import com.intermarche.pos.domain.sync.RefState;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -1107,104 +1102,6 @@ public class RefApplyService {
                 "code not in ?1", seen.isEmpty() ? java.util.List.of("") : seen);
         LOGGER.infof("Flux moteur appliqués: %d ligne(s), %d supprimé(s)", dtos.size(), removed);
         LOGGER.info("Exiting method applyEngineFeeds");
-    }
-
-    /**
-     * Applies a country snapshot (store node, route A): the echelon tree is
-     * fully owned by the central node, and nothing on the store references a
-     * country by foreign key, so the table is replaced as a whole — the same
-     * wholesale strategy as prices.
-     *
-     * @param dtos the full countries snapshot
-     */
-    @Transactional
-    public void applyCountries(List<RefPayloads.CountryDto> dtos) {
-        LOGGER.info("Entering method applyCountries with dtos: " + dtos);
-        Country.deleteAll();
-        for (RefPayloads.CountryDto dto : dtos) {
-            Country row = new Country();
-            row.code = dto.code;
-            row.name = dto.name;
-            row.defaultLanguage = dto.defaultLanguage;
-            row.persist();
-        }
-        LOGGER.infof("Référentiel pays appliqué: %d ligne(s)", dtos.size());
-        LOGGER.info("Exiting method applyCountries");
-    }
-
-    /**
-     * Applies an enseigne snapshot (store node, route A): wholesale replacement,
-     * like the countries — no foreign key on the store points at an enseigne.
-     *
-     * @param dtos the full enseignes snapshot
-     */
-    @Transactional
-    public void applyEnseignes(List<RefPayloads.EnseigneDto> dtos) {
-        LOGGER.info("Entering method applyEnseignes with dtos: " + dtos);
-        Enseigne.deleteAll();
-        for (RefPayloads.EnseigneDto dto : dtos) {
-            Enseigne row = new Enseigne();
-            row.code = dto.code;
-            row.name = dto.name;
-            row.countryCode = dto.countryCode;
-            row.defaultLanguage = dto.defaultLanguage;
-            row.persist();
-        }
-        LOGGER.infof("Référentiel enseignes appliqué: %d ligne(s)", dtos.size());
-        LOGGER.info("Exiting method applyEnseignes");
-    }
-
-    /**
-     * Applies a PDV snapshot (store node, route A): wholesale replacement. The
-     * enseigne link and the adhérent grouping travel by code, so a re-parenting
-     * done centrally lands as a plain field change here.
-     *
-     * @param dtos the full PDVs snapshot
-     */
-    @Transactional
-    public void applyPdvs(List<RefPayloads.PdvDto> dtos) {
-        LOGGER.info("Entering method applyPdvs with dtos: " + dtos);
-        Pdv.deleteAll();
-        for (RefPayloads.PdvDto dto : dtos) {
-            Pdv row = new Pdv();
-            row.pdvNumber = dto.pdvNumber;
-            row.name = dto.name;
-            row.enseigneCode = dto.enseigneCode;
-            row.adherentCode = dto.adherentCode;
-            row.active = dto.active;
-            row.persist();
-        }
-        LOGGER.infof("Référentiel PDV appliqué: %d ligne(s)", dtos.size());
-        LOGGER.info("Exiting method applyPdvs");
-    }
-
-    /**
-     * Applies an echelon-parameters snapshot (store node, route A): wholesale
-     * replacement, then the settings cache is dropped so this store re-resolves
-     * its own PDV's effective values on the next read — this is what carries a
-     * value posed at the enseigne down to the registers, and what makes a
-     * future-dated value apply on its own once its day comes (BO-03-12-03/04).
-     * The store's OWN local overrides live in a different table ({@code
-     * pos_settings}) and are untouched, so they survive this apply.
-     *
-     * @param dtos the full echelon-settings snapshot
-     */
-    @Transactional
-    public void applyEchelonSettings(List<RefPayloads.EchelonSettingDto> dtos) {
-        LOGGER.info("Entering method applyEchelonSettings with dtos: " + dtos);
-        EchelonSetting.deleteAll();
-        for (RefPayloads.EchelonSettingDto dto : dtos) {
-            EchelonSetting row = new EchelonSetting();
-            row.level = EchelonLevel.valueOf(dto.level);
-            row.echelonCode = dto.echelonCode;
-            row.settingKey = dto.settingKey;
-            row.settingValue = dto.settingValue;
-            row.effectiveDate = dto.effectiveDate != null ? LocalDate.parse(dto.effectiveDate) : null;
-            row.persist();
-        }
-        posSettingsService.invalidate();
-        LOGGER.infof("Paramètres d'échelon appliqués: %d ligne(s)", dtos.size());
-        LOGGER.info("Exiting method applyEchelonSettings");
     }
 
     /**

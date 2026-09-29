@@ -7,15 +7,10 @@ import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
 import com.intermarche.pos.domain.barcode.CouponControl;
 import com.intermarche.pos.domain.barcode.CouponField;
 import com.intermarche.pos.domain.barcode.CouponType;
-import com.intermarche.pos.domain.store.Country;
 import com.intermarche.pos.domain.payment.Currency;
-import com.intermarche.pos.domain.setting.EchelonLevel;
-import com.intermarche.pos.domain.setting.EchelonSetting;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.sync.EngineFeed;
 import com.intermarche.pos.domain.store.CheckoutIsland;
-import com.intermarche.pos.domain.store.Enseigne;
-import com.intermarche.pos.domain.store.Pdv;
 import com.intermarche.pos.domain.setting.PosSetting;
 import com.intermarche.pos.domain.catalog.Price;
 import com.intermarche.pos.domain.catalog.Product;
@@ -979,131 +974,6 @@ class RefApplyServiceTest {
     }
 
     // --------------------------------------------------
-    // applyCountries / applyEnseignes / applyPdvs / applyEchelonSettings
-    // --------------------------------------------------
-
-    /**
-     * Covers {@code applyCountries}: the table is cleared wholesale and each dto
-     * is inserted with its fields, the echelon tree being fully owned by the
-     * central node.
-     */
-    @Test
-    void applyCountriesReplacesWholesale() {
-        RefApplyService service = new RefApplyService();
-        RefPayloads.CountryDto dto = new RefPayloads.CountryDto();
-        dto.code = "FR";
-        dto.name = "France";
-        dto.defaultLanguage = "fr";
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<Country> created = mockConstruction(Country.class)) {
-            service.applyCountries(List.of(dto));
-            mocked.verify(Country::deleteAll, times(1));
-            assertEquals(1, created.constructed().size());
-            Country row = created.constructed().get(0);
-            assertEquals("FR", row.code);
-            assertEquals("France", row.name);
-            assertEquals("fr", row.defaultLanguage);
-            verify(row, times(1)).persist();
-        }
-    }
-
-    /**
-     * Covers {@code applyEnseignes}: wholesale replacement, each dto inserted
-     * with its country up-link by code.
-     */
-    @Test
-    void applyEnseignesReplacesWholesale() {
-        RefApplyService service = new RefApplyService();
-        RefPayloads.EnseigneDto dto = new RefPayloads.EnseigneDto();
-        dto.code = "ITM";
-        dto.name = "Intermarché";
-        dto.countryCode = "FR";
-        dto.defaultLanguage = "fr";
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<Enseigne> created = mockConstruction(Enseigne.class)) {
-            service.applyEnseignes(List.of(dto));
-            mocked.verify(Enseigne::deleteAll, times(1));
-            assertEquals(1, created.constructed().size());
-            Enseigne row = created.constructed().get(0);
-            assertEquals("ITM", row.code);
-            assertEquals("Intermarché", row.name);
-            assertEquals("FR", row.countryCode);
-            assertEquals("fr", row.defaultLanguage);
-            verify(row, times(1)).persist();
-        }
-    }
-
-    /**
-     * Covers {@code applyPdvs}: wholesale replacement, each dto inserted with
-     * its enseigne link, adhérent grouping and active flag.
-     */
-    @Test
-    void applyPdvsReplacesWholesale() {
-        RefApplyService service = new RefApplyService();
-        RefPayloads.PdvDto dto = new RefPayloads.PdvDto();
-        dto.pdvNumber = "01234";
-        dto.name = "Lyon";
-        dto.enseigneCode = "ITM";
-        dto.adherentCode = "AD1";
-        dto.active = true;
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<Pdv> created = mockConstruction(Pdv.class)) {
-            service.applyPdvs(List.of(dto));
-            mocked.verify(Pdv::deleteAll, times(1));
-            assertEquals(1, created.constructed().size());
-            Pdv row = created.constructed().get(0);
-            assertEquals("01234", row.pdvNumber);
-            assertEquals("Lyon", row.name);
-            assertEquals("ITM", row.enseigneCode);
-            assertEquals("AD1", row.adherentCode);
-            assertTrue(row.active);
-            verify(row, times(1)).persist();
-        }
-    }
-
-    /**
-     * Covers {@code applyEchelonSettings} and both arms of its
-     * {@code effectiveDate != null} ternary: the table is cleared wholesale, a
-     * dated row keeps its parsed effect date and an undated row keeps null, and
-     * the settings cache is dropped so the store re-resolves.
-     */
-    @Test
-    void applyEchelonSettingsReplacesParsesDateAndInvalidates() {
-        RefApplyService service = new RefApplyService();
-        service.posSettingsService = mock(PosSettingsService.class);
-        RefPayloads.EchelonSettingDto dated = new RefPayloads.EchelonSettingDto();
-        dated.level = "ENSEIGNE";
-        dated.echelonCode = "ITM";
-        dated.settingKey = "discount.enabled";
-        dated.settingValue = "false";
-        dated.effectiveDate = "2026-03-01";
-        RefPayloads.EchelonSettingDto immediate = new RefPayloads.EchelonSettingDto();
-        immediate.level = "COUNTRY";
-        immediate.echelonCode = "FR";
-        immediate.settingKey = "display.show-ean";
-        immediate.settingValue = "true";
-        immediate.effectiveDate = null;
-        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
-                MockedConstruction<EchelonSetting> created = mockConstruction(EchelonSetting.class)) {
-            service.applyEchelonSettings(List.of(dated, immediate));
-            mocked.verify(EchelonSetting::deleteAll, times(1));
-            assertEquals(2, created.constructed().size());
-            EchelonSetting first = created.constructed().get(0);
-            assertEquals(EchelonLevel.ENSEIGNE, first.level);
-            assertEquals("ITM", first.echelonCode);
-            assertEquals("discount.enabled", first.settingKey);
-            assertEquals("false", first.settingValue);
-            assertEquals(LocalDate.of(2026, 3, 1), first.effectiveDate);
-            verify(first, times(1)).persist();
-            EchelonSetting second = created.constructed().get(1);
-            assertEquals(EchelonLevel.COUNTRY, second.level);
-            assertNull(second.effectiveDate);
-            verify(second, times(1)).persist();
-            verify(service.posSettingsService, times(1)).invalidate();
-        }
-    }
-
-    // --------------------------------------------------
     // applyCurrencies
     // --------------------------------------------------
 
@@ -1269,7 +1139,6 @@ class RefApplyServiceTest {
     void everyDatabaseMethodIsTransactional() {
         List<String> names = List.of("applyFamilies", "applyProducts", "applyPrices",
                 "applyEmployees", "applyCouponTypes", "applySettings", "applyEngineFeeds",
-                "applyCountries", "applyEnseignes", "applyPdvs", "applyEchelonSettings",
                 "recordApplied", "lastApplied");
         java.util.Set<String> seen = new java.util.HashSet<>();
         for (java.lang.reflect.Method method : RefApplyService.class.getDeclaredMethods()) {
