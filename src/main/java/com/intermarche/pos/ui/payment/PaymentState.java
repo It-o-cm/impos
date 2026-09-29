@@ -580,6 +580,24 @@ public class PaymentState implements Serializable {
     }
 
     /**
+     * Removes a SINGLE registered payment without touching the others (EXP-63):
+     * the entry at the index leaves the list and its amount is taken back off the
+     * paid total. The other payments and the payment-in-progress state stand.
+     *
+     * @param index the 0-based index of the payment to remove
+     * @return true when the index was valid and the payment was removed
+     */
+    public boolean removePayment(int index) {
+        if (index < 0 || index >= payments.size()) {
+            return false;
+        }
+        PaymentEntry removed = payments.remove(index);
+        paidAmount = paidAmount.subtract(removed.amount);
+        goToLastPage();
+        return true;
+    }
+
+    /**
      * Resets the whole payment state for a new transaction.
      */
     public void reset() {

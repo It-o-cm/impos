@@ -906,6 +906,49 @@ public class TicketService {
     }
 
     /**
+     * Adds an article at a free price under a FAMILY CODE (EXP-24): the cashier
+     * keys a family code then a price — "80" then "235" rings an "Epicerie 2,35 €"
+     * line — the family carrying the LABEL. The family's VAT rate is not modelled
+     * on {@link com.intermarche.pos.domain.catalog.ProductFamily} (it has no VAT
+     * column), so the register's default VAT applies — a named assumption of
+     * EXP-24 recorded here.
+     *
+     * @param state the current POS state
+     * @param familyCode the family code keyed by the cashier
+     * @param priceStr the price keyed by the cashier
+     */
+    public void addFamilyPricedItem(PosState state, String familyCode, String priceStr) {
+        LOGGER.info("Entering method addFamilyPricedItem with familyCode: " + familyCode + ", priceStr: " + priceStr);
+        if (!requireOpenSession(state)) { LOGGER.info("Exiting method addFamilyPricedItem"); return; }
+        state.selectedTicketIndex = -1;
+        if (state.ticket.transientError != null) state.ticket.transientError = null;
+        com.intermarche.pos.domain.catalog.ProductFamily family =
+                (familyCode == null || familyCode.isBlank())
+                        ? null : com.intermarche.pos.domain.catalog.ProductFamily.findByCode(familyCode.trim());
+        if (family == null) {
+            state.ticket.setError("FAMILLE INCONNUE");
+            state.touch();
+            LOGGER.info("Exiting method addFamilyPricedItem");
+            return;
+        }
+        try {
+            BigDecimal price = new BigDecimal(priceStr.replace(',', '.').replace(" ", ""));
+            if (price.signum() >= 0) {
+                String label = family.description == null ? family.code : family.description;
+                state.ticket.addItem(unknownItemEan, null, label.toUpperCase(),
+                        price, BigDecimal.ONE, defaultVatRate);
+                displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
+                syncAndRevalue(state);
+            } else {
+                state.ticket.setError("ERREUR PRIX SAISI");
+            }
+        } catch (Exception e) {
+            state.ticket.setError("ERREUR PRIX SAISI");
+        }
+        LOGGER.info("Exiting method addFamilyPricedItem");
+    }
+
+    /**
      * Adds a deposit-return line to the ticket (out of VAT scope: zero rate).
      *
      * @param state the current POS state

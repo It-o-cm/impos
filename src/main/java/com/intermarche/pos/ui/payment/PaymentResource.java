@@ -791,6 +791,22 @@ public class PaymentResource {
     }
 
     /**
+     * Cancels a SINGLE registered payment without purging the others (EXP-63),
+     * then stays on the payment screen so the operator keys the corrected tender.
+     *
+     * @param index the 0-based index of the payment to cancel
+     * @return a 303 redirect to the payment screen (mutating GET, PRG-safe)
+     */
+    @GET
+    @Path("/action/payment-cancel/{index}")
+    public Response cancelOnePayment(@PathParam("index") int index) {
+        LOGGER.info("Entering method cancelOnePayment with index: " + index);
+        paymentService.cancelOnePayment(state, index);
+        LOGGER.info("Exiting method cancelOnePayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
      * Prints the current ticket and redirects to the appropriate page.
      *
      * @return a 303 redirect (PRG pattern, so a browser reload never replays

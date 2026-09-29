@@ -160,6 +160,10 @@ public class TicketRecoveryService {
             // lookup (phase: gift-card registry).
             item.moneyProduct = line.moneyProduct;
             item.priceEmbedded = line.priceEmbedded;
+            // EXP-26: the deduced weight + price/kg survive a restart so the
+            // recovered price-embedded line still shows and prints them.
+            item.embeddedWeight = line.embeddedWeight;
+            item.embeddedUnitPrice = line.embeddedUnitPrice;
             // Same rule for the reduction ban (BO-02-03-09): read back, never
             // re-derived. Without this the ban vanished at the first restart
             // and the article became discountable again.

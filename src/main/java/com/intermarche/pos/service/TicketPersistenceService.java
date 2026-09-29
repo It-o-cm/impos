@@ -262,6 +262,8 @@ public class TicketPersistenceService {
                 // so it is refreshed on update, not only at line creation.
                 line.subtotalBoundary = item.subtotalBoundary;
                 line.returnLine = item.returnLine;
+                line.embeddedWeight = item.embeddedWeight;
+                line.embeddedUnitPrice = item.embeddedUnitPrice;
             }
             lineNumber++;
         }
@@ -730,6 +732,9 @@ public class TicketPersistenceService {
         line.deposit = item.isNegative();
         line.moneyProduct = item.moneyProduct;
         line.priceEmbedded = item.priceEmbedded;
+        // EXP-26/LC-02-05-04: the deduced weight + price/kg travel to the fiscal ticket.
+        line.embeddedWeight = item.embeddedWeight;
+        line.embeddedUnitPrice = item.embeddedUnitPrice;
         line.discountForbidden = item.discountForbidden;
         // LC-02-08: which door the article leaves by is transactional data — the
         // collection voucher is printed from the closed ticket.

@@ -48,12 +48,16 @@ import java.util.List;
 @Priority(1)
 public class WeightedEanScanHandler implements ScanContext.ScanHandler {
 
-    /** Prefixes whose embedded value is the line total in cents. */
-    @ConfigProperty(name = "pos.scan.embedded-price-prefixes", defaultValue = "21,22")
+    /**
+     * Prefixes whose embedded value is the line total (EXP-26): 02, 21, 22, 24,
+     * 26, 28. 24 and 26 were misclassified as weight, and 02 was excluded by the
+     * old {@code 2\d{12}} fallback filter — both fixed here (LC-02-05-02).
+     */
+    @ConfigProperty(name = "pos.scan.embedded-price-prefixes", defaultValue = "02,21,22,24,26,28")
     List<String> pricePrefixes;
 
-    /** Prefixes whose embedded value is the weight in grams. */
-    @ConfigProperty(name = "pos.scan.embedded-weight-prefixes", defaultValue = "23,24,25,26")
+    /** Prefixes whose embedded value is the weight in grams (EXP-27): 23, 25, 27, 29. */
+    @ConfigProperty(name = "pos.scan.embedded-weight-prefixes", defaultValue = "23,25,27,29")
     List<String> weightPrefixes;
 
     /** Default VAT rate applied when no catalog price is found (e.g. 0.20). */
@@ -74,7 +78,10 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         // The administered ranges are consulted FIRST and only once: a store
         // that administers its scale plan is not bound to the 2x EAN13 shape.
         ArticleBarcodeRange range = ArticleBarcodeRange.findMatching(code);
-        if (range == null && !code.matches("2\\d{12}")) return;
+        // EXP-26: the fallback applies to any 13-digit code whose 2-digit prefix
+        // is administered as price- or weight-embedded — not only 2x codes, so a
+        // 02-prefixed price label (excluded by the old 2\d{12} filter) is decoded.
+        if (range == null && !fallbackApplies(code)) return;
 
         boolean priceEmbedded;
         boolean weightEmbedded;
@@ -161,7 +168,18 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // The sticker price is the line's own truth: flag it so the
             // valuation request carries the surcharge trio and the engine
             // does not re-price this EAN from its catalog.
-            ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1).priceEmbedded = true;
+            com.intermarche.pos.ui.ticket.TicketState.TicketItem priceLine =
+                    ctx.state.ticket.items.get(ctx.state.ticket.items.size() - 1);
+            priceLine.priceEmbedded = true;
+            // LC-02-05-01: the inverse direction — deduce the WEIGHT from the read
+            // total and the referential price per kilo, and display it. Only when
+            // the referential carries a positive per-kilo price to divide by.
+            if (price != null && price.priceIncludingTax != null
+                    && price.priceIncludingTax.signum() > 0) {
+                priceLine.embeddedUnitPrice = price.priceIncludingTax;
+                priceLine.embeddedWeight = embeddedAmount.divide(
+                        price.priceIncludingTax, 3, RoundingMode.HALF_UP);
+            }
         } else {
             // Embedded weight in grams: catalog price per kilogram. The line
             // carries the product EAN: its price IS the catalog price, so the
@@ -221,6 +239,22 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             return null;
         }
         return currency.toEuro(value);
+    }
+
+    /**
+     * Whether the fallback layout applies to a code no administered range
+     * matched: a 13-digit code whose 2-digit prefix is administered as
+     * price- or weight-embedded (EXP-26, LC-02-05-02).
+     *
+     * @param code the scanned code
+     * @return true when the fallback layout should decode this code
+     */
+    private boolean fallbackApplies(String code) {
+        if (!code.matches("\\d{13}")) {
+            return false;
+        }
+        String prefix = code.substring(0, 2);
+        return pricePrefixes.contains(prefix) || weightPrefixes.contains(prefix);
     }
 
     /**

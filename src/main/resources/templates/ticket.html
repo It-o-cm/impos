@@ -64,6 +64,10 @@
                     {#if showEan && item.ean}
                     <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
                     {/if}
+                    {#if item.hasEmbeddedWeight}
+                    <!-- LC-02-05-01/04 : poids déduit du prix embarqué et du prix au kilo. -->
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.embeddedWeightLabel}</div>
+                    {/if}
                 </div>
                 <span class="price">
                     {#if item.modifierLabel}

@@ -38,7 +38,7 @@
         .plu-tool-btn:hover { border-color: var(--primary); color: var(--primary); }
 
         .plu-container { flex: 1; display: flex; flex-direction: column; background: #111; border: 1px solid var(--border-color); border-radius: 5px; overflow: hidden; min-height: 0; }
-        .plu-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; padding: 10px; align-content: start; overflow: hidden; }
+        .plu-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; padding: 10px; align-content: start; overflow-y: auto; flex: 1; min-height: 0; }
         .plu-btn { background: var(--bg-row); font-size: var(--fs-btn-sm); padding: 8px 4px; border: 1px solid var(--border-strong); color: white; border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
         .plu-btn:hover { background: #444; border-color: var(--primary); }
         .plu-btn .plu-emoji { font-size: 1.2rem; }
@@ -108,12 +108,10 @@
         </div>
         {/if}
         <div class="plu-container">
+            <!-- EXP-22 : la grille F&L DÉFILE au lieu de paginer (voir .plu-grid). -->
             <div class="plu-grid" id="pluGrid"></div>
             <div class="plu-pagination pos-pager">
                 <a href="/" class="btn btn-sm btn-muted">RETOUR</a>
-                <button id="btnPrev" class="btn btn-sm btn-muted" onclick="changePage(-1)">PRÉCÉDENT</button>
-                <span id="pluPageInfo" class="pos-pager-info">PAGE 1 / 1</span>
-                <button id="btnNext" class="btn btn-sm btn-muted" onclick="changePage(1)">SUIVANT</button>
             </div>
         </div>
 
@@ -154,19 +152,14 @@
         {/for}
     ];
 
-    let currentPage = 1;
-    const itemsPerPage = 16;
-    const totalPages = Math.ceil(pluData.length / itemsPerPage);
-
+    // EXP-22 : plus de pagination — toutes les tuiles sont rendues et la grille
+    // défile (.plu-grid overflow-y:auto). Le comptage F&L se fait au doigt, pas
+    // en tournant des pages.
     function renderGrid() {
         const grid = document.getElementById('pluGrid');
-        const start = (currentPage - 1) * itemsPerPage;
-        const end = start + itemsPerPage;
-        const pageItems = pluData.slice(start, end);
-
         let html = '';
-        for (let i = 0; i < pageItems.length; i++) {
-            const p = pageItems[i];
+        for (let i = 0; i < pluData.length; i++) {
+            const p = pluData[i];
             html += '<a href="/action/add/' + p.code + '" class="plu-btn">';
             html += p.image ? '<img class="plu-img" src="' + p.image + '" alt="">' : '<span class="plu-emoji">' + p.icon + '</span>';
             html += '<span class="plu-name">' + p.name + '</span>';
@@ -174,18 +167,6 @@
             html += '</a>';
         }
         grid.innerHTML = html;
-
-        document.getElementById('pluPageInfo').textContent = 'PAGE ' + currentPage + ' / ' + totalPages;
-        document.getElementById('btnPrev').disabled = currentPage === 1;
-        document.getElementById('btnNext').disabled = currentPage === totalPages;
-    }
-
-    function changePage(direction) {
-        const newPage = currentPage + direction;
-        if (newPage >= 1 && newPage <= totalPages) {
-            currentPage = newPage;
-            renderGrid();
-        }
     }
 
     function openPluCode() {

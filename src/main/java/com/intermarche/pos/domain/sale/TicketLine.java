@@ -128,6 +128,22 @@ public class TicketLine extends BaseEntity {
     public boolean priceEmbedded;
 
     /**
+     * On a price-embedded weighed line (EXP-26, LC-02-05-04), the WEIGHT deduced
+     * from the read total and the referential price per kilo, in kilograms — so
+     * it prints on the fiscal ticket, not only on the screen. Null on any other
+     * line.
+     */
+    @Column(name = "embedded_weight", precision = 10, scale = 3)
+    public BigDecimal embeddedWeight;
+
+    /**
+     * On a price-embedded weighed line (EXP-26), the referential price per kilo
+     * the weight was deduced with. Null on any other line.
+     */
+    @Column(name = "embedded_unit_price", precision = 19, scale = 4)
+    public BigDecimal embeddedUnitPrice;
+
+    /**
      * Whether the article forbids any price reduction (BO-02-03-09).
      * <p>
      * Persisted on the line, and read back on recovery, for the same reason as

@@ -694,6 +694,25 @@ public class HomeResource {
     }
 
     /**
+     * Adds a free-price line under a FAMILY CODE (EXP-24): "80" then "235" rings
+     * an "Epicerie 2,35 €" line carrying the family's label.
+     *
+     * @param familyCode the family code keyed by the cashier
+     * @param priceStr the price typed by the cashier
+     * @return a 303 redirect to the home page (PRG pattern)
+     */
+    @POST
+    @Path("/action/manual-add-family")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response addManualFamily(@FormParam("familyCode") String familyCode,
+                                    @FormParam("price") String priceStr) {
+        LOGGER.info("Entering method addManualFamily with familyCode: " + familyCode + ", priceStr: " + priceStr);
+        ticketService.addFamilyPricedItem(state, familyCode, priceStr);
+        LOGGER.info("Exiting method addManualFamily");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
      * Adds a deposit-return line to the ticket.
      *
      * @return the home page

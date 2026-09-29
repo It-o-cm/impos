@@ -51,6 +51,7 @@ public class LockCheckFilter implements ContainerRequestFilter {
             "/action/unlock",
             "/action/force-unlock",
             "/action/force-close",
+            "/article-info",
             "/api/",
             "/t/",
             "/customer",

@@ -651,6 +651,44 @@ public class TicketState implements Serializable {
         public boolean priceEmbedded = false;
 
         /**
+         * On a price-embedded weighed line (EXP-26, LC-02-05-01), the WEIGHT
+         * deduced from the read total and the referential price per kilo — the
+         * inverse of the usual direction. Null on every other line. Shown with
+         * {@link #embeddedUnitPrice} on both visus and the ticket (LC-02-05-04).
+         */
+        public BigDecimal embeddedWeight = null;
+
+        /**
+         * On a price-embedded weighed line (EXP-26), the referential price per
+         * kilo used to deduce {@link #embeddedWeight}. Null on every other line.
+         */
+        public BigDecimal embeddedUnitPrice = null;
+
+        /**
+         * Whether this line carries a deduced weight to display (EXP-26): both the
+         * weight and the price per kilo were resolved.
+         *
+         * @return true when the deduced-weight detail is available
+         */
+        public boolean hasEmbeddedWeight() {
+            return embeddedWeight != null && embeddedUnitPrice != null;
+        }
+
+        /**
+         * The deduced-weight detail for a price-embedded line, formatted for the
+         * screens and the ticket (LC-02-05-04): "0,750 kg à 4,00 €/kg".
+         *
+         * @return the formatted detail, or an empty string when none applies
+         */
+        public String getEmbeddedWeightLabel() {
+            if (!hasEmbeddedWeight()) {
+                return "";
+            }
+            return String.format("%.3f kg à %.2f €/kg", embeddedWeight, embeddedUnitPrice)
+                    .replace('.', ',');
+        }
+
+        /**
          * True when the article sold on this line forbids discounts and rebates
          * (BO-02-03-09): the line price gestures (remise, discount) refuse to
          * touch it, exactly as they refuse a {@link #moneyProduct}. Snapshotted

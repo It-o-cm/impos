@@ -263,6 +263,15 @@ public class HomeService {
             LOGGER.info("Exiting method repeatLastItem");
             return;
         }
+        // EXP-29: a line whose quantity was keyed is not silently repeated —
+        // repeating adds one, which would make an ambiguous total over a quantity
+        // the operator deliberately entered. The exit is to key the quantity again.
+        if (last.quantity.compareTo(BigDecimal.ONE) != 0) {
+            state.ticket.setError("RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE");
+            state.touch();
+            LOGGER.info("Exiting method repeatLastItem");
+            return;
+        }
         last.quantity = last.quantity.add(BigDecimal.ONE);
         ticketService.recalculateTotal(state);
         state.ticket.setNotice("ARTICLE RÉPÉTÉ : " + last.label);

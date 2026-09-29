@@ -220,6 +220,39 @@ public class PaymentService {
      *
      * @param state the current POS state
      */
+    /**
+     * Cancels a SINGLE registered payment without purging the others (EXP-63):
+     * the entry leaves the in-memory list and the draft is re-persisted with the
+     * remaining payments, so a restart recovery cannot resurrect the cancelled
+     * one. Unlike {@link #cancelPayments}, the payment stays in progress and the
+     * fidelity lease and valuation are untouched — only one line is undone.
+     *
+     * @param state the current POS state
+     * @param index the 0-based index of the payment to cancel
+     * @return true when the payment was cancelled, false on an out-of-range index
+     */
+    public boolean cancelOnePayment(PosState state, int index) {
+        LOGGER.info("Entering method cancelOnePayment with index: " + index);
+        synchronized (state) {
+            if (!state.payment.removePayment(index)) {
+                LOGGER.info("Exiting method cancelOnePayment");
+                return false;
+            }
+            Long ticketId = state.payment.ticketDbId;
+            if (ticketId != null) {
+                // Re-persist the remaining payments through the same funnel used
+                // to add them: clear the persisted set, replay what survives.
+                ticketPersistenceService.removePaymentsFromTicket(ticketId);
+                for (PaymentState.PaymentEntry entry : state.payment.payments) {
+                    ticketPersistenceService.addPaymentToTicket(ticketId, entry);
+                }
+            }
+            state.touch();
+            LOGGER.info("Exiting method cancelOnePayment");
+            return true;
+        }
+    }
+
     public void cancelPayments(PosState state) {
         LOGGER.info("Entering method cancelPayments with state: " + state);
         // Single-writer discipline (see initPayment).

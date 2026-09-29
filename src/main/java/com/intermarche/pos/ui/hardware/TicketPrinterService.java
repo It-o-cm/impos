@@ -241,6 +241,15 @@ public class TicketPrinterService {
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
+            // EXP-26/LC-02-05-04: on a price-embedded weighed line, the WEIGHT
+            // deduced from the sticker price and the referential price per kilo,
+            // printed under the line as on the two screens. Absent on any other line.
+            if (line.embeddedWeight != null && line.embeddedUnitPrice != null) {
+                sb.append(String.format("  %s kg x %s /kg%n",
+                        line.embeddedWeight.setScale(3, java.math.RoundingMode.HALF_UP)
+                                .toPlainString().replace('.', ','),
+                        DF.format(line.embeddedUnitPrice)));
+            }
             // Engine advantage on this line: printed as a signed delta, and
             // the CORRECTION on its own line. The two are separated because
             // they go opposite ways: printing a ticket that went up under an

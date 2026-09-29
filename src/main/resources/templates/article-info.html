@@ -1,0 +1,72 @@
+{!
+ ! INFO ARTICLE (ArticleInfoResource, EXP-93). READ-ONLY article lookup, reachable
+ ! caisse fermée without a user code (LockCheckFilter allowlist). A code is keyed
+ ! or scanned; the article's label, code, price and VAT are shown. NO control here
+ ! adds a line to the ticket — consultation only.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Info article</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px 40px; width: 34rem; }
+    .panel h2 { text-transform: uppercase; margin-bottom: 20px; text-align: center; letter-spacing: 1px; }
+    .lookup { display: flex; gap: 10px; margin-bottom: 20px; }
+    .lookup input { flex: 1; padding: 12px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
+    .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); }
+    .info-row .label { color: var(--text-muted); }
+    .info-row .value { font-weight: bold; }
+    .not-found { border: 2px solid var(--warning); border-radius: 8px; padding: 12px 16px; color: var(--warning); font-weight: bold; text-align: center; }
+    .article-label { font-size: var(--fs-section); font-weight: bold; text-align: center; margin-bottom: 15px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>INFO ARTICLE</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel">
+        <h2>Info article (lecture seule)</h2>
+        <form class="lookup" method="get" action="/article-info">
+          <input type="text" name="code" value="{code}" placeholder="Scannez ou saisissez un code" autofocus>
+          <button type="submit" class="btn btn-primary">CHERCHER</button>
+        </form>
+
+        {#if notFound}
+          <div class="not-found">ARTICLE INCONNU</div>
+        {/if}
+
+        {#if info??}
+          <div class="article-label">{info.label}</div>
+          <div class="info-row"><span class="label">EAN</span><span class="value">{info.ean}</span></div>
+          <div class="info-row"><span class="label">PLU</span><span class="value">{info.plu}</span></div>
+          <div class="info-row"><span class="label">Marque</span><span class="value">{info.brand}</span></div>
+          <div class="info-row"><span class="label">Prix TTC</span><span class="value">{info.priceFormatted} €</span></div>
+          <div class="info-row"><span class="label">TVA</span><span class="value">{info.vatFormatted}</span></div>
+        {/if}
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+    </div>
+  </div>
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>

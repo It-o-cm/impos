@@ -144,6 +144,17 @@
                     <input type="hidden" name="price" id="inputPrice" value="0">
                 </form>
 
+                <!-- EXP-24 : code famille puis prix. « 80 » VALIDER « 235 » VALIDER
+                     enregistre « Epicerie 2,35 € » — la famille porte le libellé. -->
+                <form action="/action/manual-add-family" method="POST" id="formFamily"
+                      style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+                    <label style="color:var(--text-muted);">FAMILLE</label>
+                    <input type="text" name="familyCode" inputmode="numeric" placeholder="code" style="width:6rem;">
+                    <label style="color:var(--text-muted);">PRIX €</label>
+                    <input type="text" name="price" inputmode="decimal" placeholder="0,00" style="width:7rem;">
+                    <button type="submit" class="btn btn-success">VALIDER FAMILLE</button>
+                </form>
+
                 <div class="numpad-dynamic-area" id="keyboardArea"></div>
 
                 <div style="display:flex; gap:8px; margin-top:8px;">
