@@ -63,6 +63,18 @@ public class PaymentService {
     @Inject
     TenderRulesService tenderRulesService;
 
+    /** The supplier gift-card issuer registry seam (EXP-66). */
+    @Inject
+    GiftCardIssuerClient giftCardIssuerClient;
+
+    /** The Resto Flash mobile meal-voucher seam (EXP-67). */
+    @Inject
+    RestoFlashClient restoFlashClient;
+
+    /** The SOGEC manufacturer-coupon compensation circuit (EXP-58). */
+    @Inject
+    SogecCompensationService sogecCompensationService;
+
     /** Checks the supervisor credential and journals the decision (BO-03-02-10). */
     @Inject
     com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
@@ -919,11 +931,184 @@ public class PaymentService {
     private BigDecimal registeredMealTicketTotal(PosState state) {
         BigDecimal total = BigDecimal.ZERO;
         for (PaymentState.PaymentEntry entry : state.payment.payments) {
-            if ("TR".equals(entry.method)) {
+            // EXP-60/67: the paper voucher, the TRD card and Resto Flash all draw
+            // on the SAME meal-voucher eligible base, so all three consume the
+            // allowance — else a customer could settle the eligible base once per
+            // tender and pay non-eligible goods with a meal voucher.
+            if ("TR".equals(entry.method) || "TRD".equals(entry.method)
+                    || "RESTOFLASH".equals(entry.method)) {
                 total = total.add(entry.amount);
             }
         }
         return total;
+    }
+
+    /**
+     * The meal-voucher allowance still open on the ticket (EXP-60/67): the
+     * eligible base (the engine's when it answered and capped by its threshold,
+     * else the base carried by the article attributes) minus the meal-voucher
+     * payments already registered. Null means NO base constraint applies (no
+     * engine answer and no eligible line) — the historical unconstrained
+     * behaviour of a paper meal voucher in local mode.
+     *
+     * @param state the current POS state
+     * @return the remaining allowance (never negative), or null when unconstrained
+     */
+    private BigDecimal mealVoucherAllowance(PosState state) {
+        boolean engineAnswered = "ENGINE".equals(state.payment.valuationStatus)
+                && state.payment.valuationMealEligible != null;
+        BigDecimal localBase = state.ticket.mealVoucherEligibleTotal();
+        if (!engineAnswered && localBase.signum() <= 0) {
+            return null;
+        }
+        BigDecimal allowed = engineAnswered ? state.payment.valuationMealEligible : localBase;
+        if (engineAnswered && state.payment.valuationMealThreshold != null) {
+            allowed = allowed.min(state.payment.valuationMealThreshold);
+        }
+        return allowed.subtract(registeredMealTicketTotal(state)).max(BigDecimal.ZERO);
+    }
+
+    /**
+     * Registers a TRD-card (dematerialized meal-voucher) payment (EXP-60): bound
+     * to the meal-voucher eligible base like the paper voucher AND capped by the
+     * administered per-transaction plafond ({@code payment.trd-card-cap}, 0 = no
+     * cap). Refused when the eligible base is exhausted; plafonné to the smaller
+     * of the base allowance and the cap.
+     *
+     * @param state the current POS state
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processTrdCard(PosState state, BigDecimal amount) {
+        LOGGER.info("Entering method processTrdCard with amount: " + amount);
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) { LOGGER.info("Exiting method processTrdCard"); return; }
+        synchronized (state) {
+            BigDecimal allowance = mealVoucherAllowance(state);
+            if (allowance != null) {
+                if (allowance.signum() <= 0) {
+                    hardwareService.displayMessage("TRD: AUCUN ARTICLE ELIGIBLE");
+                    LOGGER.info("Exiting method processTrdCard");
+                    return;
+                }
+                if (amount.compareTo(allowance) > 0) {
+                    amount = allowance;
+                    hardwareService.displayMessage(String.format("TRD PLAFONNE  %s E", df.format(amount)));
+                }
+            }
+            BigDecimal cap = posSettingsService.trdCardCap();
+            if (cap != null && cap.signum() > 0 && amount.compareTo(cap) > 0) {
+                amount = cap;
+                hardwareService.displayMessage(String.format("TRD PLAFONNE  %s E", df.format(amount)));
+            }
+            if (!handlePaymentWithChange(state, "TRD", "CARTE TRD", amount)) {
+                LOGGER.info("Exiting method processTrdCard");
+                return;
+            }
+        }
+        LOGGER.info("Exiting method processTrdCard");
+    }
+
+    /**
+     * Registers a Resto Flash mobile meal-voucher payment (EXP-67): confirmed
+     * through {@link RestoFlashClient} and bound to the SAME meal-voucher
+     * eligible base as the other meal vouchers. A token Resto Flash does not
+     * confirm settles nothing.
+     *
+     * @param state the current POS state
+     * @param token the mobile payment token presented by the customer
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processRestoFlash(PosState state, String token, BigDecimal amount) {
+        LOGGER.info("Entering method processRestoFlash with amount: " + amount);
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) { LOGGER.info("Exiting method processRestoFlash"); return; }
+        synchronized (state) {
+            BigDecimal allowance = mealVoucherAllowance(state);
+            if (allowance != null) {
+                if (allowance.signum() <= 0) {
+                    hardwareService.displayMessage("RESTO FLASH: AUCUN ARTICLE ELIGIBLE");
+                    LOGGER.info("Exiting method processRestoFlash");
+                    return;
+                }
+                if (amount.compareTo(allowance) > 0) {
+                    amount = allowance;
+                    hardwareService.displayMessage(String.format("RESTO FLASH PLAFONNE  %s E", df.format(amount)));
+                }
+            }
+            if (!restoFlashClient.confirm(token, amount)) {
+                hardwareService.displayMessage("RESTO FLASH REFUSE");
+                LOGGER.info("Exiting method processRestoFlash");
+                return;
+            }
+            if (!handlePaymentWithChange(state, "RESTOFLASH", "RESTO FLASH", amount)) {
+                LOGGER.info("Exiting method processRestoFlash");
+                return;
+            }
+        }
+        LOGGER.info("Exiting method processRestoFlash");
+    }
+
+    /**
+     * Registers a supplier gift-card payment (EXP-66): the issuer registry is
+     * interrogated for validity and balance, and the payment is capped at that
+     * balance (and at the remaining due). An invalid card, or one with no
+     * balance, settles nothing.
+     *
+     * @param state the current POS state
+     * @param cardNumber the scanned or keyed gift-card number
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processSupplierGiftCard(PosState state, String cardNumber, BigDecimal amount) {
+        LOGGER.info("Entering method processSupplierGiftCard with amount: " + amount);
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) { LOGGER.info("Exiting method processSupplierGiftCard"); return; }
+        synchronized (state) {
+            GiftCardIssuerClient.IssuerVerdict verdict = giftCardIssuerClient.query(cardNumber);
+            if (!verdict.valid()) {
+                hardwareService.displayMessage("CARTE CADEAU REFUSEE");
+                LOGGER.info("Exiting method processSupplierGiftCard");
+                return;
+            }
+            BigDecimal balance = verdict.balance();
+            if (balance != null && balance.signum() > 0 && amount.compareTo(balance) > 0) {
+                amount = balance;
+                hardwareService.displayMessage(String.format("CARTE CADEAU  %s E", df.format(amount)));
+            } else if (balance == null || balance.signum() <= 0) {
+                hardwareService.displayMessage("CARTE CADEAU: SOLDE NUL");
+                LOGGER.info("Exiting method processSupplierGiftCard");
+                return;
+            }
+            if (!handlePaymentWithChange(state, "GIFTCARD", "CARTE CADEAU", amount)) {
+                LOGGER.info("Exiting method processSupplierGiftCard");
+                return;
+            }
+        }
+        LOGGER.info("Exiting method processSupplierGiftCard");
+    }
+
+    /**
+     * Registers a SOGEC bon payment through the compensation circuit (EXP-58):
+     * the bon settles the ticket and a compensation trace is recorded for the
+     * supplier reimbursement — distinct from the generic GS1 coupon path.
+     *
+     * @param state the current POS state
+     * @param couponCode the SOGEC bon code
+     * @param amount the amount to pay, or zero/negative to use the remaining due
+     */
+    public void processSogec(PosState state, String couponCode, BigDecimal amount) {
+        LOGGER.info("Entering method processSogec with amount: " + amount);
+        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
+        if (amount.signum() <= 0) { LOGGER.info("Exiting method processSogec"); return; }
+        BigDecimal applied;
+        synchronized (state) {
+            applied = amount.min(state.getRemaining());
+            if (!handlePaymentWithChange(state, "SOGEC", "BON SOGEC", amount)) {
+                LOGGER.info("Exiting method processSogec");
+                return;
+            }
+        }
+        sogecCompensationService.recordCompensation(couponCode, applied);
+        LOGGER.info("Exiting method processSogec");
     }
 
     /**

@@ -32,12 +32,13 @@ class PaymentTypesTest {
     /**
      * The key set carries every known method in display order — the six original
      * ones, then customer credit, the legal cash rounding, foreign currency and
-     * backup monetics, each added at the end so the journal filter of a shop that
-     * bookmarked its order does not shuffle under it.
+     * backup monetics, and finally the Step-6 tenders (TRD card, Resto Flash,
+     * supplier gift card, SOGEC bon), each added at the end so the journal filter
+     * of a shop that bookmarked its order does not shuffle under it.
      */
     @Test
     void keysAreTheKnownMethodsInDisplayOrder() {
-        assertEquals("[CASH, CARD, CHEQUE, VOUCHER, FIDELITY, TR, CREDIT, ARRONDI, DEVISE, SECOURS]",
+        assertEquals("[CASH, CARD, CHEQUE, VOUCHER, FIDELITY, TR, CREDIT, ARRONDI, DEVISE, SECOURS, TRD, RESTOFLASH, GIFTCARD, SOGEC]",
                 PaymentTypes.keys().toString());
         assertTrue(PaymentTypes.keys().contains("TR"));
     }

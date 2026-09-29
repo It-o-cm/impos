@@ -265,6 +265,79 @@ public class PaymentResource {
     }
 
     /**
+     * Registers a TRD-card (dematerialized meal-voucher) payment (EXP-60), bound
+     * to the meal-voucher eligible base and the administered plafond.
+     *
+     * @param amountStr the amount typed by the cashier
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-trd")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doTrdPayment(@FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doTrdPayment with amountStr: " + amountStr);
+        paymentService.processTrdCard(state, parseAmount(amountStr));
+        LOGGER.info("Exiting method doTrdPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Registers a Resto Flash mobile meal-voucher payment (EXP-67): the mobile
+     * token is confirmed with the Resto Flash service before it settles.
+     *
+     * @param token the mobile payment token presented by the customer
+     * @param amountStr the amount typed by the cashier
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-restoflash")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doRestoFlashPayment(@FormParam("token") String token,
+                                        @FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doRestoFlashPayment with amountStr: " + amountStr);
+        paymentService.processRestoFlash(state, token, parseAmount(amountStr));
+        LOGGER.info("Exiting method doRestoFlashPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Registers a supplier gift-card payment (EXP-66): the issuer registry is
+     * interrogated for the card's validity and balance before it settles.
+     *
+     * @param cardNumber the scanned or keyed gift-card number
+     * @param amountStr the amount typed by the cashier
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-giftcard")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doGiftCardPayment(@FormParam("cardNumber") String cardNumber,
+                                      @FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doGiftCardPayment with amountStr: " + amountStr);
+        paymentService.processSupplierGiftCard(state, cardNumber, parseAmount(amountStr));
+        LOGGER.info("Exiting method doGiftCardPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
+     * Registers a SOGEC bon payment through the compensation circuit (EXP-58).
+     *
+     * @param couponCode the SOGEC bon code
+     * @param amountStr the amount typed by the cashier
+     * @return a redirect back to the payment page
+     */
+    @POST
+    @Path("/action/pay-sogec")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response doSogecPayment(@FormParam("couponCode") String couponCode,
+                                   @FormParam("amount") String amountStr) {
+        LOGGER.info("Entering method doSogecPayment with amountStr: " + amountStr);
+        paymentService.processSogec(state, couponCode, parseAmount(amountStr));
+        LOGGER.info("Exiting method doSogecPayment");
+        return Response.seeOther(URI.create("/pay")).build();
+    }
+
+    /**
      * Opens the voucher panel so the cashier can choose a type.
      *
      * @return a redirect back to the payment page

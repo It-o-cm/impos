@@ -124,7 +124,14 @@ public class TechnicalEvent extends PanacheEntity {
          * untouched; the reversal is a second document. The detail carries the
          * original ticket number and the endorsing supervisor.
          */
-        PAID_TICKET_CANCELLED
+        PAID_TICKET_CANCELLED,
+        /**
+         * A SOGEC manufacturer coupon was settled through the compensation circuit
+         * (EXP-58): the detail carries the bon code and the amount, for the supplier
+         * reimbursement — distinct from the generic GS1 coupon which grants an
+         * immediate discount and expects no reimbursement.
+         */
+        SOGEC_COMPENSATION
     }
 
     /** The type of the event. */

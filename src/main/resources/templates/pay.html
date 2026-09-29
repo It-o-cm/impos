@@ -382,6 +382,25 @@
                     {#if offeredTenders.contains('FIDELITY')}
                     <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
                     {/if}
+                    {! EXP-60/67/66/58 : nouveaux moyens. Le montant vide retombe sur
+                     ! le reste dû côté serveur ; les moyens à code portent un champ
+                     ! (scannable/saisi). TRD et Resto Flash sont bornés à l'assiette
+                     ! titres-restaurant, la carte cadeau au solde émetteur. !}
+                    <form action="/action/pay-trd" method="POST" style="display:contents;">
+                        <button type="submit" class="btn" style="background-color:#EF6C00;">CARTE TRD</button>
+                    </form>
+                    <form action="/action/pay-restoflash" method="POST" style="display:contents;">
+                        <input type="text" name="token" class="sub-display" placeholder="Jeton Resto Flash" style="width:100%;">
+                        <button type="submit" class="btn" style="background-color:#EF6C00;">RESTO FLASH</button>
+                    </form>
+                    <form action="/action/pay-giftcard" method="POST" style="display:contents;">
+                        <input type="text" name="cardNumber" class="sub-display" placeholder="N° carte cadeau" style="width:100%;">
+                        <button type="submit" class="btn" style="background-color:#6D4C41;">CARTE CADEAU</button>
+                    </form>
+                    <form action="/action/pay-sogec" method="POST" style="display:contents;">
+                        <input type="text" name="couponCode" class="sub-display" placeholder="Bon SOGEC" style="width:100%;">
+                        <button type="submit" class="btn" style="background-color:#6D4C41;">BON SOGEC</button>
+                    </form>
                     <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
                     <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
                     <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>

@@ -167,8 +167,26 @@ class PaymentServiceTest {
         when(printPolicy.decide(any(), any(), org.mockito.ArgumentMatchers.anyBoolean()))
                 .thenReturn(new com.intermarche.pos.ui.hardware.PrintPolicy.Decision(true, true, true));
         service.printPolicy = printPolicy;
+        // Step-6 tender seams (EXP-66/67/58): a supplier gift-card issuer, the
+        // Resto Flash mobile service and the SOGEC compensation circuit. The
+        // stand-ins let each new tender's arms be driven explicitly per test.
+        restoFlashClient = mock(RestoFlashClient.class);
+        service.restoFlashClient = restoFlashClient;
+        giftCardIssuerClient = mock(GiftCardIssuerClient.class);
+        service.giftCardIssuerClient = giftCardIssuerClient;
+        sogecCompensationService = mock(SogecCompensationService.class);
+        service.sogecCompensationService = sogecCompensationService;
         state = new PosState();
     }
+
+    /** The Resto Flash mobile-voucher seam (EXP-67). */
+    private RestoFlashClient restoFlashClient;
+
+    /** The supplier gift-card issuer registry seam (EXP-66). */
+    private GiftCardIssuerClient giftCardIssuerClient;
+
+    /** The SOGEC compensation circuit (EXP-58). */
+    private SogecCompensationService sogecCompensationService;
 
     /**
      * Makes the cheque reader answer with a magnetic line as soon as a reading is
@@ -979,6 +997,242 @@ class PaymentServiceTest {
         verify(hardwareService).displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
         verify(hardwareService, never()).openDrawer();
         assertTrue(state.payment.payments.isEmpty());
+    }
+
+    // --------------------------------------------------
+    // processTrdCard (EXP-60)
+    // --------------------------------------------------
+
+    /**
+     * {@code processTrdCard} returns on a non-positive defaulted amount
+     * (amount null → remaining, second guard true).
+     */
+    @Test
+    void processTrdCardZeroReturns() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processTrdCard(state, null);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processTrdCard} refuses when the meal-voucher base is exhausted
+     * (allowance signum &lt;= 0 arm).
+     */
+    @Test
+    void processTrdCardBaseExhausted() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = BigDecimal.ZERO;
+        state.payment.valuationMealThreshold = null;
+        service.processTrdCard(state, new BigDecimal("5"));
+        verify(hardwareService).displayMessage("TRD: AUCUN ARTICLE ELIGIBLE");
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processTrdCard} caps a request above the eligible base and settles
+     * the ceiling (amount &gt; allowance arm; no administered cap).
+     */
+    @Test
+    void processTrdCardCappedByBase() {
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("8");
+        state.payment.valuationMealThreshold = null;
+        when(posSettingsService.trdCardCap()).thenReturn(BigDecimal.ZERO);
+        service.processTrdCard(state, new BigDecimal("20"));
+        verify(hardwareService).displayMessage("TRD PLAFONNE  8,00 E");
+        assertEquals(0, new BigDecimal("8").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * {@code processTrdCard} caps at the administered plafond when it bites below
+     * the eligible base (cap &gt; 0 and amount &gt; cap arm).
+     */
+    @Test
+    void processTrdCardCappedByCap() {
+        state.ticket.totalAmount = new BigDecimal("30.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("1000");
+        state.payment.valuationMealThreshold = null;
+        when(posSettingsService.trdCardCap()).thenReturn(new BigDecimal("10"));
+        service.processTrdCard(state, new BigDecimal("20"));
+        verify(hardwareService).displayMessage("TRD PLAFONNE  10,00 E");
+        assertEquals(0, new BigDecimal("10").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * {@code processTrdCard} settles a fitting amount and opens the drawer (no
+     * base cap, no plafond, completion reached).
+     */
+    @Test
+    void processTrdCardCompletesWithinBaseAndCap() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("1000");
+        state.payment.valuationMealThreshold = null;
+        when(posSettingsService.trdCardCap()).thenReturn(BigDecimal.ZERO);
+        service.processTrdCard(state, new BigDecimal("5"));
+        assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
+        verify(hardwareService).openDrawer();
+    }
+
+    // --------------------------------------------------
+    // processRestoFlash (EXP-67)
+    // --------------------------------------------------
+
+    /**
+     * {@code processRestoFlash} returns on a non-positive defaulted amount.
+     */
+    @Test
+    void processRestoFlashZeroReturns() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processRestoFlash(state, "TOK", null);
+        verifyNoInteractions(hardwareService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processRestoFlash} refuses when the meal-voucher base is exhausted.
+     */
+    @Test
+    void processRestoFlashBaseExhausted() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = BigDecimal.ZERO;
+        state.payment.valuationMealThreshold = null;
+        service.processRestoFlash(state, "TOK", new BigDecimal("5"));
+        verify(hardwareService).displayMessage("RESTO FLASH: AUCUN ARTICLE ELIGIBLE");
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processRestoFlash} settles nothing when the service refuses the
+     * token (confirm false arm).
+     */
+    @Test
+    void processRestoFlashRefusedByService() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("1000");
+        state.payment.valuationMealThreshold = null;
+        when(restoFlashClient.confirm(eq("TOK"), any())).thenReturn(false);
+        service.processRestoFlash(state, "TOK", new BigDecimal("5"));
+        verify(hardwareService).displayMessage("RESTO FLASH REFUSE");
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processRestoFlash} settles when the service confirms the token
+     * (confirm true arm, completion reached).
+     */
+    @Test
+    void processRestoFlashConfirmedSettles() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        state.payment.valuationStatus = "ENGINE";
+        state.payment.valuationMealEligible = new BigDecimal("1000");
+        state.payment.valuationMealThreshold = null;
+        when(restoFlashClient.confirm(eq("TOK"), any())).thenReturn(true);
+        service.processRestoFlash(state, "TOK", new BigDecimal("5"));
+        assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
+        verify(hardwareService).openDrawer();
+    }
+
+    // --------------------------------------------------
+    // processSupplierGiftCard (EXP-66)
+    // --------------------------------------------------
+
+    /**
+     * {@code processSupplierGiftCard} refuses an invalid card (verdict.valid
+     * false arm).
+     */
+    @Test
+    void processSupplierGiftCardRefusedWhenInvalid() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        when(giftCardIssuerClient.query("GC1"))
+                .thenReturn(new GiftCardIssuerClient.IssuerVerdict(false, BigDecimal.ZERO));
+        service.processSupplierGiftCard(state, "GC1", new BigDecimal("5"));
+        verify(hardwareService).displayMessage("CARTE CADEAU REFUSEE");
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processSupplierGiftCard} refuses a valid card with a nil balance
+     * (balance null/&lt;=0 arm).
+     */
+    @Test
+    void processSupplierGiftCardRefusedWhenBalanceNil() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        when(giftCardIssuerClient.query("GC1"))
+                .thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, BigDecimal.ZERO));
+        service.processSupplierGiftCard(state, "GC1", new BigDecimal("5"));
+        verify(hardwareService).displayMessage("CARTE CADEAU: SOLDE NUL");
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processSupplierGiftCard} caps the payment at the issuer balance
+     * (amount &gt; balance arm) and settles it.
+     */
+    @Test
+    void processSupplierGiftCardCappedAtBalance() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(giftCardIssuerClient.query("GC1"))
+                .thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, new BigDecimal("5")));
+        service.processSupplierGiftCard(state, "GC1", new BigDecimal("20"));
+        verify(hardwareService).displayMessage("CARTE CADEAU  5,00 E");
+        assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
+    }
+
+    /**
+     * {@code processSupplierGiftCard} settles a fitting amount below the balance
+     * (amount &lt;= balance arm, completion reached).
+     */
+    @Test
+    void processSupplierGiftCardSettlesWithinBalance() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        when(giftCardIssuerClient.query("GC1"))
+                .thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, new BigDecimal("100")));
+        service.processSupplierGiftCard(state, "GC1", new BigDecimal("5"));
+        assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
+        verify(hardwareService).openDrawer();
+    }
+
+    // --------------------------------------------------
+    // processSogec (EXP-58)
+    // --------------------------------------------------
+
+    /**
+     * {@code processSogec} returns on a non-positive defaulted amount and records
+     * no compensation.
+     */
+    @Test
+    void processSogecZeroReturns() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processSogec(state, "SG1", null);
+        verifyNoInteractions(hardwareService);
+        verifyNoInteractions(sogecCompensationService);
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processSogec} settles the bon and records the compensation trace
+     * for the supplier reimbursement (completion reached).
+     */
+    @Test
+    void processSogecSettlesAndRecordsCompensation() {
+        state.ticket.totalAmount = new BigDecimal("20.00");
+        state.payment.ticketDbId = 3L;
+        service.processSogec(state, "SG1", new BigDecimal("5"));
+        assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
+        verify(sogecCompensationService).recordCompensation("SG1", new BigDecimal("5"));
     }
 
     /**

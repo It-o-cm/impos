@@ -537,6 +537,14 @@ public class PosSettingsService {
                 "Plafond de contenu du tiroir (€)",
                 "Montant d'espèces au-delà duquel la caisse affiche une alerte PRÉLÈVEMENT sans bloquer la vente, calé sur le montant garanti par l'assurance. 0 = aucun plafond (EXP-17).",
                 "0.00", null),
+        new Def("payment.trd-card-cap", Type.TEXT, "RÈGLEMENTS RESTREINTS",
+                "Plafond carte TRD (€)",
+                "Montant maximum réglable par carte titre-restaurant (TRD) sur une transaction, en plus de l'assiette éligible. 0 = plafond non appliqué, seule l'assiette limite (EXP-60).",
+                "0.00", null),
+        new Def("sogec.bon-prefixes", Type.TEXT, "CODES GS1",
+                "Préfixes des bons SOGEC",
+                "Préfixes reconnaissant un bon SOGEC, séparés par des points-virgules ; un code portant l'un d'eux part dans le circuit de compensation SOGEC au lieu du coupon GS1 générique. Vide : aucun bon SOGEC reconnu (EXP-58).",
+                "", null),
         new Def("gesture.endorsement-cancel-line", Type.BOOL, "GESTES NÉGATIFS",
                 "Aval superviseur : annulation de ligne",
                 "L'annulation d'une ligne déjà enregistrée exige un aval superviseur. Désactivé : le caissier annule seul (EXP-32).",
@@ -867,6 +875,30 @@ public class PosSettingsService {
         LOGGER.info("Entering method drawerCap");
         LOGGER.info("Exiting method drawerCap");
         return bigDecimalValue("cash.drawer-cap");
+    }
+
+    /**
+     * The per-transaction cap of a TRD-card payment in euros (EXP-60); zero
+     * means only the meal-voucher eligible base limits the payment.
+     *
+     * @return the administered TRD cap, guarded against a corrupt row
+     */
+    public BigDecimal trdCardCap() {
+        LOGGER.info("Entering method trdCardCap");
+        LOGGER.info("Exiting method trdCardCap");
+        return bigDecimalValue("payment.trd-card-cap");
+    }
+
+    /**
+     * The administered SOGEC bon prefixes (EXP-58), semicolon-separated; empty
+     * when no SOGEC bon is recognised.
+     *
+     * @return the administered SOGEC prefixes
+     */
+    public String sogecBonPrefixes() {
+        LOGGER.info("Entering method sogecBonPrefixes");
+        LOGGER.info("Exiting method sogecBonPrefixes");
+        return value("sogec.bon-prefixes");
     }
 
     /**
