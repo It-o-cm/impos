@@ -17,9 +17,9 @@ import java.util.Objects;
  * language and, through {@link EchelonSetting} rows at
  * {@link EchelonLevel#COUNTRY}, back-office parameters.
  * <p>
- * Held on the CENTRAL node (route A, {@code pos.role=central}): it is part of
- * the referential the central serves down the two-level pull, unlike the
- * node-local {@link Store} row which stays outside the pull.
+ * Held and served by the store node (imedge); a register (impos) only ever
+ * receives the RESOLVED settings, never the echelon rows themselves, so this
+ * entity is inert on the caisse.
  * <p>
  * Fields are public to comply with Quarkus/Panache conventions.
  */

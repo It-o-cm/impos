@@ -31,13 +31,9 @@ import java.util.concurrent.TimeUnit;
  * page and applies it. A fresh register bootstraps itself the same way (no
  * fingerprint recorded yet, everything differs).
  * <p>
- * Two-level chain (route A): the SAME loop runs on a store node too, pulling
- * the echelon domains ({@link RefPayloads#ECHELON_DOMAINS}) from the
- * CENTRAL node instead of the register domains from the store — a register
- * pulls its store, a store pulls the central, and neither the mechanism nor
- * the fingerprint form changes, only the upstream URL and the domain set. A
- * register never learns the echelons exist; it receives the resolved SETTINGS.
- * A central node runs no pull: it is the top.
+ * This register pulls the register domains ({@link RefPayloads#DOMAINS}) from
+ * its store node (imedge). It never learns the echelons exist; it receives the
+ * resolved SETTINGS already computed upstream. impos runs as a register only.
  * <p>
  * Consistency note: the pages of one snapshot are fetched without a shared
  * transaction, so an import running on the store node DURING a pull can
@@ -73,17 +69,9 @@ public class RefPullService {
     @ConfigProperty(name = "pos.referential.request-timeout-seconds", defaultValue = "30")
     long requestTimeoutSeconds;
 
-    /** The role of this node: a register pulls its store, a store pulls the central. */
-    @ConfigProperty(name = "pos.role", defaultValue = "register")
-    String role;
-
     /** Shared token sent to the upstream node; absent = none. */
     @ConfigProperty(name = "pos.sync.token")
     Optional<String> token;
-
-    /** The central node URL a STORE pulls its echelons from; absent = no central chaining. */
-    @ConfigProperty(name = "pos.sync.central-url")
-    Optional<String> centralUrl;
 
     /**
      * This register's own identifier ({@code pos.terminal.id}), the same
@@ -141,10 +129,8 @@ public class RefPullService {
      * @param event the Quarkus startup event
      */
     void onStart(@Observes StartupEvent event) {
-        boolean registerReady = "register".equalsIgnoreCase(role) && syncEndpoints.hasStoreUrl();
-        boolean storeReady = "store".equalsIgnoreCase(role) && hasCentralUrl();
-        if (!registerReady && !storeReady) {
-            LOGGER.info("Tirage des référentiels désactivé (rôle central, ou URL amont absente)");
+        if (!syncEndpoints.hasStoreUrl()) {
+            LOGGER.info("Tirage des référentiels désactivé (URL du nœud magasin absente)");
             return;
         }
         executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -158,32 +144,21 @@ public class RefPullService {
     }
 
     /**
-     * Whether a non-blank central URL is configured (a store node's upstream).
+     * The domains this register pulls from its store node.
      *
-     * @return true when the central URL is present and non-blank
-     */
-    private boolean hasCentralUrl() {
-        return centralUrl.map(url -> !url.isBlank()).orElse(false);
-    }
-
-    /**
-     * The domains this node pulls: the echelon domains for a store node, the
-     * register domains otherwise.
-     *
-     * @return the domain list to iterate
+     * @return the register domain list to iterate
      */
     private List<String> pullDomains() {
-        return "store".equalsIgnoreCase(role) ? RefPayloads.ECHELON_DOMAINS : RefPayloads.DOMAINS;
+        return RefPayloads.DOMAINS;
     }
 
     /**
-     * The upstream base URL this node pulls from: the central URL for a store
-     * node, the store URL otherwise.
+     * The upstream base URL this register pulls from: its store node.
      *
-     * @return the upstream base URL
+     * @return the store node base URL
      */
     private String upstreamUrl() {
-        return "store".equalsIgnoreCase(role) ? centralUrl.orElse("") : syncEndpoints.storeUrl();
+        return syncEndpoints.storeUrl();
     }
 
     /**
