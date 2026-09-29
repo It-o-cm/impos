@@ -41,6 +41,56 @@ public class EndorsementService {
     @Inject
     TechnicalEventService technicalEventService;
 
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /**
+     * Whether a negative gesture may run WITHOUT opening the endorsement modal
+     * (EXP-32/33): true when the gesture's administered flag is off, OR the logged
+     * operator is themselves a supervisor (LC-01-05-07), OR a supervisor session is
+     * currently open on the ticket (EXP-33). Otherwise the gesture must be endorsed.
+     *
+     * @param state the current POS state
+     * @param gestureKey the gesture suffix (e.g. "cancel-line", "abandon", "refund")
+     * @return true when the gesture is already authorized and needs no modal
+     */
+    public boolean gestureAuthorized(PosState state, String gestureKey) {
+        LOGGER.info("Entering method gestureAuthorized with gestureKey: " + gestureKey);
+        boolean authorized = !posSettingsService.gestureEndorsementRequired(gestureKey)
+                || operatorIsSupervisor(state)
+                || state.supervisorSessionBadge != null;
+        LOGGER.info("Exiting method gestureAuthorized");
+        return authorized;
+    }
+
+    /**
+     * Opens a supervisor session on the ticket when the administered scope is
+     * PER_TICKET (EXP-33): the endorsing manager's badge stays attached to the sale
+     * so the following guarded gestures proceed without re-asking, until FIN
+     * SUPERVISEUR or the end of the ticket. A no-op in PER_OP mode.
+     *
+     * @param state the current POS state
+     * @param endorserBadge the badge (or login) of the manager who just endorsed
+     */
+    public void openSupervisorSessionIfPerTicket(PosState state, String endorserBadge) {
+        LOGGER.info("Entering method openSupervisorSessionIfPerTicket");
+        if ("PER_TICKET".equals(posSettingsService.endorsementScope())) {
+            state.supervisorSessionBadge = endorserBadge;
+        }
+        LOGGER.info("Exiting method openSupervisorSessionIfPerTicket");
+    }
+
+    /**
+     * Ends an open supervisor session (EXP-33): the FIN SUPERVISEUR gesture.
+     *
+     * @param state the current POS state
+     */
+    public void endSupervisorSession(PosState state) {
+        LOGGER.info("Entering method endSupervisorSession");
+        state.supervisorSessionBadge = null;
+        LOGGER.info("Exiting method endSupervisorSession");
+    }
+
     /**
      * Verifies that the presented credentials belong to an active employee
      * holding the MANAGER or ADMIN role, PIN lockout enforced.

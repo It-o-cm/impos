@@ -136,6 +136,7 @@
      ! screen where it was switched on. !}
     {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">*** MODE DÉGRADÉ MONÉTIQUE FORCÉ ***</div>{/if}
     {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} ***</div>{/if}
+    {#if state.supervisorSessionBadge??}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">SUPERVISEUR {state.supervisorSessionBadge} — <a href="/action/supervisor-session/end" style="color:#fff;text-decoration:underline;">FIN SUPERVISEUR</a></div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
@@ -168,6 +169,9 @@
                 {#if state.menu.key == 'vente'}
                     <!-- VENTE : les gestes d'une vente en cours, et l'encaissement. -->
                     <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
+                    <a href="/action/cancel-by-scan"
+                       class="btn {#if state.cancelByScanArmed}btn-warning{#else}btn-muted{/if}"
+                       {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}ANNULER : SCANNEZ{#else}ANNULER PAR SCAN{/if}</a>
                     <a href="/action/price-mod/quantity" class="btn btn-muted">QUANTITÉ</a>
                     <!-- LC-02-08-01 : une seule touche pour les deux gestes. Une ligne
                          sélectionnée, elle marque cette ligne ; rien de sélectionné,
@@ -410,6 +414,10 @@
                 // gesture (LC-01-02-03). The closing page decides what it
                 // still has to ask — a badge answers the password, not the
                 // tickets left in attente.
+                if (data.returnRequested) {
+                    window.location.href = '/return';
+                    return;
+                }
                 if (data.closeRequested) {
                     window.location.href = '/close';
                     return;

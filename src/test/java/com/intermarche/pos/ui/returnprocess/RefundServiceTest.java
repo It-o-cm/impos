@@ -795,6 +795,90 @@ class RefundServiceTest {
     }
 
     /**
+     * {@code isReturnableTicket} answers false for a null code without a lookup
+     * (EXP-37).
+     */
+    @Test
+    void isReturnableTicketFalseForNullCode() {
+        org.junit.jupiter.api.Assertions.assertFalse(newService().isReturnableTicket(null));
+    }
+
+    /**
+     * {@code isReturnableTicket} is true when a CLOSED ticket carries the number,
+     * false when none does (EXP-37) — both arms.
+     */
+    @Test
+    void isReturnableTicketMatchesClosedTicket() {
+        RefundService s = newService();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> q = mock(PanacheQuery.class);
+            when(q.firstResult()).thenReturn(ticket(10L, "C04-00000042", "10.00"));
+            panache.when(() -> Ticket.find("ticketNumber = ?1 and status = ?2",
+                    "C04-00000042", Ticket.TicketStatus.CLOSED)).thenReturn(q);
+            org.junit.jupiter.api.Assertions.assertTrue(s.isReturnableTicket("C04-00000042"));
+        }
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> q = mock(PanacheQuery.class);
+            when(q.firstResult()).thenReturn(null);
+            panache.when(() -> Ticket.find("ticketNumber = ?1 and status = ?2",
+                    "C04-99999999", Ticket.TicketStatus.CLOSED)).thenReturn(q);
+            org.junit.jupiter.api.Assertions.assertFalse(s.isReturnableTicket("C04-99999999"));
+        }
+    }
+
+    /**
+     * {@code selectTicket} marks the lines already fully returned by past refunds
+     * (EXP-37) and leaves the others selectable — both arms.
+     */
+    @Test
+    void selectTicketMarksFullyReturnedLines() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket t = ticket(10L, "T-1", "30.00",
+                line(1L, "2", "10.00", "0.20", "MILK"),
+                line(2L, "1", "10.00", "0.20", "EGG"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(t);
+            panache.when(() -> RefundLine.list("originalLineId", 1L))
+                    .thenReturn(List.of(refundLineQty("2")));
+            panache.when(() -> RefundLine.list("originalLineId", 2L)).thenReturn(List.of());
+            s.selectTicket(state, 10L);
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(state.refund.isFullyReturned(1L));
+        org.junit.jupiter.api.Assertions.assertFalse(state.refund.isFullyReturned(2L));
+    }
+
+    /**
+     * {@code requestRefund} performs the refund DIRECTLY when the gesture is
+     * authorized without a modal (EXP-32): a Refund is written and no endorsement
+     * is parked.
+     */
+    @Test
+    void requestRefundDirectWhenAuthorized() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(s.endorsementService.gestureAuthorized(state, "refund")).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            stubTender(panache, "CASH", tender("CASH", true));
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.requestRefund(state, Refund.RefundMethod.CASH);
+            org.junit.jupiter.api.Assertions.assertFalse(mc.constructed().isEmpty());
+        }
+        verify(s.endorsementService, never()).requestAuthorization(any(), any());
+    }
+
+    /**
      * A tender the back office DOES allow goes through — the other arm, and the
      * proof that the flag is read rather than the refusal hard-coded.
      */

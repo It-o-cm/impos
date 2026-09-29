@@ -172,6 +172,20 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   product, discountForbidden, dépassement du plafond de ligne) → aucune mutation, à prouver
   par ABSENCE d'effet, pas par un message.
 
+- **C9 Autorisation par geste** [S] (EXP-32) : chaque geste négatif porte son propre
+  `gesture.endorsement-<geste>` (annulation ligne/dernier article, abandon, retour, remboursement,
+  remise, forçage). Drapeau OFF → le geste passe sans modale ; ON → aval demandé ; un caissier
+  MANAGER/ADMIN (`operatorIsSupervisor`) ne demande jamais.
+- **C10 Session superviseur** [S] (EXP-33) : `gesture.endorsement-scope=PER_TICKET` → un aval accordé
+  reste attaché au ticket (`supervisorSessionBadge`), les gestes suivants passent sans redemander ;
+  bandeau SUPERVISEUR visible ; touche FIN SUPERVISEUR (`/action/supervisor-session/end`) referme la
+  session ; la fin du ticket la referme aussi. PER_OP → chaque geste redemande.
+- **C11 Garde-fou dernier article** [S] (EXP-35) : l'annulation refuse quand l'article est le seul du
+  ticket (`DERNIER ARTICLE — UTILISEZ L'ABANDON DE TICKET`) — la sortie nommée est l'abandon.
+- **C12 Annulation par scan** [S] (EXP-36) : touche ANNULER PAR SCAN (`/action/cancel-by-scan`) arme le
+  mode ; le prochain code scanné désigne la ligne à annuler (via la même décision aval/dernier-article) ;
+  code absent du ticket → `ARTICLE ABSENT DU TICKET` ; désarmé après usage et à la fin du ticket.
+
 ## D. Fidélité [S]
 
 - **D1 Scan carte en cours de panier** → attachée (affichage), persiste sur le draft,
@@ -437,6 +451,14 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   (`[[BARCODE 297…]]`, repris au scan en caisse) et une date de fin de validité
   (`Valable jusqu'au : <date>`), la validité étant aussi stockée sur l'instrument
   (`StoredValue.validUntil`).
+
+- **H13 Retour par scan du numéro** [S] (EXP-37) : le numéro imprimé en bas d'un ticket CLÔTURÉ,
+  scanné sur l'écran de vente, route vers `/return` (poll `returnRequested` → navigation), la recherche
+  retour préremplie. Un numéro d'un ticket EN ATTENTE reprend le panier (comportement inchangé) ; un
+  numéro d'un autre magasin n'existe pas en base locale (refus implicite) ; autre caisse et autre jour OK.
+- **H14 Lignes déjà retournées grisées** [S] (EXP-37) : sur la fiche retour, une ligne entièrement
+  retournée par un retour antérieur est grisée (`.receipt-line.refunded`, « DÉJÀ RETOURNÉ ») et non
+  sélectionnable ; les lignes encore retournables restent actives.
 
 ## I. Session & clôture Z [S]
 

@@ -173,6 +173,10 @@ public class TicketService {
     @Inject
     Instance<ScanContext.ScanHandler> scanHandlers;
 
+    /** The sale-screen service, for the cancel-by-scan gesture (EXP-36). */
+    @Inject
+    com.intermarche.pos.ui.home.HomeService homeService;
+
     @Inject
     PosState state;
 
@@ -485,6 +489,19 @@ public class TicketService {
         // Phase 2 session gate: sale scans are refused while no session is
         // open (badge scans on the lock screen are unaffected).
         if (!state.isLocked() && !requireOpenSession(state)) {
+            LOGGER.info("Exiting method processScan");
+            return;
+        }
+
+        // EXP-36: the cancel-by-scan mode intercepts BEFORE the add chain — the
+        // scanned code designates the line to cancel, it never rings a new one.
+        // Handled at the single entry rather than as a chain handler, so it runs
+        // ahead of every add-handler without disturbing their disjoint priorities.
+        if (!state.isLocked() && state.cancelByScanArmed) {
+            homeService.cancelByScan(code);
+            if (!state.ticket.items.isEmpty() || state.payment.ticketDbId != null) {
+                syncAndRevalue(state);
+            }
             LOGGER.info("Exiting method processScan");
             return;
         }

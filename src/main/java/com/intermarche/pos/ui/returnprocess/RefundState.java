@@ -38,6 +38,23 @@ public class RefundState implements Serializable {
     /** The ticket being refunded, or null. */
     public Ticket selectedTicket = null;
 
+    /**
+     * The ids of the selected ticket's lines already FULLY returned by past
+     * refunds (EXP-37): the return detail greys them and makes them
+     * non-selectable. Computed when the ticket is selected.
+     */
+    public java.util.Set<Long> fullyReturnedLineIds = new java.util.HashSet<>();
+
+    /**
+     * Whether a line has already been fully returned (EXP-37).
+     *
+     * @param lineId the database id of the line
+     * @return true when nothing remains to return on that line
+     */
+    public boolean isFullyReturned(Long lineId) {
+        return fullyReturnedLineIds.contains(lineId);
+    }
+
     /** The refund quantities keyed by original line id. */
     public Map<Long, BigDecimal> returnQuantities = new HashMap<>();
 
@@ -190,6 +207,7 @@ public class RefundState implements Serializable {
      */
     public void clearSelection() {
         selectedTicket = null;
+        fullyReturnedLineIds.clear();
         returnQuantities.clear();
         detailPage = 0;
         selectedLineId = null;
@@ -208,6 +226,7 @@ public class RefundState implements Serializable {
         searchPattern = "";
         foundTickets.clear();
         selectedTicket = null;
+        fullyReturnedLineIds.clear();
         returnQuantities.clear();
         detailPage = 0;
         selectedLineId = null;

@@ -133,6 +133,9 @@ class TicketServiceTest {
         ticketNumberService = mock(com.intermarche.pos.service.TicketNumberService.class);
         service.ticketNumberService = ticketNumberService;
         service.scanHandlers = scanHandlers;
+        // The sale-screen service, reached only by the cancel-by-scan interception
+        // (EXP-36); a mock keeps the ordinary scan cases unchanged.
+        service.homeService = mock(com.intermarche.pos.ui.home.HomeService.class);
         service.defaultVatRate = new BigDecimal("0.20");
     }
 
@@ -259,6 +262,20 @@ class TicketServiceTest {
         service.processScan("123");
         verify(ticketPersistenceService, never()).syncDraft(state);
         verify(valuationService, never()).revalue(state);
+    }
+
+    /**
+     * {@code processScan} in cancel-by-scan mode (EXP-36) routes the code to the
+     * cancel gesture and SKIPS the add-handler chain entirely.
+     */
+    @Test
+    void processScanCancelByScanInterceptsBeforeTheChain() {
+        state.auth.isLocked = false;
+        openSession();
+        state.cancelByScanArmed = true;
+        service.processScan("3560070123456");
+        verify(service.homeService).cancelByScan("3560070123456");
+        verify(scanHandlers, never()).spliterator();
     }
 
     /**

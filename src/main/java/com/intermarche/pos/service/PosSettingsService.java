@@ -542,7 +542,39 @@ public class PosSettingsService {
         new Def("cash.drawer-cap", Type.TEXT, "TIROIR",
                 "Plafond de contenu du tiroir (€)",
                 "Montant d'espèces au-delà duquel la caisse affiche une alerte PRÉLÈVEMENT sans bloquer la vente, calé sur le montant garanti par l'assurance. 0 = aucun plafond (EXP-17).",
-                "0.00", null));
+                "0.00", null),
+        new Def("gesture.endorsement-cancel-line", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : annulation de ligne",
+                "L'annulation d'une ligne déjà enregistrée exige un aval superviseur. Désactivé : le caissier annule seul (EXP-32).",
+                "true", null),
+        new Def("gesture.endorsement-cancel-last", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : annulation du dernier article",
+                "L'annulation rapide du dernier article saisi exige un aval superviseur. Désactivé : le caissier annule seul le dernier article (EXP-32).",
+                "false", null),
+        new Def("gesture.endorsement-abandon", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : abandon de ticket",
+                "L'abandon du ticket en cours exige un aval superviseur. Désactivé : le caissier abandonne seul (EXP-32).",
+                "true", null),
+        new Def("gesture.endorsement-return", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : retour",
+                "Un retour d'article exige un aval superviseur. Désactivé : le caissier enregistre seul le retour (EXP-32).",
+                "true", null),
+        new Def("gesture.endorsement-refund", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : remboursement",
+                "Le remboursement d'un retour exige un aval superviseur. Désactivé : le caissier rembourse seul (EXP-32).",
+                "true", null),
+        new Def("gesture.endorsement-discount", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : remise / discount",
+                "Une remise ou un discount (ligne ou ticket) exige un aval superviseur. Désactivé : le caissier applique seul (EXP-32).",
+                "true", null),
+        new Def("gesture.endorsement-price-force", Type.BOOL, "GESTES NÉGATIFS",
+                "Aval superviseur : forçage de prix",
+                "Le forçage du prix d'une ligne exige un aval superviseur. Désactivé : le caissier force seul (EXP-32).",
+                "true", null),
+        new Def("gesture.endorsement-scope", Type.TEXT, "GESTES NÉGATIFS",
+                "Portée de l'aval superviseur",
+                "PER_OP : l'aval vaut pour un seul geste (défaut). PER_TICKET : une fois donné, l'aval reste attaché au ticket jusqu'à la touche FIN SUPERVISEUR ou la fin du ticket (EXP-33).",
+                "PER_OP", null));
 
     /**
      * The echelon inheritance engine, or null on a node where none is wired
@@ -921,6 +953,33 @@ public class PosSettingsService {
         LOGGER.info("Entering method drawerCap");
         LOGGER.info("Exiting method drawerCap");
         return bigDecimalValue("cash.drawer-cap");
+    }
+
+    /**
+     * Whether a specific negative gesture requires a supervisor endorsement
+     * (EXP-32): reads {@code gesture.endorsement-<gestureKey>}. Each negative
+     * function carries its own administered flag rather than sharing one.
+     *
+     * @param gestureKey the gesture suffix (e.g. "cancel-line", "abandon", "refund")
+     * @return true when that gesture requires an endorsement
+     */
+    public boolean gestureEndorsementRequired(String gestureKey) {
+        LOGGER.info("Entering method gestureEndorsementRequired with gestureKey: " + gestureKey);
+        LOGGER.info("Exiting method gestureEndorsementRequired");
+        return boolValue("gesture.endorsement-" + gestureKey);
+    }
+
+    /**
+     * The scope of a supervisor endorsement (EXP-33): {@code PER_OP} (each gesture
+     * asks) or {@code PER_TICKET} (the endorsement stays open until FIN SUPERVISEUR
+     * or the end of the ticket).
+     *
+     * @return the administered scope, never null
+     */
+    public String endorsementScope() {
+        LOGGER.info("Entering method endorsementScope");
+        LOGGER.info("Exiting method endorsementScope");
+        return value("gesture.endorsement-scope");
     }
 
     /**

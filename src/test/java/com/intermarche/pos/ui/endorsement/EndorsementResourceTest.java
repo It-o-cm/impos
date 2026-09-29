@@ -184,6 +184,20 @@ class EndorsementResourceTest {
     }
 
     /**
+     * {@code validateEndorsement()} opens the supervisor session on a granted
+     * endorsement (EXP-33): the scope decision itself lives in the service, so the
+     * resource just hands it the endorser's login.
+     */
+    @Test
+    void validateEndorsementGrantedOpensSupervisorSession() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction = "CANCEL_TICKET";
+        when(resource.endorsementService.authorize("m", "1234", "CANCEL_TICKET")).thenReturn(true);
+        resource.validateEndorsement("m", "1234");
+        verify(resource.endorsementService).openSupervisorSessionIfPerTicket(resource.state, "m");
+    }
+
+    /**
      * {@code validateEndorsement()} cancels the targeted line when the granted
      * action is {@code CANCEL_LINE_<uid>}, passing the parsed uid.
      */

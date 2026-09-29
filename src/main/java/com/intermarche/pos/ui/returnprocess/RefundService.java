@@ -94,6 +94,28 @@ public class RefundService {
      *
      * @param state the current POS state
      */
+    /**
+     * Whether a scanned code names a CLOSED sale ticket in this register's
+     * database — the test for routing a scanned ticket number to the return
+     * (EXP-37). A foreign-store number is not in this database, so it answers
+     * false and the store boundary is honoured; another till and another day
+     * (both local) answer true.
+     *
+     * @param ticketNumber the scanned ticket number
+     * @return true when a CLOSED ticket carries that number
+     */
+    public boolean isReturnableTicket(String ticketNumber) {
+        LOGGER.info("Entering method isReturnableTicket with ticketNumber: " + ticketNumber);
+        if (ticketNumber == null) {
+            LOGGER.info("Exiting method isReturnableTicket");
+            return false;
+        }
+        Ticket found = Ticket.find("ticketNumber = ?1 and status = ?2",
+                ticketNumber, Ticket.TicketStatus.CLOSED).firstResult();
+        LOGGER.info("Exiting method isReturnableTicket");
+        return found != null;
+    }
+
     public void searchTickets(PosState state) {
         LOGGER.info("Entering method searchTickets with state: " + state);
         String pattern = state.refund.searchPattern;
@@ -132,6 +154,17 @@ public class RefundService {
         Ticket t = Ticket.findById(ticketId);
         if (t != null) {
             state.refund.selectedTicket = t;
+            // EXP-37: mark the lines already fully returned by past refunds so the
+            // detail greys them and refuses their selection.
+            state.refund.fullyReturnedLineIds.clear();
+            if (t.lines != null) {
+                for (TicketLine line : t.lines) {
+                    if (!line.cancelled
+                            && alreadyRefunded(line.id).compareTo(line.quantity) >= 0) {
+                        state.refund.fullyReturnedLineIds.add(line.id);
+                    }
+                }
+            }
             state.refund.returnQuantities.clear();
             state.refund.detailPage = 0;
             state.refund.selectedLineId = null;
@@ -383,8 +416,19 @@ public class RefundService {
             return;
         }
         state.refund.errorMessage = null;
-        endorsementService.requestAuthorization(state,
-                "REFUND_" + method.name() + "_" + state.refund.selectedTicket.id);
+        if (endorsementService.gestureAuthorized(state, "refund")) {
+            // EXP-32: administered without endorsement, connected supervisor, or an
+            // open supervisor session — perform the refund directly, ceremony
+            // skipped. A guard refusal leaves its message on the refund screen.
+            try {
+                performRefund(state, method);
+            } catch (IllegalStateException e) {
+                // message already set on the refund screen by the guard
+            }
+        } else {
+            endorsementService.requestAuthorization(state,
+                    "REFUND_" + method.name() + "_" + state.refund.selectedTicket.id);
+        }
         state.touch();
         LOGGER.info("Exiting method requestRefund");
     }

@@ -80,6 +80,8 @@ class HomeResourceTest {
         // answer (the register writes its draft from one thread at a time), so it
         // reaches the payment service — a mock keeps that read from hitting null.
         resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
+        // The endorsement flow, for the FIN SUPERVISEUR route (EXP-33).
+        resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         return resource;
     }
 
@@ -1027,6 +1029,45 @@ class HomeResourceTest {
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.toggleCollect());
         verify(resource.homeService).toggleCollect();
+    }
+
+    /**
+     * {@code armCancelByScan()} (EXP-36) delegates to the service and re-renders
+     * the sale screen.
+     */
+    @Test
+    void armCancelByScanRouteDelegatesAndRendersHome() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.armCancelByScan());
+        verify(resource.homeService).armCancelByScan();
+    }
+
+    /**
+     * {@code endSupervisorSession()} (EXP-33) clears the session and re-renders the
+     * sale screen.
+     */
+    @Test
+    void endSupervisorSessionRouteClearsAndRendersHome() {
+        HomeResource resource = newResource();
+        TemplateInstance mainView = stubMain(resource);
+        assertSame(mainView, resource.endSupervisorSession());
+        verify(resource.endorsementService).endSupervisorSession(resource.state);
+    }
+
+    /**
+     * {@code getTicketFragment} carries and clears the return-by-scan request
+     * (EXP-37): the poll navigates to /return exactly once.
+     */
+    @Test
+    void getTicketFragmentCarriesAndClearsTheReturnRequest() {
+        HomeResource resource = newResource();
+        resource.state.version = 7L;
+        resource.state.returnByScanRequested = true;
+        when(resource.state.ticket.getTotalAmount()).thenReturn(BigDecimal.ZERO);
+        Map<String, Object> result = resource.getTicketFragment(7L);
+        assertEquals(true, result.get("returnRequested"));
+        assertEquals(false, resource.state.returnByScanRequested);
     }
 
 }

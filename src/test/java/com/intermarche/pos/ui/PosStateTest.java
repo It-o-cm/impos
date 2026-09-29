@@ -178,6 +178,21 @@ class PosStateTest {
     }
 
     /**
+     * {@code clearTicket()} closes any open supervisor session and disarms the
+     * cancel-by-scan mode (EXP-33/36): a supervisor authorization or an armed
+     * cancel must never leak into the next customer's sale.
+     */
+    @Test
+    void clearTicketClosesSupervisorSessionAndDisarmsCancelByScan() {
+        PosState state = newState();
+        state.supervisorSessionBadge = "M1";
+        state.cancelByScanArmed = true;
+        state.clearTicket();
+        assertNull(state.supervisorSessionBadge);
+        assertFalse(state.cancelByScanArmed);
+    }
+
+    /**
      * The entry prompt clears back to the state a fresh one starts in, so a second
      * suspended add never inherits the first one's figures.
      */

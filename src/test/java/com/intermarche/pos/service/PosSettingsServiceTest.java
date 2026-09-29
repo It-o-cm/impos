@@ -1785,4 +1785,40 @@ class PosSettingsServiceTest {
             assertEquals(0, new java.math.BigDecimal("0.00").compareTo(new PosSettingsService().drawerCap()));
         }
     }
+
+    /**
+     * {@code gestureEndorsementRequired(key)} (EXP-32) reads the per-gesture flag:
+     * cancel-line defaults on, cancel-last defaults off, and a stored override wins
+     * — both arms of one gesture plus a distinct default.
+     */
+    @Test
+    void gestureEndorsementRequiredReadsPerGestureFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(new PosSettingsService().gestureEndorsementRequired("cancel-line"));
+            assertFalse(new PosSettingsService().gestureEndorsementRequired("cancel-last"));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("gesture.endorsement-cancel-line", "false")));
+            assertFalse(new PosSettingsService().gestureEndorsementRequired("cancel-line"));
+        }
+    }
+
+    /**
+     * {@code endorsementScope} (EXP-33) defaults to PER_OP and returns a stored
+     * PER_TICKET override — both arms.
+     */
+    @Test
+    void endorsementScopeReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("PER_OP", new PosSettingsService().endorsementScope());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("gesture.endorsement-scope", "PER_TICKET")));
+            assertEquals("PER_TICKET", new PosSettingsService().endorsementScope());
+        }
+    }
 }

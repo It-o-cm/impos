@@ -485,4 +485,16 @@ class RefundStateTest {
         s.selectedTicket = ticket(lines);
         assertEquals(2, s.getDetailTotalPages());
     }
+
+    /**
+     * {@code isFullyReturned} reflects the fully-returned line set (EXP-37): true
+     * for a listed line, false for an absent one — both arms.
+     */
+    @Test
+    void isFullyReturnedReflectsTheSet() {
+        RefundState s = new RefundState();
+        s.fullyReturnedLineIds.add(7L);
+        assertTrue(s.isFullyReturned(7L));
+        assertFalse(s.isFullyReturned(9L));
+    }
 }

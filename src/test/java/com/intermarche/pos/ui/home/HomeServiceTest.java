@@ -81,6 +81,8 @@ class HomeServiceTest {
                 org.mockito.ArgumentMatchers.any())).thenReturn(java.math.BigDecimal.ZERO);
         service.ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.endorsementService = mock(EndorsementService.class);
+        // The payment writer, for the direct (unendorsed) ticket abandon (EXP-32).
+        service.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
         // Back-office parameters at their catalog defaults: the endorsement
         // ceremony applies, so the historical routing assertions hold.
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
@@ -315,14 +317,17 @@ class HomeServiceTest {
     void cancelLineCancelsSelectedLastEnteredDirectly() {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         service.state.ticket.items.add(it);
+        service.state.ticket.items.add(item("B", "456", null, BigDecimal.ONE, BigDecimal.ONE));
         service.state.selectedTicketIndex = 0;
         service.state.lastEnteredItemId = "A";
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         service.cancelLine();
         verify(service.ticketService).cancelItemById(service.state, "A");
         assertNull(service.state.lastEnteredItemId);
         assertEquals(-1, service.state.selectedTicketIndex);
         verify(service.state).touch();
-        verifyNoInteractions(service.endorsementService);
+        verify(service.endorsementService, never()).requestAuthorization(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
     }
 
     /**
@@ -333,6 +338,7 @@ class HomeServiceTest {
     void cancelLineRequestsEndorsementWhenNotLastEntered() {
         TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
         service.state.ticket.items.add(it);
+        service.state.ticket.items.add(item("B", "456", null, BigDecimal.ONE, BigDecimal.ONE));
         service.state.selectedTicketIndex = 0;
         service.state.lastEnteredItemId = "OTHER";
         service.cancelLine();
@@ -363,10 +369,12 @@ class HomeServiceTest {
     @Test
     void cancelLineTargetsLastLineWhenIndexOutOfRange() {
         service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.ticket.items.add(item("B", "456", null, BigDecimal.ONE, BigDecimal.ONE));
         service.state.selectedTicketIndex = 5;
-        service.state.lastEnteredItemId = "A";
+        service.state.lastEnteredItemId = "B";
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         service.cancelLine();
-        verify(service.ticketService).cancelItemById(service.state, "A");
+        verify(service.ticketService).cancelItemById(service.state, "B");
     }
 
     /**
@@ -1134,7 +1142,7 @@ class HomeServiceTest {
      */
     @Test
     void submitPriceModDisabledAppliesGlobalDirectly() {
-        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         BigDecimal value = new BigDecimal("10");
         service.submitPriceMod(PriceModType.GLOBAL_DISCOUNT, "A", value);
         verify(service.ticketService).applyGlobalDiscount(service.state, PriceModType.GLOBAL_DISCOUNT, value);
@@ -1149,7 +1157,7 @@ class HomeServiceTest {
      */
     @Test
     void gestureDirectlyReportsMissingLine() {
-        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         service.submitPriceMod(null, "MISSING", new BigDecimal("1"));
         verify(service.state.ticket).setError("LIGNE INTROUVABLE");
         verify(service.ticketService, never()).recalculateTotal(any());
@@ -1161,7 +1169,7 @@ class HomeServiceTest {
      */
     @Test
     void gestureDirectlyAppliesRemise() {
-        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         TicketState.TicketItem item = addLine("A");
         BigDecimal value = new BigDecimal("2");
         service.submitPriceMod(PriceModType.REMISE, "A", value);
@@ -1174,7 +1182,7 @@ class HomeServiceTest {
      */
     @Test
     void gestureDirectlyAppliesDiscount() {
-        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         TicketState.TicketItem item = addLine("A");
         BigDecimal value = new BigDecimal("15");
         service.submitPriceMod(PriceModType.DISCOUNT, "A", value);
@@ -1187,7 +1195,7 @@ class HomeServiceTest {
      */
     @Test
     void gestureDirectlyForcesPrice() {
-        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         TicketState.TicketItem item = addLine("A");
         BigDecimal value = new BigDecimal("5");
         service.submitPriceMod(PriceModType.FORCE_PRICE, "A", value);
@@ -1201,7 +1209,7 @@ class HomeServiceTest {
      */
     @Test
     void gestureDirectlyUnknownTypeStillRecalculates() {
-        when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
         TicketState.TicketItem item = addLine("A");
         service.submitPriceMod(null, "A", new BigDecimal("1"));
         verify(service.ticketService, never()).applyRemise(any(), any());
@@ -1472,5 +1480,91 @@ class HomeServiceTest {
         when(service.cashSessionService.drawerCapExcess())
                 .thenReturn(new java.math.BigDecimal("1200.00"));
         assertEquals("PRÉLÈVEMENT — CONTENU TIROIR 1200,00 €", service.drawerCapAlert());
+    }
+
+    /**
+     * {@code cancelLine()} refuses to cancel the only article (EXP-35): the
+     * refusal names the abandon exit, and neither a cancel nor an endorsement runs.
+     */
+    @Test
+    void cancelLineRefusesTheOnlyArticle() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.selectedTicketIndex = 0;
+        service.state.lastEnteredItemId = "A";
+        service.cancelLine();
+        verify(service.state.ticket).setError("DERNIER ARTICLE — UTILISEZ L'ABANDON DE TICKET");
+        verify(service.ticketService, never()).cancelItemById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        verify(service.endorsementService, never()).requestAuthorization(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * {@code armCancelByScan()} arms the mode, clears the modal and prompts the
+     * cashier to scan (EXP-36).
+     */
+    @Test
+    void armCancelByScanArmsTheMode() {
+        service.armCancelByScan();
+        assertTrue(service.state.cancelByScanArmed);
+        verify(service.state.ticket).setNotice("SCANNEZ L'ARTICLE À ANNULER");
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code cancelByScan()} cancels the line whose EAN matches the scanned code
+     * (EXP-36), disarms the mode, and runs through the shared cancel decision.
+     */
+    @Test
+    void cancelByScanCancelsTheMatchingLine() {
+        service.state.cancelByScanArmed = true;
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.state.ticket.items.add(item("B", "456", null, BigDecimal.ONE, BigDecimal.ONE));
+        when(service.endorsementService.gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        service.cancelByScan("123");
+        assertFalse(service.state.cancelByScanArmed);
+        verify(service.ticketService).cancelItemById(service.state, "A");
+    }
+
+    /**
+     * {@code cancelByScan()} refuses a code no line carries (EXP-36): the mode is
+     * disarmed and nothing is cancelled.
+     */
+    @Test
+    void cancelByScanRefusesAbsentArticle() {
+        service.state.cancelByScanArmed = true;
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.cancelByScan("999");
+        assertFalse(service.state.cancelByScanArmed);
+        verify(service.state.ticket).setError("ARTICLE ABSENT DU TICKET");
+        verify(service.ticketService, never()).cancelItemById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * {@code cancelTicket()} cancels directly when authorized (EXP-32): the
+     * settlement is undone and the ticket cancelled without a modal.
+     */
+    @Test
+    void cancelTicketCancelsDirectlyWhenAuthorized() {
+        when(service.endorsementService.gestureAuthorized(service.state, "abandon")).thenReturn(true);
+        service.state.payment.payments = new ArrayList<>();
+        service.cancelTicket();
+        verify(service.ticketService).cancelTicket(service.state);
+        verify(service.endorsementService, never()).requestAuthorization(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * {@code cancelTicket()} parks the endorsement when the abandon requires one
+     * (EXP-32): the ticket is not cancelled until a manager answers.
+     */
+    @Test
+    void cancelTicketRequestsEndorsementWhenNotAuthorized() {
+        when(service.endorsementService.gestureAuthorized(service.state, "abandon")).thenReturn(false);
+        service.cancelTicket();
+        verify(service.endorsementService).requestAuthorization(service.state, "CANCEL_TICKET");
+        verify(service.ticketService, never()).cancelTicket(org.mockito.ArgumentMatchers.any());
     }
 }

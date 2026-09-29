@@ -260,6 +260,22 @@ public class PosState implements Serializable {
     public String donationLineUid = null;
 
     /**
+     * The badge of the supervisor whose endorsement is held OPEN for the whole
+     * ticket (EXP-33), or null in the ordinary per-gesture mode. While non-null,
+     * guarded negative gestures proceed without re-asking; the FIN SUPERVISEUR key
+     * or the end of the ticket clears it. Reset by {@link #clearTicket()} so a
+     * supervisor authorization never leaks into the next customer's sale.
+     */
+    public String supervisorSessionBadge = null;
+
+    /**
+     * True while the operator armed the cancel-by-scan mode (EXP-36): the next
+     * scanned code designates the line to cancel instead of adding one. Arms ONE
+     * scan, like the quantity arming; reset by {@link #clearTicket()}.
+     */
+    public boolean cancelByScanArmed = false;
+
+    /**
      * True while the register runs in training mode: nothing is persisted
      * (no draft, no ticket number, no fiscal chain, no sync), the drawer
      * stays shut, refunds and session actions are blocked, and every screen
@@ -301,6 +317,14 @@ public class PosState implements Serializable {
 
     /** Database id of the last closed ticket, or null. */
     public Long lastClosedTicketId = null;
+
+    /**
+     * One-shot request raised when a CLOSED ticket number is scanned on the sale
+     * screen (EXP-37): the ticket-fragment poll carries it and the screen navigates
+     * to {@code /return}, the same relay the badge-close uses. Consumed (cleared) by
+     * the poll that carries it, so it fires the navigation exactly once.
+     */
+    public boolean returnByScanRequested = false;
 
     /** The one answer the register gives when a function needs a closed ticket and there is none. */
     public static final String NO_LAST_TICKET = "AUCUN TICKET";
@@ -396,6 +420,8 @@ public class PosState implements Serializable {
         ticketCurrentPage = 0;
         customerMessage = "";
         invoice.clear();
+        supervisorSessionBadge = null;
+        cancelByScanArmed = false;
     }
 
     /**

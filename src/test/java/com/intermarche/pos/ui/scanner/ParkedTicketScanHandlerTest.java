@@ -34,7 +34,33 @@ class ParkedTicketScanHandlerTest {
     private ParkedTicketScanHandler newHandler(TicketParkingService parking) {
         ParkedTicketScanHandler handler = new ParkedTicketScanHandler();
         handler.ticketParkingService = parking;
+        // EXP-37: the handler now asks the return service whether the number is a
+        // CLOSED sale ticket before resuming a parked one. Default false keeps the
+        // pre-existing tests on the parked path; the return tests override it.
+        handler.refundService = mock(com.intermarche.pos.ui.returnprocess.RefundService.class);
+        when(handler.refundService.isReturnableTicket(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(false);
         return handler;
+    }
+
+    /**
+     * A matching code that names a CLOSED sale ticket routes to the return
+     * (EXP-37): the return search is populated and the one-shot navigation flag
+     * is raised, without touching the parked-resume path.
+     */
+    @Test
+    void routesClosedTicketToReturn() {
+        TicketParkingService parking = mock(TicketParkingService.class);
+        ParkedTicketScanHandler handler = newHandler(parking);
+        when(handler.refundService.isReturnableTicket("C04-00000042")).thenReturn(true);
+        PosState state = unlocked();
+        ScanContext ctx = new ScanContext("C04-00000042", state);
+        handler.handle(ctx);
+        assertEquals("C04-00000042", state.refund.searchPattern);
+        assertTrue(state.returnByScanRequested);
+        assertTrue(ctx.handled);
+        verify(handler.refundService).searchTickets(state);
+        verify(parking, never()).resumeByNumber(org.mockito.ArgumentMatchers.anyString());
     }
 
     /**

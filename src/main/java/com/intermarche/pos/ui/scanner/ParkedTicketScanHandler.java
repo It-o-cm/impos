@@ -1,18 +1,24 @@
 package com.intermarche.pos.ui.scanner;
 
+import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketParkingService;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 /**
- * Recognizes a PARKED-TICKET NUMBER pushed on the scan bus (LC-04-02-01):
- * the code printed on the parked receipt, shaped {@code <terminal>-<8
- * digits>} — a domain disjoint from every EAN, voucher and fidelity pattern
- * (no other scanned code carries a dash). Resolution is register-local and
- * status-guarded, so a closed or foreign number answers the same message as
- * an unknown one; the resume itself reuses the guarded parking service
- * (refused over a non-empty cart, with its own message).
+ * Recognizes a TICKET NUMBER pushed on the scan bus, shaped {@code
+ * <terminal>-<8 digits>} — a domain disjoint from every EAN, voucher and
+ * fidelity pattern (no other scanned code carries a dash). ONE owner of that
+ * pattern dispatches by the resolved ticket's status: a PARKED number resumes
+ * the cart (LC-04-02-01), a CLOSED number routes to the return (EXP-37) — the
+ * number printed at the bottom of the sale ticket, scanned to start a return.
+ * A separate handler on the same pattern would tie at this priority, which the
+ * chain contract forbids, so the two live here. Resolution is register-local
+ * and status-guarded: an unknown or foreign number answers the same message as
+ * a stale one. Reaching a CLOSED ticket also honours the store boundary — a
+ * ticket from another store is not in this register's database, so it never
+ * resolves (another till and another day, both local, do).
  */
 @ApplicationScoped
 @Priority(1)
@@ -22,8 +28,13 @@ public class ParkedTicketScanHandler implements ScanContext.ScanHandler {
     @Inject
     TicketParkingService ticketParkingService;
 
+    /** The return search, shared with the /return screen (EXP-37). */
+    @Inject
+    RefundService refundService;
+
     /**
-     * Handles a scan by attempting to resume the parked ticket it names.
+     * Handles a scan by resuming the parked ticket it names, or routing a closed
+     * sale ticket to the return.
      *
      * @param ctx the scan context carrying the scanned code and POS state
      */
@@ -33,6 +44,18 @@ public class ParkedTicketScanHandler implements ScanContext.ScanHandler {
         if (ctx.state.isLocked()) return;
         String code = ctx.code;
         if (code == null || !code.matches("[A-Za-z0-9]+-\\d{8}")) return;
+
+        // EXP-37: a CLOSED sale ticket number scanned on the sale screen starts a
+        // return — populate the return search and let the poll carry the screen to
+        // /return, the same one-shot relay the badge-close uses.
+        if (refundService.isReturnableTicket(code)) {
+            ctx.state.refund.searchPattern = code;
+            refundService.searchTickets(ctx.state);
+            ctx.state.returnByScanRequested = true;
+            ctx.state.touch();
+            ctx.handled = true;
+            return;
+        }
 
         String error = ticketParkingService.resumeByNumber(code);
         if (error != null) {

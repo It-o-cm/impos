@@ -55,6 +55,9 @@ public class HomeResource {
     @Inject TicketService ticketService;
     @Inject HardwareService hardwareService;
     @Inject PosState state;
+
+    /** The endorsement flow, for the FIN SUPERVISEUR gesture (EXP-33). */
+    @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
     /** The exchange-health assembly behind the supervisor screen's panel. */
     @Inject com.intermarche.pos.ui.supervision.ExchangeHealthService exchangeHealthService;
     /** The forced monetics degraded mode (LC-07-08-03/04). */
@@ -164,6 +167,13 @@ public class HomeResource {
         // same reason: the gesture happens on the scan bus, far from the page,
         // and only this poll can send the screen to the closing (LC-01-02-03).
         result.put("closeRequested", state.auth.closeRequestedByBadge);
+        // EXP-37: a scanned CLOSED ticket number sends the screen to the return.
+        // One-shot: read and clear here so the navigation fires exactly once.
+        boolean returnRequested = state.returnByScanRequested;
+        if (returnRequested) {
+            state.returnByScanRequested = false;
+        }
+        result.put("returnRequested", returnRequested);
         // Payability rides along for the same reason: the ENCAISSER control
         // is server-rendered OUTSIDE the polled fragment, so a cart filled
         // through the scan bus (hardware scanner, simulator) would leave the
@@ -377,6 +387,38 @@ public class HomeResource {
         LOGGER.info("Entering method repeatLastItem");
         homeService.repeatLastItem();
         LOGGER.info("Exiting method repeatLastItem");
+        return home();
+    }
+
+    /**
+     * Arms the cancel-by-scan mode (EXP-36): the next scanned code names the line
+     * to cancel.
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/cancel-by-scan")
+    public TemplateInstance armCancelByScan() {
+        LOGGER.info("Entering method armCancelByScan");
+        homeService.armCancelByScan();
+        LOGGER.info("Exiting method armCancelByScan");
+        return home();
+    }
+
+    /**
+     * Ends an open supervisor session (EXP-33): the FIN SUPERVISEUR key. The
+     * following gestures ask for an endorsement again.
+     *
+     * @return the home page
+     */
+    @GET
+    @Path("/action/supervisor-session/end")
+    public TemplateInstance endSupervisorSession() {
+        LOGGER.info("Entering method endSupervisorSession");
+        endorsementService.endSupervisorSession(state);
+        state.ticket.setNotice("FIN SUPERVISEUR");
+        state.touch();
+        LOGGER.info("Exiting method endSupervisorSession");
         return home();
     }
 

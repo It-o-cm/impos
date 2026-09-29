@@ -14,7 +14,9 @@ import org.mockito.MockedStatic;
 import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
@@ -41,6 +43,7 @@ class EndorsementServiceTest {
         EndorsementService service = new EndorsementService();
         service.authService = mock(AuthService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         return service;
     }
 
@@ -303,5 +306,97 @@ class EndorsementServiceTest {
             ms.when(() -> Employee.findById(7L)).thenReturn(employee(true, Employee.EmployeeRole.ADMIN));
             assertTrue(service.operatorIsSupervisor(stateWithOperator(7L)));
         }
+    }
+
+    /**
+     * {@code gestureAuthorized} is true when the gesture's flag is off (EXP-32):
+     * the gesture proceeds without a modal, no operator lookup needed.
+     */
+    @Test
+    void gestureAuthorizedWhenFlagOff() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.gestureEndorsementRequired("cancel-line")).thenReturn(false);
+        assertTrue(service.gestureAuthorized(stateWithOperator(null), "cancel-line"));
+    }
+
+    /**
+     * {@code gestureAuthorized} is true when a supervisor session is open on the
+     * ticket (EXP-33), even with the flag on and no supervising operator.
+     */
+    @Test
+    void gestureAuthorizedWhenSupervisorSessionOpen() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.gestureEndorsementRequired("refund")).thenReturn(true);
+        PosState state = stateWithOperator(null);
+        state.supervisorSessionBadge = "M1";
+        assertTrue(service.gestureAuthorized(state, "refund"));
+    }
+
+    /**
+     * {@code gestureAuthorized} is true when the logged operator is a supervisor
+     * (LC-01-05-07), with the flag on and no open session.
+     */
+    @Test
+    void gestureAuthorizedWhenOperatorIsSupervisor() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.gestureEndorsementRequired("cancel-line")).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(employee(true, Employee.EmployeeRole.MANAGER));
+            assertTrue(service.gestureAuthorized(stateWithOperator(7L), "cancel-line"));
+        }
+    }
+
+    /**
+     * {@code gestureAuthorized} is false when the flag is on, no supervisor is
+     * logged and no session is open — the modal is required (all arms false).
+     */
+    @Test
+    void gestureNotAuthorizedWhenNoneApply() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.gestureEndorsementRequired("abandon")).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(employee(true, Employee.EmployeeRole.PICKER));
+            PosState state = stateWithOperator(7L);
+            state.supervisorSessionBadge = null;
+            assertFalse(service.gestureAuthorized(state, "abandon"));
+        }
+    }
+
+    /**
+     * {@code openSupervisorSessionIfPerTicket} attaches the endorser's badge in
+     * PER_TICKET scope (EXP-33).
+     */
+    @Test
+    void openSupervisorSessionPerTicketSetsBadge() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.endorsementScope()).thenReturn("PER_TICKET");
+        PosState state = stateWithOperator(null);
+        service.openSupervisorSessionIfPerTicket(state, "M1");
+        assertEquals("M1", state.supervisorSessionBadge);
+    }
+
+    /**
+     * {@code openSupervisorSessionIfPerTicket} leaves no session in PER_OP scope.
+     */
+    @Test
+    void openSupervisorSessionPerOpLeavesNull() {
+        EndorsementService service = newService();
+        when(service.posSettingsService.endorsementScope()).thenReturn("PER_OP");
+        PosState state = stateWithOperator(null);
+        state.supervisorSessionBadge = null;
+        service.openSupervisorSessionIfPerTicket(state, "M1");
+        assertNull(state.supervisorSessionBadge);
+    }
+
+    /**
+     * {@code endSupervisorSession} clears an open supervisor session (EXP-33).
+     */
+    @Test
+    void endSupervisorSessionClearsBadge() {
+        EndorsementService service = newService();
+        PosState state = stateWithOperator(null);
+        state.supervisorSessionBadge = "M1";
+        service.endSupervisorSession(state);
+        assertNull(state.supervisorSessionBadge);
     }
 }

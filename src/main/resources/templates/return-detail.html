@@ -119,7 +119,19 @@
             {#let hasReturn = state.refund.hasReturnQty(line.id)}
             {#let maxQty = line.quantity}
             {#let isSelected = state.refund.isLineSelected(line.id)}
+            {#let isRefunded = state.refund.isFullyReturned(line.id)}
 
+            {#if isRefunded}
+            <div class="receipt-line refunded">
+              <span class="line-content">
+                        <span class="item-label">
+                            <span class="item-qty-info">x{maxQty.stripTrailingZeros().toPlainString()}</span>
+                          {line.productLabel} — DÉJÀ RETOURNÉ
+                        </span>
+                <span class="item-price">{line.totalFormatted} €</span>
+              </span>
+            </div>
+            {#else}
             <div class="receipt-line {hasReturn ? 'has-return' : ''} {isSelected ? 'selected' : ''}">
               <a href="/return/select-line/{line.id}" class="line-content">
                         <span class="item-label">
@@ -140,6 +152,7 @@
                 <a href="/return/select-line/{line.id}" class="btn-validate-line">✓</a>
               </div>
             </div>
+            {/if}
             {/let}
             {/for}
 

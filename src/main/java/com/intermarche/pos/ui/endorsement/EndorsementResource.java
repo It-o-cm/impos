@@ -98,6 +98,9 @@ public class EndorsementResource {
         }
 
         if (endorsementService.authorize(login, password, actionToExecute)) {
+            // EXP-33: in PER_TICKET scope the endorsement stays open on the sale so
+            // the following guarded gestures do not re-ask, until FIN SUPERVISEUR.
+            endorsementService.openSupervisorSessionIfPerTicket(state, login);
             String landing = state.endorsement.returnPath;
             Response own = executeApprovedAction(actionToExecute, login);
             endorsementService.clearRequest(state);

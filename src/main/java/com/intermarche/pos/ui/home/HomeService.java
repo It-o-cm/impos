@@ -60,6 +60,10 @@ public class HomeService {
     @Inject
     com.intermarche.pos.service.CashSessionService cashSessionService;
 
+    /** The payment writer, for the direct (unendorsed) ticket abandon (EXP-32). */
+    @Inject
+    com.intermarche.pos.ui.payment.PaymentService paymentService;
+
     /** Printer service — used by the endorsed operator-badge reprint. */
     @Inject
     com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
@@ -332,12 +336,7 @@ public class HomeService {
 
         if (targetUid == null) { LOGGER.info("Exiting method cancelLine"); return; }
 
-        if (targetUid.equals(state.lastEnteredItemId)) {
-            ticketService.cancelItemById(state, targetUid);
-            state.lastEnteredItemId = null;
-        } else {
-            endorsementService.requestAuthorization(state, "CANCEL_LINE_" + targetUid);
-        }
+        cancelLineByUid(targetUid);
 
         state.selectedTicketIndex = -1;
         state.touch();
@@ -345,12 +344,102 @@ public class HomeService {
     }
 
     /**
+     * Cancels the line named by its uid — the shared decision for the CANCEL key
+     * and the cancel-by-scan mode (EXP-32/35/36).
+     *
+     * <p>Order of guards: the anti-fraud last-article guard first (EXP-35), then
+     * the per-gesture endorsement decision (EXP-32/33). The last-entered quick
+     * cancel and an older line each carry their own administered flag; either
+     * proceeds directly when authorized (flag off, connected supervisor, or an open
+     * supervisor session), otherwise it parks the CANCEL_LINE endorsement.
+     *
+     * @param targetUid the uid of the line to cancel
+     */
+    void cancelLineByUid(String targetUid) {
+        LOGGER.info("Entering method cancelLineByUid with targetUid: " + targetUid);
+        if (state.ticket.items.size() == 1
+                && targetUid.equals(state.ticket.items.get(0).uid)) {
+            // EXP-35: cancelling the only line would zero the ticket, a known
+            // fraud door. The refusal names the exit: the ticket abandon.
+            state.ticket.setError("DERNIER ARTICLE — UTILISEZ L'ABANDON DE TICKET");
+            LOGGER.info("Exiting method cancelLineByUid");
+            return;
+        }
+        boolean isLast = targetUid.equals(state.lastEnteredItemId);
+        String gestureKey = isLast ? "cancel-last" : "cancel-line";
+        if (endorsementService.gestureAuthorized(state, gestureKey)) {
+            ticketService.cancelItemById(state, targetUid);
+            if (isLast) {
+                state.lastEnteredItemId = null;
+            }
+        } else {
+            endorsementService.requestAuthorization(state, "CANCEL_LINE_" + targetUid);
+        }
+        LOGGER.info("Exiting method cancelLineByUid");
+    }
+
+    /**
      * Requests a manager endorsement to cancel the whole ticket.
      */
     public void cancelTicket() {
         LOGGER.info("Entering method cancelTicket");
-        endorsementService.requestAuthorization(state, "CANCEL_TICKET");
+        if (endorsementService.gestureAuthorized(state, "abandon")) {
+            // Administered WITHOUT endorsement (EXP-32), or connected supervisor,
+            // or an open supervisor session: the same execution the approved
+            // CANCEL_TICKET dispatch runs, ceremony skipped. A settlement already
+            // taken is undone with the ticket.
+            if (!state.payment.payments.isEmpty()) {
+                paymentService.cancelPayments(state);
+            }
+            ticketService.cancelTicket(state);
+            state.touch();
+        } else {
+            endorsementService.requestAuthorization(state, "CANCEL_TICKET");
+        }
         LOGGER.info("Exiting method cancelTicket");
+    }
+
+    /**
+     * Arms the cancel-by-scan mode (EXP-36): the next scanned code designates the
+     * line to cancel instead of adding one. Mirrors {@link #armQuantity} — arms one
+     * scan, disarmed by the scan entry once used.
+     */
+    public void armCancelByScan() {
+        LOGGER.info("Entering method armCancelByScan");
+        state.cancelByScanArmed = true;
+        state.priceModState.clear();
+        state.ticket.setNotice("SCANNEZ L'ARTICLE À ANNULER");
+        state.touch();
+        LOGGER.info("Exiting method armCancelByScan");
+    }
+
+    /**
+     * Cancels the ticket line whose EAN matches a scanned code (EXP-36), through
+     * the shared {@link #cancelLineByUid} decision (endorsement and last-article
+     * guards apply). Refuses out loud when no line carries that code.
+     *
+     * @param code the scanned code designating the line to cancel
+     */
+    public void cancelByScan(String code) {
+        LOGGER.info("Entering method cancelByScan with code: " + code);
+        state.cancelByScanArmed = false;
+        String targetUid = null;
+        if (code != null) {
+            for (TicketState.TicketItem item : state.ticket.items) {
+                if (code.equals(item.ean)) {
+                    targetUid = item.uid;
+                    break;
+                }
+            }
+        }
+        if (targetUid == null) {
+            state.ticket.setError("ARTICLE ABSENT DU TICKET");
+        } else {
+            cancelLineByUid(targetUid);
+        }
+        state.selectedTicketIndex = -1;
+        state.touch();
+        LOGGER.info("Exiting method cancelByScan");
     }
 
     /**
@@ -583,13 +672,14 @@ public class HomeService {
             // BO-03-07-01: remises and rabais deactivated at the back office —
             // the gesture is refused before any endorsement or application.
             state.ticket.setError("REMISES DÉSACTIVÉES");
-        } else if (posSettingsService.gestureEndorsementRequired()) {
-            endorsementService.requestPriceModification(state, type, uid, value);
-        } else {
-            // Administered WITHOUT endorsement (LC-03-02-08): the cashier
-            // applies the gesture directly — same execution as the approved
-            // endorsement dispatch, ceremony skipped.
+        } else if (endorsementService.gestureAuthorized(state,
+                type == PriceModType.FORCE_PRICE ? "price-force" : "discount")) {
+            // Authorized without a modal (EXP-32/33: flag off, connected
+            // supervisor, or an open supervisor session): the cashier applies the
+            // gesture directly — same execution as the approved endorsement.
             applyGestureDirectly(type, uid, value);
+        } else {
+            endorsementService.requestPriceModification(state, type, uid, value);
         }
         state.priceModState.clear();
         state.touch();
