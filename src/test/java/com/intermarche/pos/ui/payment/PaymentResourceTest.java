@@ -1145,4 +1145,50 @@ class PaymentResourceTest {
         verifyNoInteractions(resource.ticketService);
         verify(resource.paymentService, never()).cancelPayments(resource.state);
     }
+
+    // --- Step 6 tenders (EXP-58/60/66/67) ---
+
+    /**
+     * {@code doTrdPayment} parses the amount (French comma) and delegates to the
+     * TRD-card payment, then redirects to the pay screen (EXP-60).
+     */
+    @Test
+    void doTrdPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doTrdPayment("10,00"));
+        verify(resource.paymentService).processTrdCard(resource.state, new BigDecimal("10.00"));
+    }
+
+    /**
+     * {@code doRestoFlashPayment} delegates with the token and parsed amount,
+     * then redirects to the pay screen (EXP-67).
+     */
+    @Test
+    void doRestoFlashPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doRestoFlashPayment("TOK", "12,50"));
+        verify(resource.paymentService).processRestoFlash(resource.state, "TOK", new BigDecimal("12.50"));
+    }
+
+    /**
+     * {@code doGiftCardPayment} delegates with the card number and parsed amount,
+     * then redirects to the pay screen (EXP-66).
+     */
+    @Test
+    void doGiftCardPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doGiftCardPayment("GC1", "20,00"));
+        verify(resource.paymentService).processSupplierGiftCard(resource.state, "GC1", new BigDecimal("20.00"));
+    }
+
+    /**
+     * {@code doSogecPayment} delegates with the coupon code and parsed amount,
+     * then redirects to the pay screen (EXP-58).
+     */
+    @Test
+    void doSogecPaymentDelegatesAndRedirects() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.doSogecPayment("SG1", "5,00"));
+        verify(resource.paymentService).processSogec(resource.state, "SG1", new BigDecimal("5.00"));
+    }
 }

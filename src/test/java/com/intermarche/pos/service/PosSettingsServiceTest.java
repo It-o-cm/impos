@@ -1537,6 +1537,29 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code trdCardCap} reads the administered TRD-card cap (EXP-60): the
+     * catalog default 0.00, a stored value, and a corrupt row falling back to the
+     * default via {@code bigDecimalValue}.
+     */
+    @Test
+    void trdCardCapReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(0, new java.math.BigDecimal("0.00").compareTo(new PosSettingsService().trdCardCap()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("payment.trd-card-cap", "19.00")));
+            assertEquals(0, new java.math.BigDecimal("19.00").compareTo(new PosSettingsService().trdCardCap()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("payment.trd-card-cap", "not-a-number")));
+            assertEquals(0, new java.math.BigDecimal("0.00").compareTo(new PosSettingsService().trdCardCap()));
+        }
+    }
+
+    /**
      * {@code varianceThreshold()} reads the administered value (default 1.00,
      * stored override, corrupt-row fallback) — EXP-82.
      */

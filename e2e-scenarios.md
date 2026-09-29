@@ -408,6 +408,16 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   atteignable CAISSE FERMÉE sans code utilisateur (allowlist LockCheckFilter) ; scan/saisie d'un
   code → libellé, prix, TVA, marque en lecture seule ; AUCUN ajout au ticket possible ; code
   inconnu → message introuvable.
+- **F31 Carte TRD (assiette + plafond)** [S] (EXP-60) : règlement `/action/pay-trd` — borné à
+  l'assiette éligible titre-restaurant (au-delà → `TRD PLAFONNE`), et au plafond administré
+  `payment.trd-card-cap` ; assiette nulle → `TRD: AUCUN ARTICLE ELIGIBLE`, rien réglé.
+- **F32 Resto Flash** [S] (EXP-67) : `/action/pay-restoflash` — token confirmé par le service
+  (stub) → règlement sur l'assiette éligible ; token refusé → `RESTO FLASH REFUSE`, rien réglé.
+- **F33 Carte cadeau fournisseur** [S] (EXP-66) : `/action/pay-giftcard` — interrogation du
+  registre émetteur ; carte invalide → `CARTE CADEAU REFUSEE` ; solde nul → `CARTE CADEAU: SOLDE NUL` ;
+  montant > solde → plafonné au solde (`CARTE CADEAU x,xx E`).
+- **F34 Bon SOGEC** [S] (EXP-58) : `/action/pay-sogec` — circuit distinct du coupon GS1 générique ;
+  le bon règle le ticket et une trace de compensation `SOGEC_COMPENSATION` est journalisée.
 
 ## G. Après-vente [S]
 

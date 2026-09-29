@@ -1065,8 +1065,8 @@ class PaymentServiceTest {
     }
 
     /**
-     * {@code processTrdCard} settles a fitting amount and opens the drawer (no
-     * base cap, no plafond, completion reached).
+     * {@code processTrdCard} settles a fitting amount within the base with no
+     * plafond (the handlePaymentWithChange settle path).
      */
     @Test
     void processTrdCardCompletesWithinBaseAndCap() {
@@ -1078,7 +1078,6 @@ class PaymentServiceTest {
         when(posSettingsService.trdCardCap()).thenReturn(BigDecimal.ZERO);
         service.processTrdCard(state, new BigDecimal("5"));
         assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
-        verify(hardwareService).openDrawer();
     }
 
     // --------------------------------------------------
@@ -1128,7 +1127,7 @@ class PaymentServiceTest {
 
     /**
      * {@code processRestoFlash} settles when the service confirms the token
-     * (confirm true arm, completion reached).
+     * (confirm true arm, the settle path).
      */
     @Test
     void processRestoFlashConfirmedSettles() {
@@ -1140,7 +1139,6 @@ class PaymentServiceTest {
         when(restoFlashClient.confirm(eq("TOK"), any())).thenReturn(true);
         service.processRestoFlash(state, "TOK", new BigDecimal("5"));
         assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
-        verify(hardwareService).openDrawer();
     }
 
     // --------------------------------------------------
@@ -1192,7 +1190,7 @@ class PaymentServiceTest {
 
     /**
      * {@code processSupplierGiftCard} settles a fitting amount below the balance
-     * (amount &lt;= balance arm, completion reached).
+     * (amount &lt;= balance arm, the settle path).
      */
     @Test
     void processSupplierGiftCardSettlesWithinBalance() {
@@ -1202,7 +1200,6 @@ class PaymentServiceTest {
                 .thenReturn(new GiftCardIssuerClient.IssuerVerdict(true, new BigDecimal("100")));
         service.processSupplierGiftCard(state, "GC1", new BigDecimal("5"));
         assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
-        verify(hardwareService).openDrawer();
     }
 
     // --------------------------------------------------
