@@ -278,6 +278,22 @@ class HomeServiceTest {
     }
 
     /**
+     * A line whose quantity was keyed is not silently repeated (EXP-29): the
+     * quantity-not-one arm refuses out loud and recomputes nothing.
+     */
+    @Test
+    void repeatLastItemRefusesAQuantityKeyedLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"),
+                new BigDecimal("3"));
+        service.state.ticket.items.add(it);
+        service.state.lastEnteredItemId = "A";
+        service.repeatLastItem();
+        assertEquals(0, new BigDecimal("3").compareTo(it.quantity));
+        verify(service.state.ticket).setError("RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE");
+        verifyNoInteractions(service.ticketService);
+    }
+
+    /**
      * A price-embedded label names ONE physical object and cannot be repeated
      * ({@code LC-02-13-16}).
      */

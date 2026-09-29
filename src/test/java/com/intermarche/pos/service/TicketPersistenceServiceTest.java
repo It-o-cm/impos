@@ -300,6 +300,9 @@ class TicketPersistenceServiceTest {
         state.fidelity.active = false;
         TicketState.TicketItem sticker = addItem(state, "S1", null, null, "3.00", "1", null);
         sticker.priceEmbedded = true;
+        // EXP-26/LC-02-05-04: the deduced weight + price/kg travel to the line too.
+        sticker.embeddedWeight = new BigDecimal("0.750");
+        sticker.embeddedUnitPrice = new BigDecimal("4.00");
         TicketState.TicketItem plain = addItem(state, "P1", null, null, "2.00", "1", null);
         plain.priceEmbedded = false;
         Store store = mock(Store.class);
@@ -322,6 +325,10 @@ class TicketPersistenceServiceTest {
             verify(ticket, times(2)).addLine(lineCaptor.capture());
             assertTrue(lineCaptor.getAllValues().get(0).priceEmbedded);
             assertFalse(lineCaptor.getAllValues().get(1).priceEmbedded);
+            assertEquals(0, new BigDecimal("0.750").compareTo(lineCaptor.getAllValues().get(0).embeddedWeight));
+            assertEquals(0, new BigDecimal("4.00").compareTo(lineCaptor.getAllValues().get(0).embeddedUnitPrice));
+            assertNull(lineCaptor.getAllValues().get(1).embeddedWeight);
+            assertNull(lineCaptor.getAllValues().get(1).embeddedUnitPrice);
         }
     }
 

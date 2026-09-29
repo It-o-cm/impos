@@ -1424,4 +1424,33 @@ class TicketStateTest {
         assertEquals(2, ts.items.size());
         assertEquals(0, ts.totalAmount.compareTo(BigDecimal.ZERO));
     }
+
+    /**
+     * {@code hasEmbeddedWeight} is true only when BOTH the deduced weight and the
+     * price per kilo are set (EXP-26): both-set true arm.
+     */
+    @Test
+    void hasEmbeddedWeightTrueWhenBothSet() {
+        TicketItem item = new TicketItem("1", null, "L", BigDecimal.ONE, BigDecimal.ONE, null);
+        item.embeddedWeight = new BigDecimal("0.750");
+        item.embeddedUnitPrice = new BigDecimal("4.00");
+        assertTrue(item.hasEmbeddedWeight());
+        assertEquals("0,750 kg à 4,00 €/kg", item.getEmbeddedWeightLabel());
+    }
+
+    /**
+     * {@code hasEmbeddedWeight} is false when either the weight or the price per
+     * kilo is null (EXP-26): both null-arms, and the label is then empty.
+     */
+    @Test
+    void hasEmbeddedWeightFalseWhenEitherNull() {
+        TicketItem noPrice = new TicketItem("1", null, "L", BigDecimal.ONE, BigDecimal.ONE, null);
+        noPrice.embeddedWeight = new BigDecimal("0.750");
+        assertFalse(noPrice.hasEmbeddedWeight());
+        assertEquals("", noPrice.getEmbeddedWeightLabel());
+        TicketItem noWeight = new TicketItem("1", null, "L", BigDecimal.ONE, BigDecimal.ONE, null);
+        noWeight.embeddedUnitPrice = new BigDecimal("4.00");
+        assertFalse(noWeight.hasEmbeddedWeight());
+        assertEquals("", noWeight.getEmbeddedWeightLabel());
+    }
 }

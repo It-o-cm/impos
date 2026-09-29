@@ -127,6 +127,21 @@ class LockCheckFilterTest {
     }
 
     /**
+     * INFO ARTICLE (EXP-93) answers on a locked register: the read-only lookup is
+     * on the allowlist, so a caisse fermée can consult an article without a login.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedArticleInfoPasses() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        ContainerRequestContext ctx = ctxFor("/article-info");
+        filter.filter(ctx);
+        verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
      * An unlocked register on a cashier path with the idle pause disabled
      * (delay-zero arm) passes and stamps the activity clock (reset arm).
      *

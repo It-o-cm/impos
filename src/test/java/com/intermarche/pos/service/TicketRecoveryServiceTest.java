@@ -335,6 +335,9 @@ class TicketRecoveryServiceTest {
         Ticket draft = draft(12L, Ticket.TicketStatus.OPEN);
         TicketLine sticker = line(1, "S1", "3.00", null, null);
         sticker.priceEmbedded = true;
+        // EXP-26: the deduced weight + price/kg survive a restart on the line.
+        sticker.embeddedWeight = new java.math.BigDecimal("0.750");
+        sticker.embeddedUnitPrice = new java.math.BigDecimal("4.00");
         TicketLine plain = line(2, "P1", "2.00", null, null);
         plain.priceEmbedded = false;
         draft.lines = new ArrayList<>(Arrays.asList(sticker, plain));
@@ -343,6 +346,9 @@ class TicketRecoveryServiceTest {
         assertEquals(2, items.size());
         assertTrue(items.get(0).priceEmbedded);
         assertFalse(items.get(1).priceEmbedded);
+        assertEquals(0, new java.math.BigDecimal("0.750").compareTo(items.get(0).embeddedWeight));
+        assertEquals(0, new java.math.BigDecimal("4.00").compareTo(items.get(0).embeddedUnitPrice));
+        assertNull(items.get(1).embeddedWeight);
     }
 
     /**

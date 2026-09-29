@@ -249,4 +249,20 @@ class TicketLineTest {
         line.returnLine = true;
         Assertions.assertTrue(line.returnLine);
     }
+
+    /**
+     * The embedded-weight fields (EXP-26, LC-02-05-04) default null and are
+     * read/write, so a price-embedded weighed line persists its deduced weight
+     * and price per kilo for the fiscal ticket.
+     */
+    @Test
+    void embeddedWeightFieldsAreReadWriteAndDefaultNull() {
+        TicketLine line = new TicketLine();
+        Assertions.assertNull(line.embeddedWeight);
+        Assertions.assertNull(line.embeddedUnitPrice);
+        line.embeddedWeight = new BigDecimal("0.750");
+        line.embeddedUnitPrice = new BigDecimal("4.0000");
+        Assertions.assertEquals(new BigDecimal("0.750"), line.embeddedWeight);
+        Assertions.assertEquals(new BigDecimal("4.0000"), line.embeddedUnitPrice);
+    }
 }

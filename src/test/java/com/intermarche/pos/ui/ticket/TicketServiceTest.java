@@ -2866,6 +2866,116 @@ class TicketServiceTest {
         }
     }
 
+    // --- addFamilyPricedItem (EXP-24) ---
 
+    /**
+     * Builds a product family with a code and description (EXP-24).
+     *
+     * @param code the family code
+     * @param description the family label
+     * @return the wired family
+     */
+    private com.intermarche.pos.domain.catalog.ProductFamily family(String code, String description) {
+        com.intermarche.pos.domain.catalog.ProductFamily f =
+                new com.intermarche.pos.domain.catalog.ProductFamily();
+        f.code = code;
+        f.description = description;
+        return f;
+    }
+
+    /**
+     * {@code addFamilyPricedItem} rings a free-price line under a family code
+     * (EXP-24): the family label is upper-cased onto the line, the keyed price is
+     * applied and the register default VAT is used (family found + price >= 0).
+     */
+    @Test
+    void addFamilyPricedItemRingsLabelAndPrice() {
+        openSession();
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80"))
+                    .thenReturn(family("80", "Epicerie"));
+            service.addFamilyPricedItem(state, "80", "2,35");
+            assertEquals(1, state.ticket.items.size());
+            TicketState.TicketItem added = state.ticket.items.get(0);
+            assertEquals("EPICERIE", added.label);
+            assertEquals(0, new BigDecimal("2.35").compareTo(added.unitPrice));
+            assertEquals(0, new BigDecimal("0.20").compareTo(added.vatRate));
+        }
+    }
+
+    /**
+     * {@code addFamilyPricedItem} refuses an unknown family code (EXP-24): the
+     * family-null arm sets FAMILLE INCONNUE and adds no line.
+     */
+    @Test
+    void addFamilyPricedItemRefusesUnknownFamily() {
+        openSession();
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("99"))
+                    .thenReturn(null);
+            service.addFamilyPricedItem(state, "99", "2,35");
+            assertTrue(state.ticket.items.isEmpty());
+            assertEquals("FAMILLE INCONNUE", state.ticket.transientError);
+        }
+    }
+
+    /**
+     * {@code addFamilyPricedItem} treats a blank family code as unknown (EXP-24):
+     * the {@code isBlank()} guard arm short-circuits the lookup to null.
+     */
+    @Test
+    void addFamilyPricedItemRefusesBlankFamilyCode() {
+        openSession();
+        service.addFamilyPricedItem(state, "  ", "2,35");
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("FAMILLE INCONNUE", state.ticket.transientError);
+    }
+
+    /**
+     * {@code addFamilyPricedItem} refuses a negative price (EXP-24): the
+     * {@code signum() >= 0} false arm sets ERREUR PRIX SAISI, no line.
+     */
+    @Test
+    void addFamilyPricedItemRefusesNegativePrice() {
+        openSession();
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80"))
+                    .thenReturn(family("80", "Epicerie"));
+            service.addFamilyPricedItem(state, "80", "-1,00");
+            assertTrue(state.ticket.items.isEmpty());
+            assertEquals("ERREUR PRIX SAISI", state.ticket.transientError);
+        }
+    }
+
+    /**
+     * {@code addFamilyPricedItem} refuses an unparsable price (EXP-24): the catch
+     * arm sets ERREUR PRIX SAISI, no line.
+     */
+    @Test
+    void addFamilyPricedItemRefusesUnparsablePrice() {
+        openSession();
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80"))
+                    .thenReturn(family("80", "Epicerie"));
+            service.addFamilyPricedItem(state, "80", "abc");
+            assertTrue(state.ticket.items.isEmpty());
+            assertEquals("ERREUR PRIX SAISI", state.ticket.transientError);
+        }
+    }
+
+    /**
+     * {@code addFamilyPricedItem} does nothing without an open session (EXP-24):
+     * the session gate returns before any family lookup.
+     */
+    @Test
+    void addFamilyPricedItemNeedsOpenSession() {
+        when(cashSessionService.getOpenSession()).thenReturn(null);
+        service.addFamilyPricedItem(state, "80", "2,35");
+        assertTrue(state.ticket.items.isEmpty());
+    }
 }
 

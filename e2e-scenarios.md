@@ -148,6 +148,22 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   0,100 kg, QUANTITÉ tapée 0,850 kg → la caisse DÉDUIT la tare (seul endroit où elle déduit) →
   ligne à 0,750 kg ; une tare qui ne laisse rien (≥ poids saisi) → `POIDS INVALIDE (0,001-99,999 KG)`.
 
+- **B25 Code-barres à prix embarqué → poids affiché** [S] (EXP-26, LC-02-05-01/04) : scan
+  d'une étiquette à prix embarqué (préfixe 02/21/22/24/26/28, valeur digits 8–12) → ligne au
+  prix lu, et POIDS DÉDUIT du prix au kilo du référentiel (sens inverse) affiché sur les deux
+  visus et imprimé sur le ticket (« 0,375 kg à 4,00 €/kg ») ; sans prix référentiel, pas de poids.
+- **B26 Code-barres à poids embarqué + préfixes reclassés** [S] (EXP-27) : préfixes poids
+  23/25/27/29 (24 et 26 basculés côté prix, 02/27/29 ajoutés) ; le repli ne dépend plus du
+  filtre 2\d{12} mais du préfixe administré. Étiquette en francs → conversion en euros au taux
+  6,55957 descendu du back-office (Currency), position/longueur administrées par plage.
+- **B27 Code famille** [S] (EXP-24) : « 80 » VALIDER « 2,35 » VALIDER → ligne « EPICERIE
+  2,35 € » portant le libellé de la famille et la TVA par défaut ; famille inconnue → FAMILLE
+  INCONNUE ; prix négatif/illisible → ERREUR PRIX SAISI.
+- **B28 Défilement Fruits & Légumes** [S] (EXP-22) : le tableau des tuiles F&L défile au lieu
+  de paginer.
+- **B29 Refus de répétition après quantité** [S] (EXP-29) : RÉPÉTER ARTICLE sur une ligne dont
+  la quantité a été saisie → RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE ; quantité 1 → répète.
+
 ## C. Gestes de prix sous avenant [S]
 
 - **C1 REMISE €** : demande → modale avenant → PIN manager → appliquée (label + delta) ;
@@ -370,6 +386,16 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   s'imprime et la caisse se verrouille ; le journal `SESSION_CLOSED` porte « déclaration
   automatique » (un écart nul d'auto-déclaration reste distinguable d'un comptage juste).
   Réglage absent/false → écran de comptage présenté comme aujourd'hui.
+
+- **F20 Touches d'arrondi et coupures sur le pavé paiement** [S] (EXP-55) : touche ARRONDI au
+  10 € supérieur et touches coupures (5/10/20/50/100 €) remplissent le montant à régler.
+- **F21 Annulation d'un règlement seul** [S] (EXP-63) : sur plusieurs règlements enregistrés,
+  annuler UNE ligne (index) sans purger les autres ; le paiement reste en cours, le draft est
+  re-persisté avec les règlements survivants ; index hors plage → aucun effet.
+- **F22 INFO ARTICLE (lecture seule)** [S] (EXP-93) : écran INFO ARTICLE (`/article-info`)
+  atteignable CAISSE FERMÉE sans code utilisateur (allowlist LockCheckFilter) ; scan/saisie d'un
+  code → libellé, prix, TVA, marque en lecture seule ; AUCUN ajout au ticket possible ; code
+  inconnu → message introuvable.
 
 ## G. Après-vente [S]
 

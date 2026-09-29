@@ -376,6 +376,49 @@ class PaymentServiceTest {
         verify(ticketPersistenceService, never()).removePaymentsFromTicket(any());
     }
 
+    /**
+     * {@code cancelOnePayment} at a valid index (EXP-63) drops only that entry and,
+     * with a draft id, re-persists the survivors (removeAll + replay), leaving the
+     * payment in progress — unlike the global cancel.
+     */
+    @Test
+    void cancelOnePaymentValidRepersistsSurvivors() {
+        state.payment.ticketDbId = 5L;
+        state.payment.addPayment("CASH", new BigDecimal("10.00"));
+        state.payment.addPayment("CARD", new BigDecimal("5.00"));
+        assertTrue(service.cancelOnePayment(state, 0));
+        assertEquals(1, state.payment.payments.size());
+        assertEquals("CARD", state.payment.payments.get(0).method);
+        verify(ticketPersistenceService).removePaymentsFromTicket(5L);
+        verify(ticketPersistenceService).addPaymentToTicket(eq(5L), any());
+    }
+
+    /**
+     * {@code cancelOnePayment} on an out-of-range index (EXP-63) removes nothing
+     * and touches no draft.
+     */
+    @Test
+    void cancelOnePaymentOutOfRangeIsNoOp() {
+        state.payment.ticketDbId = 5L;
+        state.payment.addPayment("CASH", new BigDecimal("10.00"));
+        assertFalse(service.cancelOnePayment(state, 3));
+        assertEquals(1, state.payment.payments.size());
+        verify(ticketPersistenceService, never()).removePaymentsFromTicket(any());
+    }
+
+    /**
+     * {@code cancelOnePayment} with no draft id (EXP-63) still drops the entry but
+     * re-persists nothing (the ticketId-null arm).
+     */
+    @Test
+    void cancelOnePaymentWithoutDraftDropsEntryOnly() {
+        state.payment.ticketDbId = null;
+        state.payment.addPayment("CASH", new BigDecimal("10.00"));
+        assertTrue(service.cancelOnePayment(state, 0));
+        assertEquals(0, state.payment.payments.size());
+        verify(ticketPersistenceService, never()).removePaymentsFromTicket(any());
+    }
+
     // --------------------------------------------------
     // processCash
     // --------------------------------------------------

@@ -537,4 +537,45 @@ class PaymentStateTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(state.changeAsCreditNote));
         assertFalse(state.isTenderAuthorizationPending());
     }
+
+    /**
+     * {@code removePayment} at a valid index (EXP-63) drops that entry, keeps the
+     * others and takes its amount off the paid total.
+     */
+    @Test
+    void removePaymentAtValidIndexDropsOnlyThatEntry() {
+        PaymentState state = new PaymentState();
+        state.addPayment("CASH", new BigDecimal("10.00"));
+        state.addPayment("CARD", new BigDecimal("5.00"));
+        assertTrue(state.removePayment(0));
+        assertEquals(1, state.payments.size());
+        assertEquals("CARD", state.payments.get(0).method);
+        assertEquals(0, new BigDecimal("5.00").compareTo(state.paidAmount));
+    }
+
+    /**
+     * {@code removePayment} with a negative index (EXP-63) removes nothing and
+     * leaves the paid total untouched (first guard leg true).
+     */
+    @Test
+    void removePaymentWithNegativeIndexRemovesNothing() {
+        PaymentState state = new PaymentState();
+        state.addPayment("CASH", new BigDecimal("10.00"));
+        assertFalse(state.removePayment(-1));
+        assertEquals(1, state.payments.size());
+        assertEquals(0, new BigDecimal("10.00").compareTo(state.paidAmount));
+    }
+
+    /**
+     * {@code removePayment} at an index equal to the size (EXP-63) removes nothing
+     * (second guard leg true), including on an empty list.
+     */
+    @Test
+    void removePaymentAtOrBeyondSizeRemovesNothing() {
+        PaymentState state = new PaymentState();
+        assertFalse(state.removePayment(0));
+        state.addPayment("CASH", new BigDecimal("10.00"));
+        assertFalse(state.removePayment(1));
+        assertEquals(1, state.payments.size());
+    }
 }

@@ -206,6 +206,17 @@ class PaymentResourceTest {
     }
 
     /**
+     * {@code cancelOnePayment} delegates the single-payment cancel to the service
+     * (EXP-63) and stays on the payment screen.
+     */
+    @Test
+    void cancelOnePaymentDelegatesAndStaysOnPay() {
+        PaymentResource resource = newResource();
+        assertRedirectPay(resource.cancelOnePayment(1));
+        verify(resource.paymentService).cancelOnePayment(resource.state, 1);
+    }
+
+    /**
      * {@code showPaymentPage()} yields a null digital path when the draft id
      * matches no ticket (first guard false, {@code ticket == null} true).
      */

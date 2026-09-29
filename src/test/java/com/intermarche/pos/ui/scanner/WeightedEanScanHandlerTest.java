@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.HashSet;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -285,6 +286,65 @@ class WeightedEanScanHandlerTest {
                 eq(BigDecimal.valueOf(150, 2)), eq(BigDecimal.ONE), eq(new BigDecimal("0.055")));
         assertTrue(ticket.items.get(0).priceEmbedded);
         verify(ticket, never()).setError(any());
+    }
+
+    /**
+     * On a price-embedded sticker (EXP-26, LC-02-05-01) the WEIGHT is deduced the
+     * inverse way — read total (1,50 €) divided by the referential price per kilo
+     * (4,00 €/kg) = 0,375 kg — and carried with the price/kg for display
+     * (price-non-null, priceIncludingTax-positive true arm).
+     */
+    @Test
+    void priceEmbeddedDeducesWeightFromCatalogUnitPrice() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
+        Product p = newProduct(false);
+        Price price = newPrice("4.00", "0.055");
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(price);
+            newHandler().handle(ctx);
+        }
+        TicketState.TicketItem line = ticket.items.get(0);
+        assertTrue(line.hasEmbeddedWeight());
+        assertEquals(0, new BigDecimal("0.375").compareTo(line.embeddedWeight));
+        assertEquals(0, new BigDecimal("4.00").compareTo(line.embeddedUnitPrice));
+    }
+
+    /**
+     * A price-embedded sticker whose article has no catalog price (EXP-26)
+     * deduces NO weight — the price-null false arm — so the line stands at the
+     * sticker total with no weight detail.
+     */
+    @Test
+    void priceEmbeddedWithoutCatalogPriceDeducesNoWeight() {
+        TicketState ticket = mock(TicketState.class);
+        PosState state = newState(ticket);
+        ticket.items = new java.util.ArrayList<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            ticket.items.add(new TicketState.TicketItem());
+            return null;
+        }).when(ticket).addItem(any(), any(), any(), any(), any(), any());
+        Product p = newProduct(false);
+        ScanContext ctx = new ScanContext(PRICE_CODE, state);
+        try (MockedStatic<Product> products = mockStatic(Product.class);
+             MockedStatic<Price> prices = mockStatic(Price.class);
+             MockedStatic<ArticleBarcodeRange> ranges = noAdministeredRange()) {
+            products.when(() -> Product.findActiveByPlu(ARTICLE)).thenReturn(p);
+            prices.when(() -> Price.findCurrentPrice(42L)).thenReturn(null);
+            newHandler().handle(ctx);
+        }
+        TicketState.TicketItem line = ticket.items.get(0);
+        assertTrue(line.priceEmbedded);
+        assertFalse(line.hasEmbeddedWeight());
     }
 
     /**
