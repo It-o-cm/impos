@@ -83,11 +83,15 @@ class CashSessionResourceTest {
         TemplateInstance ti2 = mock(TemplateInstance.class);
         TemplateInstance ti3 = mock(TemplateInstance.class);
         TemplateInstance tiFloat = mock(TemplateInstance.class);
+        TemplateInstance tiTheo = mock(TemplateInstance.class);
         when(resource.session.data("state", resource.state)).thenReturn(ti1);
         when(ti1.data(eq("current"), any())).thenReturn(ti2);
         when(ti2.data(eq("defaultFloat"), any())).thenReturn(tiFloat);
-        when(tiFloat.data(eq("error"), any())).thenReturn(ti3);
-        return new TemplateInstance[]{ti1, ti2, tiFloat, ti3};
+        // EXP-02: the page now also carries the theoretical float (report of the
+        // previous close) between the default float and the error message.
+        when(tiFloat.data(eq("theoreticalFloat"), any())).thenReturn(tiTheo);
+        when(tiTheo.data(eq("error"), any())).thenReturn(ti3);
+        return new TemplateInstance[]{ti1, ti2, tiTheo, ti3};
     }
 
     /**
@@ -300,6 +304,41 @@ class CashSessionResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         assertRedirect(resource.startClosing(), "/cash-count");
         verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * BO-03-10-10: when the island declares the count automatically,
+     * {@code startClosing()} does NOT route to the counting page — it closes the
+     * session directly (auto flag true), prints the Z report and locks the
+     * register, never opening the drawer for a count that no longer happens.
+     */
+    @Test
+    void startClosingAutoDeclarationClosesDirectly() {
+        CashSessionResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.posSettingsService.islandAutoDeclaration()).thenReturn(true);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
+        when(resource.cashSessionService.closeSession(7L, null, null, null, true)).thenReturn(report);
+        assertRedirect(resource.startClosing(), "/lock");
+        verify(resource.ticketPrinterService).printSessionReport(report);
+        verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * BO-03-10-10: an automatic declaration that finds no open session at the
+     * close call redirects with {@code no-session} and prints nothing (the
+     * {@code report == null} arm of the direct-close path).
+     */
+    @Test
+    void startClosingAutoDeclarationWithNoSessionRedirects() {
+        CashSessionResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.posSettingsService.islandAutoDeclaration()).thenReturn(true);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        when(resource.cashSessionService.closeSession(7L, null, null, null, true)).thenReturn(null);
+        assertRedirect(resource.startClosing(), "/session?error=no-session");
+        verify(resource.ticketPrinterService, never()).printSessionReport(any());
     }
 
     /**

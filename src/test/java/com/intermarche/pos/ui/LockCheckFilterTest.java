@@ -223,4 +223,47 @@ class LockCheckFilterTest {
         verify(filter.technicalEventService, never()).log(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
+
+    /**
+     * The idle timeout VERROUILLE rather than logs out (EXP-12): it keeps the
+     * operator identity aside so the same cashier resumes with only their PIN.
+     * After the pause the register is locked and paused, the active operator is
+     * cleared, and the former identity is held in the locked-operator fields.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void unlockedIdleExpiryPausesKeepingIdentity() throws Exception {
+        PosState state = unlocked();
+        state.auth.login(5L, "Alice", "12341234");
+        state.auth.isLocked = false;
+        state.auth.lastActivityAt = System.currentTimeMillis() - 120_000L;
+        LockCheckFilter filter = newFilter(state, 60);
+        ContainerRequestContext ctx = ctxFor("sale");
+        filter.filter(ctx);
+        assertTrue(state.isLocked());
+        assertTrue(state.auth.isPaused());
+        assertNull(state.auth.operatorId);
+        assertEquals(5L, state.auth.lockedOperatorId);
+        assertEquals("12341234", state.auth.lockedOperatorBadgeId);
+    }
+
+    /**
+     * The paused supervisor force actions must answer while the register is
+     * locked (they are how a paused, abandoned post is recovered): both
+     * {@code /action/force-unlock} and {@code /action/force-close} pass the lock
+     * guard rather than being redirected to {@code /lock}.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedForceActionsPass() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        for (String path : java.util.List.of("/action/force-unlock", "/action/force-close")) {
+            ContainerRequestContext ctx = ctxFor(path);
+            filter.filter(ctx);
+            verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+        }
+    }
 }

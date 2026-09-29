@@ -20,7 +20,7 @@ class ProductAttributeCatalogTest {
      */
     @Test
     void catalogDeclaresTwelveWellKnownAttributes() {
-        Assertions.assertEquals(12, ProductAttributeCatalog.CATALOG.size());
+        Assertions.assertEquals(13, ProductAttributeCatalog.CATALOG.size());
         Assertions.assertEquals(ProductAttributeCatalog.DISCOUNT_FORBIDDEN,
                 ProductAttributeCatalog.CATALOG.get(0).code());
         Assertions.assertEquals(ProductAttributeCatalog.VAT_EXEMPT,
@@ -39,15 +39,20 @@ class ProductAttributeCatalogTest {
                 ProductAttributeCatalog.CATALOG.get(5).code());
         Assertions.assertEquals(ProductAttributeCatalog.SOCIAL_CARD_ELIGIBLE,
                 ProductAttributeCatalog.CATALOG.get(6).code());
+        // The software tare closes the catalog (LC-14-01-07).
+        Assertions.assertEquals(ProductAttributeCatalog.TARE,
+                ProductAttributeCatalog.CATALOG.get(12).code());
         for (ProductAttributeDef def : ProductAttributeCatalog.CATALOG) {
             if (ProductAttributeCatalog.RECALL_LOTS.equals(def.code())) {
                 // One of the two non-booleans of the catalog: a recall names lot
                 // NUMBERS, and a flag could not carry them.
                 Assertions.assertEquals(ProductAttributeType.TEXT, def.type());
                 Assertions.assertEquals("", def.defaultValue());
-            } else if (ProductAttributeCatalog.ECO_TAX.equals(def.code())) {
-                // The other one: an eco-tax is an AMOUNT, defaulting to none
-                // (BO-10-04-14).
+            } else if (ProductAttributeCatalog.ECO_TAX.equals(def.code())
+                    || ProductAttributeCatalog.TARE.equals(def.code())) {
+                // The two amount attributes: an eco-tax (BO-10-04-14) and a
+                // software tare in kilograms (LC-14-01-07), both DECIMAL and
+                // defaulting to none.
                 Assertions.assertEquals(ProductAttributeType.DECIMAL, def.type());
                 Assertions.assertEquals("0", def.defaultValue());
             } else {

@@ -93,6 +93,20 @@
             <button class="plu-tool-btn" onclick="openPluSearch()">🔍 Rechercher un produit</button>
             <button class="plu-tool-btn" onclick="openPluCode()">🔢 Saisir un code PLU</button>
         </div>
+        {! LC-14-01-04: tare containers — arming one tares the NEXT weighing only. !}
+        {#if !tareContainers.isEmpty()}
+        <div class="plu-toolbar" id="tareBar">
+            <span class="plu-tool-btn" style="flex:0 0 auto; cursor:default;">TARE :
+                {#if state.tare.hasContainer()}{state.tare.containerLabel} ({state.tare.containerTare.stripTrailingZeros().toPlainString()} kg){#else}aucune{/if}
+            </span>
+            {#for c in tareContainers}
+            <a href="/tare/select/{c.code}" class="plu-tool-btn">{c.label}</a>
+            {/for}
+            {#if state.tare.hasContainer()}
+            <a href="/tare/clear" class="plu-tool-btn">✕ Retirer</a>
+            {/if}
+        </div>
+        {/if}
         <div class="plu-container">
             <div class="plu-grid" id="pluGrid"></div>
             <div class="plu-pagination pos-pager">

@@ -215,6 +215,31 @@ public class Ticket extends BaseEntity {
     public BigDecimal fidelityAvailableBalance;
 
     /**
+     * The PROJECTED balance after this sale's earn (imfid response B,
+     * {@code balances.projectedAfterEarn}), frozen at closing so a duplicata
+     * restates the same forecast; null when no card resolved. A forecast only —
+     * nothing is credited before ingestion (BO-03-03-31).
+     */
+    @Column(name = "fidelity_projected_after_earn", precision = 19, scale = 4)
+    public BigDecimal fidelityProjectedAfterEarn;
+
+    /**
+     * The balance AFTER the fidelity burn, read from the ledger at confirmation
+     * (imfid response B), frozen at closing and printed as SOLDE APRES; null
+     * when no burn was confirmed. Never recomputed by the register.
+     */
+    @Column(name = "fidelity_balance_after", precision = 19, scale = 4)
+    public BigDecimal fidelityBalanceAfter;
+
+    /**
+     * True when {@link #fidelityEarnTotal} is an ANONYMOUS projection for a
+     * card-less ticket (imfid response C) — « ce que vous auriez gagné avec la
+     * carte » — rather than an earned amount (BO-03-03-28).
+     */
+    @Column(name = "fidelity_anonymous_projection", nullable = false)
+    public boolean fidelityAnonymousProjection;
+
+    /**
      * True when the loyalty service was unreachable while this sale was made
      * (BO-03-03-29, BO-03-03-30).
      *
@@ -234,6 +259,16 @@ public class Ticket extends BaseEntity {
     @CollectionTable(name = "ticket_fidelity_lines",
             joinColumns = @JoinColumn(name = "ticket_id"))
     public List<TicketFidelityLine> fidelityLines = new ArrayList<>();
+
+    /**
+     * The engine offer messages shown and printed for this sale, frozen at
+     * closing; empty when the engine emitted none (GB-01-07-05/06). They carry
+     * no money — a reprint restates them, nothing recomputes from them.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "ticket_messages",
+            joinColumns = @JoinColumn(name = "ticket_id"))
+    public List<TicketMessage> messages = new ArrayList<>();
 
     /**
      * Ticket-level discount request kind ("AMOUNT"/"PERCENT"), or null

@@ -265,6 +265,31 @@ public class HardwareService {
     }
 
     /**
+     * Requests a weighing from the scale AFTER a software tare (LC-14-01): the
+     * tare is sent to the scale, which prioritises it over any hardware tare
+     * (LC-14-01-06) and returns the NET weight — the register records that net
+     * as-is and never re-deducts. A null or non-positive tare is sent as "0",
+     * i.e. a plain weighing.
+     *
+     * @param tareKg the software tare in kilograms, or null for none
+     * @return the NET weight in kilograms, or 0.0 on any failure
+     */
+    public double requestWeighing(java.math.BigDecimal tareKg) {
+        LOGGER.info("Entering method requestWeighing with tareKg: " + tareKg);
+        String tare = (tareKg == null || tareKg.signum() <= 0)
+                ? "0" : tareKg.toPlainString();
+        try {
+            String weightStr = hardwareClient.getWeightWithTare(tare);
+            LOGGER.info("Exiting method requestWeighing");
+            return Double.parseDouble(weightStr.replace(',', '.'));
+        } catch (Exception e) {
+            LOGGER.error("Erreur de communication avec la balance", e);
+            LOGGER.info("Exiting method requestWeighing");
+            return 0.0;
+        }
+    }
+
+    /**
      * Shows a message on the customer display.
      * <p>
      * TWO DISPLAYS, ONE CALL. The message is first recorded on the register state, from

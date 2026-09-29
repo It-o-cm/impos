@@ -31,6 +31,20 @@ public interface HardwareClient {
     String getWeight();
 
     /**
+     * Reads the weight from the scale AFTER applying a software tare
+     * (LC-14-01-03/04/05/07). The register sends the tare it resolved; the
+     * scale prioritises it over any hardware tare (LC-14-01-06) and returns the
+     * NET weight, which the register records as-is without re-deducting.
+     *
+     * @param tareKg the software tare to apply, in kilograms, dot decimal
+     * @return the NET weight in kilograms, French or dot decimal
+     */
+    @GET
+    @Path("/weight-with-tare")
+    @Produces(MediaType.TEXT_PLAIN)
+    String getWeightWithTare(@QueryParam("tare") String tareKg);
+
+    /**
      * Shows a text on the customer line display.
      *
      * @param text the text to display

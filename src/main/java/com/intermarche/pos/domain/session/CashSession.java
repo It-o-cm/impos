@@ -117,6 +117,18 @@ public class CashSession extends BaseEntity {
     }
 
     /**
+     * Finds the most recently closed session of the given register — the one
+     * whose leftover float carries over to the next opening (EXP-02).
+     *
+     * @param terminalId the register identifier
+     * @return the last closed session, or null when none was ever closed here
+     */
+    public static CashSession findLastClosedByTerminal(String terminalId) {
+        return find("terminalId = ?1 and status = ?2 order by closingDate desc",
+                terminalId, SessionStatus.CLOSED).firstResult();
+    }
+
+    /**
      * Returns the opening float formatted for display (2 decimals, French comma).
      *
      * @return the formatted opening float

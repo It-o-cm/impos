@@ -421,6 +421,67 @@ public class GroupGIT {
         paying.close();
     }
 
+    /**
+     * G5 — Bon pour échange (LC-08-05).
+     * <p>
+     * From a REPRINTED closed ticket, the cashier enters exchange mode: with no
+     * line picked the bon covers {@code TOUT LE TICKET}; picking a line switches
+     * the header to {@code ARTICLES CHOISIS : 1}. Printing the bon
+     * ({@code IMPRIMER LE BON}) produces a {@code BON POUR ECHANGE} that carries
+     * NO amount ({@code AUCUN MONTANT NE FIGURE SUR CE BON}). In training mode the
+     * print is blocked with {@code IMPRESSION INDISPONIBLE EN FORMATION} and
+     * nothing reaches the paper. The training flag is set in memory and cleared in
+     * a {@code finally} so the shared boot stays isolated.
+     */
+    @Test
+    void g5_bon_pour_echange() {
+        // --- Build and reprint a two-line closed ticket ---
+        Page sale = freshSale();
+        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE, EAN_BAGUETTE);
+        sale.close();
+        Long lineId = firstLineId(ticketId);
+        Page page = freshSale();
+        closeDrawer();
+        page.navigate(base.toString() + "reprint/view/" + ticketId);
+        page.getByText("DÉTAIL DU TICKET").waitFor();
+        // --- Exchange mode: the empty selection means the WHOLE ticket ---
+        page.navigate(base.toString() + "reprint/view/" + ticketId + "/exchange");
+        page.getByText("TOUT LE TICKET").waitFor();
+        // --- Picking a line switches the header to the chosen-count ---
+        page.navigate(base.toString() + "reprint/view/" + ticketId + "/exchange/toggle/" + lineId);
+        page.getByText("ARTICLES CHOISIS : 1").waitFor();
+        // --- Print the bon: BON POUR ECHANGE, carrying NO amount ---
+        clearPrinter();
+        page.navigate(base.toString() + "reprint/view/" + ticketId + "/exchange/print");
+        page.getByText("DÉTAIL DU TICKET").waitFor();
+        String paper = printerContent();
+        Assertions.assertTrue(paper.contains("BON POUR ECHANGE"),
+                "the exchange bon must be titled BON POUR ECHANGE, paper was:\n" + paper);
+        Assertions.assertTrue(paper.contains("AUCUN MONTANT NE FIGURE SUR CE BON"),
+                "the exchange bon must carry no amount, paper was:\n" + paper);
+        page.close();
+        // --- Training mode: the print is blocked, nothing reaches the paper ---
+        Page t = freshSale();
+        closeDrawer();
+        posState.trainingMode = true;
+        try {
+            t.navigate(base.toString() + "reprint/view/" + ticketId);
+            t.getByText("DÉTAIL DU TICKET").waitFor();
+            t.navigate(base.toString() + "reprint/view/" + ticketId + "/exchange");
+            t.getByText("TOUT LE TICKET").waitFor();
+            clearPrinter();
+            t.navigate(base.toString() + "reprint/view/" + ticketId + "/exchange/print");
+            t.getByText("DÉTAIL DU TICKET").waitFor();
+            Assertions.assertEquals("IMPRESSION INDISPONIBLE EN FORMATION", posState.ticket.transientError,
+                    "printing an exchange bon in training must be refused with the training message");
+            Assertions.assertFalse(printerContent().contains("BON POUR ECHANGE"),
+                    "no exchange bon must print in training mode");
+            t.close();
+        } finally {
+            posState.trainingMode = false;
+        }
+    }
+
     // --- Reusable gestures (login recipe, sale build, hardware bus) ---
 
     /**
@@ -448,9 +509,9 @@ public class GroupGIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -474,6 +535,7 @@ public class GroupGIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -533,6 +595,10 @@ public class GroupGIT {
      */
     private void payCashComplete(Page page, String digits) {
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
+        // Clear the pre-filled remainder (LC-07-03-01) so the typed digits are the
+        // full tendered amount, not an addition to the suggested exact sum.
+        page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         tapDigits(page.locator("#payNumpadZone"), digits);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER ESPÈCES").setExact(true)).click();
@@ -550,6 +616,10 @@ public class GroupGIT {
      */
     private void payCashPartial(Page page, String digits) {
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
+        // The cash pad opens PRE-FILLED with the exact remainder (LC-07-03-01);
+        // clear it so the typed digits are the tendered amount, not an addition.
+        page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         tapDigits(page.locator("#payNumpadZone"), digits);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER ESPÈCES").setExact(true)).click();
@@ -649,6 +719,20 @@ public class GroupGIT {
     }
 
     /**
+     * Reads the database id of a ticket's first line (for the G5 exchange
+     * selection).
+     *
+     * @param ticketId the database id of the ticket
+     * @return the first line's id
+     */
+    private Long firstLineId(Long ticketId) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            Ticket t = Ticket.findById(ticketId);
+            return t.lines.get(0).id;
+        });
+    }
+
+    /**
      * Counts the journal entries of a given event type.
      *
      * @param type the technical event type
@@ -700,4 +784,37 @@ public class GroupGIT {
             this.customerEmail = customerEmail;
         }
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

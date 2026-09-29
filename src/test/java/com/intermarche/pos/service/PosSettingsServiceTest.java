@@ -432,6 +432,167 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code returnReasons} splits the administered list, trimming each entry
+     * and dropping blank ones ({@code !isEmpty} both arms, LC-05-05-01), and
+     * returns an empty list for a blank setting (isBlank true arm).
+     */
+    @Test
+    void returnReasonsSplitsAndDropsBlanks() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.reasons", " Erreur de caisse ; ; Article périmé ")));
+            assertEquals(List.of("Erreur de caisse", "Article périmé"),
+                    new PosSettingsService().returnReasons());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.reasons", "   ")));
+            assertTrue(new PosSettingsService().returnReasons().isEmpty());
+        }
+    }
+
+    /**
+     * {@code financialMovementSources} and {@code financialMovementDestinations}
+     * hand back the administered raw lists verbatim (LC-12-06-02).
+     */
+    @Test
+    void financialMovementListsReturnTheAdministeredRawValues() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(
+                    row("movement.financial-sources", "CASH:Espèces"),
+                    row("movement.financial-destinations", "CREDIT:Crédit client")));
+            PosSettingsService service = new PosSettingsService();
+            assertEquals("CASH:Espèces", service.financialMovementSources());
+            assertEquals("CREDIT:Crédit client", service.financialMovementDestinations());
+        }
+    }
+
+    /**
+     * {@code financialMovementPrint} reads the administered flag in both arms
+     * (LC-12-06-03).
+     */
+    @Test
+    void financialMovementPrintCoversBothArms() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("movement.financial-print", "true")));
+            assertTrue(new PosSettingsService().financialMovementPrint());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("movement.financial-print", "false")));
+            assertFalse(new PosSettingsService().financialMovementPrint());
+        }
+    }
+
+    /**
+     * {@code changeOrderPrint} reads the administered flag in both arms
+     * (LC-12-05-08).
+     */
+    @Test
+    void changeOrderPrintCoversBothArms() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("change-order.print", "true")));
+            assertTrue(new PosSettingsService().changeOrderPrint());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("change-order.print", "false")));
+            assertFalse(new PosSettingsService().changeOrderPrint());
+        }
+    }
+
+    /**
+     * {@code changeOrderRollValues} hands back the administered raw
+     * correspondence verbatim (LC-12-05-06/07).
+     */
+    @Test
+    void changeOrderRollValuesReturnsTheAdministeredRawValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("change-order.roll-values", "0.20:8.00;0.01:0.50")));
+            assertEquals("0.20:8.00;0.01:0.50", new PosSettingsService().changeOrderRollValues());
+        }
+    }
+
+    /**
+     * {@code printReturnReason} reads the administered flag in both arms
+     * (LC-05-05-03): the stored override wins over the catalog default.
+     */
+    @Test
+    void printReturnReasonReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.print-reason", "false")));
+            assertFalse(new PosSettingsService().printReturnReason());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.print-reason", "true")));
+            assertTrue(new PosSettingsService().printReturnReason());
+        }
+    }
+
+    /**
+     * {@code defaultTare} reads the administered default tare, and returns zero
+     * from the catalog default when no row overrides it (LC-14-01-03).
+     */
+    @Test
+    void defaultTareReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("balance.default-tare", "0.010")));
+            assertEquals(0, new java.math.BigDecimal("0.010")
+                    .compareTo(new PosSettingsService().defaultTare()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(0, java.math.BigDecimal.ZERO
+                    .compareTo(new PosSettingsService().defaultTare()));
+        }
+    }
+
+    /**
+     * {@code tareContainers} parses the administered {@code CODE:LIBELLÉ:POIDS}
+     * list, keeping well-formed rows and dropping the malformed ones: a wrong
+     * field count, a blank code, a blank label, a negative weight and an
+     * unreadable weight are each dropped, while the valid rows survive in order
+     * (LC-14-01-04, both arms of every row guard).
+     */
+    @Test
+    void tareContainersParsesAndDropsMalformedRows() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("balance.tare-containers",
+                    "SACPAP:Sac kraft:0.010; BQS : Barquette S : 0,035 ;"
+                            + "BADFIELDS:only-two;:Sans code:0.01;NOLABEL::0.02;"
+                            + "NEG:Negatif:-0.01;NAN:Illisible:lourd")));
+            List<PosSettingsService.TareContainer> containers =
+                    new PosSettingsService().tareContainers();
+            assertEquals(2, containers.size());
+            assertEquals("SACPAP", containers.get(0).code());
+            assertEquals("Sac kraft", containers.get(0).label());
+            assertEquals(0, new java.math.BigDecimal("0.010").compareTo(containers.get(0).tareKg()));
+            assertEquals("BQS", containers.get(1).code());
+            assertEquals("Barquette S", containers.get(1).label());
+            assertEquals(0, new java.math.BigDecimal("0.035").compareTo(containers.get(1).tareKg()));
+        }
+    }
+
+    /**
+     * {@code tareContainers} returns an empty list for a blank setting (isBlank
+     * true arm) — no container is then offered.
+     */
+    @Test
+    void tareContainersEmptyForBlankSetting() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("balance.tare-containers", "   ")));
+            assertTrue(new PosSettingsService().tareContainers().isEmpty());
+        }
+    }
+
+    /**
      * {@code touchGroupsPerPage} floors a value below one back to the catalog
      * default (below-one arm) and keeps a positive value verbatim (positive
      * arm).
@@ -1512,6 +1673,116 @@ class PosSettingsServiceTest {
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("gs1.gcn-coupon-type", "COUPON")));
             assertEquals("COUPON", service.gs1CouponType());
+        }
+    }
+
+    /**
+     * {@code islandChangeAllowed} (BO-03-10-04) defaults to true when no row is
+     * posted (current behaviour) and honours a stored prohibition — both arms.
+     */
+    @Test
+    void islandChangeAllowedReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(new PosSettingsService().islandChangeAllowed());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("island.change-allowed", "false")));
+            assertFalse(new PosSettingsService().islandChangeAllowed());
+        }
+    }
+
+    /**
+     * {@code islandAutoDeclaration} (BO-03-10-10) defaults to false when no row
+     * is posted (the counting screen stays) and honours a stored activation —
+     * both arms.
+     */
+    @Test
+    void islandAutoDeclarationReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(new PosSettingsService().islandAutoDeclaration());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("island.auto-declaration", "true")));
+            assertTrue(new PosSettingsService().islandAutoDeclaration());
+        }
+    }
+
+    /**
+     * {@code islandPromotionChannel} (BO-03-10-08) defaults to the empty string
+     * when no row is posted (no channel is added, remontée unchanged) and
+     * returns a stored channel — both arms.
+     */
+    @Test
+    void islandPromotionChannelReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("", new PosSettingsService().islandPromotionChannel());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("island.promotion-channel", "WEB")));
+            assertEquals("WEB", new PosSettingsService().islandPromotionChannel());
+        }
+    }
+
+    /**
+     * {@code welcomeMessage} (EXP-01) defaults to the invitation to log in when
+     * no row is posted, and returns a stored override — both arms.
+     */
+    @Test
+    void welcomeMessageReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("Bonjour : Connectez-vous", new PosSettingsService().welcomeMessage());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("session.welcome-message", "Bienvenue !")));
+            assertEquals("Bienvenue !", new PosSettingsService().welcomeMessage());
+        }
+    }
+
+    /**
+     * {@code waitingLabel} (EXP-03) defaults to the retail "next customer"
+     * prompt when no row is posted, and returns a stored override — both arms.
+     */
+    @Test
+    void waitingLabelReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("CLIENT SUIVANT", new PosSettingsService().waitingLabel());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("sale.waiting-label", "AU SUIVANT")));
+            assertEquals("AU SUIVANT", new PosSettingsService().waitingLabel());
+        }
+    }
+
+    /**
+     * {@code drawerCap} (EXP-17) defaults to zero (no cap) when no row is
+     * posted, returns a stored amount, and falls back to the catalog default
+     * when the stored row is corrupt (bigDecimalValue guard) — all three arms.
+     */
+    @Test
+    void drawerCapReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(0, new java.math.BigDecimal("0.00").compareTo(new PosSettingsService().drawerCap()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.drawer-cap", "1000.00")));
+            assertEquals(0, new java.math.BigDecimal("1000.00").compareTo(new PosSettingsService().drawerCap()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.drawer-cap", "not-a-number")));
+            assertEquals(0, new java.math.BigDecimal("0.00").compareTo(new PosSettingsService().drawerCap()));
         }
     }
 }

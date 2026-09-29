@@ -356,12 +356,20 @@ public class SyncOutboxService {
         // document as the original.
         dto.fidelityEarnTotal = ticket.fidelityEarnTotal;
         dto.fidelityAvailableBalance = ticket.fidelityAvailableBalance;
+        dto.fidelityProjectedAfterEarn = ticket.fidelityProjectedAfterEarn;
+        dto.fidelityBalanceAfter = ticket.fidelityBalanceAfter;
+        dto.fidelityAnonymousProjection = ticket.fidelityAnonymousProjection;
         dto.fidelityUnavailable = ticket.fidelityUnavailable;
         for (com.intermarche.pos.domain.sale.TicketFidelityLine earnLine : ticket.fidelityLines) {
             SyncPayloads.FidelityLineDto earnDto = new SyncPayloads.FidelityLineDto();
             earnDto.ruleCode = earnLine.ruleCode;
             earnDto.label = earnLine.label;
             earnDto.amount = earnLine.amount;
+            earnDto.advantageType = earnLine.advantageType;
+            earnDto.advantageTypeLabel = earnLine.advantageTypeLabel;
+            earnDto.advantageTypeOrder = earnLine.advantageTypeOrder;
+            earnDto.advantageCategory = earnLine.advantageCategory;
+            earnDto.advantageCategoryLabel = earnLine.advantageCategoryLabel;
             dto.fidelityLines.add(earnDto);
         }
         dto.digitalKey = ticket.digitalKey;

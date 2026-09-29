@@ -236,7 +236,9 @@ public class BalanceTicketService {
                 : catalogTotal(line, product);
         // Quantity one at the resolved total: the register's total then equals the
         // figure it just decided, which a unit price times a weight cannot guarantee
-        // once either has been rounded.
+        // once either has been rounded. LC-14-01-06 non-cumulation: the counter
+        // weight is already NET (the counter scale applied any tare), so no
+        // software tare is applied here.
         state.ticket.addItem(line.ean, product == null ? null : product.plu,
                 labelOf(line, product), total, BigDecimal.ONE, vatRateOf(line, product));
         // The line just added is the one to flag, and reading it back is the only way

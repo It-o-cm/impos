@@ -203,7 +203,7 @@ public class GroupOIT {
         Assertions.assertEquals("AUCUNE SESSION OUVERTE - MENU CAISSE", posState.ticket.transientError,
                 "a sale scan with no session open must set the session-gate message");
         // Open the shared session through the screen; the rest of the group reuses it.
-        page.locator("#openingFloat").fill(OPENING_FLOAT);
+        enterOpeningFloat(page, OPENING_FLOAT);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -340,7 +340,7 @@ public class GroupOIT {
     /**
      * O-A (state-guard zone) — the messages gated by cart / training / payment
      * state. Proves {@code TERMINEZ OU ANNULEZ LE TICKET D'ABORD} (a training
-     * request over a non-empty cart), {@code RÉIMPRESSION INDISPONIBLE EN
+     * request over a non-empty cart), {@code FONCTION INDISPONIBLE EN
      * FORMATION} (reprint in training), {@code SUPERVISION NON CONFIGURÉE SUR
      * CETTE CAISSE} (a supervisor call with no store-url) and
      * {@code PAIEMENT REFUSÉ PAR LE TPE} (a refused virtual TPE). The four
@@ -360,10 +360,10 @@ public class GroupOIT {
         assertSaleErrorClears(page);
         clearCartWithManager(page);
 
-        // --- RÉIMPRESSION INDISPONIBLE EN FORMATION — reprint while training ---
+        // --- FONCTION INDISPONIBLE EN FORMATION — reprint while training ---
         setTraining(page, true);
         get("action/print-last");
-        assertSaleErrorShown(page, "RÉIMPRESSION INDISPONIBLE EN FORMATION");
+        assertSaleErrorShown(page, "FONCTION INDISPONIBLE EN FORMATION");
         assertSaleErrorClears(page);
         clearCartWithManager(page);
         setTraining(page, false);
@@ -681,9 +681,18 @@ public class GroupOIT {
         page.getByText("HUILE D'OLIVE 1L").first().waitFor();
         goPay(page);
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
+        // The cash pad opens PRE-FILLED with the exact remainder (LC-07-03-01);
+        // clear it before keying an over-payment so "20" replaces the default
+        // rather than leaving the exact sum in place (no change otherwise).
+        page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
         tapDigits(page.locator("#payNumpadZone"), "20");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("VALIDER ESPÈCES").setExact(true)).click();
+        // Cash OPENS the drawer: the completion modal's change section is only
+        // reachable once the drawer is shut and /pay is re-rendered (same as GroupFIT).
+        closeDrawer();
+        page.navigate(base.toString() + "pay");
         page.getByText("TRANSACTION TERMINÉE").waitFor();
         page.getByText("Rendu Client").waitFor();
         Assertions.assertNotNull(posState.payment.lastChangeAmount, "an overpay must record the change due");
@@ -844,9 +853,9 @@ public class GroupOIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill(OPENING_FLOAT);
+        enterOpeningFloat(page, OPENING_FLOAT);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -912,7 +921,15 @@ public class GroupOIT {
      */
     private void clearCartWithManager(Page page) {
         if (posState.ticket.items.isEmpty()) return;
-        get("action/cancelTicket");
+        // The cancel gesture moved behind the /abandon screen: GET action/cancelTicket
+        // now only redirects there, and it is the /abandon confirmation (a reason
+        // picked, then ABANDONNER) that parks the CANCEL_TICKET endorsement. Drive it
+        // through the screen so the actually-offered reason is used, then the manager
+        // endorses it exactly as for any other parked gesture.
+        page.navigate(base.toString() + "abandon");
+        page.locator(".reason-btn").first().click();
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("ABANDONNER LE TICKET").setExact(true)).click();
         approveEndorsementWithManager(page);
     }
 
@@ -965,6 +982,7 @@ public class GroupOIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     // --- Hardware bus & keypad ----------------------------------------------
@@ -1143,4 +1161,37 @@ public class GroupOIT {
         int check = (10 - (sum % 10)) % 10;
         return body12 + check;
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

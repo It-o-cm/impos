@@ -291,4 +291,92 @@ class SessionCloseServiceTest {
         verify(service.ticketPrinterService).printRenderedTicket(receipt.capture());
         assertTrue(receipt.getValue().contains("Nom       : —"));
     }
+
+    /**
+     * Builds a register state whose in-memory ticket is empty or carries one
+     * (mock) line, to drive the in-transaction obstacle (EXP-11).
+     *
+     * @param hasItems whether a sale line is present
+     * @return the state carrying a real, populated-or-empty ticket
+     */
+    private PosState stateWithTicket(boolean hasItems) {
+        PosState state = state("007");
+        state.ticket = new com.intermarche.pos.ui.ticket.TicketState();
+        if (hasItems) {
+            state.ticket.items.add(mock(com.intermarche.pos.ui.ticket.TicketState.TicketItem.class));
+        }
+        return state;
+    }
+
+    /**
+     * A sale in progress is the first obstacle to a fermeture (EXP-11):
+     * non-empty ticket, checked before the forceable obstacles.
+     */
+    @Test
+    void saleInProgressBlocksTheClose() {
+        SessionCloseService service = newService();
+        assertEquals(SessionCloseService.Obstacle.IN_TRANSACTION,
+                service.obstacle(stateWithTicket(true)));
+    }
+
+    /**
+     * An empty ticket skips the in-transaction check and falls through to the
+     * remaining questions (empty-items arm).
+     */
+    @Test
+    void emptyTicketSkipsTheInTransactionCheck() {
+        SessionCloseService service = newService();
+        when(service.posSettingsService.closeEndorsementOnPending()).thenReturn(false);
+        when(service.posSettingsService.passwordRequiredOnClose()).thenReturn(false);
+        try (MockedStatic<PanacheEntityBase> ignored = parked(0L)) {
+            assertEquals(SessionCloseService.Obstacle.NONE, service.obstacle(stateWithTicket(false)));
+        }
+    }
+
+    /**
+     * A null state skips the in-transaction check entirely (the historical
+     * no-arg contract), reaching the password question.
+     */
+    @Test
+    void nullStateSkipsTheInTransactionCheck() {
+        SessionCloseService service = newService();
+        when(service.posSettingsService.closeEndorsementOnPending()).thenReturn(false);
+        when(service.posSettingsService.passwordRequiredOnClose()).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> ignored = parked(0L)) {
+            assertEquals(SessionCloseService.Obstacle.PASSWORD, service.obstacle(null));
+        }
+    }
+
+    /**
+     * The no-arg {@code obstacle()} delegates to the null-state overload, so it
+     * never sees a ticket and behaves exactly as before.
+     */
+    @Test
+    void noArgObstacleDelegatesToNullState() {
+        SessionCloseService service = newService();
+        when(service.posSettingsService.closeEndorsementOnPending()).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> ignored = parked(2L)) {
+            assertEquals(SessionCloseService.Obstacle.PENDING_TICKETS, service.obstacle());
+        }
+    }
+
+    /**
+     * A forced close from a PAUSED register (EXP-96) has no signed-in operator:
+     * the receipt and journal name the abandoned post from the locked-operator
+     * identity (the operatorBadgeId-null fallback arm).
+     */
+    @Test
+    void forcedCloseFromPausedRegisterNamesTheLockedOperator() {
+        SessionCloseService service = newService();
+        when(service.posSettingsService.printCloseReceipt()).thenReturn(true);
+        PosState state = state("007");
+        state.auth.pause();
+        service.close(state, "poste abandonné — superviseur");
+        verify(service.technicalEventService)
+                .log(eq(TechnicalEvent.EventType.SUPERVISOR_CALLED), anyString(), eq("007"));
+        ArgumentCaptor<String> receipt = ArgumentCaptor.forClass(String.class);
+        verify(service.ticketPrinterService).printRenderedTicket(receipt.capture());
+        assertTrue(receipt.getValue().contains("Opérateur : 007"));
+        assertTrue(receipt.getValue().contains("Martin Durand"));
+    }
 }

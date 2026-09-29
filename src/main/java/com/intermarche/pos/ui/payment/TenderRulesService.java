@@ -30,6 +30,13 @@ public class TenderRulesService {
             new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
 
     /**
+     * The administered parameters, read for the island-level change prohibition
+     * (BO-03-10-04) that primes over the per-tender rule.
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /**
      * Checks one settlement about to be registered against the bounds the back
      * office administered for its tender (BO-03-02-10/12/13/14).
      *
@@ -124,6 +131,13 @@ public class TenderRulesService {
      * @return the administered answer, or the fallback
      */
     public boolean changeAllowed(String methodKey, boolean fallback) {
+        // BO-03-10-04: an island that forbids change PRIMES over the per-tender
+        // rule — the island prohibition is not a default one may override, it is
+        // a veto. When the island allows (the true default), the tender rule
+        // decides exactly as before the option existed.
+        if (!posSettingsService.islandChangeAllowed()) {
+            return false;
+        }
         TenderDefinition tender = TenderDefinition.findByCode(methodKey);
         return tender == null ? fallback : tender.changeAllowed;
     }

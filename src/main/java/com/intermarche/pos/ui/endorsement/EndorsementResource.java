@@ -49,6 +49,8 @@ public class EndorsementResource {
     /** Replays a withdrawal or a transfer the modal just authorized. */
     @Inject com.intermarche.pos.ui.cash.DrawerOperationsResource drawerOperationsResource;
 
+    @Inject com.intermarche.pos.ui.cash.FinancialMovementResource financialMovementResource;
+
     @Inject PosState state;
 
     /**
@@ -196,7 +198,17 @@ public class EndorsementResource {
                 if ("transfer".equals(form.get("op"))) {
                     return drawerOperationsResource.performEndorsedTransfer(form, endorserBadge);
                 }
+                if ("apport".equals(form.get("op"))) {
+                    return drawerOperationsResource.performEndorsedApport(form, endorserBadge);
+                }
                 return drawerOperationsResource.performEndorsedWithdrawal(form, endorserBadge);
+            }
+            else if (actionToExecute.equals(
+                    com.intermarche.pos.ui.cash.FinancialMovementResource.ENDORSEMENT_ACTION)) {
+                // LC-12-06: the financial-movement screen parked what was typed
+                // (source, destination, amount); it is replayed here, through
+                // the screen's own guards, once a manager has answered.
+                return financialMovementResource.performEndorsed(state.endorsement.pendingForm, endorserBadge);
             }
             return null;
     }

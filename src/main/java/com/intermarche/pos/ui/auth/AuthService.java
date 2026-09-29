@@ -156,8 +156,17 @@ public class AuthService {
      * @param rawPassword the raw PIN entered
      * @return the login outcome (success, invalid credentials, or locked account)
      */
+    /** The action code a supervisor-forced register unlock is endorsed under (EXP-14). */
+    public static final String FORCE_UNLOCK_ACTION = "REGISTER_FORCE_UNLOCK";
+
     public LoginResult login(PosState state, String loginInfo, String rawPassword) {
         LOGGER.info("Entering method login with state: " + state + ", loginInfo: " + loginInfo + ", rawPassword: ***");
+        if (state.auth.isPaused()) {
+            // A paused register RESUMES rather than logs in: only the operator who
+            // verrouilla may unlock (EXP-13), and the in-memory ticket survives.
+            LOGGER.info("Exiting method login");
+            return resume(state, loginInfo, rawPassword);
+        }
         if (badgeOpensAlone(state, loginInfo, rawPassword)) {
             Employee employee = Employee.findActiveLogin(loginInfo);
             if (employee != null) {
@@ -183,6 +192,86 @@ public class AuthService {
         return status.locked ? LoginResult.LOCKED : LoginResult.INVALID;
     }
 
+
+    /**
+     * Resumes a PAUSED register (déverrouillage, EXP-12/13): only the operator
+     * who verrouilla may unlock, and only their password is checked — the login
+     * is fixed to their badge on the screen. On success the operator is restored
+     * (the in-memory ticket kept) and the reprise is journaled.
+     *
+     * @param state the current POS state (paused)
+     * @param loginInfo the presented identifier, expected to be the locker's badge
+     * @param rawPassword the raw PIN entered
+     * @return the resume outcome (success, invalid, or locked account)
+     */
+    LoginResult resume(PosState state, String loginInfo, String rawPassword) {
+        LOGGER.info("Entering method resume with loginInfo: " + loginInfo);
+        if (loginInfo == null
+                || !loginInfo.equalsIgnoreCase(state.auth.lockedOperatorBadgeId)) {
+            // Another operator cannot lift a colleague's pause: only a supervisor
+            // forcing (forceResume) may, and that is a different gesture.
+            LOGGER.info("Exiting method resume");
+            return LoginResult.INVALID;
+        }
+        CredentialStatus status = checkCredentials(loginInfo, rawPassword);
+        if (status.isSuccess()) {
+            state.auth.login(status.employee.id, status.employee.getFullName(),
+                    status.employee.badgeId);
+            technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
+                    null, status.employee.badgeId);
+            LOGGER.info("Exiting method resume");
+            return LoginResult.SUCCESS;
+        }
+        LOGGER.info("Exiting method resume");
+        return status.locked ? LoginResult.LOCKED : LoginResult.INVALID;
+    }
+
+    /**
+     * VERROUILLE (pauses) the register (EXP-12): the operator identity and the
+     * in-memory ticket survive, the pause is journaled like the idle one, and the
+     * drawer is not touched. Nothing is written when no operator is signed in.
+     *
+     * @param state the current POS state
+     */
+    public void pause(PosState state) {
+        LOGGER.info("Entering method pause with state: " + state);
+        if (state.auth.operatorBadgeId != null) {
+            technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
+                    null, state.auth.operatorBadgeId);
+        }
+        state.auth.pause();
+        LOGGER.info("Exiting method pause");
+    }
+
+    /**
+     * Forces the reprise of a paused register whose cashier forgot their password
+     * (EXP-14): a supervisor endorses the unlock, the cashier keeps their session
+     * and drawer (the in-memory ticket too), and a PIN change is imposed at the
+     * reprise ({@code passwordChangeRequired}). No credential of the cashier is
+     * checked — the supervisor's endorsement stands in for it.
+     *
+     * @param state the current POS state (paused)
+     * @return true when the register was paused and the reprise ran, false when it
+     *         was not paused or the locked operator could not be resolved
+     */
+    public boolean forceResume(PosState state) {
+        LOGGER.info("Entering method forceResume with state: " + state);
+        if (!state.auth.isPaused()) {
+            LOGGER.info("Exiting method forceResume");
+            return false;
+        }
+        Employee operator = Employee.findById(state.auth.lockedOperatorId);
+        if (operator == null) {
+            LOGGER.info("Exiting method forceResume");
+            return false;
+        }
+        state.auth.login(operator.id, operator.getFullName(), operator.badgeId);
+        state.auth.passwordChangeRequired = true;
+        technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
+                "forçage superviseur", operator.badgeId);
+        LOGGER.info("Exiting method forceResume");
+        return true;
+    }
 
     /**
      * Whether this attempt is a badge opening the register on its own
@@ -274,6 +363,9 @@ public class AuthService {
         }
         employee.password = Employee.hashPassword(newPin);
         employee.persist();
+        // A forced reprise (EXP-14) demanded this change; once done, the demand
+        // is satisfied and the register is a plain logged-in post again.
+        state.auth.passwordChangeRequired = false;
         technicalEventService.log(TechnicalEvent.EventType.PASSWORD_CHANGED, null, employee.badgeId);
         LOGGER.info("Exiting method changePin");
         return null;

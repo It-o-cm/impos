@@ -170,6 +170,143 @@ class ConsumptionServiceTest {
         assertEquals(new BigDecimal("3.50"), declared.get(1).amount());
     }
 
+    /** An advantage joined to a two-line offer, carrying an accounting key. */
+    private static final String ADVANTAGE_WITH_OFFER =
+            "{\"offers\":[{\"offerId\":\"O1\",\"type\":\"T1\",\"items\":["
+            + "{\"lineId\":\"L1\",\"produceEan\":\"EAN1\",\"amount\":{\"amountIncludingTax\":6.00}},"
+            + "{\"lineId\":\"L2\",\"produceEan\":\"EAN2\",\"amount\":{\"amountIncludingTax\":4.00}}]}],"
+            + "\"advantages\":[{\"offerCode\":\"OFF1\",\"offer\":\"O1\",\"accountingCode\":\"706100\","
+            + "\"discountAmount\":{\"amountIncludingTax\":-5.00}}]}";
+
+    /**
+     * The accounting code is copied verbatim onto the declared advantage
+     * (spec §2), and the per-article lines are derived from the offer's valued
+     * shares (spec §4): 5,00 € split 6:4 gives 3,00 € on EAN1 and 2,00 € on
+     * EAN2, each in absolute value.
+     */
+    @Test
+    void parseAdvantagesCopiesAccountingCodeAndDerivesLines() {
+        List<ConsumptionService.DeclaredAdvantage> declared =
+                service.parseAdvantages(ADVANTAGE_WITH_OFFER);
+        assertEquals(1, declared.size());
+        ConsumptionService.DeclaredAdvantage advantage = declared.get(0);
+        assertEquals("706100", advantage.accountingCode());
+        assertEquals(2, advantage.lines().size());
+        assertEquals("EAN1", advantage.lines().get(0).ean());
+        assertEquals(new BigDecimal("3.00"), advantage.lines().get(0).amount());
+        assertEquals("EAN2", advantage.lines().get(1).ean());
+        assertEquals(new BigDecimal("2.00"), advantage.lines().get(1).amount());
+    }
+
+    /**
+     * The derived lines sum back to the advantage amount: a rounding residual
+     * lands on the largest share (spec §4). 1,00 € over three equal 1,00 €
+     * shares rounds to 0,33 each, and the leftover cent falls on the first,
+     * largest-ranked share (0,34 + 0,33 + 0,33 = 1,00).
+     */
+    @Test
+    void parseAdvantagesPutsTheRoundingResidualOnTheLargestShare() {
+        String json = "{\"offers\":[{\"offerId\":\"O1\",\"items\":["
+                + "{\"lineId\":\"L1\",\"produceEan\":\"E1\",\"amount\":{\"amountIncludingTax\":1.00}},"
+                + "{\"lineId\":\"L2\",\"produceEan\":\"E2\",\"amount\":{\"amountIncludingTax\":1.00}},"
+                + "{\"lineId\":\"L3\",\"produceEan\":\"E3\",\"amount\":{\"amountIncludingTax\":1.00}}]}],"
+                + "\"advantages\":[{\"offerCode\":\"OFF1\",\"offer\":\"O1\","
+                + "\"discountAmount\":{\"amountIncludingTax\":-1.00}}]}";
+        List<ConsumptionService.DeclaredAdvantage> declared = service.parseAdvantages(json);
+        List<ConsumptionService.DeclaredLine> lines = declared.get(0).lines();
+        assertEquals(new BigDecimal("0.34"), lines.get(0).amount());
+        assertEquals(new BigDecimal("0.33"), lines.get(1).amount());
+        assertEquals(new BigDecimal("0.33"), lines.get(2).amount());
+        BigDecimal sum = lines.get(0).amount().add(lines.get(1).amount()).add(lines.get(2).amount());
+        assertEquals(new BigDecimal("1.00"), sum);
+    }
+
+    /**
+     * Without the new fields the declaration is unchanged: an advantage with no
+     * accounting code and no resolvable offer carries a null accounting code and
+     * null lines (spec §2/§4, the absent arms).
+     */
+    @Test
+    void parseAdvantagesLeavesNewFieldsNullWhenAbsent() {
+        ConsumptionService.DeclaredAdvantage advantage = service.parseAdvantages(ONE_ADVANTAGE).get(0);
+        assertNull(advantage.accountingCode());
+        assertNull(advantage.lines());
+    }
+
+    /**
+     * An advantage whose offer cannot be resolved derives no lines (the
+     * unresolvable-offer arm): the join key names an offer that is not there.
+     */
+    @Test
+    void parseAdvantagesDerivesNoLinesForUnresolvableOffer() {
+        String json = "{\"offers\":[{\"offerId\":\"O1\",\"items\":["
+                + "{\"lineId\":\"L1\",\"produceEan\":\"E1\",\"amount\":{\"amountIncludingTax\":1.00}}]}],"
+                + "\"advantages\":[{\"offerCode\":\"OFF1\",\"offer\":\"UNKNOWN\","
+                + "\"discountAmount\":{\"amountIncludingTax\":-1.00}}]}";
+        assertNull(service.parseAdvantages(json).get(0).lines());
+    }
+
+    /**
+     * An advantage joined to an offer whose items carry no valued share derives
+     * no lines (the zero-total-share arm).
+     */
+    @Test
+    void parseAdvantagesDerivesNoLinesWhenOfferHasNoValuedShare() {
+        String json = "{\"offers\":[{\"offerId\":\"O1\",\"items\":["
+                + "{\"lineId\":\"L1\",\"produceEan\":\"E1\"}]}],"
+                + "\"advantages\":[{\"offerCode\":\"OFF1\",\"offer\":\"O1\","
+                + "\"discountAmount\":{\"amountIncludingTax\":-1.00}}]}";
+        assertNull(service.parseAdvantages(json).get(0).lines());
+    }
+
+    /**
+     * An advantage joined by its type string, not a stable id, resolves its
+     * offer all the same (the type-fallback arm of the join).
+     */
+    @Test
+    void parseAdvantagesResolvesOfferByTypeString() {
+        String json = "{\"offers\":[{\"type\":\"T1\",\"items\":["
+                + "{\"lineId\":\"L1\",\"produceEan\":\"E1\",\"amount\":{\"amountIncludingTax\":2.00}}]}],"
+                + "\"advantages\":[{\"offerCode\":\"OFF1\",\"offer\":\"T1\","
+                + "\"discountAmount\":{\"amountIncludingTax\":-2.00}}]}";
+        List<ConsumptionService.DeclaredLine> lines = service.parseAdvantages(json).get(0).lines();
+        assertEquals(1, lines.size());
+        assertEquals(new BigDecimal("2.00"), lines.get(0).amount());
+    }
+
+    /**
+     * The enqueued JSON omits the new fields when they are absent: the
+     * declaration is byte-for-byte the one produced before they existed (spec
+     * §2/§4, retro-compatibility).
+     */
+    @Test
+    void enqueueSaleOmitsNewFieldsWhenAbsent() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<ConsumptionOutbox> mc = mockConstruction(ConsumptionOutbox.class)) {
+            stubKey(panache, "C04", "T1", ConsumptionOutbox.Direction.SALE, null);
+            service.enqueueSale("T1", "C04", LocalDateTime.now(), ONE_ADVANTAGE);
+            String json = mc.constructed().get(0).advantagesJson;
+            assertEquals("[{\"offerCode\":\"OFF1\",\"amount\":5.00}]", json);
+        }
+    }
+
+    /**
+     * The enqueued JSON carries the accounting code and the derived lines when
+     * the response supplies them (spec §2/§4, the present arms).
+     */
+    @Test
+    void enqueueSaleCarriesAccountingCodeAndLinesWhenPresent() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<ConsumptionOutbox> mc = mockConstruction(ConsumptionOutbox.class)) {
+            stubKey(panache, "C04", "T1", ConsumptionOutbox.Direction.SALE, null);
+            service.enqueueSale("T1", "C04", LocalDateTime.now(), ADVANTAGE_WITH_OFFER);
+            String json = mc.constructed().get(0).advantagesJson;
+            assertTrue(json.contains("\"accountingCode\":\"706100\""));
+            assertTrue(json.contains("\"ean\":\"EAN1\""));
+            assertTrue(json.contains("\"ean\":\"EAN2\""));
+        }
+    }
+
     /**
      * {@code enqueueSale} declares nothing when the valuation carries no engine
      * advantage (no row constructed).

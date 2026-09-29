@@ -73,6 +73,12 @@ class HomeServiceTest {
         service.state.priceModState = mock(PriceModState.class);
         service.state.payment = mock(PaymentState.class);
         service.ticketService = mock(TicketService.class);
+        // LC-14-01-08: the tare resolver is a stand-in returning no tare by
+        // default, so the historical weighed-quantity assertions are unchanged;
+        // the tare-deduction cases stub a positive tare explicitly.
+        service.tareService = mock(com.intermarche.pos.ui.balance.TareService.class);
+        when(service.tareService.resolveForManual(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(java.math.BigDecimal.ZERO);
         service.ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.endorsementService = mock(EndorsementService.class);
         // Back-office parameters at their catalog defaults: the endorsement
@@ -84,6 +90,9 @@ class HomeServiceTest {
         when(service.posSettingsService.discountEnabled()).thenReturn(true);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.ticketNumberService = mock(TicketNumberService.class);
+        // The drawer-cap alert (EXP-17) reads the cash session; a mock returns no
+        // excess by default, so the historical assertions are unchanged.
+        service.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
         service.syncOutboxService = mock(SyncOutboxService.class);
         service.objectMapper = mock(ObjectMapper.class);
         service.supervisorToken = Optional.empty();
@@ -932,6 +941,40 @@ class HomeServiceTest {
     }
 
     /**
+     * LC-14-01-08: a manually typed weight is a GROSS weight, so the resolved
+     * software tare is deducted before the net is stored, and the punctual
+     * container is consumed. A tare of 0,100 on a typed 0,850 stores 0,750.
+     */
+    @Test
+    void submitPriceModQuantityDeductsSoftwareTareFromManualWeight() {
+        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        when(service.tareService.resolveForManual(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(new BigDecimal("0.100"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.850"));
+        assertEquals(0, new BigDecimal("0.750").compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+        verify(service.tareService).consume(service.state);
+    }
+
+    /**
+     * LC-14-01-08: a tare that leaves nothing on the plate is refused like any
+     * invalid weight — a typed 0,850 with a 0,850 tare nets zero, below the
+     * 0,001 floor, so the weight message is shown and nothing is recalculated
+     * or consumed (the net-below-floor arm).
+     */
+    @Test
+    void submitPriceModQuantityRefusesWhenTareLeavesNothing() {
+        service.state.ticket.items.add(item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE));
+        when(service.tareService.resolveForManual(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(new BigDecimal("0.850"));
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.850"));
+        verify(service.state.ticket).setError("POIDS INVALIDE (0,001-99,999 KG)");
+        verify(service.ticketService, never()).recalculateTotal(any());
+        verify(service.tareService, never()).consume(any());
+    }
+
+    /**
      * {@code submitPriceMod()} refuses an out-of-range weight on a weighed
      * line (zero, above 99.999 kg, or finer than the gram) with the weight
      * message — one test per leg of the composed guard.
@@ -1399,5 +1442,35 @@ class HomeServiceTest {
         java.util.List<HomeService.RestrictedTenderRow> rows = service.restrictedTenderRows();
         assertEquals(1, rows.size());
         assertEquals("4,00", rows.get(0).amount());
+    }
+
+    /**
+     * {@code waitingLabel} (EXP-03) delegates to the administered waiting label.
+     */
+    @Test
+    void waitingLabelDelegatesToSettings() {
+        when(service.posSettingsService.waitingLabel()).thenReturn("CLIENT SUIVANT");
+        assertEquals("CLIENT SUIVANT", service.waitingLabel());
+    }
+
+    /**
+     * {@code drawerCapAlert} (EXP-17) is null when the drawer cash is at or below
+     * the cap (the null-excess arm).
+     */
+    @Test
+    void drawerCapAlertNullWhenNotOverCap() {
+        when(service.cashSessionService.drawerCapExcess()).thenReturn(null);
+        assertNull(service.drawerCapAlert());
+    }
+
+    /**
+     * {@code drawerCapAlert} (EXP-17) warns with the drawer cash when it exceeds
+     * the cap (the non-null-excess arm).
+     */
+    @Test
+    void drawerCapAlertWarnsWhenOverCap() {
+        when(service.cashSessionService.drawerCapExcess())
+                .thenReturn(new java.math.BigDecimal("1200.00"));
+        assertEquals("PRÉLÈVEMENT — CONTENU TIROIR 1200,00 €", service.drawerCapAlert());
     }
 }

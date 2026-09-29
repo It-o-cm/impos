@@ -167,6 +167,9 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // carries the product EAN: its price IS the catalog price, so the
             // valuation engine resolves the same base and the line is
             // eligible (unlike price-embedded stickers, which stay local).
+            // LC-14-01-06 non-cumulation: the weight embedded in a weighed-EAN
+            // sticker is already NET — the scale that printed it applied any
+            // tare — so no software tare is re-applied here.
             BigDecimal quantityKg = embeddedWeight.setScale(3, RoundingMode.HALF_UP);
             if (quantityKg.signum() <= 0) {
                 ctx.state.ticket.setError("POIDS INVALIDE");

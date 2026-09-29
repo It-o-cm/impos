@@ -491,6 +491,79 @@ class ValuationReconcilerTest {
     }
 
     /**
+     * apply persists the explicit LINE placement of a discount (spec §1): the
+     * engine named LINE, so the trace records LINE and the printer keeps the
+     * advantage under its article.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyPersistsExplicitLinePlacement() throws Exception {
+        ValuationPayloads.AdvantageDto disc = discount("OFF1", "DISC", amount("1.00"));
+        disc.printMode = "LINE";
+        String response = json(
+                List.of(offer("OFF1", "3x2", portion("L1", amount("8.00")))),
+                List.of(disc));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<TicketLineValuation> mc = mockConstruction(TicketLineValuation.class)) {
+            Ticket draft = mock(Ticket.class);
+            ms.when(() -> Ticket.findById(DB_ID)).thenReturn(draft);
+            reconciler.apply(ticketWith(it), DB_ID, response);
+            assertEquals("LINE", mc.constructed().get(0).advantagePrintMode);
+        }
+    }
+
+    /**
+     * apply defaults an unspecified placement to FOOTER (spec §1, Option B): an
+     * engine that names no printMode gets the footer placement, and so does one
+     * that names FOOTER explicitly.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyDefaultsMissingPlacementToFooter() throws Exception {
+        String response = json(
+                List.of(offer("OFF1", "3x2", portion("L1", amount("8.00")))),
+                List.of(discount("OFF1", "DISC", amount("1.00"))));
+        TicketState.TicketItem it = item("L1", "1", "10", "1");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<TicketLineValuation> mc = mockConstruction(TicketLineValuation.class)) {
+            Ticket draft = mock(Ticket.class);
+            ms.when(() -> Ticket.findById(DB_ID)).thenReturn(draft);
+            reconciler.apply(ticketWith(it), DB_ID, response);
+            assertEquals("FOOTER", mc.constructed().get(0).advantagePrintMode);
+        }
+    }
+
+    /**
+     * apply sends the whole line's cut to the footer when the line carries a
+     * LINE discount and a FOOTER one at once (spec §1, the merge rule): a single
+     * footer advantage on the line wins, so the register never splits one line's
+     * discount across two places.
+     *
+     * @throws Exception if serialization fails
+     */
+    @Test
+    void applyMergesMixedPlacementsToFooter() throws Exception {
+        ValuationPayloads.AdvantageDto lineDisc = discount("OFF1", "L", amount("1.00"));
+        lineDisc.printMode = "LINE";
+        ValuationPayloads.AdvantageDto footerDisc = discount("OFF1", "F", amount("1.00"));
+        footerDisc.printMode = "FOOTER";
+        String response = json(
+                List.of(offer("OFF1", "3x2", portion("L1", amount("10.00")))),
+                List.of(lineDisc, footerDisc));
+        TicketState.TicketItem it = item("L1", "1", "20", "1");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<TicketLineValuation> mc = mockConstruction(TicketLineValuation.class)) {
+            Ticket draft = mock(Ticket.class);
+            ms.when(() -> Ticket.findById(DB_ID)).thenReturn(draft);
+            reconciler.apply(ticketWith(it), DB_ID, response);
+            assertEquals("FOOTER", mc.constructed().get(0).advantagePrintMode);
+        }
+    }
+
+    /**
      * apply on a draft merges advantage labels across several discounts on one
      * line (label merge contains arm true then false) and truncates an
      * over-long offer label built from the type when no offerId is emitted

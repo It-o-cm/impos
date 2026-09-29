@@ -64,9 +64,16 @@
     <div class="bottom-nav"></div>
 
     <div class="lane-closed-screen" id="laneClosed">
+        {#if paused}
+        <div class="lane-closed-text">CAISSE VERROUILLÉE</div>
+        <div class="lane-closed-sub">Verrouillée par {lockedName} (code {lockedBadge})</div>
+        <button class="btn btn-warning lane-closed-btn" onclick="resumePaused()">DÉVERROUILLER</button>
+        <button class="btn btn-muted lane-closed-btn" onclick="showSupervisor()">SUPERVISEUR</button>
+        {#else}
         <div class="lane-closed-text">CAISSE FERMÉE</div>
-        <div class="lane-closed-sub">Cette caisse est actuellement inutilisable</div>
+        <div class="lane-closed-sub">{welcomeMessage}</div>
         <button class="btn btn-warning lane-closed-btn" onclick="showResume()">S'IDENTIFIER</button>
+        {/if}
     </div>
 
     <div class="overlay" id="resumeScreen">
@@ -98,6 +105,35 @@
         </div>
         </div>
     </div>
+
+    {#if paused}
+    <div class="overlay" id="supervisorScreen">
+        <div class="overlay-panel">
+        <div class="overlay-header">
+            <div class="overlay-title">AUTORISATION SUPERVISEUR</div>
+        </div>
+        <div class="resume-container">
+            <div class="hint-text">
+                Mot de passe oublié : le superviseur déverrouille, la caissière garde
+                sa session et son tiroir et changera son code à la reprise (EXP-14).
+                Poste abandonné : le superviseur force la fin de journée (EXP-96).
+            </div>
+            <input type="text" id="supLogin" class="resume-display" placeholder="Identifiant superviseur">
+            <input type="password" id="supPass" class="resume-display" placeholder="Code superviseur">
+            <form method="POST" action="/action/force-unlock" onsubmit="return fillSup(this)">
+                <input type="hidden" name="supervisor">
+                <input type="hidden" name="supervisorPassword">
+                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">DÉVERROUILLER (mot de passe oublié)</button>
+            </form>
+            <form method="POST" action="/action/force-close" onsubmit="return fillSup(this)">
+                <input type="hidden" name="supervisor">
+                <input type="hidden" name="supervisorPassword">
+                <button type="submit" class="btn btn-danger" style="width:100%;margin-top:8px;">FORCER LA FIN DE JOURNÉE</button>
+            </form>
+        </div>
+        </div>
+    </div>
+    {/if}
 
 </div>
 
@@ -159,6 +195,26 @@
             placeholder: ""
         });
     }
+
+    {#if paused}
+    // Déverrouillage d'une caisse verrouillée : le badge du verrouilleur est
+    // fixé, la caissière ne saisit que son code PIN (EXP-12/13).
+    function resumePaused() {
+        handleBadgeDetection("{lockedBadge}");
+    }
+    // Ouvre le volet superviseur (mot de passe oublié / poste abandonné).
+    function showSupervisor() {
+        const s = document.getElementById('supervisorScreen');
+        s.style.zIndex = '60';
+        s.classList.add('active');
+    }
+    // Recopie identifiant et code dans les champs cachés du formulaire soumis.
+    function fillSup(form) {
+        form.querySelector('input[name=supervisor]').value = document.getElementById('supLogin').value;
+        form.querySelector('input[name=supervisorPassword]').value = document.getElementById('supPass').value;
+        return true;
+    }
+    {/if}
 
     function showResume() {
         storedLogin = ""; currentStep = 1;

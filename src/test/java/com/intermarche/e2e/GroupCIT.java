@@ -2,6 +2,7 @@ package com.intermarche.e2e;
 
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -94,6 +95,9 @@ public class GroupCIT {
     private static final String EAN_BAGUETTE = "3300000000003";
     private static final String LABEL_BAGUETTE = "BAGUETTE TRADITION";
 
+    /** A gift-card money product, EAN, 25,00 € — the C8 silent-refusal line. */
+    private static final String EAN_GIFT25 = "3400025000001";
+
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
     BrowserContext context;
@@ -109,6 +113,14 @@ public class GroupCIT {
      */
     @Inject
     PosState posState;
+
+    /**
+     * The referential settings service, injected so C7/C8 can toggle the ticket
+     * discount caps, the discount-enabled switch and the endorsement requirement,
+     * always restored afterwards to keep the shared boot isolated.
+     */
+    @Inject
+    PosSettingsService posSettings;
 
     /**
      * C1 — REMISE €.
@@ -380,6 +392,204 @@ public class GroupCIT {
         page.close();
     }
 
+    /**
+     * C7 — Remise / discount TICKET (global).
+     * <p>
+     * A ticket-level {@code REMISE TICKET (€)} and {@code DISCOUNT TICKET (%)}
+     * under endorsement ventilate prorata over the positive lines (the rounding
+     * residue landing on the largest line, so the biggest line always absorbs at
+     * least its proportional share). A € request beyond the administered ceiling
+     * is refused with {@code REMISE SUPERIEURE AU PLAFOND}; a % above its cap with
+     * {@code VALEUR INVALIDE}; and any ticket gesture asked DURING a payment with
+     * {@code TERMINEZ OU ANNULEZ LE TICKET D'ABORD}. Refused gestures leave the
+     * line totals untouched. Every toggled setting is restored.
+     */
+    @Test
+    void c7_remise_discount_ticket_global() {
+        // --- REMISE TICKET € nominal: 1,00 € ventilated over two positive lines ---
+        Page page = freshSale();
+        scan(EAN_HUILE);
+        page.getByText(LABEL_HUILE).waitFor();
+        scan(EAN_BAGUETTE);
+        page.getByText(LABEL_BAGUETTE).waitFor();
+        openGesture(page, "global_remise", "REMISE TICKET");
+        typeAndValidate(page, "1");
+        approveEndorsementWithManager(page);
+        BigDecimal totalHuile = posState.ticket.items.get(0).getTotalPrice();
+        BigDecimal totalBaguette = posState.ticket.items.get(1).getTotalPrice();
+        BigDecimal cutHuile = new BigDecimal("6.00").subtract(totalHuile);
+        BigDecimal cutBaguette = new BigDecimal("0.96").subtract(totalBaguette);
+        Assertions.assertEquals(0, cutHuile.add(cutBaguette).compareTo(new BigDecimal("1.00")),
+                "the ventilated cuts must sum to the applied 1,00 € (residue absorbed, none lost)");
+        Assertions.assertTrue(cutHuile.compareTo(cutBaguette) > 0,
+                "the prorata must weight the larger line more (residue on the largest)");
+        page.close();
+        // --- DISCOUNT TICKET % nominal: 10 % of 6,96 € = 0,70 € ---
+        Page pageP = freshSale();
+        scan(EAN_HUILE);
+        pageP.getByText(LABEL_HUILE).waitFor();
+        scan(EAN_BAGUETTE);
+        pageP.getByText(LABEL_BAGUETTE).waitFor();
+        openGesture(pageP, "global_discount", "DISCOUNT TICKET");
+        typeAndValidate(pageP, "10");
+        approveEndorsementWithManager(pageP);
+        BigDecimal appliedP = new BigDecimal("6.00").subtract(posState.ticket.items.get(0).getTotalPrice())
+                .add(new BigDecimal("0.96").subtract(posState.ticket.items.get(1).getTotalPrice()));
+        Assertions.assertEquals(0, appliedP.compareTo(new BigDecimal("0.70")),
+                "10 % of 6,96 € must ventilate a total of 0,70 € over the lines");
+        pageP.close();
+        // --- € beyond the ceiling → REMISE SUPERIEURE AU PLAFOND ---
+        posSettings.store("discount.global-max-amount", "5.00");
+        try {
+            Page pageCap = freshSale();
+            scan(EAN_HUILE);
+            pageCap.getByText(LABEL_HUILE).waitFor();
+            openGesture(pageCap, "global_remise", "REMISE TICKET");
+            typeAndValidate(pageCap, "6");
+            approveEndorsementWithManager(pageCap);
+            Assertions.assertEquals("REMISE SUPERIEURE AU PLAFOND", posState.ticket.transientError,
+                    "a € ticket remise above the ceiling must be refused with the plafond message");
+            Assertions.assertEquals(0, posState.ticket.items.get(0).getTotalPrice().compareTo(new BigDecimal("6.00")),
+                    "a ceiling-refused remise must leave the line total untouched");
+            pageCap.close();
+        } finally {
+            posSettings.store("discount.global-max-amount", "0.00");
+        }
+        // --- % above the cap → VALEUR INVALIDE ---
+        posSettings.store("discount.global-max-percent", "20");
+        try {
+            Page pagePc = freshSale();
+            scan(EAN_HUILE);
+            pagePc.getByText(LABEL_HUILE).waitFor();
+            openGesture(pagePc, "global_discount", "DISCOUNT TICKET");
+            typeAndValidate(pagePc, "30");
+            approveEndorsementWithManager(pagePc);
+            Assertions.assertEquals("VALEUR INVALIDE", posState.ticket.transientError,
+                    "a % ticket discount above the cap must be refused as VALEUR INVALIDE");
+            Assertions.assertEquals(0, posState.ticket.items.get(0).getTotalPrice().compareTo(new BigDecimal("6.00")),
+                    "a cap-refused discount must leave the line total untouched");
+            pagePc.close();
+        } finally {
+            posSettings.store("discount.global-max-percent", "100");
+        }
+        // --- requested during a payment → TERMINEZ OU ANNULEZ LE TICKET D'ABORD ---
+        // Endorsement is disabled for this branch so the gesture applies directly
+        // and the payment-phase guard fires synchronously at submit.
+        posSettings.store("gesture.endorsement-required", "false");
+        try {
+            Page pagePay = freshSale();
+            scan(EAN_HUILE);
+            pagePay.getByText(LABEL_HUILE).waitFor();
+            pagePay.navigate(base.toString() + "pay");
+            pagePay.getByText("RESTE :").waitFor();
+            submitPriceMod("GLOBAL_REMISE", "", "1");
+            Assertions.assertEquals("TERMINEZ OU ANNULEZ LE TICKET D'ABORD", posState.ticket.transientError,
+                    "a ticket gesture during a payment must be refused");
+            Assertions.assertEquals(0, posState.ticket.items.get(0).getTotalPrice().compareTo(new BigDecimal("6.00")),
+                    "no ticket discount must apply during a payment");
+            pagePay.close();
+        } finally {
+            posSettings.store("gesture.endorsement-required", "true");
+        }
+    }
+
+    /**
+     * C8 — Gardes d'ouverture / soumission.
+     * <p>
+     * The opening and submission guards: an unknown type is refused with
+     * {@code MODIFICATION INCONNUE}; a line gesture on an empty ticket with
+     * {@code AUCUNE LIGNE SÉLECTIONNÉE}; an unreadable value with {@code VALEUR
+     * INVALIDE}; a discount while discounts are disabled at the referential with
+     * {@code REMISES DÉSACTIVÉES}. The apply-time refusals are SILENT — a money
+     * product, a discount-forbidden line, and a line remise above the line
+     * ceiling all leave the line untouched with NO message, proven by the absence
+     * of a modifier and an unchanged line total. Toggled settings are restored.
+     */
+    @Test
+    void c8_gardes_ouverture_soumission() {
+        // --- unknown type → MODIFICATION INCONNUE ---
+        Page page = freshSale();
+        scan(EAN_HUILE);
+        page.getByText(LABEL_HUILE).waitFor();
+        submitPriceMod("BOGUS", "", "1");
+        Assertions.assertEquals("MODIFICATION INCONNUE", posState.ticket.transientError,
+                "an unknown price-mod type must be refused");
+        page.close();
+        // --- empty ticket, line gesture → AUCUNE LIGNE SÉLECTIONNÉE ---
+        Page pageEmpty = freshSale();
+        pageEmpty.navigate(base.toString() + "action/price-mod/remise");
+        Assertions.assertEquals("AUCUNE LIGNE SÉLECTIONNÉE", posState.ticket.transientError,
+                "a line gesture with no line selected must be refused");
+        pageEmpty.close();
+        // --- unreadable value → VALEUR INVALIDE ---
+        Page pageBad = freshSale();
+        scan(EAN_HUILE);
+        pageBad.getByText(LABEL_HUILE).waitFor();
+        submitPriceMod("GLOBAL_REMISE", "", "abc");
+        Assertions.assertEquals("VALEUR INVALIDE", posState.ticket.transientError,
+                "an unreadable submitted value must be refused");
+        pageBad.close();
+        // --- discounts disabled at the referential → REMISES DÉSACTIVÉES ---
+        posSettings.store("discount.enabled", "false");
+        try {
+            Page pageDis = freshSale();
+            scan(EAN_HUILE);
+            pageDis.getByText(LABEL_HUILE).waitFor();
+            submitPriceMod("GLOBAL_DISCOUNT", "", "10");
+            Assertions.assertEquals("REMISES DÉSACTIVÉES", posState.ticket.transientError,
+                    "a discount while disabled at the referential must be refused");
+            pageDis.close();
+        } finally {
+            posSettings.store("discount.enabled", "true");
+        }
+        // --- SILENT refusal: a money product (gift card) line ---
+        Page pageMoney = freshSale();
+        scan(EAN_GIFT25);
+        Assertions.assertEquals(1, posState.ticket.items.size(),
+                "the gift card must be a sale line before the gesture");
+        openGesture(pageMoney, "remise", "REMISE");
+        typeAndValidate(pageMoney, "5");
+        approveEndorsementWithManager(pageMoney);
+        TicketState.TicketItem money = posState.ticket.items.get(0);
+        Assertions.assertNull(money.modifierType,
+                "a money product must silently refuse a line remise (no modifier)");
+        Assertions.assertEquals(0, money.getTotalPrice().compareTo(new BigDecimal("25.00")),
+                "the money-product line total must be untouched");
+        pageMoney.close();
+        // --- SILENT refusal: a discount-forbidden line ---
+        Page pageDf = freshSale();
+        scan(EAN_HUILE);
+        pageDf.getByText(LABEL_HUILE).waitFor();
+        posState.ticket.items.get(0).discountForbidden = true;
+        openGesture(pageDf, "remise", "REMISE");
+        typeAndValidate(pageDf, "1");
+        approveEndorsementWithManager(pageDf);
+        TicketState.TicketItem df = posState.ticket.items.get(0);
+        Assertions.assertNull(df.modifierType,
+                "a discount-forbidden line must silently refuse a remise");
+        Assertions.assertEquals(0, df.getTotalPrice().compareTo(new BigDecimal("6.00")),
+                "the discount-forbidden line total must be untouched");
+        pageDf.close();
+        // --- SILENT refusal: a line remise above the line ceiling ---
+        posSettings.store("discount.line-max-amount", "1.00");
+        try {
+            Page pageCap = freshSale();
+            scan(EAN_HUILE);
+            pageCap.getByText(LABEL_HUILE).waitFor();
+            openGesture(pageCap, "remise", "REMISE");
+            typeAndValidate(pageCap, "5");
+            approveEndorsementWithManager(pageCap);
+            TicketState.TicketItem cap = posState.ticket.items.get(0);
+            Assertions.assertNull(cap.modifierType,
+                    "a line remise above the line ceiling must silently refuse");
+            Assertions.assertEquals(0, cap.getTotalPrice().compareTo(new BigDecimal("6.00")),
+                    "the over-ceiling line total must be untouched");
+            pageCap.close();
+        } finally {
+            posSettings.store("discount.line-max-amount", "0.00");
+        }
+    }
+
     // --- Reusable gestures (login recipe, hardware bus, price gestures) ---
 
     /**
@@ -407,9 +617,9 @@ public class GroupCIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -433,6 +643,7 @@ public class GroupCIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -460,11 +671,31 @@ public class GroupCIT {
      * @param linkName the exact visible button text
      */
     private void openGesture(Page page, String type, String linkName) {
-        // Deterministically show the primary menu (same GET the visible toggle
-        // fires), then tap the now-visible gesture button.
-        page.navigate(base.toString() + "action/menu/vente");
-        page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName(linkName).setExact(true)).click();
+        // The separate REMISE / DISCOUNT / FORÇAGE menu links were folded into a
+        // single "REMISE / PRIX" entry whose modal carries the mode selector; each
+        // mode is a direct GET ({@code /action/price-mod/<type>}) that opens the
+        // modal on that mode, so navigate straight to it. {@code linkName} is kept
+        // for call-site readability (the mode the scenario intends).
+        page.navigate(base.toString() + "action/price-mod/" + type);
         page.locator("#priceKbArea").waitFor();
+    }
+
+    /**
+     * Submits a price-modification directly to its endpoint
+     * ({@code POST /action/price-mod/submit}) with a raw type/uid/value — the
+     * path the on-screen VALIDER posts to. Used for the C8 guards that no numpad
+     * can produce (an unknown type, a non-numeric value) or that fire without
+     * ceremony (a disabled-discount refusal, the payment-phase guard under
+     * disabled endorsement).
+     *
+     * @param type the price-mod type token (e.g. GLOBAL_REMISE, or an unknown one)
+     * @param uid the target line uid, empty for a ticket-level gesture
+     * @param rawValue the raw value string (may be non-numeric to exercise the guard)
+     */
+    private void submitPriceMod(String type, String uid, String rawValue) {
+        context.request().post(base.toString() + "action/price-mod/submit", RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                .setData("type=" + type + "&uid=" + uid + "&rawValue=" + rawValue));
     }
 
     /**
@@ -598,4 +829,37 @@ public class GroupCIT {
             m.persist();
         });
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

@@ -1181,7 +1181,7 @@ class TicketPersistenceServiceTest {
     void storeFidelityIgnoresAnullTicketId() {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
-            service.storeFidelity(null, BigDecimal.ONE, BigDecimal.TEN, false, List.of());
+            service.storeFidelity(null, BigDecimal.ONE, BigDecimal.TEN, false, List.of(), null, null, false);
             mocked.verify(() -> Ticket.findById(any()), never());
         }
     }
@@ -1195,7 +1195,7 @@ class TicketPersistenceServiceTest {
         TicketPersistenceService service = newService();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
-            service.storeFidelity(5L, BigDecimal.ONE, BigDecimal.TEN, false, List.of());
+            service.storeFidelity(5L, BigDecimal.ONE, BigDecimal.TEN, false, List.of(), null, null, false);
         }
     }
 
@@ -1213,9 +1213,13 @@ class TicketPersistenceServiceTest {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.storeFidelity(5L, new BigDecimal("1.03"), new BigDecimal("42.30"), true,
                     List.of(new TicketFidelityLine("SOCLE", "Cagnotte socle",
-                            new BigDecimal("0.28"))));
+                            new BigDecimal("0.28"))), new BigDecimal("46.20"),
+                    new BigDecimal("30.30"), true);
             assertEquals(new BigDecimal("1.03"), ticket.fidelityEarnTotal);
             assertEquals(new BigDecimal("42.30"), ticket.fidelityAvailableBalance);
+            assertEquals(new BigDecimal("46.20"), ticket.fidelityProjectedAfterEarn);
+            assertEquals(new BigDecimal("30.30"), ticket.fidelityBalanceAfter);
+            assertTrue(ticket.fidelityAnonymousProjection);
             assertTrue(ticket.fidelityUnavailable);
             assertEquals(1, ticket.fidelityLines.size());
             assertEquals("Cagnotte socle", ticket.fidelityLines.get(0).label);
@@ -1237,7 +1241,7 @@ class TicketPersistenceServiceTest {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
             service.storeFidelity(5L, null, null, false,
                     List.of(new TicketFidelityLine("SOCLE", "Cagnotte socle",
-                            new BigDecimal("0.28"))));
+                            new BigDecimal("0.28"))), null, null, false);
             assertEquals(1, ticket.fidelityLines.size());
         }
     }
@@ -1254,8 +1258,103 @@ class TicketPersistenceServiceTest {
         ticket.fidelityLines.add(new TicketFidelityLine("VIEUX", "Ancienne", BigDecimal.ONE));
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
-            service.storeFidelity(5L, null, null, false, List.of());
+            service.storeFidelity(5L, null, null, false, List.of(), null, null, false);
             assertTrue(ticket.fidelityLines.isEmpty());
+        }
+    }
+
+    // --------------------------------------------------
+    // storeEngineMessages (GB-01-07-05/06)
+    // --------------------------------------------------
+
+    /**
+     * {@code storeEngineMessages} ignores a null ticket id: the finder is never
+     * called (the null-id arm).
+     */
+    @Test
+    void storeEngineMessagesIgnoresANullTicketId() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeEngineMessages(null, List.of(
+                    new com.intermarche.pos.domain.sale.TicketMessage("C", "T", "FOOTER")));
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * {@code storeEngineMessages} stores nothing for an empty list: a
+     * LOCAL/DEGRADED sale, or an engine that emitted none, leaves the ticket
+     * untouched (the empty-list arm).
+     */
+    @Test
+    void storeEngineMessagesStoresNothingForAnEmptyList() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeEngineMessages(5L, List.of());
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * {@code storeEngineMessages} stores nothing for a null list (the
+     * null-messages arm).
+     */
+    @Test
+    void storeEngineMessagesStoresNothingForANullList() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            service.storeEngineMessages(5L, null);
+            mocked.verify(() -> Ticket.findById(any()), never());
+        }
+    }
+
+    /**
+     * {@code storeEngineMessages} ignores a missing ticket (the null-ticket arm).
+     */
+    @Test
+    void storeEngineMessagesIgnoresAmissingTicket() {
+        TicketPersistenceService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(null);
+            service.storeEngineMessages(5L, List.of(
+                    new com.intermarche.pos.domain.sale.TicketMessage("C", "T", "FOOTER")));
+        }
+    }
+
+    /**
+     * {@code storeEngineMessages} freezes the messages on the ticket and
+     * persists (the happy path).
+     */
+    @Test
+    void storeEngineMessagesFreezesTheMessagesAndPersists() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        ticket.messages = new java.util.ArrayList<>();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeEngineMessages(5L, List.of(
+                    new com.intermarche.pos.domain.sale.TicketMessage(
+                            "BELOW_TRIGGER", "Plus que 5 €", "FOOTER")));
+            assertEquals(1, ticket.messages.size());
+            assertEquals("Plus que 5 €", ticket.messages.get(0).text);
+            verify(ticket, times(1)).persist();
+        }
+    }
+
+    /**
+     * {@code storeEngineMessages} initialises an absent collection before
+     * adding (the null-collection arm).
+     */
+    @Test
+    void storeEngineMessagesInitialisesAnAbsentCollection() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.CLOSED);
+        ticket.messages = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.storeEngineMessages(5L, List.of(
+                    new com.intermarche.pos.domain.sale.TicketMessage("C", "T", null)));
+            assertEquals(1, ticket.messages.size());
         }
     }
 

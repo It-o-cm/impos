@@ -49,6 +49,8 @@ public class LockCheckFilter implements ContainerRequestFilter {
     private static final List<String> ALLOWED_PREFIXES = List.of(
             "/lock",
             "/action/unlock",
+            "/action/force-unlock",
+            "/action/force-close",
             "/api/",
             "/t/",
             "/customer",
@@ -106,7 +108,10 @@ public class LockCheckFilter implements ContainerRequestFilter {
                 String pausedBadge = state.auth.operatorBadgeId;
                 technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
                         null, pausedBadge);
-                state.auth.logout();
+                // VERROUILLAGE, not fermeture (EXP-12): the idle pause keeps the
+                // operator identity aside and the in-memory ticket, so the same
+                // cashier resumes their sale by keying only their PIN.
+                state.auth.pause();
                 state.touch();
             }
         }

@@ -93,6 +93,7 @@ public class ValuationReconciler {
         //    CORRECTION advantages onto the lines they name themselves.
         Map<String, BigDecimal> advantageByLine = new HashMap<>();
         Map<String, String> advantageLabelByLine = new HashMap<>();
+        Map<String, String> advantagePrintModeByLine = new HashMap<>();
         Map<String, BigDecimal> correctionByLine = new HashMap<>();
         Map<String, String> correctionLabelByLine = new HashMap<>();
         for (ValuationPayloads.AdvantageDto advantage : response.advantages) {
@@ -107,7 +108,7 @@ public class ValuationReconciler {
                 LOGGER.warnf("Advantage sans offre résoluble, ignoré: %s", advantage.type);
                 continue;
             }
-            allocate(advantage, offer, advantageByLine, advantageLabelByLine);
+            allocate(advantage, offer, advantageByLine, advantageLabelByLine, advantagePrintModeByLine);
         }
 
         // 3. Apply on the cart, cent-scaled, and build the trace
@@ -145,6 +146,8 @@ public class ValuationReconciler {
                 trace.offerLabel = truncate(offerLabelByLine.get(item.uid), 200);
                 trace.advantageLabel = truncate(advantageLabelByLine.get(item.uid), 200);
                 trace.advantageAmount = cut.signum() > 0 ? cut.setScale(2, RoundingMode.HALF_UP) : null;
+                trace.advantagePrintMode = cut.signum() > 0
+                        ? advantagePrintModeByLine.get(item.uid) : null;
                 trace.correctionLabel = truncate(correctionLabelByLine.get(item.uid), 200);
                 trace.correctionAmount = correction.signum() > 0
                         ? correction.setScale(2, RoundingMode.HALF_UP) : null;
@@ -255,11 +258,13 @@ public class ValuationReconciler {
      * @param offer the resolved offer
      * @param advantageByLine the per-line cut accumulator
      * @param advantageLabelByLine the per-line label accumulator
+     * @param advantagePrintModeByLine the per-line print-placement accumulator
      */
     private void allocate(ValuationPayloads.AdvantageDto advantage,
                           ValuationPayloads.OfferDto offer,
                           Map<String, BigDecimal> advantageByLine,
-                          Map<String, String> advantageLabelByLine) {
+                          Map<String, String> advantageLabelByLine,
+                          Map<String, String> advantagePrintModeByLine) {
         Map<String, BigDecimal> shares = new LinkedHashMap<>();
         BigDecimal totalShare = BigDecimal.ZERO;
         for (ValuationPayloads.OfferItemDto portion : offer.items) {
@@ -270,6 +275,13 @@ public class ValuationReconciler {
         }
         if (shares.isEmpty() || totalShare.signum() == 0) return;
 
+        // Placement of this advantage on the printed ticket (GB-01-07-10). LINE
+        // only when the engine says so explicitly; anything else — FOOTER or
+        // absent — reads as FOOTER. A line touched by several advantages keeps
+        // LINE only while every one of them asked for it: a single footer
+        // advantage on the line sends the whole line's cut to the footer, so the
+        // register never has to split one line's discount across two places.
+        String printMode = "LINE".equalsIgnoreCase(advantage.printMode) ? "LINE" : "FOOTER";
         BigDecimal discount = advantage.discountAmount.amountIncludingTax;
         BigDecimal allocated = BigDecimal.ZERO;
         String largestLine = null;
@@ -279,6 +291,8 @@ public class ValuationReconciler {
                     .divide(totalShare, 2, RoundingMode.HALF_UP);
             advantageByLine.merge(share.getKey(), cut, BigDecimal::add);
             advantageLabelByLine.merge(share.getKey(), advantage.type, (a, b) -> a.contains(b) ? a : a + "; " + b);
+            advantagePrintModeByLine.merge(share.getKey(), printMode,
+                    (a, b) -> "LINE".equals(a) && "LINE".equals(b) ? "LINE" : "FOOTER");
             allocated = allocated.add(cut);
             if (share.getValue().compareTo(largestShare) > 0) {
                 largestShare = share.getValue();

@@ -642,7 +642,7 @@ public class RefApplyService {
             }
             island.label = dto.label;
             island.active = dto.active;
-            island.terminalIds = dto.terminalIds;
+            island.terminalIds = effectiveTerminalIds(dto);
             island.persist();
             seen.add(dto.code);
         }
@@ -659,6 +659,38 @@ public class RefApplyService {
         LOGGER.infof("Référentiel îlots appliqué: %d ligne(s), %d désactivé(s)",
                 dtos.size(), deactivated);
         LOGGER.info("Exiting method applyCheckoutIslands");
+    }
+
+    /**
+     * Derives the effective attached terminals of an island from whichever
+     * payload form the node sent (BO-03-09/BO-03-10), without preference or
+     * warning: when the contact-point list is present and non-empty the
+     * terminals are read from it (the new form), otherwise the semicolon list is
+     * kept as is (the old form). Both are normalized to the semicolon string the
+     * {@link com.intermarche.pos.domain.store.CheckoutIsland} entity and every
+     * downstream reader already understand, so a payload that dropped the old
+     * field never costs the island its registers.
+     *
+     * @param dto the island payload, in either form
+     * @return the effective semicolon list of terminal identifiers, or null when
+     *         the payload carries neither form
+     */
+    private String effectiveTerminalIds(RefPayloads.CheckoutIslandDto dto) {
+        if (dto.contactPoints != null && !dto.contactPoints.isEmpty()) {
+            StringBuilder joined = new StringBuilder();
+            for (RefPayloads.ContactPointDto contactPoint : dto.contactPoints) {
+                if (contactPoint == null || contactPoint.terminalId == null
+                        || contactPoint.terminalId.isBlank()) {
+                    continue;
+                }
+                if (joined.length() > 0) {
+                    joined.append(';');
+                }
+                joined.append(contactPoint.terminalId.trim());
+            }
+            return joined.toString();
+        }
+        return dto.terminalIds;
     }
 
     /**

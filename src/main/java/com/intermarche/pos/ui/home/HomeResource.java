@@ -55,8 +55,13 @@ public class HomeResource {
     @Inject TicketService ticketService;
     @Inject HardwareService hardwareService;
     @Inject PosState state;
+    /** The exchange-health assembly behind the supervisor screen's panel. */
+    @Inject com.intermarche.pos.ui.supervision.ExchangeHealthService exchangeHealthService;
     /** The forced monetics degraded mode (LC-07-08-03/04). */
     @Inject com.intermarche.pos.ui.payment.MoneticsDegradedService moneticsDegradedService;
+
+    /** Settles a cheque reading that ended between two polls (see the poll). */
+    @Inject com.intermarche.pos.ui.payment.PaymentService paymentService;
 
     // --- Drawer error handling ---
 
@@ -128,7 +133,9 @@ public class HomeResource {
         LOGGER.info("Entering method home");
         LOGGER.info("Exiting method home");
         return main.data("state", state)
-                .data("restrictedTenders", homeService.restrictedTenderRows());
+                .data("restrictedTenders", homeService.restrictedTenderRows())
+                .data("waitingLabel", homeService.waitingLabel())
+                .data("drawerAlert", homeService.drawerCapAlert());
     }
 
     /**
@@ -144,6 +151,11 @@ public class HomeResource {
     public Map<String, Object> getTicketFragment(@QueryParam("v") Long clientVersion) {
         LOGGER.info("Entering method getTicketFragment with clientVersion: " + clientVersion);
         Map<String, Object> result = new HashMap<>();
+        // A cheque reading that ENDED rides the poll too, and for the same reason
+        // as the two flags below: it finishes on the reader's own thread, far from
+        // the page, and this poll is the first request able to register it — the
+        // register writes its draft from one thread at a time.
+        paymentService.settlePendingChequeRead(state);
         // The lock state rides on EVERY answer, version match included: the
         // poll is how an already-open screen learns that the register locked
         // and must navigate to /lock (see LockCheckFilter).
@@ -170,6 +182,7 @@ public class HomeResource {
         // poll replaces wholesale (LC-09-01-12/14/16/18).
         result.put("html", ticket.data("state", state)
                 .data("restrictedTenders", homeService.restrictedTenderRows())
+                .data("waitingLabel", homeService.waitingLabel())
                 .render());
         result.put("total", state.ticket.getTotalFormatted());
         result.put("amount", state.ticket.getTotalAmount());
@@ -196,15 +209,21 @@ public class HomeResource {
     /**
      * Shows the supervisor-call page.
      *
+     * @param notice the one-shot outcome message of a pull relaunch, or null
+     * @param noticeOk whether that message reports a success
      * @return the supervisor page
      */
     @GET
     @Path("/supervisor")
     @DrawerMayBeOpen
-    public TemplateInstance supervisorPage() {
-        LOGGER.info("Entering method supervisorPage");
+    public TemplateInstance supervisorPage(@QueryParam("notice") String notice,
+                                           @QueryParam("noticeOk") @DefaultValue("true") boolean noticeOk) {
+        LOGGER.info("Entering method supervisorPage with notice: " + notice + ", noticeOk: " + noticeOk);
         LOGGER.info("Exiting method supervisorPage");
-        return supervisor.data("state", state);
+        return supervisor.data("state", state)
+                .data("health", exchangeHealthService.build())
+                .data("notice", notice)
+                .data("noticeOk", noticeOk);
     }
 
     /**

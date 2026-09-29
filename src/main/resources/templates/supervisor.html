@@ -43,6 +43,27 @@
             gap: 20px; align-items: center;
         }
         .supervisor-icon { width: 4rem; height: 4rem; }
+
+        /* --- SANTÉ DES ÉCHANGES (spec-sante-caisse) --- */
+        .health-section { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+        .health-title { font-size: var(--fs-section); text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; }
+        .health-banner { padding: 8px 12px; border-radius: 8px; font-weight: bold; border: 1px solid var(--border-color); }
+        .health-ok { color: var(--success, #2e7d32); }
+        .health-warn { color: var(--danger); }
+        .health-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px; background: var(--bg-panel); }
+        .health-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .health-card-title { font-weight: bold; margin-bottom: 6px; }
+        .health-table { width: 100%; border-collapse: collapse; font-size: var(--fs-bar); }
+        .health-table th { text-align: left; padding: 4px 8px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+        .health-table td { padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
+        .health-table .row-error td { background: rgba(200, 0, 0, 0.08); }
+        .health-table .cell-error { color: var(--danger); }
+        .health-table .cell-empty { color: var(--text-muted); font-style: italic; text-align: center; }
+        .health-table .mono { font-family: monospace; }
+        .health-notice { padding: 8px 12px; border-radius: 8px; font-weight: bold; border: 1px solid var(--border-color); }
+        .health-notice.notice-ok { color: var(--success, #2e7d32); }
+        .health-notice.notice-error { color: var(--danger); }
+        .health-card-sub { color: var(--text-muted); font-size: var(--fs-bar); margin-bottom: 8px; }
     </style>
 </head>
 <body data-theme="{posTheme}">
@@ -76,6 +97,102 @@
                 RETOUR
             </a>
         </div>
+
+        {#if supervisorLogged}
+        <div class="health-section">
+            <div class="health-title">Santé des échanges</div>
+            <div class="health-banner {#if health.healthy}health-ok{#else}health-warn{/if}" role="status">
+                {#if health.healthy}Tous les canaux de cette caisse sont au vert.{#else}Un canal de cette caisse demande attention.{/if}
+            </div>
+            {#if notice}
+            <div class="health-notice {#if noticeOk}notice-ok{#else}notice-error{/if}" role="status">{notice}</div>
+            {/if}
+
+            <div class="health-card">
+                <div class="health-card-title">Remontée des tickets vers le nœud</div>
+                <table class="health-table">
+                    <thead><tr><th>File</th><th>Plus ancien</th><th>Dernière erreur</th></tr></thead>
+                    <tbody id="health-uplink" data-refresh-url="/supervisor/health/uplink">
+                        {#fragment id=uplink}
+                        <tr class="{#if health.uplink.lastError}row-error{/if}">
+                            <td>{health.uplink.count}</td>
+                            <td>{health.uplink.oldest}</td>
+                            <td class="cell-error">{#if health.uplink.lastError}{health.uplink.lastError}{#else}—{/if}</td>
+                        </tr>
+                        {/fragment}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="health-card">
+                <div class="health-card-head">
+                    <div class="health-card-title">File de consommation</div>
+                    <form method="post" action="/supervisor/health/consumption/replay">
+                        <button class="btn btn-warning" type="submit" style="color:black; height:2.5rem;">Rejouer</button>
+                    </form>
+                </div>
+                <table class="health-table">
+                    <thead><tr><th>En attente</th><th>En échec</th><th>Dernière erreur</th></tr></thead>
+                    <tbody id="health-consumption" data-refresh-url="/supervisor/health/consumption">
+                        {#fragment id=consumption}
+                        <tr class="{#if health.consumption.failed > 0}row-error{/if}">
+                            <td>{health.consumption.pending}</td>
+                            <td>{health.consumption.failed}</td>
+                            <td class="cell-error">{#if health.consumption.lastError}{health.consumption.lastError}{#else}—{/if}</td>
+                        </tr>
+                        {/fragment}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="health-card">
+                <div class="health-card-title">Livraison des flux au moteur</div>
+                <table class="health-table">
+                    <thead><tr><th>Flux</th><th>État</th><th>Dernière erreur</th></tr></thead>
+                    <tbody id="health-feeds" data-refresh-url="/supervisor/health/feeds">
+                        {#fragment id=feeds}
+                        {#for feed in health.feeds}
+                        <tr class="{#if feed.lastError}row-error{/if}">
+                            <td>{feed.code}</td>
+                            <td>{feed.status}</td>
+                            <td class="cell-error">{#if feed.lastError}{feed.lastError}{#else}—{/if}</td>
+                        </tr>
+                        {/for}
+                        {#if health.feeds.isEmpty()}
+                        <tr><td colspan="3" class="cell-empty">Aucun flux reçu sur cette caisse.</td></tr>
+                        {/if}
+                        {/fragment}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="health-card">
+                <div class="health-card-head">
+                    <div class="health-card-title">Tirage des référentiels</div>
+                    <form method="post" action="/supervisor/health/feeds/replay">
+                        <button class="btn btn-warning" type="submit" style="color:black; height:2.5rem;">Relancer le tirage</button>
+                    </form>
+                </div>
+                <div class="health-card-sub">Tirage automatique toutes les {health.pullSeconds} s. Dernier tirage réussi : {health.lastPull}.</div>
+                <table class="health-table">
+                    <thead><tr><th>Domaine</th><th>Empreinte appliquée</th><th>Appliqué</th><th>Dernière erreur</th></tr></thead>
+                    <tbody>
+                        {#for pull in health.pulls}
+                        <tr class="{#if pull.lastError}row-error{/if}">
+                            <td>{pull.domain}</td>
+                            <td class="mono">{pull.fingerprint}</td>
+                            <td>{pull.appliedAt}</td>
+                            <td class="cell-error">{#if pull.lastError}{pull.lastError}{#else}—{/if}</td>
+                        </tr>
+                        {/for}
+                        {#if health.pulls.isEmpty()}
+                        <tr><td colspan="4" class="cell-empty">Aucun référentiel appliqué (caisse fraîchement démarrée).</td></tr>
+                        {/if}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {/if}
         </div>
     </div>
 </div>
@@ -83,6 +200,7 @@
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 </script>
+<script src="/supervisor/health-refresh.js"></script>
 
 </body>
 </html>

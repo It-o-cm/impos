@@ -57,12 +57,34 @@ public class RefundState implements Serializable {
     public String errorMessage = null;
 
     /**
+     * The return reason chosen from the administered list, or null when none
+     * is chosen. A single reason applies to the whole return (all returned
+     * lines at once): the group assignment of LC-05-05-02.
+     */
+    public String returnReason = null;
+
+    /** The in-account customer selected for a credit refund (LC-05-06-05), or null. */
+    public String creditAccountNumber = null;
+
+    /** The display name of the selected credit-refund customer, or null. */
+    public String creditAccountName = null;
+
+    /**
      * Indicates whether a ticket is selected (detail mode).
      *
      * @return true when a ticket is selected
      */
     public boolean isTicketSelected() {
         return selectedTicket != null;
+    }
+
+    /**
+     * Returns the chosen return reason, or null when none is chosen.
+     *
+     * @return the return reason, or null
+     */
+    public String getReturnReason() {
+        return returnReason;
     }
 
     /**
@@ -174,6 +196,9 @@ public class RefundState implements Serializable {
         isEditingAmount = false;
         manualTotalAmount = null;
         errorMessage = null;
+        returnReason = null;
+        creditAccountNumber = null;
+        creditAccountName = null;
     }
 
     /**
@@ -189,6 +214,9 @@ public class RefundState implements Serializable {
         isEditingAmount = false;
         manualTotalAmount = null;
         errorMessage = null;
+        returnReason = null;
+        creditAccountNumber = null;
+        creditAccountName = null;
     }
 
     /**

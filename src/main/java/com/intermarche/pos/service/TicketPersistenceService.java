@@ -458,8 +458,9 @@ public class TicketPersistenceService {
      */
     @Transactional
     public void storeFidelity(Long ticketId, BigDecimal earnTotal, BigDecimal availableBalance,
-            boolean unavailable, List<TicketFidelityLine> lines) {
-        LOGGER.info("Entering method storeFidelity with ticketId: " + ticketId + ", earnTotal: " + earnTotal + ", availableBalance: " + availableBalance + ", unavailable: " + unavailable + ", lines: " + lines);
+            boolean unavailable, List<TicketFidelityLine> lines,
+            BigDecimal projectedAfterEarn, BigDecimal balanceAfter, boolean anonymousProjection) {
+        LOGGER.info("Entering method storeFidelity with ticketId: " + ticketId + ", earnTotal: " + earnTotal + ", availableBalance: " + availableBalance + ", unavailable: " + unavailable + ", lines: " + lines + ", projectedAfterEarn: " + projectedAfterEarn + ", balanceAfter: " + balanceAfter + ", anonymousProjection: " + anonymousProjection);
         if (ticketId == null) {
             LOGGER.info("Exiting method storeFidelity");
             return;
@@ -471,6 +472,9 @@ public class TicketPersistenceService {
         }
         ticket.fidelityEarnTotal = earnTotal;
         ticket.fidelityAvailableBalance = availableBalance;
+        ticket.fidelityProjectedAfterEarn = projectedAfterEarn;
+        ticket.fidelityBalanceAfter = balanceAfter;
+        ticket.fidelityAnonymousProjection = anonymousProjection;
         ticket.fidelityUnavailable = unavailable;
         if (ticket.fidelityLines == null) {
             ticket.fidelityLines = new java.util.ArrayList<>();
@@ -479,6 +483,37 @@ public class TicketPersistenceService {
         ticket.fidelityLines.addAll(lines);
         ticket.persist();
         LOGGER.info("Exiting method storeFidelity");
+    }
+
+    /**
+     * Freezes the engine offer messages on a closed ticket (GB-01-07-05/06), so
+     * the receipt and any reprint state the very texts the seller was shown. An
+     * empty list — a LOCAL/DEGRADED sale, or an engine that emitted none — leaves
+     * the ticket with no message rows and nothing printed.
+     *
+     * @param ticketId the database id of the closed ticket, or null
+     * @param messages the engine messages retained at payment, never null
+     */
+    @Transactional
+    public void storeEngineMessages(Long ticketId,
+            List<com.intermarche.pos.domain.sale.TicketMessage> messages) {
+        LOGGER.info("Entering method storeEngineMessages with ticketId: " + ticketId);
+        if (ticketId == null || messages == null || messages.isEmpty()) {
+            LOGGER.info("Exiting method storeEngineMessages: nothing to store");
+            return;
+        }
+        Ticket ticket = Ticket.findById(ticketId);
+        if (ticket == null) {
+            LOGGER.info("Exiting method storeEngineMessages: ticket gone");
+            return;
+        }
+        if (ticket.messages == null) {
+            ticket.messages = new java.util.ArrayList<>();
+        }
+        ticket.messages.clear();
+        ticket.messages.addAll(messages);
+        ticket.persist();
+        LOGGER.info("Exiting method storeEngineMessages");
     }
 
     /**

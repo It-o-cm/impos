@@ -63,6 +63,9 @@ public final class ProductAttributeCatalog {
     /** The unit eco-tax borne by the article, carried into the invoice extractions (BO-10-04-14). */
     public static final String ECO_TAX = "ECO_TAX";
 
+    /** The software tare in kilograms sent to the scale when this article is weighed, replacing the default tare (LC-14-01-07). */
+    public static final String TARE = "TARE";
+
     /**
      * The declared well-known attributes, in admin-render order. Each entry is
      * the contract of a code the register understands.
@@ -91,7 +94,9 @@ public final class ProductAttributeCatalog {
             new ProductAttributeDef(LEGAL_WARRANTY, ProductAttributeType.BOOL,
                     "Soumis à la garantie légale de conformité", "false"),
             new ProductAttributeDef(ECO_TAX, ProductAttributeType.DECIMAL,
-                    "Éco-taxe unitaire", "0"));
+                    "Éco-taxe unitaire", "0"),
+            new ProductAttributeDef(TARE, ProductAttributeType.DECIMAL,
+                    "Tare logicielle article (kg)", "0"));
 
     /** Fast lookup of a definition by its code, preserving catalog order. */
     private static final Map<String, ProductAttributeDef> BY_CODE = index();

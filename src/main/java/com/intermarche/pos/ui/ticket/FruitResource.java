@@ -30,8 +30,13 @@ public class FruitResource {
     @Inject
     PosState state;
 
+    /** Serves the administered tare containers to the weighing grid (LC-14-01-04). */
+    @Inject
+    com.intermarche.pos.ui.balance.TareService tareService;
+
     /**
-     * Shows the weighing grid of active PLU products.
+     * Shows the weighing grid of active PLU products, with the administered
+     * tare containers (LC-14-01-04) the cashier can arm before a weighing.
      *
      * @return the fruits page
      */
@@ -41,6 +46,7 @@ public class FruitResource {
         LOGGER.info("Entering method fruitsPage");
         List<Product> products = fruitService.getPluProducts();
         LOGGER.info("Exiting method fruitsPage");
-        return fruits.data("state", state).data("products", products);
+        return fruits.data("state", state).data("products", products)
+                .data("tareContainers", tareService.containers());
     }
 }

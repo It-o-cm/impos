@@ -50,6 +50,27 @@ public class RealHardwareResource {
     }
 
     /**
+     * Reads the NET weight from the scale after a software tare (LC-14-01).
+     * <p>
+     * STUB: no scale is attached to the target till. On a real till the
+     * hardware bridge forwards the tare to the scale, which nets it and returns
+     * the net weight (LC-14-01-06); here it answers 0,000 like {@link
+     * #getWeight()}, the "nothing on the plate" convention. The tare is
+     * accepted and ignored.
+     *
+     * @param tareKg the software tare in kilograms (ignored by the stub)
+     * @return the NET weight in kilograms, French decimal
+     */
+    @GET
+    @Path("/weight-with-tare")
+    @Produces(MediaType.TEXT_PLAIN)
+    public String getWeightWithTare(@QueryParam("tare") String tareKg) {
+        LOGGER.info("Entering method getWeightWithTare with tareKg: " + tareKg);
+        LOGGER.info("Exiting method getWeightWithTare");
+        return "0,000";
+    }
+
+    /**
      * Shows a text on the customer line display.
      * <p>
      * STUB for the Diebold Nixdorf BA9x USB display: accepts and drops the

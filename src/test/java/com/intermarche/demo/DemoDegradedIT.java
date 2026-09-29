@@ -107,9 +107,10 @@ public class DemoDegradedIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page, "#keyboardArea", CASHIER_PIN);
         page.locator("#actionBtn").click();
-        page.locator("#openingFloat").waitFor();
+        clickThroughHardwareGate(page);
+        page.locator("#floatDisplay").waitFor();
         context.request().post(root + "api/hardware/drawer/close", RequestOptions.create());
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -192,4 +193,37 @@ public class DemoDegradedIT {
                     new Locator.GetByRoleOptions().setName(String.valueOf(digit)).setExact(true)).click();
         }
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

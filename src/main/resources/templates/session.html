@@ -64,6 +64,9 @@
           </div>
         {#else}
           <h2>Aucune session ouverte</h2>
+          {#if theoreticalFloat??}
+          <div class="info-row"><span class="label">Fond théorique (report clôture précédente)</span><span class="value">{theoreticalFloat} €</span></div>
+          {/if}
           <form method="post" action="/action/session/open">
             {! Pave tactile, comme partout ailleurs sur la caisse: la borne n'a
              ! pas de clavier physique, un <input> libre y est inutilisable. !}
@@ -75,6 +78,7 @@
             <div class="keyboard pos-kb-compact" id="floatKbArea"></div>
             <div class="actions">
               <button type="submit" class="btn btn-success">OUVRIR LA SESSION</button>
+              <a href="/cash-calculator" class="btn btn-muted">CALCULATRICE DE FOND</a>
             </div>
           </form>
         {/if}
@@ -87,7 +91,7 @@
       {#if current??}
         <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
       {#else}
-        <a href="/lock" class="btn btn-muted" style="width: 11.25rem;">DÉCONNEXION</a>
+        <a href="/close" class="btn btn-muted" style="width: 11.25rem;">FERMER</a>
       {/if}
     </div>
   </div>

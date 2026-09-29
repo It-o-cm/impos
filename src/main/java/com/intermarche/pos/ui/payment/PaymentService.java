@@ -910,14 +910,16 @@ public class PaymentService {
         state.payment.pendingChequeAmount = amount;
         state.payment.pendingChequeLine = null;
         state.touch();
-        BigDecimal requested = amount;
         // Built HERE, on the request thread: the reader prints the endorsement while it
         // still holds the cheque, so the text must leave with the start of the reading.
         String endorsement = endorsementText(amount);
+        // The two callbacks fire on the reader's follower thread and only DEPOSIT
+        // their outcome: registering from there would make a second writer of the
+        // draft row the request thread rewrites on every revaluation.
         chequeReadingService.read(
                 endorsement,
-                line -> registerReadCheque(state, requested, line),
-                message -> dropPendingCheque(state, message));
+                line -> depositChequeRead(state, line),
+                message -> depositChequeFailure(state, message));
         LOGGER.info("Exiting method processCheque");
     }
 
@@ -938,19 +940,86 @@ public class PaymentService {
     }
 
     /**
-     * Registers the cheque once the reader has read it.
+     * Deposits a finished reading for the next request to register.
+     *
+     * <p>Called from the reader's follower thread. It writes nothing but the
+     * deposit and bumps the state version, which is what makes the polling screen
+     * reload within a second and carry the registration on its own thread.
      *
      * @param state the current POS state
-     * @param amount the amount the cashier asked for
-     * @param line the magnetic line, kept for the journal
+     * @param line the magnetic line the reader returned
      */
-    private void registerReadCheque(PosState state, BigDecimal amount, String line) {
-        if (state.payment.pendingChequeAmount == null) {
-            LOGGER.info("Cheque lu apres annulation cote caisse : ignore");
+    private void depositChequeRead(PosState state, String line) {
+        state.payment.chequeReadLine = line;
+        state.touch();
+    }
+
+    /**
+     * Deposits a failed reading for the next request to report.
+     *
+     * @param state the current POS state
+     * @param message the operator-facing message the reader reported
+     */
+    private void depositChequeFailure(PosState state, String message) {
+        state.payment.chequeReadFailure = message;
+        state.touch();
+    }
+
+    /**
+     * Settles a cheque reading deposited by the follower thread, on the REQUEST
+     * thread that calls this.
+     *
+     * <p>The register writes its draft from one thread at a time: the reading ends
+     * far from the page — like a badge on the scan bus — and only the poll can
+     * bring its outcome back into a request. A reading that lands after the
+     * cashier cancelled changes nothing: the deposit is consumed and dropped.
+     *
+     * @param state the current POS state
+     */
+    public void settlePendingChequeRead(PosState state) {
+        String line;
+        String failure;
+        synchronized (state) {
+            line = state.payment.chequeReadLine;
+            failure = state.payment.chequeReadFailure;
+            if (line == null && failure == null) {
+                return;
+            }
+            state.payment.chequeReadLine = null;
+            state.payment.chequeReadFailure = null;
+        }
+        LOGGER.info("Entering method settlePendingChequeRead");
+        if (failure != null) {
+            dropPendingCheque(state, failure);
+            LOGGER.info("Exiting method settlePendingChequeRead");
             return;
         }
-        state.payment.pendingChequeAmount = null;
-        state.payment.pendingChequeLine = line;
+        registerReadCheque(state, line);
+        LOGGER.info("Exiting method settlePendingChequeRead");
+    }
+
+    /**
+     * Registers the cheque the reader read, on the request thread.
+     *
+     * <p>The amount is the one the cashier asked for, still held in
+     * {@code pendingChequeAmount}: its absence means the cashier cancelled while
+     * the document was being read, and a payment appearing by itself on a ticket
+     * they moved on from is worse than a cheque re-presented.
+     *
+     * @param state the current POS state
+     * @param line the magnetic line, kept for the journal
+     */
+    private void registerReadCheque(PosState state, String line) {
+        BigDecimal amount;
+        synchronized (state) {
+            amount = state.payment.pendingChequeAmount;
+            if (amount == null) {
+                LOGGER.info("Cheque lu apres annulation cote caisse : ignore");
+                return;
+            }
+            state.payment.pendingChequeAmount = null;
+            state.payment.pendingChequeLine = line;
+        }
         LOGGER.infof("Cheque lu : %s", line);
         registerCheque(state, amount);
     }
@@ -987,6 +1056,10 @@ public class PaymentService {
         }
         state.payment.pendingChequeAmount = null;
         state.payment.pendingChequeLine = null;
+        // A deposit already made by the follower must go with it: the cashier
+        // moved on, and that reading must never settle later.
+        state.payment.chequeReadLine = null;
+        state.payment.chequeReadFailure = null;
         state.touch();
         LOGGER.info("Exiting method cancelPendingCheque");
     }
@@ -1200,6 +1273,18 @@ public class PaymentService {
                 ticketPersistenceService.validateTicket(ticketId);
                 state.lastClosedTicketId = ticketId;
                 LOGGER.info("Ticket validé et fermé en BDD ID: " + ticketId);
+                // GB-01-07-05/06: freeze the engine offer messages on the ticket
+                // so the receipt (and any reprint) states the very texts the
+                // seller was shown. Empty in LOCAL/DEGRADED and when the engine
+                // emitted none, in which case nothing is stored or printed.
+                java.util.List<com.intermarche.pos.domain.sale.TicketMessage> ticketMessages =
+                        new java.util.ArrayList<>();
+                for (com.intermarche.pos.ui.valuation.ValuationService.EngineMessage engineMessage
+                        : state.payment.valuationMessages) {
+                    ticketMessages.add(new com.intermarche.pos.domain.sale.TicketMessage(
+                            engineMessage.code, engineMessage.text, engineMessage.printMode));
+                }
+                ticketPersistenceService.storeEngineMessages(ticketId, ticketMessages);
                 // Campaigns & budgets spec §3: a finalized sale valued by the
                 // engine declares its consumption, derived from the retained
                 // valuation (read here, before clearTicket, since the verbatim
@@ -1338,10 +1423,14 @@ public class PaymentService {
         for (com.intermarche.pos.ui.fidelity.FidelityState.EarnLine line
                 : state.fidelity.earnEntries) {
             lines.add(new com.intermarche.pos.domain.sale.TicketFidelityLine(
-                    line.ruleCode, line.label, line.amount));
+                    line.ruleCode, line.label, line.amount,
+                    line.advantageType, line.advantageTypeLabel, line.advantageTypeOrder,
+                    line.advantageCategory, line.advantageCategoryLabel));
         }
         ticketPersistenceService.storeFidelity(ticketId, state.fidelity.earnTotal,
-                state.fidelity.availableBalance, fidelityService.isUnavailable(), lines);
+                state.fidelity.availableBalance, fidelityService.isUnavailable(), lines,
+                state.fidelity.projectedAfterEarn, state.fidelity.balanceAfter,
+                state.fidelity.anonymousProjection);
     }
 
     /**

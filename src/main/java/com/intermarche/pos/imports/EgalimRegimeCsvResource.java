@@ -208,7 +208,7 @@ public class EgalimRegimeCsvResource extends ImporterCsvResource {
             Panache.getEntityManager().persist(regime);
         } else {
             int incomingChecksum = computeIncomingChecksum(code, data, cap);
-            if (regime.checksum != incomingChecksum) {
+            if (regime.changedFrom(incomingChecksum)) {
                 regime = EgalimRegime.findById(regime.id);
                 feedRegime(data, regime, cap);
                 counters[1]++;

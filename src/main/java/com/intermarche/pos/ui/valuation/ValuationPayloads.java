@@ -208,6 +208,23 @@ public final class ValuationPayloads {
         public String offer;
         /** The offer code (MEAL_VOUCHER and upsells). */
         public String offerCode;
+        /**
+         * Where the register prints this advantage (GB-01-07-10):
+         * {@code "LINE"} under the single article line it targets,
+         * {@code "FOOTER"} in the ticket footer. Absent — the general case —
+         * reads as FOOTER, so an engine that says nothing gets the footer
+         * placement and the register never has to guess a line for an
+         * advantage that spans several.
+         */
+        public String printMode;
+        /**
+         * The accounting ventilation key of this advantage (GB-01-06-05),
+         * copied VERBATIM into the ticket's consumption declaration. The
+         * register does not interpret it — it is a key for the downstream
+         * accounting — and its absence leaves the declaration byte-for-byte
+         * the one it was before the field existed.
+         */
+        public String accountingCode;
         /** The discount amounts, on discount advantages. */
         public AmountDto discountAmount;
         /** The upsell suggestion, on upsell advantages. */
@@ -280,6 +297,31 @@ public final class ValuationPayloads {
     }
 
     /**
+     * One offer message of the valuation (GB-01-07-05/06): a text the register
+     * shows the seller as the basket grows (the engine's {@code BELOW_TRIGGER}
+     * messages are the "plus que X €" nudge) and prints on the ticket.
+     * <p>
+     * It carries no money: a message ignored — unreadable, or emitted by an
+     * engine version this register does not model — leaves every total exactly
+     * where it was.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class MessageDto implements Serializable {
+        private static final long serialVersionUID = 1L;
+        /** The stable message code, for the human reading the trace. */
+        public String code;
+        /** The text shown on screen and printed. */
+        public String text;
+        /**
+         * Where the register prints the message: {@code "FOOTER"} in the ticket
+         * footer, the default when absent. Held for symmetry with the advantage
+         * placement; a basket-level message has no line to attach to, so it
+         * prints in the footer whatever the value.
+         */
+        public String printMode;
+    }
+
+    /**
      * The whole valuation response.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -289,6 +331,12 @@ public final class ValuationPayloads {
         public List<OfferDto> offers = new ArrayList<>();
         /** The advantages of the valuation. */
         public List<AdvantageDto> advantages = new ArrayList<>();
+        /**
+         * The offer messages, or null when the engine emitted none — null and
+         * not an empty list, so a response without the block reads exactly as it
+         * did before the block existed and nothing is shown or printed.
+         */
+        public List<MessageDto> messages;
         /**
          * The EGAlim guard report, one entry per initial basket line, emitted
          * only when a guard is in force for the store and the basket is

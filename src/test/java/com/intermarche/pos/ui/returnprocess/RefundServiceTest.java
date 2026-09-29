@@ -64,6 +64,7 @@ class RefundServiceTest {
         RefundService s = new RefundService();
         s.endorsementService = mock(EndorsementService.class);
         s.ticketPrinterService = mock(TicketPrinterService.class);
+        s.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         s.cashSessionService = mock(CashSessionService.class);
         s.ticketNumberService = mock(TicketNumberService.class);
         s.technicalEventService = mock(TechnicalEventService.class);
@@ -205,6 +206,7 @@ class RefundServiceTest {
         state.refund.selectedLineId = 9L;
         state.refund.isEditingAmount = true;
         state.refund.manualTotalAmount = BigDecimal.TEN;
+        state.refund.returnReason = "Erreur de caisse";
         Ticket found = ticket(10L, "T-1", "50.00");
         try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
             panache.when(() -> Ticket.findById(10L)).thenReturn(found);
@@ -216,7 +218,68 @@ class RefundServiceTest {
         assertNull(state.refund.selectedLineId);
         assertFalse(state.refund.isEditingAmount);
         assertNull(state.refund.manualTotalAmount);
+        assertNull(state.refund.returnReason);
         assertEquals(1L, state.version);
+    }
+
+    // --- selectReason (LC-05-05-01) ---
+
+    /**
+     * {@code selectReason} keeps a reason belonging to the administered list
+     * (all three arms of the guard true: non-null, non-blank, in-list).
+     */
+    @Test
+    void selectReasonKeepsAdministeredReason() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        when(s.posSettingsService.returnReasons())
+                .thenReturn(List.of("Erreur de caisse", "Article périmé"));
+        s.selectReason(state, "Article périmé");
+        assertEquals("Article périmé", state.refund.returnReason);
+        assertEquals(1L, state.version);
+    }
+
+    /**
+     * {@code selectReason} clears an off-list reason (non-null, non-blank, but the
+     * in-list arm is false), so the screen cannot smuggle a reason the store
+     * does not administer.
+     */
+    @Test
+    void selectReasonClearsOffListReason() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.returnReason = "Article périmé";
+        when(s.posSettingsService.returnReasons()).thenReturn(List.of("Erreur de caisse"));
+        s.selectReason(state, "Motif inventé");
+        assertNull(state.refund.returnReason);
+    }
+
+    /**
+     * {@code selectReason} clears the reason on a blank input (second arm of the
+     * guard false), without ever consulting the administered list.
+     */
+    @Test
+    void selectReasonClearsOnBlank() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.returnReason = "Erreur de caisse";
+        s.selectReason(state, "   ");
+        assertNull(state.refund.returnReason);
+        verify(s.posSettingsService, never()).returnReasons();
+    }
+
+    /**
+     * {@code selectReason} clears the reason on a null input (first arm of the
+     * guard false), without ever consulting the administered list.
+     */
+    @Test
+    void selectReasonClearsOnNull() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.returnReason = "Erreur de caisse";
+        s.selectReason(state, null);
+        assertNull(state.refund.returnReason);
+        verify(s.posSettingsService, never()).returnReasons();
     }
 
     /**
@@ -867,8 +930,41 @@ class RefundServiceTest {
         verify(s.syncOutboxService).enqueue(SyncOutbox.EntityType.REFUND, 55L);
         verify(s.hardwareService).openDrawer();
         verify(s.ticketPrinterService).printRefund(55L);
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString(), any());
         assertNull(state.refund.selectedTicket);
+    }
+
+    /**
+     * {@code performRefund} carries the chosen return reason onto the refund and
+     * appends it to the REFUND_CREATED journal (LC-05-05-01): the reason-present
+     * arm of the journal ternary, complementing the reason-null arm covered by
+     * {@link #performRefundCashPersistsAndOpensDrawer()}.
+     */
+    @Test
+    void performRefundCarriesReasonAndJournalsIt() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.returnReason = "Article périmé";
+        CashSession session = mock(CashSession.class);
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(session);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals("Article périmé", refund.returnReason);
+        }
+        verify(s.technicalEventService).log(TechnicalEvent.EventType.REFUND_CREATED,
+                "T-1 CASH 20.00 MOTIF:Article périmé");
     }
 
     /**
@@ -910,7 +1006,7 @@ class RefundServiceTest {
             // is derived from the generated id right after the flush.
             verify(note).persistAndFlush();
             // Number = prefix + the instrument's own row id, zero-padded.
-            verify(s.ticketPrinterService).printRefundVoucher(refund, "297000000000077");
+            verify(s.ticketPrinterService).printRefundVoucher(eq(refund), eq("297000000000077"), any());
         }
         verify(s.hardwareService, never()).openDrawer();
         verify(s.ticketPrinterService).printRefund(55L);
@@ -949,7 +1045,7 @@ class RefundServiceTest {
             assertNull(refund.totalVat);
             StoredValue note = mcNote.constructed().get(0);
             assertEquals(new BigDecimal("150.00"), note.balance);
-            verify(s.ticketPrinterService).printRefundVoucher(refund, "297000000000078");
+            verify(s.ticketPrinterService).printRefundVoucher(eq(refund), eq("297000000000078"), any());
         }
         verify(s.ticketPrinterService).printRefund(55L);
     }
@@ -983,7 +1079,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.LOYALTY);
         }
         verify(s.hardwareService, never()).openDrawer();
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString(), any());
         verify(s.ticketPrinterService).printLoyaltyCredit(any());
         verify(s.ticketPrinterService).printRefund(55L);
         verify(s.fidEventOutboxService).enqueue(
@@ -1258,7 +1354,7 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CARD);
         }
         verify(s.hardwareService, never()).openDrawer();
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString(), any());
         verify(s.ticketPrinterService).printRefund(55L);
     }
 
@@ -1291,7 +1387,7 @@ class RefundServiceTest {
             verify(s.ticketPrinterService).printCardCreditReceipt(refund);
         }
         verify(s.hardwareService, never()).openDrawer();
-        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString());
+        verify(s.ticketPrinterService, never()).printRefundVoucher(any(), anyString(), any());
         verify(s.ticketPrinterService).printRefund(55L);
     }
 
@@ -1487,5 +1583,255 @@ class RefundServiceTest {
             verify(mc.constructed().get(0), never()).persist();
         }
         assertEquals("PLAFOND DU TICKET DÉPASSÉ (DÉJÀ REMBOURSÉ : 0.00 €)", state.refund.errorMessage);
+    }
+
+    /**
+     * Builds a Panache query whose {@code firstResult} resolves to the given
+     * account.
+     *
+     * @param account the account the query returns, or null
+     * @return the configured mocked query
+     */
+    @SuppressWarnings("unchecked")
+    private PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> accountQuery(
+            com.intermarche.pos.domain.payment.AccountCustomer account) {
+        PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> q = mock(PanacheQuery.class);
+        when(q.firstResult()).thenReturn(account);
+        return q;
+    }
+
+    /**
+     * {@code selectCreditAccount} resolves the account by number and stores its
+     * number and display name (LC-05-06-05, found arm).
+     */
+    @Test
+    void selectCreditAccountFindsAndStores() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        com.intermarche.pos.domain.payment.AccountCustomer account =
+                mock(com.intermarche.pos.domain.payment.AccountCustomer.class);
+        account.accountNumber = "CC1";
+        when(account.getDisplayName()).thenReturn("SARL DUPONT");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> aq = accountQuery(account);
+            panache.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
+                    .find("accountNumber", "CC1")).thenReturn(aq);
+            s.selectCreditAccount(state, " CC1 ");
+        }
+        assertEquals("CC1", state.refund.creditAccountNumber);
+        assertEquals("SARL DUPONT", state.refund.creditAccountName);
+        assertNull(state.refund.errorMessage);
+    }
+
+    /**
+     * {@code selectCreditAccount} clears the selection and refuses when the
+     * number matches no account (not-found arm).
+     */
+    @Test
+    void selectCreditAccountUnknownClears() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.creditAccountNumber = "OLD";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> aq = accountQuery(null);
+            panache.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
+                    .find("accountNumber", "ZZZ")).thenReturn(aq);
+            s.selectCreditAccount(state, "ZZZ");
+        }
+        assertNull(state.refund.creditAccountNumber);
+        assertEquals("CLIENT INTROUVABLE", state.refund.errorMessage);
+    }
+
+    /**
+     * {@code selectCreditAccount} clears the selection and refuses on a blank
+     * number without querying (blank arm).
+     */
+    @Test
+    void selectCreditAccountBlankClears() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.creditAccountNumber = "OLD";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            s.selectCreditAccount(state, "   ");
+            panache.verifyNoInteractions();
+        }
+        assertNull(state.refund.creditAccountNumber);
+        assertEquals("CLIENT INTROUVABLE", state.refund.errorMessage);
+    }
+
+    /**
+     * {@code requestRefund} refuses a credit refund when no in-account customer
+     * is selected (LC-05-06-05 guard true arm): no endorsement is asked.
+     */
+    @Test
+    void requestRefundCreditWithoutAccountRefused() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CREDIT", null);
+            s.requestRefund(state, Refund.RefundMethod.CREDIT);
+        }
+        assertEquals("AUCUN CLIENT EN COMPTE SÉLECTIONNÉ", state.refund.errorMessage);
+        verify(s.endorsementService, never()).requestAuthorization(any(), anyString());
+    }
+
+    /**
+     * {@code requestRefund} asks the endorsement for a credit refund once an
+     * account is selected (guard false arm).
+     */
+    @Test
+    void requestRefundCreditWithAccountRequestsEndorsement() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.creditAccountNumber = "CC1";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            stubTender(panache, "CREDIT", null);
+            s.requestRefund(state, Refund.RefundMethod.CREDIT);
+        }
+        verify(s.endorsementService).requestAuthorization(state, "REFUND_CREDIT_10");
+        assertNull(state.refund.errorMessage);
+    }
+
+    /**
+     * {@code performRefund} for a credit refund lowers the in-account customer's
+     * outstanding balance by the refund amount and names the account on the
+     * refund (LC-05-06-05, CREDIT switch arm).
+     */
+    @Test
+    void performRefundCreditCreditsTheAccount() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.creditAccountNumber = "CC1";
+        com.intermarche.pos.domain.payment.AccountCustomer account =
+                mock(com.intermarche.pos.domain.payment.AccountCustomer.class);
+        account.creditBalance = new BigDecimal("50.00");
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> aq = accountQuery(account);
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
+                    .find("accountNumber", "CC1")).thenReturn(aq);
+            s.performRefund(state, Refund.RefundMethod.CREDIT);
+            Refund refund = mc.constructed().get(0);
+            assertEquals("CC1", refund.creditAccountNumber);
+        }
+        assertEquals(new BigDecimal("30.00"), account.creditBalance);
+        verify(account).persist();
+        verify(s.hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * {@code performRefund} for a credit refund with no account selected refuses
+     * inside the transaction and builds nothing (LC-05-06-05 guard).
+     */
+    @Test
+    void performRefundCreditWithoutAccountRefused() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class)) {
+            s.performRefund(state, Refund.RefundMethod.CREDIT);
+            assertTrue(mc.constructed().isEmpty());
+        }
+        assertEquals("AUCUN CLIENT EN COMPTE SÉLECTIONNÉ", state.refund.errorMessage);
+    }
+
+    /**
+     * {@code performRefund} of a hand-keyed PARTIAL amount keeps the ticket
+     * selected and announces the remaining, so the rest can be handed back on
+     * another mean (LC-05-06-01 split across means, partial-keep arm).
+     */
+    @Test
+    void performRefundPartialKeepsTicketSelected() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.manualTotalAmount = new BigDecimal("30.00");
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertSame(original, state.refund.selectedTicket);
+        assertNull(state.refund.manualTotalAmount);
+        assertEquals("REMBOURSEMENT PARTIEL - RESTE 70.00 €", state.refund.errorMessage);
+    }
+
+    /**
+     * {@code performRefund} of a full manual amount clears the screen as before
+     * (partial-keep false arm: no remaining left).
+     */
+    @Test
+    void performRefundFullManualAmountClears() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.manualTotalAmount = new BigDecimal("100.00");
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+        }
+        assertNull(state.refund.selectedTicket);
+    }
+
+    /**
+     * {@code performRefund} for a voucher refund stamps the credit note with an
+     * end of validity (LC-05-06-07): the avoir carries a validity date.
+     */
+    @Test
+    void performRefundVoucherSetsValidUntil() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             });
+             MockedConstruction<StoredValue> mcNote = mockConstruction(StoredValue.class,
+                     (mock, ctx) -> mock.id = 77L)) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.VOUCHER);
+            StoredValue note = mcNote.constructed().get(0);
+            assertNotNull(note.validUntil);
+            assertTrue(note.validUntil.isAfter(note.issuedAt));
+        }
     }
 }

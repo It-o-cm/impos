@@ -74,11 +74,20 @@ public class CashSessionResource {
         } else if ("no-session".equals(error)) {
             message = "AUCUNE SESSION OUVERTE";
         }
+        // EXP-02: the float shown at opening is the report of the previous close
+        // (what stayed in the drawer), not the administered default — which only
+        // applies on a register that was never closed here.
+        BigDecimal theoretical = cashSessionService.theoreticalOpeningFloat();
+        String prefill = theoretical != null
+                ? String.format("%.2f", theoretical).replace('.', ',')
+                : posSettingsService.defaultOpeningFloat();
         LOGGER.info("Exiting method sessionPage");
         return session
                 .data("state", state)
                 .data("current", cashSessionService.getOpenSession())
-                .data("defaultFloat", posSettingsService.defaultOpeningFloat())
+                .data("defaultFloat", prefill)
+                .data("theoreticalFloat", theoretical != null
+                        ? String.format("%.2f", theoretical).replace('.', ',') : null)
                 .data("error", message);
     }
 
@@ -178,6 +187,22 @@ public class CashSessionResource {
         if (cashSessionService.getOpenSession() == null) {
             LOGGER.info("Exiting method startClosing");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
+        }
+        // BO-03-10-10: when the island declares the end of period automatically,
+        // the hostess is dispensed from counting — the session closes at once on
+        // its theoretical, the Z report prints, and the register locks, without
+        // ever showing the counting screen.
+        if (posSettingsService.islandAutoDeclaration()) {
+            CashSessionService.SessionReport report = cashSessionService.closeSession(
+                    state.auth.operatorId, null, null, null, true);
+            if (report == null) {
+                LOGGER.info("Exiting method startClosing");
+                return Response.seeOther(URI.create("/session?error=no-session")).build();
+            }
+            ticketPrinterService.printSessionReport(report);
+            state.touch();
+            LOGGER.info("Exiting method startClosing");
+            return Response.seeOther(URI.create("/lock")).build();
         }
         // BO-10-02-26: the Z count opens the drawer only when the back office
         // asks for it; disabled, the count is done drawer-closed.

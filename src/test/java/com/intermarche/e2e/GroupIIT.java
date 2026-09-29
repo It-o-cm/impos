@@ -133,9 +133,14 @@ public class GroupIIT {
         // Walk to the session screen and print the X report from its link.
         page.navigate(base.toString() + "session");
         clearPrinter();
+        // The X read is now two-step: RAPPORT X (LECTURE) opens the report PREVIEW,
+        // then IMPRIMER LE RAPPORT X prints it (the direct-print link is gone).
         page.getByRole(AriaRole.LINK,
                 new Page.GetByRoleOptions().setName("RAPPORT X (LECTURE)").setExact(true)).click();
-        page.getByText("Session en cours").waitFor();
+        page.getByText("RAPPORT X — LECTURE").waitFor();
+        page.getByRole(AriaRole.LINK,
+                new Page.GetByRoleOptions().setName("IMPRIMER LE RAPPORT X").setExact(true)).click();
+        page.getByText("RAPPORT X — LECTURE").waitFor();
         String paper = printerContent();
         Assertions.assertTrue(paper.contains("RAPPORT X - LECTURE"), "the paper must be an X read report");
         Assertions.assertTrue(paper.contains(sessionNumber), "the X report must carry the session number");
@@ -149,10 +154,11 @@ public class GroupIIT {
         Assertions.assertEquals(sessionNumber, after.sessionNumber, "the X read must not renumber the session");
         Assertions.assertNull(closingDateOf(sessionNumber), "the X read must not set a closing date");
         // A second X prints identically — the read is repeatable at any time.
+        // Still on the report preview, so IMPRIMER alone re-prints it.
         clearPrinter();
         page.getByRole(AriaRole.LINK,
-                new Page.GetByRoleOptions().setName("RAPPORT X (LECTURE)").setExact(true)).click();
-        page.getByText("Session en cours").waitFor();
+                new Page.GetByRoleOptions().setName("IMPRIMER LE RAPPORT X").setExact(true)).click();
+        page.getByText("RAPPORT X — LECTURE").waitFor();
         Assertions.assertTrue(printerContent().contains("RAPPORT X - LECTURE"),
                 "the X read must be printable again with the session still open");
         Assertions.assertNotNull(openSessionOnC04(), "two X reads must still leave the session OPEN");
@@ -278,7 +284,7 @@ public class GroupIIT {
                 "a blocked sale scan must add nothing to the cart");
         // Restore: reopen a session from the morning screen for the next scenario.
         closeDrawer();
-        morning.locator("#openingFloat").fill(OPENING_FLOAT);
+        enterOpeningFloat(morning, OPENING_FLOAT);
         morning.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         morning.getByText("TOTAL À PAYER").waitFor();
@@ -353,9 +359,9 @@ public class GroupIIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill(OPENING_FLOAT);
+        enterOpeningFloat(page, OPENING_FLOAT);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -381,6 +387,7 @@ public class GroupIIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -604,4 +611,37 @@ public class GroupIIT {
             this.countDetail = countDetail;
         }
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

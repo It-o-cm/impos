@@ -1,0 +1,118 @@
+{!
+ ! Financial-movement page (FinancialMovementResource, LC-12-06): the cashier
+ ! receives an amount in one payment mean (source) and hands the same amount
+ ! back in another (destination), outside a sale — e.g. Espèces towards Crédit
+ ! client to settle a customer-account debt. Above the administered threshold
+ ! the movement is PARKED and the SHARED endorsement modal opens; it is written
+ ! only once a manager answers. Outcome messages arrive via ?error= / ?ok=.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mouvement Financier</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--success); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; align-items: center; padding: 0 20px; gap: 15px; }
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 40px; width: 38.75rem; }
+    .panel h2 { text-transform: uppercase; margin-bottom: 25px; text-align: center; letter-spacing: 1px; }
+    .form-row { display: flex; align-items: center; gap: 15px; margin: 18px 0; justify-content: space-between; }
+    .form-row label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
+    .form-row select, .form-row input { width: 20rem; padding: 12px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+    .hint { color: var(--text-muted); font-size: var(--fs-body); margin-top: 12px; }
+    .kb-display { text-align: right; }
+    .keyboard { max-width: 22rem; margin: 0 auto; }
+    .actions { display: flex; flex-direction: column; gap: 15px; margin-top: 25px; }
+    .btn { display: block; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>MOUVEMENT FINANCIER</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="panel">
+        {#if error??}
+          <div class="error-box">{error}</div>
+        {/if}
+        {#if saved}
+          <div class="ok-box">MOUVEMENT ENREGISTRÉ</div>
+        {/if}
+
+        <h2>Mouvement financier</h2>
+        <form method="post" action="/action/financial-movement/record">
+          <div class="form-row">
+            <label for="source">Perçu en</label>
+            <select id="source" name="source">
+              {#for option in sources}
+                <option value="{option.key}">{option.label}</option>
+              {/for}
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="destination">Rendu en</label>
+            <select id="destination" name="destination">
+              {#for option in destinations}
+                <option value="{option.key}">{option.label}</option>
+              {/for}
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="amountDisplay">Montant €</label>
+            <input type="text" id="amountDisplay" class="kb-display" value="0,00" readonly>
+            <input type="hidden" id="amountHidden" name="amount" value="0">
+          </div>
+          <div class="keyboard" id="amountKbArea"></div>
+
+          <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-success">ENREGISTRER LE MOUVEMENT</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+    </div>
+  </div>
+
+  {#include endorsement /}
+  {#include keyboard-lib /}
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    const threshold = parseFloat("{threshold}");
+    const amountHidden = document.getElementById('amountHidden');
+    const managerHint = document.getElementById('managerHint');
+    function toggleManagerHint(value) {
+      const typed = parseFloat((value || '').replace(',', '.'));
+      managerHint.style.display = (!isNaN(typed) && typed > threshold) ? 'block' : 'none';
+    }
+    PosInput.setup({
+        displayId: 'amountDisplay',
+        hiddenId: 'amountHidden',
+        containerId: 'amountKbArea',
+        keyboardType: 'price',
+        mode: 'decimal',
+        maxLength: 9,
+        initialValue: '0',
+        onChange: toggleManagerHint
+    });
+    toggleManagerHint(amountHidden.value);
+  </script>
+</body>
+</html>

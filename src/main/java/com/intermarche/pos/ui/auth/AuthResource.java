@@ -80,15 +80,28 @@ public class AuthResource {
     @DrawerMayBeOpen
     public TemplateInstance lockPage(@QueryParam("error") String error) {
         LOGGER.info("Entering method lockPage with error: " + error);
-        authService.logout(state);
+        // A PAUSED register (verrouillage) keeps its operator and its ticket: the
+        // lock landing must NOT log them out, or the pause would abandon the sale
+        // it exists to protect (EXP-12). A free register (fermeture / never
+        // logged in) is logged out as before — the whole login recipe relies on
+        // /lock being the reset.
+        if (!state.auth.isPaused()) {
+            authService.logout(state);
+        }
         String message = null;
         if ("locked".equals(error)) {
             message = "COMPTE VERROUILLÉ - RÉESSAYEZ PLUS TARD";
+        } else if ("supervisor".equals(error)) {
+            message = "AUTORISATION SUPERVISEUR REFUSÉE";
         } else if (error != null) {
             message = "IDENTIFIANTS INCORRECTS";
         }
         LOGGER.info("Exiting method lockPage");
-        return lock.data("state", state).data("error", message);
+        return lock.data("state", state).data("error", message)
+                .data("welcomeMessage", posSettingsService.welcomeMessage())
+                .data("paused", state.auth.isPaused())
+                .data("lockedBadge", state.auth.lockedOperatorBadgeId)
+                .data("lockedName", state.auth.lockedOperatorName);
     }
 
     /**
@@ -127,7 +140,19 @@ public class AuthResource {
         @FormParam("password") String password
     ) {
         LOGGER.info("Entering method unlock with login: " + login + ", password: ***");
+        // Captured BEFORE the login, which clears the paused state on success: a
+        // RESUME (déverrouillage) is not a prise de poste — no opening receipt, no
+        // hardware gate, no drawer pulse, no session detour — the cashier drops
+        // straight back onto the sale, their ticket intact (EXP-12).
+        boolean wasPaused = state.auth.isPaused();
         AuthService.LoginResult result = authService.login(state, login, password);
+        if (result == AuthService.LoginResult.SUCCESS && wasPaused) {
+            state.touch();
+            LOGGER.info("Exiting method unlock");
+            // A forced reprise (EXP-14) lands on the PIN-change screen first.
+            String target = state.auth.passwordChangeRequired ? "/pin-change" : "/";
+            return Response.seeOther(URI.create(target)).build();
+        }
         if (result == AuthService.LoginResult.SUCCESS) {
             // Hardware gate: EVERY entry stops on the status page, whatever
             // the peripherals answered. The operator taking the lane sees
@@ -235,7 +260,7 @@ public class AuthResource {
             return Response.seeOther(URI.create("/lock")).build();
         }
         boolean byBadge = state.auth.takeCloseRequest();
-        SessionCloseService.Obstacle obstacle = sessionCloseService.obstacle();
+        SessionCloseService.Obstacle obstacle = sessionCloseService.obstacle(state);
         if (byBadge && obstacle == SessionCloseService.Obstacle.PASSWORD) {
             obstacle = SessionCloseService.Obstacle.NONE;
         }
@@ -275,7 +300,13 @@ public class AuthResource {
             LOGGER.info("Exiting method closeRegister");
             return Response.seeOther(URI.create("/lock")).build();
         }
-        SessionCloseService.Obstacle obstacle = sessionCloseService.obstacle();
+        SessionCloseService.Obstacle obstacle = sessionCloseService.obstacle(state);
+        if (obstacle == SessionCloseService.Obstacle.IN_TRANSACTION) {
+            // EXP-11: a sale in progress cannot be forced past — not by the
+            // operator's password, not by a supervisor.
+            LOGGER.info("Exiting method closeRegister");
+            return Response.ok(closeView(obstacle, message(obstacle)), MediaType.TEXT_HTML).build();
+        }
         if (supervisor != null && !supervisor.isBlank()) {
             if (endorsementService.authorize(supervisor, supervisorPassword,
                     SessionCloseService.FORCE_CLOSE_ACTION)) {
@@ -318,8 +349,86 @@ public class AuthResource {
      * @return the message shown to the operator
      */
     private String message(SessionCloseService.Obstacle obstacle) {
+        if (obstacle == SessionCloseService.Obstacle.IN_TRANSACTION) {
+            return "Une vente est en cours : terminez ou abandonnez le ticket avant de fermer.";
+        }
         return obstacle == SessionCloseService.Obstacle.PASSWORD
                 ? "Code opérateur incorrect."
                 : "Des tickets en attente exigent une autorisation superviseur.";
+    }
+
+    /**
+     * VERROUILLE (pauses) the register from the sale screen (EXP-12): the
+     * operator identity and the in-memory ticket are kept aside, the drawer is
+     * left untouched, and the register lands on its lock screen in the
+     * "CAISSE VERROUILLÉE" mode. Reached from the VERROUILLER key.
+     *
+     * @return a redirect to the lock screen
+     */
+    @GET
+    @Path("/action/lock")
+    @DrawerMayBeOpen
+    public Response lockRegister() {
+        LOGGER.info("Entering method lockRegister");
+        authService.pause(state);
+        state.touch();
+        LOGGER.info("Exiting method lockRegister");
+        return Response.seeOther(URI.create("/lock")).build();
+    }
+
+    /**
+     * Forces the reprise of a paused register whose cashier forgot their password
+     * (EXP-14): a supervisor endorses the unlock, the cashier keeps their session
+     * and drawer, and a PIN change is imposed at the reprise. Reached from the
+     * "mot de passe oublié" form of the paused lock screen.
+     *
+     * @param supervisor the supervisor's identifier
+     * @param supervisorPassword the supervisor's password
+     * @return a redirect to the mandatory PIN-change screen on success, or back to
+     *         the lock screen with the refusal
+     */
+    @POST
+    @Path("/action/force-unlock")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @DrawerMayBeOpen
+    public Response forceUnlock(@FormParam("supervisor") String supervisor,
+                                @FormParam("supervisorPassword") String supervisorPassword) {
+        LOGGER.info("Entering method forceUnlock");
+        if (endorsementService.authorize(supervisor, supervisorPassword,
+                AuthService.FORCE_UNLOCK_ACTION) && authService.forceResume(state)) {
+            state.touch();
+            LOGGER.info("Exiting method forceUnlock");
+            return Response.seeOther(URI.create("/pin-change")).build();
+        }
+        LOGGER.info("Exiting method forceUnlock");
+        return Response.seeOther(URI.create("/lock?error=supervisor")).build();
+    }
+
+    /**
+     * Forces the fin de journée of a paused, abandoned register (EXP-96): the
+     * cashier did not come back, and a supervisor endorses the fermeture from the
+     * lock screen. Reuses the forced-close mechanism, resolving the abandoned
+     * post's identity from the paused state.
+     *
+     * @param supervisor the supervisor's identifier
+     * @param supervisorPassword the supervisor's password
+     * @return a redirect to the lock screen (closed on success, refusal otherwise)
+     */
+    @POST
+    @Path("/action/force-close")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @DrawerMayBeOpen
+    public Response forceCloseAbandoned(@FormParam("supervisor") String supervisor,
+                                        @FormParam("supervisorPassword") String supervisorPassword) {
+        LOGGER.info("Entering method forceCloseAbandoned");
+        if (endorsementService.authorize(supervisor, supervisorPassword,
+                SessionCloseService.FORCE_CLOSE_ACTION)) {
+            sessionCloseService.close(state, "poste abandonné — superviseur");
+            state.touch();
+            LOGGER.info("Exiting method forceCloseAbandoned");
+            return Response.seeOther(URI.create("/lock")).build();
+        }
+        LOGGER.info("Exiting method forceCloseAbandoned");
+        return Response.seeOther(URI.create("/lock?error=supervisor")).build();
     }
 }

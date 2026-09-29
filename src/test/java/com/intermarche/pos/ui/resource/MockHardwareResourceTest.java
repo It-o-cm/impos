@@ -85,6 +85,64 @@ class MockHardwareResourceTest {
     }
 
     /**
+     * {@code getWeightWithTare} deducts a strictly positive tare from the preset
+     * gross and answers the NET weight (LC-14-01-03/06): a preset of 0,300 with
+     * a tare of 0,010 nets 0,290.
+     */
+    @Test
+    void getWeightWithTareDeductsTareFromPresetGross() {
+        MockHardwareResource resource = new MockHardwareResource();
+        resource.setManualWeight("0,300");
+        Response weight = resource.getWeightWithTare("0.010");
+        assertEquals(200, weight.getStatus());
+        assertEquals("0,290", weight.getEntity());
+    }
+
+    /**
+     * {@code getWeightWithTare} floors the net at zero when the tare exceeds the
+     * gross, never answering a negative weight (the {@code Math.max} arm).
+     */
+    @Test
+    void getWeightWithTareFloorsNetAtZero() {
+        MockHardwareResource resource = new MockHardwareResource();
+        resource.setManualWeight("0,005");
+        assertEquals("0,000", resource.getWeightWithTare("0.010").getEntity());
+    }
+
+    /**
+     * {@code getWeightWithTare} with a null tare deducts nothing, answering the
+     * gross unchanged (the null-tare arm of the parse).
+     */
+    @Test
+    void getWeightWithTareNullTareReturnsGross() {
+        MockHardwareResource resource = new MockHardwareResource();
+        resource.setManualWeight("1,500");
+        assertEquals("1,500", resource.getWeightWithTare(null).getEntity());
+    }
+
+    /**
+     * {@code getWeightWithTare} with a blank tare deducts nothing (the blank
+     * arm of the parse).
+     */
+    @Test
+    void getWeightWithTareBlankTareReturnsGross() {
+        MockHardwareResource resource = new MockHardwareResource();
+        resource.setManualWeight("1,500");
+        assertEquals("1,500", resource.getWeightWithTare("   ").getEntity());
+    }
+
+    /**
+     * {@code getWeightWithTare} with an unreadable tare deducts nothing (the
+     * catch arm of the parse), never raising.
+     */
+    @Test
+    void getWeightWithTareUnreadableTareReturnsGross() {
+        MockHardwareResource resource = new MockHardwareResource();
+        resource.setManualWeight("1,500");
+        assertEquals("1,500", resource.getWeightWithTare("abc").getEntity());
+    }
+
+    /**
      * A single manual weight is consumed exactly once: the second read falls
      * back to the random arm (getAndSet returned null on the second call).
      */

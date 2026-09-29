@@ -20,9 +20,12 @@
 #   ./demo-stack.sh            # start stack, feed via impos, pre-flight
 #   ./demo-stack.sh --07039    # same, but with the REAL 07039 store files
 #
-# The stack is the whole ecosystem, on four ports:
+# The stack is the whole ecosystem, on five ports:
 #   8090 imvaluation (engine)   8060 imfid (loyalty)
-#   8070 the STORE NODE         8080 the register
+#   8050 the CENTRAL BRICK      8070 the STORE NODE      8080 the register
+# The central brick is the SAME executable as the store node, imedge, running
+# pos.role=central: it serves the echelon domains to the store nodes the way a
+# store node serves the store domains to its registers.
 # Store node and register are TWO PROJECTS since the imedge split: the node is
 # imedge, the register is impos. They still need two ports and two databases
 # (one H2 file for both locks itself — the trap documented in imedge's
@@ -53,9 +56,10 @@ lsof -ti :8080 | xargs kill
 lsof -ti :8060 | xargs kill
 lsof -ti :8090 | xargs kill
 lsof -ti :8070 | xargs kill
+lsof -ti :8050 | xargs kill
 # Leftover JDWP debuggers: a previous run (or an IDE-launched app) holding a
 # debug port would make the next dev-mode JVM die with "bind failed".
-for p in 5005 5060 5070 5080 5090; do lsof -ti :$p | xargs kill; done
+for p in 5005 5050 5060 5070 5080 5090; do lsof -ti :$p | xargs kill; done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Location-agnostic: the script may live at the impos root OR under demo/ —
@@ -218,6 +222,28 @@ start_app imfid       "$IMFID_DIR"       8060
 wait_ready imvaluation 8090 180
 wait_ready imfid       8060 180
 
+# ---------- 2a. la brique centrale (imedge, rôle central) -----------------
+# La brique centrale EST un imedge portant pos.role=central. RefExportResource
+# sert les domaines d'échelon (COUNTRIES, ENSEIGNES, PDVS, ECHELON_SETTINGS)
+# quand le rôle est central, et les domaines magasin sinon; RefPullService
+# fait qu'un nœud magasin tire ses échelons du nœud central.
+# Deux instances du MÊME projet ne peuvent pas tourner en quarkus:dev depuis
+# le même répertoire: elles se disputent target/ et le verrou du mode dev.
+# La centrale tourne donc depuis une copie des sources, resynchronisée à
+# chaque démarrage, sans target/ ni data/ ni .git/.
+IMEDGE_CENTRAL_DIR="${IMEDGE_CENTRAL_DIR:-$IMPOS_DIR/../imedge-central}"
+echo "· Synchronisation des sources de la brique centrale ($IMEDGE_CENTRAL_DIR)…"
+mkdir -p "$IMEDGE_CENTRAL_DIR"
+rsync -a --delete --exclude 'target/' --exclude 'data/' --exclude '.git/' \
+    "$IMEDGE_DIR/" "$IMEDGE_CENTRAL_DIR/"
+start_app central-node "$IMEDGE_CENTRAL_DIR" 8050 \
+    -Dquarkus.http.port=8050 \
+    -Dpos.role=central \
+    -Dquarkus.datasource.jdbc.url="jdbc:h2:file:./data/central-node" \
+    -Dquarkus.transaction-manager.default-transaction-timeout=$NODE_TX_TIMEOUT \
+    -Dpos.valuation.url=
+wait_ready central-node 8050 180
+
 # ---------- 2. le nœud magasin (projet imedge, base à part) ---------------
 # Il monte AVANT la caisse pour que celle-ci ait où pousser dès son premier
 # ticket. Mode dev obligatoire: le seed du référentiel est @IfBuildProfile
@@ -236,6 +262,8 @@ start_app store-node "$IMEDGE_DIR" 8070 \
     -Dquarkus.http.port=8070 \
     -Dquarkus.datasource.jdbc.url="jdbc:h2:file:./data/store-node" \
     -Dquarkus.transaction-manager.default-transaction-timeout=$NODE_TX_TIMEOUT \
+    -Dpos.sync.central-url=http://localhost:8050 \
+    -Dpos.referential.pull-seconds=$PULL_SECONDS \
     -Dpos.valuation.url=
 wait_ready store-node 8070 180
 
@@ -290,7 +318,11 @@ inject_feed "/feeds/import/FAMILIES"             FAMILIES          "product-fami
 inject_feed "/feeds/import/CATEGORY_STORAGES"    CATEGORY_STORAGES "product-category-storages$FEED_SUFFIX.csv"
 inject_feed "/feeds/import/VAT_RATES"            VAT_RATES         vat-rates.csv
 inject_feed "/feeds/import/PRICES"               PRICES            "prices$FEED_SUFFIX.csv"
-inject_feed "/feeds/import/BUDGET_GROUPS"        BUDGET_GROUPS     budget-groups.csv
+# BUDGET_GROUPS n'est PLUS injecté ici : depuis que l'administration des
+# campagnes vit au nœud (imedge), la campagne exemple est SAISIE au nœud
+# (son DataInitializer seed CAMP_ETE) et le nœud PROJETTE le flux
+# BUDGET_GROUPS lui-même. La caisse le tire comme les autres ENGINE_FEEDS et
+# le livre au moteur AVANT OFFERS (une offre référence son groupe).
 inject_feed "/feeds/import/OFFERS"               OFFERS            "offers$FEED_SUFFIX.csv"
 
 # La NOMENCLATURE passe par la même grammaire que tout le reste, mais elle
@@ -302,24 +334,25 @@ inject_feed "/feeds/import/OFFERS"               OFFERS            "offers$FEED_
 # 8 et 12 caractères, le niveau le plus fin entièrement CUSTOM.
 inject_nomenclature ITM_FR "Nomenclature+ITM+France" ITM hierarchies.csv
 
-# ---------- 5. attendre l'ACK du moteur sur les 8 flux ----------
+# ---------- 5. attendre l'ACK du moteur sur les 10 flux ----------
 # Le statut est lu SUR LA CAISSE (8080): un flux n'y existe qu'une fois
 # tiré du nœud, et n'est 'applied' qu'une fois le moteur servi — ce
-# compteur 9/9 prouve donc la chaîne entière nœud → tirage → caisse →
-# livraison → moteur.
+# compteur 10/10 prouve donc la chaîne entière nœud → tirage → caisse →
+# livraison → moteur. Les 10 flux : les 9 catalogues injectés au nœud plus
+# BUDGET_GROUPS que le nœud PROJETTE depuis sa campagne exemple (CAMP_ETE).
 ACK_TIMEOUT=120
 if [ -n "$FEED_SUFFIX" ]; then ACK_TIMEOUT=900; fi
-printf "· Livraison au moteur (ACK 9/9 attendu, %ss max) " "$ACK_TIMEOUT"
+printf "· Livraison au moteur (ACK 10/10 attendu, %ss max) " "$ACK_TIMEOUT"
 waited=0
 while [ $waited -lt $ACK_TIMEOUT ]; do
   applied=$(curl -s -u "$ADMIN_AUTH" "http://localhost:8080/feeds/import/status" \
       | grep -o '"applied":true' | wc -l | tr -d ' ')
-  if [ "$applied" = "9" ]; then echo "— moteur à jour (${waited}s)."; break; fi
+  if [ "$applied" = "10" ]; then echo "— moteur à jour (${waited}s)."; break; fi
   sleep 2; waited=$((waited+2)); printf "."
 done
-if [ "${applied:-0}" != "9" ]; then
+if [ "${applied:-0}" != "10" ]; then
   echo
-  echo "✗ Moteur pas à jour après ${ACK_TIMEOUT}s ($applied/9 flux acquittés) :"
+  echo "✗ Moteur pas à jour après ${ACK_TIMEOUT}s ($applied/10 flux acquittés) :"
   curl -s -u "$ADMIN_AUTH" "http://localhost:8080/feeds/import/status"; echo
   echo "  — voir $RUN_DIR/store-node.log (imports), $RUN_DIR/impos.log (tirage" 
   echo "    + livraison) et $RUN_DIR/imvaluation.log"

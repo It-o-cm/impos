@@ -85,6 +85,18 @@ public class RefPullService {
     @ConfigProperty(name = "pos.sync.central-url")
     Optional<String> centralUrl;
 
+    /**
+     * This register's own identifier ({@code pos.terminal.id}), the same
+     * property {@code TicketNumberService} reads. It NAMES the caisse on every
+     * pull request (BO-03-09/BO-03-10) so an updated node can resolve the
+     * settings by contact point, then by island, then by point of sale before
+     * answering. Sent as the {@code X-Pos-Terminal} request header; an older
+     * node ignores a header it does not know, so a caisse that names itself
+     * keeps working unchanged against a node that has not moved.
+     */
+    @ConfigProperty(name = "pos.terminal.id", defaultValue = "POS01")
+    String terminalId;
+
     @Inject
     SyncEndpoints syncEndpoints;
 
@@ -104,6 +116,14 @@ public class RefPullService {
      * yet, and a consumer that cares (customer credit does) must be told so.
      */
     private volatile java.time.LocalDateTime lastSuccessfulPull;
+
+    /**
+     * The last integration failure of each domain, keyed by domain name; a
+     * domain that applied is removed from it. Concurrent because the scheduled
+     * cycle writes it while the supervision screen reads it.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, String> lastErrors =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** The pull loop executor, or null when the pull is disabled. */
     private ScheduledExecutorService executor;
@@ -195,15 +215,65 @@ public class RefPullService {
         Map<String, String> remote = objectMapper.readValue(
                 get("/api/referential/versions"), new TypeReference<Map<String, String>>() {});
 
+        String firstFailure = null;
         for (String domain : pullDomains()) {
             String remoteFingerprint = remote.get(domain);
             if (remoteFingerprint == null || remoteFingerprint.equals(refApplyService.lastApplied(domain))) {
                 continue;
             }
             LOGGER.infof("Référentiel %s modifié: tirage du snapshot", domain);
-            applyDomain(domain, remoteFingerprint);
+            try {
+                applyDomain(domain, remoteFingerprint);
+                lastErrors.remove(domain);
+            } catch (Exception domainFailure) {
+                String message = domainFailure.getMessage() == null
+                        ? domainFailure.getClass().getSimpleName() : domainFailure.getMessage();
+                lastErrors.put(domain, message);
+                LOGGER.errorf("Référentiel %s non appliqué: %s", domain, message);
+                if (firstFailure == null) {
+                    firstFailure = domain + ": " + message;
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw new IllegalStateException(firstFailure);
         }
         lastSuccessfulPull = java.time.LocalDateTime.now();
+    }
+
+    /**
+     * The last integration failure of each referential domain, keyed by domain.
+     *
+     * <p>Why this exists. A pull domain that fails to apply left NO trace: a
+     * {@code RefState} row is written only on success, so the supervision
+     * screen showed a fingerprint and an apply date for the domains that went
+     * through and nothing at all for the one that did not. The domains that are
+     * also engine feeds carried their error on the feed row; the ten that are
+     * pull-only — among them CUSTOMERS, the clients en compte — carried none.
+     *
+     * <p>Held in memory, like {@link #getLastSuccessfulPull()}: this is the
+     * state of THIS node since it started, not a journal. A restart clears it,
+     * and the next cycle re-reports whatever is still broken.
+     *
+     * @return the failures, empty when every domain applied; never null
+     */
+    public Map<String, String> getLastErrors() {
+        LOGGER.info("Entering method getLastErrors");
+        LOGGER.info("Exiting method getLastErrors");
+        return java.util.Collections.unmodifiableMap(lastErrors);
+    }
+
+    /**
+     * The last integration failure of one referential domain.
+     *
+     * @param domain the domain name, as {@code RefPayloads} spells it
+     * @return the failure message, or null when this domain has not failed
+     *         since this node started
+     */
+    public String getLastError(String domain) {
+        LOGGER.info("Entering method getLastError with domain: " + domain);
+        LOGGER.info("Exiting method getLastError");
+        return lastErrors.get(domain);
     }
 
     /**
@@ -385,6 +455,12 @@ public class RefPullService {
         String sharedToken = token.orElse("");
         if (!sharedToken.isBlank()) {
             builder.header("X-Sync-Token", sharedToken);
+        }
+        // BO-03-09/BO-03-10: name the caisse on the request so the node can
+        // resolve the settings by contact point, then island, then PDV. Added
+        // only when known; an older node simply ignores the header.
+        if (terminalId != null && !terminalId.isBlank()) {
+            builder.header("X-Pos-Terminal", terminalId.trim());
         }
         HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {

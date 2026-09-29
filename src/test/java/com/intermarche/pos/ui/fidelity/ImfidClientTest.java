@@ -512,9 +512,132 @@ class ImfidClientTest {
     @Test
     void confirmPostsTheFiscalDateAndReturnsTheStatus() throws Exception {
         stub("/api/burn/reservations/77/confirm", 410, "");
-        int status = client.confirm(77L, "2026-08-12");
-        assertEquals(410, status);
+        ImfidClient.ConfirmResult result = client.confirm(77L, "2026-08-12");
+        assertEquals(410, result.httpStatus);
+        assertNull(result.balanceAfter);
         assertTrue(receivedBody.get().contains("\"fiscalDate\":\"2026-08-12\""));
+    }
+
+    /**
+     * A 200 confirmation now carries the ledger figures (imfid response B): the
+     * verbatim body of the addendum parses into balanceBefore, burnedAmount,
+     * balanceAfter and asOf, balanceAfter being the ledger's post-burn balance
+     * the register prints without recomputing it.
+     */
+    @Test
+    void confirmParsesTheLedgerBodyOn200() throws Exception {
+        stub("/api/burn/reservations/77/confirm", 200,
+                "{ \"balanceBefore\": 42.30, \"burnedAmount\": 12.00, \"balanceAfter\": 30.30,"
+                        + " \"asOf\": \"2026-09-17T14:02:11\" }");
+        ImfidClient.ConfirmResult result = client.confirm(77L, "2026-08-12");
+        assertEquals(200, result.httpStatus);
+        assertEquals(0, new BigDecimal("42.30").compareTo(result.balanceBefore));
+        assertEquals(0, new BigDecimal("12.00").compareTo(result.burnedAmount));
+        assertEquals(0, new BigDecimal("30.30").compareTo(result.balanceAfter));
+        assertEquals("2026-09-17T14:02:11", result.asOf);
+    }
+
+    /**
+     * On an IDEMPOTENT replay the confirmation still answers 200 but with a
+     * null balanceBefore (no longer knowable) — tolerated — while burnedAmount
+     * and balanceAfter stay served (imfid response B).
+     */
+    @Test
+    void confirmToleratesNullBalanceBeforeOnReplay() throws Exception {
+        stub("/api/burn/reservations/77/confirm", 200,
+                "{ \"balanceBefore\": null, \"burnedAmount\": 12.00, \"balanceAfter\": 30.30,"
+                        + " \"asOf\": \"2026-09-17T14:02:11\" }");
+        ImfidClient.ConfirmResult result = client.confirm(77L, "2026-08-12");
+        assertEquals(200, result.httpStatus);
+        assertNull(result.balanceBefore);
+        assertEquals(0, new BigDecimal("30.30").compareTo(result.balanceAfter));
+    }
+
+    /**
+     * The NOMINAL earn call carries NO projectionMode member — the behaviour
+     * without the field is contractually unchanged (imfid response C).
+     */
+    @Test
+    void earnNominalOmitsTheProjectionMode() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0,\"entries\":[]}");
+        client.earn("{}", "{}");
+        assertFalse(receivedBody.get().contains("projectionMode"));
+    }
+
+    /**
+     * The ANONYMOUS variant injects {@code projectionMode:ANONYMOUS} into the
+     * body (imfid response C); the answer has no balances and a zero burnable
+     * base, and echoes the mode.
+     */
+    @Test
+    void earnAnonymousSendsTheModeAndParsesNoBalances() throws Exception {
+        stub("/api/earn", 200, "{\"projectionMode\":\"ANONYMOUS\",\"total\":1.20,"
+                + "\"burnableBase\":0,\"entries\":[],\"capsApplied\":[]}");
+        ImfidClient.EarnProjection projection = client.earn("{}", "{}", "ANONYMOUS");
+        assertTrue(receivedBody.get().contains("\"projectionMode\":\"ANONYMOUS\""));
+        assertEquals("ANONYMOUS", projection.projectionMode);
+        assertNull(projection.balances);
+        assertEquals(0, BigDecimal.ZERO.compareTo(projection.burnableBase));
+    }
+
+    /**
+     * The earn entry carries its advantage grouping and the response its
+     * balances block (imfid responses A and B), parsed from the addendum's
+     * verbatim §1 example.
+     */
+    @Test
+    void earnParsesAdvantageFieldsAndBalances() throws Exception {
+        stub("/api/earn", 200, "{\"projectionMode\":\"CARD\",\"total\":3.90,\"entries\":["
+                + "{\"ruleCode\":\"BOOST_MARQUE_2026\",\"label\":\"Boost marque\",\"amount\":1.50,"
+                + "\"baseAmount\":30.00,\"lineIds\":[\"L1\",\"L4\"],\"advantageType\":\"PRODUCT\","
+                + "\"advantageTypeLabel\":\"Vos avantages produits\",\"advantageTypeOrder\":10,"
+                + "\"advantageCategory\":\"FRAIS\",\"advantageCategoryLabel\":\"Produits frais\"}],"
+                + "\"capsApplied\":[],\"burnableBase\":28.40,\"warnings\":[],"
+                + "\"balances\":{\"available\":42.30,\"projectedAfterEarn\":46.20,"
+                + "\"asOf\":\"2026-09-17T14:01:57\"}}");
+        ImfidClient.EarnProjection projection = client.earn("{}", "{}");
+        ImfidClient.EarnEntry entry = projection.entries.get(0);
+        assertEquals("PRODUCT", entry.advantageType);
+        assertEquals("Vos avantages produits", entry.advantageTypeLabel);
+        assertEquals(10, entry.advantageTypeOrder);
+        assertEquals("FRAIS", entry.advantageCategory);
+        assertEquals("Produits frais", entry.advantageCategoryLabel);
+        assertEquals(0, new BigDecimal("30.00").compareTo(entry.baseAmount));
+        assertEquals(2, entry.lineIds.size());
+        assertNotNull(projection.balances);
+        assertEquals(0, new BigDecimal("42.30").compareTo(projection.balances.available));
+        assertEquals(0, new BigDecimal("46.20").compareTo(projection.balances.projectedAfterEarn));
+        assertEquals("2026-09-17T14:01:57", projection.balances.asOf);
+    }
+
+    /**
+     * The five advantage fields may all be null (a rule predating the
+     * referential): the entry parses and the register falls back to its flat
+     * list (imfid response A last bullet).
+     */
+    @Test
+    void earnToleratesNullAdvantageFields() throws Exception {
+        stub("/api/earn", 200, "{\"total\":0.28,\"entries\":["
+                + "{\"ruleCode\":\"SOCLE\",\"label\":\"Socle\",\"amount\":0.28,"
+                + "\"advantageType\":null,\"advantageTypeLabel\":null,\"advantageTypeOrder\":null,"
+                + "\"advantageCategory\":null,\"advantageCategoryLabel\":null}]}");
+        ImfidClient.EarnProjection projection = client.earn("{}", "{}");
+        assertNull(projection.entries.get(0).advantageType);
+        assertNull(projection.entries.get(0).advantageTypeOrder);
+    }
+
+    /**
+     * capsApplied tolerates an UNKNOWN scope such as {@code EGALIM:<lineId>}
+     * (imfid response §5 forward-compatibility): parsing does not throw and the
+     * scope is carried as a free string, nothing displayed.
+     */
+    @Test
+    void earnToleratesUnknownCapScope() throws Exception {
+        stub("/api/earn", 200, "{\"total\":1.00,\"entries\":[],\"capsApplied\":["
+                + "{\"scope\":\"GLOBAL\",\"amount\":0.10},{\"scope\":\"EGALIM:L3\",\"amount\":0.05}]}");
+        ImfidClient.EarnProjection projection = assertDoesNotThrow(() -> client.earn("{}", "{}"));
+        assertEquals(2, projection.capsApplied.size());
+        assertEquals("EGALIM:L3", projection.capsApplied.get(1).scope);
     }
 
     /**

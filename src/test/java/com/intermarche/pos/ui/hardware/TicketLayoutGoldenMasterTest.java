@@ -297,7 +297,7 @@ class TicketLayoutGoldenMasterTest {
         refund.creationDate = NOW;
         try (MockedStatic<DateTimeProvider> time = mockStatic(DateTimeProvider.class)) {
             time.when(DateTimeProvider::now).thenReturn(NOW);
-            service.printRefundVoucher(refund, "AV-000001");
+            service.printRefundVoucher(refund, "AV-000001", null);
         }
         assertGolden("refund-voucher", captureReceipt(service));
     }
@@ -323,8 +323,38 @@ class TicketLayoutGoldenMasterTest {
             fail("Référence absente pour '" + name + "'. Relancer avec -Dgolden.record=true "
                     + "APRÈS avoir lu le document produit :\n" + produced);
         }
+        if (!expected.equals(produced)) {
+            dumpActual(name, produced);
+        }
         assertEquals(expected, produced, "Le document '" + name + "' a changé. "
-                + "Lire le diff : si le nouveau document est le bon, réenregistrer la référence.");
+                + "Lire le diff : si le nouveau document est le bon, réenregistrer la référence. "
+                + "Le document produit est écrit dans target/golden-actual/" + name + ".txt");
+    }
+
+    /**
+     * Writes the produced document beside the build output when it differs
+     * from its reference.
+     *
+     * <p>A golden master whose only output is an assertion message forces
+     * whoever reads the failure to reconstruct the document by hand. The file
+     * dropped here is the exact text that was produced, ready to be diffed
+     * against the reference or, once a human has read it, copied over it.
+     * Nothing is written when the documents match, and a failure to write is
+     * swallowed: the assertion below is what must report, not the dump.
+     *
+     * @param name the document's reference name
+     * @param produced the document as printed now
+     */
+    private void dumpActual(String name, String produced) {
+        try {
+            java.nio.file.Path directory = java.nio.file.Paths.get("target", "golden-actual");
+            java.nio.file.Files.createDirectories(directory);
+            java.nio.file.Files.writeString(directory.resolve(name + ".txt"), produced,
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException ignored) {
+            // The assertion that follows is the report; a dump that cannot be
+            // written must not replace a document comparison with an I/O error.
+        }
     }
 
     /**

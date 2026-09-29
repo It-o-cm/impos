@@ -1,10 +1,14 @@
 package com.intermarche.e2e;
 
+import com.intermarche.pos.domain.barcode.ArticleBarcodeRange;
+import com.intermarche.pos.domain.barcode.CouponField;
 import com.intermarche.pos.domain.catalog.Price;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
 import com.microsoft.playwright.APIResponse;
@@ -141,6 +145,41 @@ public class GroupBIT {
     PosState posState;
 
     /**
+     * The referential settings service, injected so B16/B17/B23 can toggle their
+     * flags (GS1 expiry alerts, EAN13 key control) and restore them afterwards.
+     */
+    @Inject
+    PosSettingsService posSettings;
+
+    /** A 27-prefix balance ticket with a VALID EAN13 key (checksum 7). */
+    private static final String BALANCE_TICKET_VALID = "2700000000007";
+
+    /** The same balance ticket with a broken key: silent fall-through to CODE INCONNU. */
+    private static final String BALANCE_TICKET_BAD = "2700000000000";
+
+    /** A GS1 marked payload naming HUILE by GTIN (leading-zero-padded EAN13). */
+    private static final String GS1_HUILE = "(01)03300000000006";
+
+    /** A GS1 marked payload naming POMMES (weighed, per-kg) by GTIN. */
+    private static final String GS1_POMMES = "(01)03300000000001";
+
+    /** A GS1 marked payload naming the forbidden product by GTIN. */
+    private static final String GS1_FORBIDDEN = "(01)03660000099999";
+
+    /** A GS1 marked payload whose GTIN is absent from the catalog. */
+    private static final String GS1_UNKNOWN = "(01)09999999999994";
+
+    /** A 13-digit code with a WRONG EAN13 key (check digit should be 4). */
+    private static final String EAN13_BAD_KEY = "9999999999999";
+
+    /** A wine product, age-restricted 18+ (non-engine EAN), for B20. */
+    private static final String EAN_WINE = "3400018000001";
+    private static final String LABEL_WINE = "VIN ROUGE BORDEAUX 75CL";
+
+    /** A unit product (Miel, 6,00 €) borrowed by B21/B22 for entry prompts/arming. */
+    private static final String EAN_MIEL = "3300000000024";
+
+    /**
      * B1 — Scan EAN catalogue &amp; fusion.
      * <p>
      * A catalog EAN scanned on the bus creates a unit line with the price and
@@ -188,7 +227,10 @@ public class GroupBIT {
         scan(EAN_HUILE);
         page.getByText(LABEL_HUILE).waitFor();
         // Manager REMISE of 1,00 € through the price modal + endorsement.
-        page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("REMISE").setExact(true)).click();
+        // The separate menu links were folded into a single "REMISE / PRIX" entry
+        // whose modal carries the mode selector, so the mode is reached by its own
+        // GET rather than by clicking a button named after it.
+        page.navigate(base.toString() + "action/price-mod/remise");
         page.locator("#priceKbArea").waitFor();
         tapDigits(page.locator("#priceKbArea"), "1");
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("VALIDER").setExact(true)).click();
@@ -449,7 +491,11 @@ public class GroupBIT {
                 new Page.GetByRoleOptions().setName(LABEL_POELE).setExact(true)).click();
         tapDigits(page.locator("#keyboardArea"), "2");
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("VALIDER").setExact(true)).click();
-        page.getByText(LABEL_POELE.toUpperCase()).waitFor();
+        // The ticket LINE, not the label anywhere on screen: the message zone of
+        // the polled fragment renders its own text (a high-price warning names the
+        // article), and only a line is a link.
+        page.getByRole(AriaRole.LINK,
+                new Page.GetByRoleOptions().setName(LABEL_POELE.toUpperCase())).first().waitFor();
         List<TicketState.TicketItem> items = posState.ticket.items;
         Assertions.assertEquals(1, items.size(), "the drill-down add must create one line");
         Assertions.assertEquals(EAN_POELE, items.get(0).ean, "the added line must carry the chosen EAN");
@@ -556,7 +602,7 @@ public class GroupBIT {
         // Select the line, then cancel it (last entered -> direct cancel).
         page.locator("a.receipt-item-link").first().click();
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ANNULER LIGNE").setExact(true)).click();
-        page.getByText("EN ATTENTE D'ARTICLES...").waitFor();
+        page.getByText("CLIENT SUIVANT").waitFor();
         Assertions.assertTrue(posState.ticket.items.isEmpty(), "the cancelled line must be removed");
         Assertions.assertEquals(0, posState.ticket.totalAmount.compareTo(BigDecimal.ZERO),
                 "the total must be recomputed to zero");
@@ -627,10 +673,13 @@ public class GroupBIT {
         // The current sale's draft id (read in-memory: drafts accumulate).
         Long draftId = posState.payment.ticketDbId;
         Assertions.assertNotNull(draftId, "scanning a line must persist the sale's draft");
-        // Request the guarded whole-ticket cancellation, then endorse it.
+        // Request the guarded whole-ticket cancellation, then endorse it. The key
+        // lives in the TICKET menu since the five-menu rework: the bottom bar is
+        // the menu selector, so the menu carrying the key is selected first.
+        page.navigate(base.toString() + "action/menu/ticket");
         page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ANNULER TICKET").setExact(true)).click();
         approveEndorsementWithManager(page);
-        page.getByText("EN ATTENTE D'ARTICLES...").waitFor();
+        page.getByText("CLIENT SUIVANT").waitFor();
         Assertions.assertTrue(posState.ticket.items.isEmpty(), "the cancelled ticket must clear the screen");
         // Database oracle: the draft is CANCELLED.
         Ticket.TicketStatus status = QuarkusTransaction.requiringNew()
@@ -638,6 +687,393 @@ public class GroupBIT {
         Assertions.assertEquals(Ticket.TicketStatus.CANCELLED, status,
                 "the persisted draft must be marked CANCELLED");
         page.close();
+    }
+
+    /**
+     * B15 — Ticket balance comptoir (préfixe 27).
+     * <p>
+     * A 27-prefix code with a broken EAN13 key falls SILENTLY through to the
+     * unknown-code fallback ({@code CODE INCONNU}). A 27-prefix code with a valid
+     * key is CLAIMED by {@code BalanceTicketScanHandler}, which — with no store
+     * node wired in the autonomous e2e run — poses its own refusal ({@code
+     * COMPTOIR NON RACCORDÉ - SAISIE MANUELLE}) that is NEVER overwritten by
+     * {@code CODE INCONNU}, and adds no line. The "lines integrated" happy path
+     * needs a store node and is reported as residue.
+     */
+    @Test
+    void b15_ticket_balance_comptoir() {
+        // --- Invalid key: silent fall-through to CODE INCONNU ---
+        Page page = freshSale();
+        scan(BALANCE_TICKET_BAD);
+        Assertions.assertEquals("CODE INCONNU: " + BALANCE_TICKET_BAD, posState.ticket.transientError,
+                "a bad 27-key must fall through to the unknown-code fallback");
+        Assertions.assertTrue(posState.ticket.items.isEmpty(), "the rejected ticket must add no line");
+        page.close();
+        // --- Valid key: the handler claims it, its refusal wins over CODE INCONNU ---
+        Page page2 = freshSale();
+        scan(BALANCE_TICKET_VALID);
+        Assertions.assertEquals("COMPTOIR NON RACCORDÉ - SAISIE MANUELLE", posState.ticket.transientError,
+                "the balance handler's refusal must win, never overwritten by CODE INCONNU");
+        Assertions.assertTrue(posState.ticket.items.isEmpty(), "the un-integrated ticket must add no line");
+        page2.close();
+    }
+
+    /**
+     * B16 — Code GS1 Databar/DataMatrix — article.
+     * <p>
+     * A marked GS1 payload naming an article adds a line, priced by its element
+     * string: an embedded amount (392n) sets a price-embedded unit line; an
+     * embedded weight (310n) sells that weight; a carried count (30) sets the
+     * quantity. A marked payload whose GTIN is absent yields {@code ARTICLE GS1
+     * INTROUVABLE}; a forbidden product yields {@code PRODUIT INTERDIT À LA
+     * VENTE}; an expired lot under a BLOCK alert yields {@code ARTICLE PERIME LE
+     * <date>} and adds nothing; and a carried count while the quantity key is
+     * armed yields {@code QUANTITÉ DÉJÀ PORTÉE PAR LE CODE GS1}. (Recall/short-date
+     * branches need recall-seed / dynamic dates and are reported as residue.)
+     */
+    @Test
+    void b16_code_gs1_article() {
+        // --- Embedded amount (392n) → price-embedded unit line at 5,00 € ---
+        Page page = freshSale();
+        scan(GS1_HUILE + "(3902)0500");
+        page.getByText(LABEL_HUILE).waitFor();
+        TicketState.TicketItem embedded = posState.ticket.items.get(0);
+        Assertions.assertTrue(embedded.priceEmbedded, "a 392n amount must flag the line price-embedded");
+        Assertions.assertEquals(0, embedded.getTotalPrice().compareTo(new BigDecimal("5.00")),
+                "the embedded amount (5,00 €) must be the line total");
+        page.close();
+        // --- Embedded weight (3103) → 1,250 kg weighed line ---
+        Page pageW = freshSale();
+        scan(GS1_POMMES + "(3103)001250");
+        pageW.getByText(LABEL_POMMES).waitFor();
+        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("1.250")),
+                "the embedded weight (3103=1,250 kg) must be the line quantity");
+        pageW.close();
+        // --- Carried count (30) → quantity 3 ---
+        Page pageC = freshSale();
+        scan(GS1_HUILE + "(30)3");
+        pageC.getByText(LABEL_HUILE).waitFor();
+        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("3")),
+                "a carried count (30) must set the line quantity");
+        pageC.close();
+        // --- Marked but absent GTIN → ARTICLE GS1 INTROUVABLE ---
+        Page pageU = freshSale();
+        scan(GS1_UNKNOWN);
+        Assertions.assertTrue(posState.ticket.transientError != null
+                        && posState.ticket.transientError.startsWith("ARTICLE GS1 INTROUVABLE ("),
+                "a marked, absent GTIN must be reported introuvable, was: " + posState.ticket.transientError);
+        Assertions.assertTrue(posState.ticket.items.isEmpty(), "an absent GS1 article adds no line");
+        pageU.close();
+        // --- Forbidden product → PRODUIT INTERDIT À LA VENTE ---
+        Page pageF = freshSale();
+        scan(GS1_FORBIDDEN);
+        Assertions.assertEquals("PRODUIT INTERDIT À LA VENTE", posState.ticket.transientError,
+                "a forbidden GS1 article must be refused");
+        Assertions.assertTrue(posState.ticket.items.isEmpty(), "a forbidden article adds no line");
+        pageF.close();
+        // --- Expired lot under BLOCK → ARTICLE PERIME LE <date>, no line ---
+        posSettings.store("gs1.expiry-alert", "BLOCK");
+        try {
+            Page pageE = freshSale();
+            scan(GS1_HUILE + "(17)200101");
+            Assertions.assertEquals("ARTICLE PERIME LE 01/01/2020", posState.ticket.transientError,
+                    "an expired GS1 lot under BLOCK must be refused with its date");
+            Assertions.assertTrue(posState.ticket.items.isEmpty(), "an expired blocked article adds no line");
+            pageE.close();
+        } finally {
+            posSettings.store("gs1.expiry-alert", "NONE");
+        }
+        // --- Carried count while the quantity key is armed → QUANTITÉ DÉJÀ PORTÉE ---
+        Page pageQ = freshSale();
+        scan(EAN_HUILE);
+        pageQ.getByText(LABEL_HUILE).waitFor();
+        pageQ.navigate(base.toString() + "action/price-mod/quantity");
+        pageQ.locator("#priceKbArea").waitFor();
+        scan(GS1_HUILE + "(30)3");
+        Assertions.assertEquals("QUANTITÉ DÉJÀ PORTÉE PAR LE CODE GS1", posState.ticket.transientError,
+                "a carried count with the quantity key armed must be refused");
+        pageQ.close();
+    }
+
+    /**
+     * B17 — Code GS1 — règlement (hors phase paiement).
+     * <p>
+     * A GS1 gift cheque (GDTI 253) or coupon (GCN 255) whose type is NOT
+     * parameterized is refused with {@code CHEQUE CADEAU GS1 NON PARAMETRE} /
+     * {@code COUPON GS1 NON PARAMETRE}. Once the gift type IS parameterized,
+     * scanning it in the cart phase (outside payment) is refused with {@code BON
+     * VALABLE EN PHASE PAIEMENT}. (The expired-coupon branch needs a configured
+     * coupon type with an expiry and is reported as residue.)
+     */
+    @Test
+    void b17_code_gs1_reglement() {
+        // --- Gift cheque, no type parameterized ---
+        Page page = freshSale();
+        scan("(253)9526000134367ABC");
+        Assertions.assertEquals("CHEQUE CADEAU GS1 NON PARAMETRE", posState.ticket.transientError,
+                "an unparameterized GS1 gift cheque must be refused");
+        page.close();
+        // --- Coupon, no type parameterized ---
+        Page pageC = freshSale();
+        scan("(255)952600013436712345");
+        Assertions.assertEquals("COUPON GS1 NON PARAMETRE", posState.ticket.transientError,
+                "an unparameterized GS1 coupon must be refused");
+        pageC.close();
+        // --- Gift type parameterized but scanned outside payment ---
+        posSettings.store("gs1.gdti-coupon-types", "9526000:GIFT_VOUCHER");
+        try {
+            Page pageP = freshSale();
+            scan("(253)9526000134367ABC");
+            Assertions.assertEquals("BON VALABLE EN PHASE PAIEMENT", posState.ticket.transientError,
+                    "a parameterized gift cheque scanned in the cart phase must be deferred to payment");
+            pageP.close();
+        } finally {
+            posSettings.store("gs1.gdti-coupon-types", "");
+        }
+    }
+
+    /**
+     * B18 — Répéter article.
+     * <p>
+     * {@code RÉPÉTER ARTICLE} adds one to the last unit line and posts {@code
+     * ARTICLE RÉPÉTÉ : <label>}; with no article it is {@code AUCUN ARTICLE À
+     * RÉPÉTER}; on a weighed line {@code RÉPÉTITION IMPOSSIBLE : ARTICLE EN
+     * PESÉE}; on a price-embedded line {@code RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX
+     * EMBARQUÉ}.
+     */
+    @Test
+    void b18_repeter_article() {
+        // --- No article yet ---
+        Page page = freshSale();
+        page.navigate(base.toString() + "action/repeat");
+        Assertions.assertEquals("AUCUN ARTICLE À RÉPÉTER", posState.ticket.transientError,
+                "repeat with an empty cart must be refused");
+        // --- A unit line: +1 and the repeated notice ---
+        scan(EAN_HUILE);
+        page.getByText(LABEL_HUILE).waitFor();
+        page.navigate(base.toString() + "action/repeat");
+        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("2")),
+                "repeat must add one to the last unit line");
+        Assertions.assertEquals("ARTICLE RÉPÉTÉ : " + LABEL_HUILE, posState.ticket.transientError,
+                "repeat must post the repeated-article notice");
+        page.close();
+        // --- A weighed line: repetition impossible ---
+        Page pageW = freshSale();
+        scan(WEIGHT_LABEL_VALID);
+        pageW.getByText(LABEL_POMMES).waitFor();
+        pageW.navigate(base.toString() + "action/repeat");
+        Assertions.assertEquals("RÉPÉTITION IMPOSSIBLE : ARTICLE EN PESÉE", posState.ticket.transientError,
+                "a weighed line cannot be repeated");
+        pageW.close();
+        // --- A price-embedded line WITHOUT a PLU: repetition impossible ---
+        // (a 2x price sticker also carries a PLU, so it would hit the weighed
+        // branch first; a GS1 392n embedded amount on a unit product is
+        // price-embedded with no PLU, which is the branch under test.)
+        Page pageE = freshSale();
+        scan(GS1_HUILE + "(3902)0500");
+        pageE.getByText(LABEL_HUILE).waitFor();
+        pageE.navigate(base.toString() + "action/repeat");
+        Assertions.assertEquals("RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX EMBARQUÉ", posState.ticket.transientError,
+                "a price-embedded line cannot be repeated");
+        pageE.close();
+    }
+
+    /**
+     * B19 — Marquage « À enlever ».
+     * <p>
+     * With a line selected, {@code /action/collect} toggles its to-collect mark
+     * ({@code ARTICLE MARQUÉ À ENLEVER} / {@code MARQUAGE À ENLEVER RETIRÉ}); with
+     * nothing selected it arms the NEXT article ({@code PROCHAIN ARTICLE À
+     * ENLEVER}), and two articles at different destinations do not merge.
+     */
+    @Test
+    void b19_marquage_a_enlever() {
+        // --- Toggle on a selected line ---
+        Page page = freshSale();
+        scan(EAN_HUILE);
+        page.getByText(LABEL_HUILE).waitFor();
+        page.navigate(base.toString() + "action/select/0");
+        page.navigate(base.toString() + "action/collect");
+        Assertions.assertEquals("ARTICLE MARQUÉ À ENLEVER", posState.ticket.transientError,
+                "toggling a selected line must mark it to collect");
+        Assertions.assertTrue(posState.ticket.items.get(0).toCollect, "the line must carry the to-collect flag");
+        // The collect action clears the selection, so re-select before toggling back.
+        page.navigate(base.toString() + "action/select/0");
+        page.navigate(base.toString() + "action/collect");
+        Assertions.assertEquals("MARQUAGE À ENLEVER RETIRÉ", posState.ticket.transientError,
+                "toggling again must clear the mark");
+        Assertions.assertFalse(posState.ticket.items.get(0).toCollect, "the flag must be cleared");
+        page.close();
+        // --- Arm the next article, and non-merge across destinations ---
+        Page page2 = freshSale();
+        scan(EAN_HUILE);
+        page2.getByText(LABEL_HUILE).waitFor();
+        page2.navigate(base.toString() + "action/collect");
+        Assertions.assertEquals("PROCHAIN ARTICLE À ENLEVER", posState.ticket.transientError,
+                "with nothing selected, collect must arm the next article");
+        // The armed next scan lands to-collect: it does NOT merge with the plain
+        // line0 of the same EAN (different destinations) — two lines, one marked.
+        scan(EAN_HUILE);
+        Assertions.assertEquals(2, posState.ticket.items.size(),
+                "a to-collect line must not merge with a plain line of the same EAN");
+        Assertions.assertTrue(posState.ticket.items.get(0).toCollect != posState.ticket.items.get(1).toCollect,
+                "exactly one of the two same-EAN lines must carry the to-collect mark");
+        page2.close();
+    }
+
+    /**
+     * B20 — Contrôle d'âge.
+     * <p>
+     * Scanning an age-restricted article above the verified threshold opens the
+     * age-check modal; CLIENT MAJEUR replays the code (line added), journals
+     * {@code AGE_CHECK_CONFIRMED} and remembers the threshold; REFUSER journals
+     * {@code AGE_CHECK_REFUSED} and posts {@code VENTE REFUSÉE - CONTRÔLE D'ÂGE}
+     * with no line.
+     */
+    @Test
+    void b20_controle_age() {
+        // --- Confirm: the line is added, the check journaled ---
+        Page page = freshSale();
+        scan(EAN_WINE);
+        Assertions.assertTrue(posState.ageCheck.active, "an age-restricted article must open the age check");
+        Assertions.assertEquals(18, posState.ageCheck.threshold, "the wine threshold must be 18");
+        long confirmedBefore = eventCount(TechnicalEvent.EventType.AGE_CHECK_CONFIRMED);
+        page.navigate(base.toString() + "action/age-check/confirm");
+        page.getByText(LABEL_WINE).waitFor();
+        Assertions.assertFalse(posState.ageCheck.active, "confirming must close the modal");
+        Assertions.assertEquals(1, posState.ticket.items.size(), "confirming must add the age-restricted line");
+        Assertions.assertEquals(confirmedBefore + 1, eventCount(TechnicalEvent.EventType.AGE_CHECK_CONFIRMED),
+                "confirming must journal AGE_CHECK_CONFIRMED");
+        page.close();
+        // --- Refuse: no line, the refusal journaled ---
+        Page page2 = freshSale();
+        scan(EAN_WINE);
+        Assertions.assertTrue(posState.ageCheck.active, "the age check must reopen on a fresh cart");
+        long refusedBefore = eventCount(TechnicalEvent.EventType.AGE_CHECK_REFUSED);
+        page2.navigate(base.toString() + "action/age-check/refuse");
+        Assertions.assertEquals("VENTE REFUSÉE - CONTRÔLE D'ÂGE", posState.ticket.transientError,
+                "refusing must post the refusal message");
+        Assertions.assertTrue(posState.ticket.items.isEmpty(), "refusing must add no line");
+        Assertions.assertEquals(refusedBefore + 1, eventCount(TechnicalEvent.EventType.AGE_CHECK_REFUSED),
+                "refusing must journal AGE_CHECK_REFUSED");
+        page2.close();
+    }
+
+    /**
+     * B21 — Invite prix / quantité à saisir.
+     * <p>
+     * A product carrying the PRICE_TO_ENTER attribute opens the {@code PRIX À
+     * SAISIR} modal: a value ≤ 0 is {@code VALEUR INVALIDE}, ANNULER is {@code
+     * SAISIE ABANDONNÉE}, a valid value adds the line at that price. A product
+     * carrying QUANTITY_TO_ENTER opens {@code QUANTITÉ À SAISIR}. The attributes
+     * are set in the database and removed afterwards.
+     */
+    @Test
+    void b21_invite_prix_quantite() {
+        // --- PRICE_TO_ENTER: invalid, cancel, then a valid price ---
+        setProductAttribute(EAN_MIEL, "PRICE_TO_ENTER", "true");
+        try {
+            Page page = freshSale();
+            scan(EAN_MIEL);
+            Assertions.assertTrue(posState.entryPrompt.active, "a price-to-enter product must open the entry prompt");
+            Assertions.assertEquals("PRIX À SAISIR", posState.entryPrompt.getTitle(), "the modal must ask for a price");
+            submitEntry("0");
+            Assertions.assertEquals("VALEUR INVALIDE", posState.ticket.transientError, "a price ≤ 0 must be refused");
+            scan(EAN_MIEL);
+            page.navigate(base.toString() + "action/entry/cancel");
+            Assertions.assertEquals("SAISIE ABANDONNÉE", posState.ticket.transientError, "cancelling must abandon the entry");
+            scan(EAN_MIEL);
+            submitEntry("3");
+            Assertions.assertEquals(1, posState.ticket.items.size(), "a valid price must add the line");
+            Assertions.assertEquals(0, posState.ticket.items.get(0).unitPrice.compareTo(new BigDecimal("3")),
+                    "the typed price must be applied");
+            page.close();
+        } finally {
+            removeProductAttribute(EAN_MIEL, "PRICE_TO_ENTER");
+        }
+        // --- QUANTITY_TO_ENTER: the modal asks for a quantity ---
+        setProductAttribute(EAN_MIEL, "QUANTITY_TO_ENTER", "true");
+        try {
+            Page pageQ = freshSale();
+            scan(EAN_MIEL);
+            Assertions.assertTrue(posState.entryPrompt.active,
+                    "a quantity-to-enter product must open the entry prompt");
+            Assertions.assertEquals("QUANTITÉ À SAISIR", posState.entryPrompt.getTitle(),
+                    "the modal must ask for a quantity");
+            pageQ.close();
+        } finally {
+            removeProductAttribute(EAN_MIEL, "QUANTITY_TO_ENTER");
+        }
+    }
+
+    /**
+     * B22 — Quantité armée pour le prochain article.
+     * <p>
+     * {@code POUR LE PROCHAIN ARTICLE} arms a quantity ({@code QUANTITÉ <n> —
+     * SAISISSEZ L'ARTICLE}); {@code n ≤ 0} is {@code QUANTITÉ INVALIDE}; the armed
+     * quantity is consumed by the next unit line.
+     */
+    @Test
+    void b22_quantite_armee_prochain_article() {
+        // --- Invalid armed quantity ---
+        Page page = freshSale();
+        armQuantity("0");
+        Assertions.assertEquals("QUANTITÉ INVALIDE", posState.ticket.transientError,
+                "an armed quantity ≤ 0 must be refused");
+        // --- Valid arming, consumed by the next unit line ---
+        armQuantity("3");
+        Assertions.assertEquals("QUANTITÉ 3 — SAISISSEZ L'ARTICLE", posState.ticket.transientError,
+                "a valid arming must post the arming notice");
+        scan(EAN_HUILE);
+        page.getByText(LABEL_HUILE).waitFor();
+        Assertions.assertEquals(0, posState.ticket.items.get(0).quantity.compareTo(new BigDecimal("3")),
+                "the armed quantity must be consumed by the next unit line");
+        page.close();
+    }
+
+    /**
+     * B23 — Clé EAN13.
+     * <p>
+     * With the EAN13 check-digit control enabled, a 13-digit code with a wrong key
+     * is refused with {@code CODE EAN INVALIDE} and never reaches the unknown-code
+     * handler. The control flag is restored afterwards.
+     */
+    @Test
+    void b23_cle_ean13() {
+        posSettings.store("scan.ean13-check-digit", "true");
+        try {
+            Page page = freshSale();
+            scan(EAN13_BAD_KEY);
+            Assertions.assertEquals("CODE EAN INVALIDE", posState.ticket.transientError,
+                    "a 13-digit code with a wrong key must be refused as CODE EAN INVALIDE");
+            Assertions.assertTrue(posState.ticket.items.isEmpty(), "an invalid-key code adds no line");
+            page.close();
+        } finally {
+            posSettings.store("scan.ean13-check-digit", "false");
+        }
+    }
+
+    /**
+     * B24 — Étiquette balance en devise non euro.
+     * <p>
+     * An administered price barcode range declared in a currency that is NOT
+     * parameterized is refused with {@code DEVISE <ISO> NON PARAMÉTRÉE}. The range
+     * is inserted for the scenario and removed afterwards.
+     */
+    @Test
+    void b24_etiquette_devise_non_euro() {
+        Long rangeId = insertForeignCurrencyRange();
+        try {
+            Page page = freshSale();
+            scan("2640200001500");
+            Assertions.assertTrue(posState.ticket.transientError != null
+                            && posState.ticket.transientError.contains("DEVISE FRF NON PARAMÉTRÉE"),
+                    "a range in an unconfigured currency must be refused, was: " + posState.ticket.transientError);
+            Assertions.assertTrue(posState.ticket.items.isEmpty(), "the refused label must add no line");
+            page.close();
+        } finally {
+            QuarkusTransaction.requiringNew().run(() -> ArticleBarcodeRange.deleteById(rangeId));
+        }
     }
 
     // --- Reusable gestures (login recipe & hardware bus) ---
@@ -670,9 +1106,9 @@ public class GroupBIT {
         // No session yet: the unlock lands on the SESSION screen (drawer open,
         // that screen is not guarded). Close the drawer, install the float and
         // open the session, which flows straight into the sale.
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -697,6 +1133,7 @@ public class GroupBIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -827,4 +1264,133 @@ public class GroupBIT {
             return np.id;
         });
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
+    // --- Lot-2 (B15–B24) additions: journal, entry/arm endpoints, DB fixtures ---
+
+    /**
+     * Counts the journal entries of a given event type.
+     *
+     * @param type the technical event type
+     * @return the number of journaled events of that type
+     */
+    private long eventCount(TechnicalEvent.EventType type) {
+        return QuarkusTransaction.requiringNew().call(() -> TechnicalEvent.count("eventType", type));
+    }
+
+    /**
+     * Submits the entry prompt ({@code POST /action/entry/confirm}) with a raw
+     * value — the path the prompt keypad posts to.
+     *
+     * @param rawValue the value to submit
+     */
+    private void submitEntry(String rawValue) {
+        context.request().post(base.toString() + "action/entry/confirm", RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                .setData("rawValue=" + rawValue));
+    }
+
+    /**
+     * Arms a quantity for the next article ({@code POST /action/price-mod/arm}).
+     *
+     * @param rawValue the quantity to arm
+     */
+    private void armQuantity(String rawValue) {
+        context.request().post(base.toString() + "action/price-mod/arm", RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                .setData("rawValue=" + rawValue));
+    }
+
+    /**
+     * Sets a product attribute in the database (the referential vector for the
+     * entry prompts) and flushes it.
+     *
+     * @param ean the product EAN
+     * @param key the attribute code
+     * @param value the attribute value
+     */
+    private void setProductAttribute(String ean, String key, String value) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            Product p = Product.find("ean = ?1", ean).firstResult();
+            p.attributes.put(key, value);
+            p.persist();
+        });
+    }
+
+    /**
+     * Removes a product attribute, restoring the seed for the shared boot.
+     *
+     * @param ean the product EAN
+     * @param key the attribute code to remove
+     */
+    private void removeProductAttribute(String ean, String key) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            Product p = Product.find("ean = ?1", ean).firstResult();
+            p.attributes.remove(key);
+            p.persist();
+        });
+    }
+
+    /**
+     * Inserts an active PRICE barcode range declared in FRF (a non-euro,
+     * unparameterized currency) whose article segment names PLU 4020 — the B24
+     * fixture. The caller deletes it afterwards.
+     *
+     * @return the id of the inserted range
+     */
+    private Long insertForeignCurrencyRange() {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            ArticleBarcodeRange r = new ArticleBarcodeRange();
+            r.code = "TEST_FRF_26";
+            r.label = "Test FRF 26";
+            r.active = true;
+            r.priority = 1;
+            r.prefix = "26";
+            r.codeLength = 13;
+            r.codeKind = CouponField.Kind.NUMERIC;
+            r.articlePosition = 2;
+            r.articleLength = 4;
+            r.valueSource = ArticleBarcodeRange.ValueSource.PRICE;
+            r.valuePosition = 6;
+            r.valueLength = 6;
+            r.valueDecimals = 2;
+            r.currency = CouponField.PriceCurrency.FRF;
+            r.checkDigit = false;
+            r.matchPattern = "^26\\d{11}$";
+            r.persist();
+            return r.id;
+        });
+    }
+
 }

@@ -289,8 +289,9 @@ public class GroupMIT {
             page.locator("a[href='/action/menu/poste']").click();
         }
         themeLink.first().click();
-        page.getByRole(AriaRole.HEADING,
-                new Page.GetByRoleOptions().setName("THÈME D'AFFICHAGE").setExact(true)).waitFor();
+        // The selector title is now a top-bar span "Thème d'affichage" (CSS
+        // uppercases it), no longer an HTML heading — match its text.
+        page.getByText("Thème d'affichage").waitFor();
     }
 
     /**
@@ -451,9 +452,9 @@ public class GroupMIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill(OPENING_FLOAT);
+        enterOpeningFloat(page, OPENING_FLOAT);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -477,6 +478,7 @@ public class GroupMIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     // --- Hardware bus & keypad ---
@@ -502,4 +504,37 @@ public class GroupMIT {
     private void closeDrawer() {
         context.request().post(base.toString() + "api/hardware/drawer/close", RequestOptions.create());
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

@@ -309,8 +309,33 @@ public final class RefPayloads {
         public String label;
         /** Whether the island is in service. */
         public boolean active;
-        /** The attached registers, as a semicolon list of terminal identifiers. */
+        /**
+         * OLD FORM (BO-03-06-07): the attached registers as a semicolon list of
+         * terminal identifiers. Still emitted while the estate migrates, so a
+         * caisse that reads only this field keeps its islands.
+         */
         public String terminalIds;
+        /**
+         * NEW FORM (BO-03-09/BO-03-10): the attachment carried by the CONTACT
+         * POINTS of the island. A caisse accepts both forms without preference;
+         * when this list is present the effective terminals are read from it,
+         * otherwise from {@link #terminalIds}. Never renamed away the old field:
+         * losing the islands at the first pull is the one unacceptable failure.
+         */
+        public java.util.List<ContactPointDto> contactPoints;
+    }
+
+    /**
+     * One CONTACT POINT of a checkout island (BO-03-09) — the level between the
+     * island and the register that carries the register attachment in the new
+     * payload form. Extra fields the node may add are tolerated (the register's
+     * Jackson ignores unknown properties).
+     */
+    public static class ContactPointDto {
+        /** The contact-point code. */
+        public String code;
+        /** The identifier of the register bound to this contact point. */
+        public String terminalId;
     }
 
     /**

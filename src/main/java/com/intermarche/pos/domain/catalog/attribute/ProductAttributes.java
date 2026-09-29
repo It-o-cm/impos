@@ -237,4 +237,29 @@ public final class ProductAttributes {
             return java.math.BigDecimal.ZERO;
         }
     }
+
+    /**
+     * The software tare in kilograms declared for the article (LC-14-01-07),
+     * zero when it declares none. Sent to the scale in place of the default
+     * tare when strictly positive.
+     *
+     * <p>An unreadable value is zero and not an error, exactly like {@link
+     * #ecoTax}: the tare is integrated from the commercial management as text,
+     * and one malformed article must not stop a weighing.
+     *
+     * @param product the product, or null
+     * @return the article tare in kilograms, never null, never negative-by-accident
+     */
+    public static java.math.BigDecimal tare(Product product) {
+        String value = raw(product, ProductAttributeCatalog.TARE);
+        if (value == null || value.isBlank()) {
+            return java.math.BigDecimal.ZERO;
+        }
+        try {
+            java.math.BigDecimal parsed = new java.math.BigDecimal(value.trim().replace(',', '.'));
+            return parsed.signum() < 0 ? java.math.BigDecimal.ZERO : parsed;
+        } catch (NumberFormatException e) {
+            return java.math.BigDecimal.ZERO;
+        }
+    }
 }

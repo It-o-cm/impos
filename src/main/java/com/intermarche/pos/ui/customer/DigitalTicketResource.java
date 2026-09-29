@@ -200,10 +200,51 @@ public class DigitalTicketResource {
                 breakdown.add(line.vatRate, line.totalPrice);
             }
         }
+        // GB-01-07-10: the digital double places the engine advantages exactly
+        // as the paper ticket does — under the article line when the engine
+        // asked for LINE, in the footer otherwise (or when it asked for nothing).
+        java.util.Map<String, java.util.Map<String, String>> lineAdvantages = new java.util.HashMap<>();
+        java.util.List<java.util.Map<String, String>> footerAdvantages = new java.util.ArrayList<>();
+        if (ticket != null) {
+            for (com.intermarche.pos.domain.sale.TicketLineValuation valuation
+                    : com.intermarche.pos.domain.sale.TicketLineValuation
+                            .<com.intermarche.pos.domain.sale.TicketLineValuation>list("ticket.id", ticket.id)) {
+                java.math.BigDecimal correction = valuation.correctionAmount != null
+                        ? valuation.correctionAmount : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal delta = valuation.valuedTotal
+                        .subtract(valuation.localTotal).subtract(correction);
+                if (delta.signum() == 0) {
+                    continue;
+                }
+                String label = valuation.advantageLabel != null ? valuation.advantageLabel
+                        : (valuation.offerLabel != null ? valuation.offerLabel : "AVANTAGE");
+                java.util.Map<String, String> view = java.util.Map.of(
+                        "label", label, "amount", fmt(delta));
+                if ("LINE".equals(valuation.advantagePrintMode)) {
+                    lineAdvantages.put(valuation.lineUid, view);
+                } else {
+                    footerAdvantages.add(view);
+                }
+            }
+        }
         return digitalTicket
                 .data("ticket", ticket)
                 .data("buckets", ticket != null ? breakdown.getBuckets() : java.util.List.of())
+                .data("lineAdvantages", lineAdvantages)
+                .data("footerAdvantages", footerAdvantages)
                 .data("path", "/t/" + id + "/" + key)
                 .data("sent", sent);
+    }
+
+    /**
+     * Formats a signed amount the way the receipt reads it: two decimals, a
+     * French decimal comma (e.g. {@code -0,50}).
+     *
+     * @param amount the amount, tax included
+     * @return the formatted amount
+     */
+    private String fmt(java.math.BigDecimal amount) {
+        return amount.setScale(2, java.math.RoundingMode.HALF_UP)
+                .toPlainString().replace('.', ',');
     }
 }

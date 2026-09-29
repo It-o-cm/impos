@@ -59,7 +59,12 @@ public class Refund extends BaseEntity {
         /** A store voucher printed for the refunded amount. */
         VOUCHER,
         /** Credited on the customer's loyalty balance. */
-        LOYALTY
+        LOYALTY,
+        /**
+         * Credited on the customer's in-account credit (LC-05-06-05): the
+         * refund lowers what the account owes the store.
+         */
+        CREDIT
     }
 
     /** The sequential refund number, e.g. "C04-R000012" (null on legacy rows). */
@@ -105,6 +110,25 @@ public class Refund extends BaseEntity {
     @Column(name = "total_vat", precision = 19, scale = 4)
     public BigDecimal totalVat;
 
+    /**
+     * The return reason chosen by the cashier, from the administered list
+     * (LC-05-05-01/02), or null when none was chosen. It applies to the WHOLE
+     * refund (all returned lines at once), is journaled and — when the store
+     * administers it — printed on the return ticket, so it is exploitable in
+     * the back-office reports.
+     */
+    @Column(name = "return_reason", length = 255)
+    public String returnReason;
+
+    /**
+     * The account number credited when the refund method is {@code CREDIT}
+     * (LC-05-06-05), or null for every other method. It names the in-account
+     * customer whose outstanding balance the refund lowered, so the refund
+     * record is exploitable in the store's account statements.
+     */
+    @Column(name = "credit_account_number", length = 40)
+    public String creditAccountNumber;
+
     /** The refunded lines. */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "refund_id", nullable = false)
@@ -118,6 +142,7 @@ public class Refund extends BaseEntity {
      */
     @Override
     public int getChecksum() {
-        return Objects.hash(refundNumber, originalTicketId, totalAmount, status, refundMethod);
+        return Objects.hash(refundNumber, originalTicketId, totalAmount, status, refundMethod,
+                returnReason, creditAccountNumber);
     }
 }

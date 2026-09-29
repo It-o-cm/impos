@@ -1,14 +1,19 @@
 package com.intermarche.pos.ui.returnprocess;
 
 import com.intermarche.pos.domain.sale.Refund;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -39,6 +44,7 @@ class RefundResourceTest {
         resource.state = mock(PosState.class);
         resource.state.refund = mock(RefundState.class);
         resource.refundService = mock(RefundService.class);
+        resource.posSettingsService = mock(PosSettingsService.class);
         resource.returnSearchPage = mock(Template.class);
         resource.returnDetailPage = mock(Template.class);
         return resource;
@@ -65,9 +71,66 @@ class RefundResourceTest {
      * @return the view {@code returnDetailPage.data("state", state)} returns
      */
     private TemplateInstance stubDetail(RefundResource resource) {
+        TemplateInstance withState = mock(TemplateInstance.class);
         TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.returnDetailPage.data("state", resource.state)).thenReturn(view);
+        when(resource.returnDetailPage.data("state", resource.state)).thenReturn(withState);
+        when(withState.data(eq("reasons"), any())).thenReturn(view);
         return view;
+    }
+
+    // --- reason (LC-05-05-01) ---
+
+    /**
+     * {@code reason()} delegates the tapped reason to the service and returns the
+     * detail view, and the detail render hands the administered reasons to the
+     * template (the reason chooser data of LC-05-05-01).
+     */
+    @Test
+    void reasonSelectsReasonAndReturnsDetailWithReasons() {
+        RefundResource resource = newResource();
+        when(resource.posSettingsService.returnReasons())
+                .thenReturn(List.of("Erreur de caisse", "Article périmé"));
+        TemplateInstance detailView = stubDetail(resource);
+        assertSame(detailView, resource.reason("Article périmé"));
+        verify(resource.refundService).selectReason(resource.state, "Article périmé");
+        verify(resource.returnDetailPage).data("state", resource.state);
+    }
+
+    /**
+     * {@code creditAccount()} delegates the scanned account number to the
+     * service and returns the detail view (LC-05-06-05 account selection).
+     */
+    @Test
+    void creditAccountSelectsAndReturnsDetail() {
+        RefundResource resource = newResource();
+        TemplateInstance detailView = stubDetail(resource);
+        assertSame(detailView, resource.creditAccount("CC1"));
+        verify(resource.refundService).selectCreditAccount(resource.state, "CC1");
+    }
+
+    /**
+     * {@code payCredit()} requests an endorsed credit refund and returns the
+     * detail view (LC-05-06-05).
+     */
+    @Test
+    void payCreditRequestsCreditRefundAndReturnsDetail() {
+        RefundResource resource = newResource();
+        TemplateInstance detailView = stubDetail(resource);
+        assertSame(detailView, resource.payCredit());
+        verify(resource.refundService).requestRefund(resource.state, Refund.RefundMethod.CREDIT);
+    }
+
+    /**
+     * {@code reason()} still returns the detail view when the tapped reason is null
+     * (the query param was absent): the service clears the reason, the page is
+     * re-rendered all the same.
+     */
+    @Test
+    void reasonWithNullStillReturnsDetail() {
+        RefundResource resource = newResource();
+        TemplateInstance detailView = stubDetail(resource);
+        assertSame(detailView, resource.reason(null));
+        verify(resource.refundService).selectReason(resource.state, null);
     }
 
     // --- showSearchPage ---

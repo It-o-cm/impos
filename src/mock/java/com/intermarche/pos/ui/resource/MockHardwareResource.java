@@ -109,15 +109,61 @@ public class MockHardwareResource {
     @Path("/weight")
     @Produces(MediaType.TEXT_PLAIN)
     public Response getWeight() {
+        double gross = nextGross();
+        return Response.ok(String.format("%.3f", gross)).build();
+    }
+
+    /**
+     * Weighs after applying a software tare (LC-14-01): the simulated scale
+     * takes its gross figure (the preset weight or a random one) and returns
+     * the NET weight, gross minus the tare, floored at zero. There is no
+     * hardware tare in the simulator, so the software tare simply has priority
+     * and is never cumulated (LC-14-01-06); the register records the net as-is.
+     *
+     * @param tareKg the software tare to apply, in kilograms (French or dot
+     *        decimal); a null, blank or invalid value applies no tare
+     * @return the NET weight, 3 decimals
+     */
+    @GET
+    @Path("/weight-with-tare")
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response getWeightWithTare(@QueryParam("tare") String tareKg) {
+        double gross = nextGross();
+        double tare = parseTare(tareKg);
+        double net = Math.max(0.0, gross - tare);
+        return Response.ok(String.format("%.3f", net)).build();
+    }
+
+    /**
+     * Reads the next gross weight the simulated scale reports: the preset
+     * weight when one was armed (consumed once), else a random 0,5–5,0 kg.
+     *
+     * @return the gross weight in kilograms
+     */
+    private double nextGross() {
         Double manualWeight = pendingWeight.getAndSet(null);
-        String formattedWeight;
         if (manualWeight != null) {
-            formattedWeight = String.format("%.3f", manualWeight);
-        } else {
-            double weight = 0.5 + (random.nextDouble() * 4.5);
-            formattedWeight = String.format("%.3f", weight);
+            return manualWeight;
         }
-        return Response.ok(formattedWeight).build();
+        return 0.5 + (random.nextDouble() * 4.5);
+    }
+
+    /**
+     * Parses a tare string, tolerating the French comma; a null, blank or
+     * unparsable value means no tare.
+     *
+     * @param tareKg the tare string, or null
+     * @return the tare in kilograms, zero when absent or invalid
+     */
+    private double parseTare(String tareKg) {
+        if (tareKg == null || tareKg.isBlank()) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(tareKg.replace(',', '.'));
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
     }
 
     // --- AFFICHEUR CLIENT ---
@@ -194,6 +240,39 @@ public class MockHardwareResource {
     public Response toggleDrawerSensor() {
         drawerSensorAlive.set(!drawerSensorAlive.get());
         return Response.ok("Drawer sensor: " + (drawerSensorAlive.get() ? "ALIVE" : "OFFLINE")).build();
+    }
+
+    // --- LECTEUR DE CHÈQUES ---
+
+    /**
+     * Simulates the start of a cheque reading (the reader pulls the document in
+     * and prints the endorsement). Mirrors {@code HardwareClient.startCheque};
+     * without this endpoint every cheque payment 404s at the bridge and is
+     * dropped, so no cheque tender could ever settle in the e2e/demo stack.
+     *
+     * @param endorsement the text printed on the cheque while the reader holds it
+     * @return a 200 acknowledgement
+     */
+    @POST
+    @Path("/cheque")
+    @Consumes(MediaType.TEXT_PLAIN)
+    public Response startCheque(String endorsement) {
+        return Response.ok().build();
+    }
+
+    /**
+     * Returns the cheque-reading status the register polls
+     * ({@code ChequeReadingService} expects a {@code key=value} block): the
+     * simulator reads instantly and successfully, answering {@code state=DONE}
+     * with a magnetic line so the pending cheque is registered for its amount.
+     *
+     * @return the DONE status block with a simulated CMC7 magnetic line
+     */
+    @GET
+    @Path("/cheque")
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response getChequeStatus() {
+        return Response.ok("state=DONE\nraw=CMC7 0000000 0000000000 000000000000").build();
     }
 
     // --- IMPRIMANTE TICKET ---

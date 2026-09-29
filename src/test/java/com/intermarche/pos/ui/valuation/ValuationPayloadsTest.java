@@ -210,6 +210,8 @@ class ValuationPayloadsTest {
         assertNull(advantage.suggestion);
         assertNull(advantage.totalEligibleAmount);
         assertNull(advantage.threshold);
+        assertNull(advantage.printMode);
+        assertNull(advantage.accountingCode);
         ValuationPayloads.AmountDto discount = new ValuationPayloads.AmountDto();
         ValuationPayloads.SuggestionDto suggestion = new ValuationPayloads.SuggestionDto();
         advantage.type = "DISCOUNT";
@@ -219,6 +221,8 @@ class ValuationPayloadsTest {
         advantage.suggestion = suggestion;
         advantage.totalEligibleAmount = new BigDecimal("20.00");
         advantage.threshold = new BigDecimal("19.00");
+        advantage.printMode = "LINE";
+        advantage.accountingCode = "706100";
         assertEquals("DISCOUNT", advantage.type);
         assertEquals("3_FOR_2", advantage.offer);
         assertEquals("MEAL_VOUCHER", advantage.offerCode);
@@ -226,6 +230,27 @@ class ValuationPayloadsTest {
         assertSame(suggestion, advantage.suggestion);
         assertEquals(new BigDecimal("20.00"), advantage.totalEligibleAmount);
         assertEquals(new BigDecimal("19.00"), advantage.threshold);
+        assertEquals("LINE", advantage.printMode);
+        assertEquals("706100", advantage.accountingCode);
+    }
+
+    /**
+     * Verifies every field of {@link ValuationPayloads.MessageDto} is null by
+     * default and round-trips the values assigned to it (spec §3).
+     */
+    @Test
+    void messageDtoFields() {
+        ValuationPayloads.MessageDto message = new ValuationPayloads.MessageDto();
+        assertNull(message.code);
+        assertNull(message.text);
+        assertNull(message.printMode);
+        message.code = "BELOW_TRIGGER";
+        message.text = "Plus que 5 € pour votre offre";
+        message.printMode = "FOOTER";
+        assertEquals("BELOW_TRIGGER", message.code);
+        assertEquals("Plus que 5 € pour votre offre", message.text);
+        assertEquals("FOOTER", message.printMode);
+        assertTrue(java.io.Serializable.class.isAssignableFrom(ValuationPayloads.MessageDto.class));
     }
 
     /**
@@ -241,17 +266,22 @@ class ValuationPayloadsTest {
         assertNotNull(response.advantages);
         assertTrue(response.advantages.isEmpty());
         assertNull(response.totalPrice);
+        assertNull(response.messages);
         ValuationPayloads.OfferDto offer = new ValuationPayloads.OfferDto();
         ValuationPayloads.AdvantageDto advantage = new ValuationPayloads.AdvantageDto();
         ValuationPayloads.AmountDto total = new ValuationPayloads.AmountDto();
+        ValuationPayloads.MessageDto message = new ValuationPayloads.MessageDto();
         response.offers.add(offer);
         response.advantages.add(advantage);
         response.totalPrice = total;
+        response.messages = new java.util.ArrayList<>(List.of(message));
         assertEquals(1, response.offers.size());
         assertSame(offer, response.offers.get(0));
         assertEquals(1, response.advantages.size());
         assertSame(advantage, response.advantages.get(0));
         assertSame(total, response.totalPrice);
+        assertEquals(1, response.messages.size());
+        assertSame(message, response.messages.get(0));
     }
 
     /**

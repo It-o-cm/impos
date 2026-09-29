@@ -176,7 +176,7 @@ public class StoreCsvResource extends ImporterCsvResource {
             store = Store.findById(store.id);
             // Update existing
             int incomingChecksum = computeIncomingChecksum(data);
-            if (store.checksum != incomingChecksum) {
+            if (store.changedFrom(incomingChecksum)) {
                 feedStore(data, store);
                 counters[1]++;
             }

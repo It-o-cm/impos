@@ -36,6 +36,7 @@ public class RefundResource {
     @Inject
     PosState state;
     @Inject RefundService refundService;
+    @Inject com.intermarche.pos.service.PosSettingsService posSettingsService;
     @Inject @Location("return-search") Template returnSearchPage;
     @Inject @Location("return-detail") Template returnDetailPage;
 
@@ -48,7 +49,7 @@ public class RefundResource {
     @GET
     public TemplateInstance showSearchPage() {
         LOGGER.info("Entering method showSearchPage");
-        if (state.refund.isTicketSelected()) { LOGGER.info("Exiting method showSearchPage"); return returnDetailPage.data("state", state); }
+        if (state.refund.isTicketSelected()) { LOGGER.info("Exiting method showSearchPage"); return detail(); }
         LOGGER.info("Exiting method showSearchPage");
         return returnSearchPage.data("state", state);
     }
@@ -86,7 +87,7 @@ public class RefundResource {
         LOGGER.info("Entering method selectTicket with id: " + id);
         refundService.selectTicket(state, id);
         LOGGER.info("Exiting method selectTicket");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -101,7 +102,7 @@ public class RefundResource {
         LOGGER.info("Entering method selectLine with id: " + id);
         refundService.selectLine(state, id);
         LOGGER.info("Exiting method selectLine");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -115,7 +116,7 @@ public class RefundResource {
         LOGGER.info("Entering method editAmount");
         refundService.startAmountEdit(state);
         LOGGER.info("Exiting method editAmount");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -163,7 +164,7 @@ public class RefundResource {
         LOGGER.info("Entering method addQty with lineId: " + lineId);
         refundService.incrementQty(state, lineId);
         LOGGER.info("Exiting method addQty");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -178,7 +179,7 @@ public class RefundResource {
         LOGGER.info("Entering method subQty with lineId: " + lineId);
         refundService.decrementQty(state, lineId);
         LOGGER.info("Exiting method subQty");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -193,7 +194,7 @@ public class RefundResource {
         LOGGER.info("Entering method changePage with page: " + page);
         state.refund.detailPage = page;
         LOGGER.info("Exiting method changePage");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -207,7 +208,7 @@ public class RefundResource {
         LOGGER.info("Entering method payCash");
         refundService.requestRefund(state, Refund.RefundMethod.CASH);
         LOGGER.info("Exiting method payCash");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -221,7 +222,7 @@ public class RefundResource {
         LOGGER.info("Entering method payCard");
         refundService.requestRefund(state, Refund.RefundMethod.CARD);
         LOGGER.info("Exiting method payCard");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -235,7 +236,7 @@ public class RefundResource {
         LOGGER.info("Entering method payVoucher");
         refundService.requestRefund(state, Refund.RefundMethod.VOUCHER);
         LOGGER.info("Exiting method payVoucher");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
 
     /**
@@ -249,8 +250,69 @@ public class RefundResource {
         LOGGER.info("Entering method payLoyalty");
         refundService.requestRefund(state, Refund.RefundMethod.LOYALTY);
         LOGGER.info("Exiting method payLoyalty");
-        return returnDetailPage.data("state", state);
+        return detail();
     }
+
+    /**
+     * Selects the in-account customer a credit refund will lower the balance of
+     * (LC-05-06-05); the service resolves the account by number.
+     *
+     * @param number the account number the cashier scanned or typed
+     * @return the detail page, now naming the selected customer
+     */
+    @GET
+    @Path("/credit-account")
+    public TemplateInstance creditAccount(@QueryParam("number") String number) {
+        LOGGER.info("Entering method creditAccount with number: " + number);
+        refundService.selectCreditAccount(state, number);
+        LOGGER.info("Exiting method creditAccount");
+        return detail();
+    }
+
+    /**
+     * Requests an endorsed credit refund on the selected in-account customer
+     * (LC-05-06-05).
+     *
+     * @return the detail page (the endorsement modal opens over it)
+     */
+    @GET
+    @Path("/pay/credit")
+    public TemplateInstance payCredit() {
+        LOGGER.info("Entering method payCredit");
+        refundService.requestRefund(state, Refund.RefundMethod.CREDIT);
+        LOGGER.info("Exiting method payCredit");
+        return detail();
+    }
+    /**
+     * Records the return reason chosen by the cashier (LC-05-05-01). The
+     * service validates it against the administered list; an off-list or blank
+     * value clears the reason.
+     *
+     * @param reason the reason the cashier tapped (query param, spaces and
+     *        accents tolerated)
+     * @return the detail page, now highlighting the chosen reason
+     */
+    @GET
+    @Path("/reason")
+    public TemplateInstance reason(@QueryParam("reason") String reason) {
+        LOGGER.info("Entering method reason with reason: " + reason);
+        refundService.selectReason(state, reason);
+        LOGGER.info("Exiting method reason");
+        return detail();
+    }
+
+    /**
+     * Renders the return detail page, handing it the refund state and the
+     * administered return reasons (LC-05-05-01) so the reason chooser can list
+     * them and mark the chosen one.
+     *
+     * @return the detail page view
+     */
+    private TemplateInstance detail() {
+        return returnDetailPage.data("state", state)
+                .data("reasons", posSettingsService.returnReasons());
+    }
+
     /**
      * Builds the 303 redirect to the refund screen used by every POST action
      * (PRG pattern); GET /return re-renders the search or detail page from

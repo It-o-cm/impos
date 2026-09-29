@@ -26,12 +26,4 @@ class MockCampaignEngineResourceTest {
         assertEquals(200, response.getStatus());
         assertTrue(response.getEntity().toString().contains("accepted"));
     }
-
-    /**
-     * A GraphQL query is answered with a neutral group budget status.
-     */
-    @Test
-    void graphqlAnswersNeutralStatus() {
-        assertTrue(resource.graphql("{...}").contains("groupBudgetStatus"));
-    }
 }

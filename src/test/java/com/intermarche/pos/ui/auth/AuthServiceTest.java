@@ -445,6 +445,216 @@ class AuthServiceTest {
         }
     }
 
+    // --- login (paused resume branch) & resume ---
+
+    /**
+     * On a paused register, login delegates to the resume path: the locker's
+     * matching badge and correct PIN restore the operator and journal the
+     * reprise (isPaused branch true, resume success arm).
+     */
+    @Test
+    void loginResumesPausedRegisterOnMatchingLockerCredentials() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorBadgeId = "12341234";
+        Employee employee = mock(Employee.class);
+        employee.id = 42L;
+        employee.badgeId = "12341234";
+        when(employee.isCurrentlyLocked()).thenReturn(false);
+        when(employee.verifyPassword("1234")).thenReturn(true);
+        when(employee.getFullName()).thenReturn("Alice Martin");
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("12341234")).thenReturn(employee);
+            AuthService.LoginResult result = service.login(state, "12341234", "1234");
+            assertEquals(AuthService.LoginResult.SUCCESS, result);
+            verify(state.auth).login(42L, "Alice Martin", "12341234");
+            verify(service.technicalEventService).log(TechnicalEvent.EventType.REGISTER_UNLOCKED, null, "12341234");
+        }
+    }
+
+    /**
+     * A paused resume with a null login fails the first operand of the identity
+     * guard and returns INVALID without touching the session.
+     */
+    @Test
+    void resumeRejectsNullLogin() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorBadgeId = "12341234";
+        AuthService.LoginResult result = service.login(state, null, "1234");
+        assertEquals(AuthService.LoginResult.INVALID, result);
+        verify(state.auth, never()).login(any(), any(), any());
+    }
+
+    /**
+     * A paused resume by an operator other than the locker fails the second
+     * operand of the identity guard (badge mismatch) and returns INVALID.
+     */
+    @Test
+    void resumeRejectsAnotherOperator() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorBadgeId = "12341234";
+        AuthService.LoginResult result = service.login(state, "99999999", "1234");
+        assertEquals(AuthService.LoginResult.INVALID, result);
+        verify(state.auth, never()).login(any(), any(), any());
+    }
+
+    /**
+     * A paused resume by the locker whose account is locked out returns LOCKED
+     * (resume's locked arm).
+     */
+    @Test
+    void resumeReturnsLockedWhenAccountLocked() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorBadgeId = "12341234";
+        Employee employee = mock(Employee.class);
+        when(employee.isCurrentlyLocked()).thenReturn(true);
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("12341234")).thenReturn(employee);
+            AuthService.LoginResult result = service.login(state, "12341234", "1234");
+            assertEquals(AuthService.LoginResult.LOCKED, result);
+            verify(state.auth, never()).login(any(), any(), any());
+        }
+    }
+
+    /**
+     * A paused resume by the locker with a wrong PIN returns INVALID (resume's
+     * invalid arm, account not locked).
+     */
+    @Test
+    void resumeReturnsInvalidOnWrongPin() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorBadgeId = "12341234";
+        Employee employee = mock(Employee.class);
+        employee.failedAttempts = 0;
+        employee.badgeId = "12341234";
+        when(employee.isCurrentlyLocked()).thenReturn(false);
+        when(employee.verifyPassword("0000")).thenReturn(false);
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("12341234")).thenReturn(employee);
+            AuthService.LoginResult result = service.login(state, "12341234", "0000");
+            assertEquals(AuthService.LoginResult.INVALID, result);
+            verify(state.auth, never()).login(any(), any(), any());
+        }
+    }
+
+    // --- pause ---
+
+    /**
+     * Pausing a manned register journals REGISTER_LOCKED with the operator badge
+     * and pauses the auth state (signed-in arm).
+     */
+    @Test
+    void pauseJournalsWhenOperatorSignedIn() {
+        AuthService service = newService();
+        PosState state = newState();
+        state.auth.operatorBadgeId = "12341234";
+        service.pause(state);
+        verify(service.technicalEventService)
+                .log(TechnicalEvent.EventType.REGISTER_LOCKED, null, "12341234");
+        verify(state.auth).pause();
+    }
+
+    /**
+     * Pausing a register with no operator signed in pauses the state but
+     * journals nothing (null-badge arm).
+     */
+    @Test
+    void pauseSkipsJournalWhenNoOperator() {
+        AuthService service = newService();
+        PosState state = newState();
+        state.auth.operatorBadgeId = null;
+        service.pause(state);
+        verify(service.technicalEventService, never()).log(any(), any(), any());
+        verify(state.auth).pause();
+    }
+
+    // --- forceResume ---
+
+    /**
+     * A forced resume on a register that is not paused does nothing and reports
+     * false (not-paused arm).
+     */
+    @Test
+    void forceResumeFalseWhenNotPaused() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(false);
+        assertFalse(service.forceResume(state));
+        verify(state.auth, never()).login(any(), any(), any());
+    }
+
+    /**
+     * A forced resume whose locked-operator id resolves to no employee reports
+     * false without logging anyone in (employee-null arm).
+     */
+    @Test
+    void forceResumeFalseWhenLockedOperatorMissing() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorId = 7L;
+        try (MockedStatic<PanacheEntityBase> pe = mockStatic(PanacheEntityBase.class)) {
+            pe.when(() -> Employee.findById(7L)).thenReturn(null);
+            assertFalse(service.forceResume(state));
+            verify(state.auth, never()).login(any(), any(), any());
+        }
+    }
+
+    /**
+     * A forced resume of a paused register logs the locked operator back in, sets
+     * the forced-password-change flag and journals the forcing (success arm).
+     */
+    @Test
+    void forceResumeLogsLockedOperatorBackInAndForcesPinChange() {
+        AuthService service = newService();
+        PosState state = newState();
+        when(state.auth.isPaused()).thenReturn(true);
+        state.auth.lockedOperatorId = 7L;
+        Employee employee = mock(Employee.class);
+        employee.id = 7L;
+        employee.badgeId = "12341234";
+        when(employee.getFullName()).thenReturn("Alice Martin");
+        try (MockedStatic<PanacheEntityBase> pe = mockStatic(PanacheEntityBase.class)) {
+            pe.when(() -> Employee.findById(7L)).thenReturn(employee);
+            assertTrue(service.forceResume(state));
+            verify(state.auth).login(7L, "Alice Martin", "12341234");
+            assertTrue(state.auth.passwordChangeRequired);
+            verify(service.technicalEventService)
+                    .log(TechnicalEvent.EventType.REGISTER_UNLOCKED, "forçage superviseur", "12341234");
+        }
+    }
+
+    /**
+     * A successful PIN change clears the forced-password-change flag imposed by a
+     * forced resume (EXP-14).
+     */
+    @Test
+    void changePinClearsForcedPasswordFlagOnSuccess() {
+        AuthService service = newService();
+        PosState state = newState();
+        state.auth.operatorId = 7L;
+        state.auth.passwordChangeRequired = true;
+        Employee employee = mock(Employee.class);
+        employee.badgeId = "12341234";
+        when(employee.verifyPassword("1111")).thenReturn(true);
+        try (MockedStatic<PanacheEntityBase> pe = mockStatic(PanacheEntityBase.class);
+             MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            pe.when(() -> Employee.findById(7L)).thenReturn(employee);
+            emp.when(() -> Employee.hashPassword("1234")).thenReturn("HASH");
+            assertNull(service.changePin(state, "1111", "1234", "1234"));
+            assertFalse(state.auth.passwordChangeRequired);
+        }
+    }
+
     // --- badgeOpensAlone ---
 
     /**

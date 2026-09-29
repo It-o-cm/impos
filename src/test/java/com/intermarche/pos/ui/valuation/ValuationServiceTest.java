@@ -305,6 +305,54 @@ class ValuationServiceTest {
     }
 
     /**
+     * extractHints reads the offer messages into the hints, keeping their code,
+     * text and placement (spec §3): a response carrying a message yields one
+     * hint the seller screen and the ticket will use.
+     */
+    @Test
+    void extractHintsReadsOfferMessages() {
+        ValuationService service = newService();
+        ValuationPayloads.ValuationResponseDto dto = new ValuationPayloads.ValuationResponseDto();
+        ValuationPayloads.MessageDto message = new ValuationPayloads.MessageDto();
+        message.code = "BELOW_TRIGGER";
+        message.text = "Plus que 5 € pour votre offre";
+        message.printMode = "FOOTER";
+        dto.messages = new java.util.ArrayList<>(java.util.List.of(message));
+        ValuationService.EngineHints hints = service.extractHints(result(dto).rawJson());
+        assertEquals(1, hints.messages.size());
+        assertEquals("BELOW_TRIGGER", hints.messages.get(0).code);
+        assertEquals("Plus que 5 € pour votre offre", hints.messages.get(0).text);
+        assertEquals("FOOTER", hints.messages.get(0).printMode);
+    }
+
+    /**
+     * extractHints drops a message with a blank or null text (the blank-text
+     * arm): a message says something or it is not shown or printed.
+     */
+    @Test
+    void extractHintsDropsBlankMessages() {
+        ValuationService service = newService();
+        ValuationPayloads.ValuationResponseDto dto = new ValuationPayloads.ValuationResponseDto();
+        ValuationPayloads.MessageDto blank = new ValuationPayloads.MessageDto();
+        blank.text = "   ";
+        ValuationPayloads.MessageDto nullText = new ValuationPayloads.MessageDto();
+        dto.messages = new java.util.ArrayList<>(java.util.List.of(blank, nullText));
+        ValuationService.EngineHints hints = service.extractHints(result(dto).rawJson());
+        assertTrue(hints.messages.isEmpty());
+    }
+
+    /**
+     * extractHints leaves the messages empty when the response carries no
+     * messages block (the null-messages arm) — nothing shown, nothing printed.
+     */
+    @Test
+    void extractHintsLeavesMessagesEmptyWithoutBlock() {
+        ValuationService service = newService();
+        ValuationService.EngineHints hints = service.extractHints(response(null).rawJson());
+        assertTrue(hints.messages.isEmpty());
+    }
+
+    /**
      * extractHints resolves an upsell suggestion against the local catalog:
      * the product is found (product non-null arm → its name), the quantity is
      * present (quantity non-null arm → stripped) and the offer code is present

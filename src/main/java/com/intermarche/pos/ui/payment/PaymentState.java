@@ -150,6 +150,15 @@ public class PaymentState implements Serializable {
     public java.util.ArrayList<String> valuationUpsells = new java.util.ArrayList<>();
 
     /**
+     * Offer messages of the engine to show the seller during the scan and print
+     * on the ticket (GB-01-07-05/06), rewritten at each valuation. Never null,
+     * empty when the engine emitted none — a message carries no money, so the
+     * list changes nothing about the totals.
+     */
+    public java.util.List<com.intermarche.pos.ui.valuation.ValuationService.EngineMessage>
+            valuationMessages = new java.util.ArrayList<>();
+
+    /**
      * True while the payment screen drives the transaction. Needed since the
      * early draft (phase 0 lot 2): {@link #ticketDbId} is set from the first
      * article, so it no longer indicates an active payment.
@@ -543,6 +552,26 @@ public class PaymentState implements Serializable {
     /** The lease duration in seconds, captured at grant (renewal timing). */
     public long fidLeaseSeconds = 0L;
 
+    /**
+     * The magnetic line of a FINISHED cheque reading, waiting to be registered,
+     * or null.
+     * <p>
+     * The reading ends on the reader's own follower thread, which must not write
+     * to the database: the register is a single-writer machine and the request
+     * thread rewrites the same draft row on every revaluation, so two writers
+     * race and the loser's settlement is silently lost. The follower therefore
+     * DEPOSITS its outcome here and the next request registers it. Volatile
+     * because the two threads are the only readers and writers of this field.
+     */
+    public volatile String chequeReadLine = null;
+
+    /**
+     * The operator-facing message of a FAILED cheque reading, waiting to be
+     * shown, or null. Deposited by the follower thread for the same reason as
+     * {@link #chequeReadLine}.
+     */
+    public volatile String chequeReadFailure = null;
+
     public void clearPayments() {
         payments.clear();
         paidAmount = BigDecimal.ZERO;
@@ -564,6 +593,8 @@ public class PaymentState implements Serializable {
         pendingCardAmount = null;
         pendingChequeAmount = null;
         pendingChequeLine = null;
+        chequeReadLine = null;
+        chequeReadFailure = null;
         pendingCardAuthNumber = null;
         pendingCardDegraded = false;
         cardSignatureRequired = false;

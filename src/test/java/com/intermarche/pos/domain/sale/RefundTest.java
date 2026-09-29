@@ -92,7 +92,8 @@ class RefundTest {
     }
 
     /**
-     * The RefundMethod enum exposes exactly CASH, CARD, VOUCHER and LOYALTY, round-tripping by name.
+     * The RefundMethod enum exposes exactly CASH, CARD, VOUCHER, LOYALTY and
+     * CREDIT (LC-05-06-05), round-tripping by name.
      */
     @Test
     void refundMethodEnumValues() {
@@ -101,15 +102,18 @@ class RefundTest {
                         Refund.RefundMethod.CASH,
                         Refund.RefundMethod.CARD,
                         Refund.RefundMethod.VOUCHER,
-                        Refund.RefundMethod.LOYALTY},
+                        Refund.RefundMethod.LOYALTY,
+                        Refund.RefundMethod.CREDIT},
                 Refund.RefundMethod.values());
-        Assertions.assertEquals(Refund.RefundMethod.LOYALTY, Refund.RefundMethod.valueOf("LOYALTY"));
+        Assertions.assertEquals(Refund.RefundMethod.CREDIT, Refund.RefundMethod.valueOf("CREDIT"));
     }
 
 
 
     /**
-     * getChecksum hashes the refund number, ticket id, total, status and method.
+     * getChecksum hashes the refund number, ticket id, total, status, method,
+     * the return reason (LC-05-05-01) and the credit account number
+     * (LC-05-06-05), all carried on the refund.
      */
     @Test
     void checksumHashesSalientFields() {
@@ -119,18 +123,21 @@ class RefundTest {
         refund.totalAmount = new BigDecimal("10.0000");
         refund.status = Refund.RefundStatus.CLOSED;
         refund.refundMethod = Refund.RefundMethod.CASH;
+        refund.returnReason = "Article périmé";
+        refund.creditAccountNumber = "CC1";
         int expected = Objects.hash("C04-R000012", 42L, new BigDecimal("10.0000"),
-                Refund.RefundStatus.CLOSED, Refund.RefundMethod.CASH);
+                Refund.RefundStatus.CLOSED, Refund.RefundMethod.CASH, "Article périmé", "CC1");
         Assertions.assertEquals(expected, refund.getChecksum());
     }
 
     /**
-     * getChecksum tolerates the null-valued identifying and financial fields.
+     * getChecksum tolerates the null-valued identifying and financial fields,
+     * the return reason and credit account number included.
      */
     @Test
     void checksumToleratesNulls() {
         Refund refund = new Refund();
-        int expected = Objects.hash(null, null, null, Refund.RefundStatus.OPEN, null);
+        int expected = Objects.hash(null, null, null, Refund.RefundStatus.OPEN, null, null, null);
         Assertions.assertEquals(expected, refund.getChecksum());
     }
 

@@ -1,21 +1,35 @@
-# Spécification — Campagnes & budgets, moitié Back Office (impos)
+# Spécification — Campagnes & budgets, moitié Back Office (nœud magasin imedge)
 
-**Projet** : impos · **Chantier** : administration des campagnes et budgets de générosité
-· **Statut** : arbitré en séance le 25/09/2026, à valider avant implémentation.
+**Projet** : imedge (le nœud magasin) · **Chantier** : administration des campagnes et
+budgets de générosité · **Statut** : arbitré en séance le 25/09/2026 ; **révisé le
+26/09/2026** — l'administration des campagnes a été DÉPLACÉE d'impos vers imedge :
+administrer une campagne est un geste de MAGASIN, pas de caisse.
 **Moitié jumelle** : `spec-campagnes-budgets.md` dans le repo imvaluation — le moteur est
-exécutant (compteurs, contrôle à l'arbitrage, ingestion de la consommation) ; impos est
-le **BO maître** : c'est ici qu'on crée, associe, duplique, budgète et suit.
+exécutant (compteurs, contrôle à l'arbitrage, ingestion de la consommation) ; le **nœud
+magasin imedge** est le **BO maître** : c'est là qu'on crée, associe, duplique, budgète
+et suit.
 
 ## 1. Partage des rôles et principe de livraison
 
-impos administre les **campagnes** ; le moteur ne connaît que leur projection budgétaire,
-le **groupe budgétaire** (code, période, plafonds, `perStore`) — libellé, notes,
-association, duplication et suivi ne descendent jamais. Le principe unique de tout le
-chantier : **le moteur est livré par sa chaîne de flux, jamais directement par un
-émetteur métier** — les budgets comme la consommation empruntent le canal des
-`ENGINE_FEEDS`, avec ses propriétés existantes (file persistée, rejeu, supervision).
-Le suivi de consommation se LIT depuis le moteur (GraphQL `budgetStatus` /
-`groupBudgetStatus`) — impos ne tient aucun compteur en propre.
+Le **BO maître des campagnes est le nœud magasin imedge** : c'est lui qui administre les
+campagnes (création, libellé, période, budget, association d'offres, duplication),
+persiste l'entité campagne, projette le flux `BUDGET_GROUPS` (le nœud est la source des
+`ENGINE_FEEDS`) et lit le suivi de consommation. **impos (la caisse) = tickets + relais** :
+elle encaisse, remonte ses tickets finalisés au nœud, dérive la déclaration de
+consommation et TIRE les `ENGINE_FEEDS` du nœud pour les livrer au moteur en pile démo —
+`BUDGET_GROUPS` y est simplement un flux de plus, tiré du nœud. La caisse n'administre
+aucune campagne et n'en sert aucun écran.
+
+Le moteur ne connaît que la projection budgétaire des campagnes, le **groupe budgétaire**
+(code, période, plafonds, `perStore`) — libellé, notes, association, duplication et suivi
+ne descendent jamais. Le principe unique de tout le chantier : **le moteur est livré par
+sa chaîne de flux, jamais directement par un émetteur métier** — les budgets comme la
+consommation empruntent le canal des `ENGINE_FEEDS`, avec ses propriétés existantes (file
+persistée, rejeu, supervision). Le suivi de consommation se LIT depuis le moteur (GraphQL
+`budgetStatus` / `groupBudgetStatus`), via une **configuration de lecture dédiée**
+(`pos.valuation.query-url`, distincte de l'URL de livraison des flux `pos.valuation.url`
+que la pile démo vide volontairement au nœud) ; absente, l'écran affiche « moteur non
+joignable » sans casser la page. Le nœud ne tient aucun compteur en propre.
 
 ## 2. L'entité campagne côté BO
 
@@ -53,6 +67,10 @@ rôle, l'URL moteur du nœud y étant volontairement vide).
   `POST /consumptions` : `ticketId`, `storeCode`, `finalizedAt`,
   `direction: "SALE"`, `advantages: [{offerCode, amount}]` — montants en valeur
   absolue, extraits du `advantages[]` de la valorisation retenue au paiement.
+  Chaque avantage peut porter en plus `accountingCode` (clé de ventilation
+  comptable recopiée telle quelle) et `lines: [{ean, amount}]`, le détail par
+  article dérivé des quotes-parts du ticket — additifs et rétro-compatibles, le
+  moteur accepte la déclaration avec ou sans.
 - **Annulation** de ticket ⇒ même déclaration, `direction: "CANCELLATION"`.
 - L'endpoint moteur est idempotent sur `(storeCode, ticketId, direction)` : le rejeu
   est sûr, par n'importe quel maillon.

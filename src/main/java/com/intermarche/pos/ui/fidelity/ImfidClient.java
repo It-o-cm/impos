@@ -134,8 +134,33 @@ public class ImfidClient {
      */
     public EarnProjection earn(String valuationRequestJson, String valuationResponseJson)
             throws Exception {
+        return earn(valuationRequestJson, valuationResponseJson, null);
+    }
+
+    /**
+     * Requests the earn projection in an explicit projection mode (imfid
+     * response C): {@code CARD} (nominal) or {@code ANONYMOUS} (non-holder
+     * projection — « ce que vous auriez gagné avec la carte »).
+     * <p>
+     * The NOMINAL flow is byte-identical to before: a null {@code
+     * projectionMode} sends NO {@code projectionMode} member (the contract
+     * says the behaviour without the field is unchanged), so the CARD path
+     * never gains a field. The {@code projectionMode} member is added ONLY for
+     * the anonymous projection.
+     *
+     * @param valuationRequestJson the raw request JSON sent to imvaluation
+     * @param valuationResponseJson the raw response JSON received from it
+     * @param projectionMode {@code ANONYMOUS} to project for a non-holder, or
+     *        null/{@code CARD} for the unchanged nominal call
+     * @return the parsed projection
+     * @throws Exception on transport failure or non-200 answer
+     */
+    public EarnProjection earn(String valuationRequestJson, String valuationResponseJson,
+            String projectionMode) throws Exception {
+        String modeMember = (projectionMode == null || projectionMode.isBlank())
+                ? "" : ",\"projectionMode\":\"" + projectionMode + "\"";
         String body = "{\"valuationRequest\":" + valuationRequestJson
-                + ",\"valuationResponse\":" + valuationResponseJson + "}";
+                + ",\"valuationResponse\":" + valuationResponseJson + modeMember + "}";
         HttpRequest request = authenticated("/api/earn")
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofMillis(2500))
@@ -325,16 +350,52 @@ public class ImfidClient {
      *
      * @param reservationId the lease id
      * @param fiscalDate the ticket's fiscal date (yyyy-MM-dd)
-     * @return the HTTP status (200 confirmed, 410 expired — tolerated, 404 unknown)
+     * @return the typed outcome: the HTTP status (200 confirmed, 410 expired —
+     *         tolerated, 404 unknown) and, on 200, the ledger balances
+     *         (imfid response B); 410/404 carry the status alone (no body)
      * @throws Exception on transport failure
      */
-    public int confirm(long reservationId, String fiscalDate) throws Exception {
+    public ConfirmResult confirm(long reservationId, String fiscalDate) throws Exception {
         HttpRequest request = authenticated("/api/burn/reservations/" + reservationId + "/confirm")
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofMillis(2500))
                 .POST(HttpRequest.BodyPublishers.ofString("{\"fiscalDate\":\"" + fiscalDate + "\"}"))
                 .build();
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofString()).statusCode();
+        HttpResponse<String> response =
+                httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        ConfirmResult result = new ConfirmResult();
+        result.httpStatus = response.statusCode();
+        if (response.statusCode() == 200 && response.body() != null && !response.body().isBlank()) {
+            // imfid response B: the 200 now carries the ledger figures. On an
+            // idempotent replay balanceBefore is null (no longer knowable) —
+            // tolerated; burnedAmount and balanceAfter stay served. balanceAfter
+            // is READ from the ledger, never recomputed by the register.
+            ConfirmResult body = objectMapper.readValue(response.body(), ConfirmResult.class);
+            result.balanceBefore = body.balanceBefore;
+            result.burnedAmount = body.burnedAmount;
+            result.balanceAfter = body.balanceAfter;
+            result.asOf = body.asOf;
+        }
+        return result;
+    }
+
+    /**
+     * The typed outcome of a lease confirmation (imfid response B). Jackson
+     * populates the balance fields from the 200 body; the register only reads
+     * them, never recomputes {@link #balanceAfter}.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ConfirmResult {
+        /** The HTTP status: 200 confirmed, 410 expired (tolerated), 404 unknown. */
+        public int httpStatus;
+        /** The balance before the burn, or null on an idempotent replay. */
+        public BigDecimal balanceBefore;
+        /** The amount burned by this confirmation, or null when no body. */
+        public BigDecimal burnedAmount;
+        /** The balance AFTER the burn, from the ledger — printed as SOLDE APRES. */
+        public BigDecimal balanceAfter;
+        /** The ledger read instant (ISO local date-time), or null. */
+        public String asOf;
     }
 
     /**
@@ -425,12 +486,47 @@ public class ImfidClient {
 
     /** The parsed earn projection (spec §3 — tolerant subset the POS uses). */
     public static class EarnProjection {
+        /** The projection mode echoed by imfid: CARD (default) or ANONYMOUS. */
+        public String projectionMode;
         /** Total earn after caps — the amount to display. */
         public BigDecimal total;
         /** Per-rule entries; labels are the ONLY rule data printed on tickets. */
         public List<EarnEntry> entries = new ArrayList<>();
         /** Burnable base of this ticket (caps a fidelity payment with the balance). */
         public BigDecimal burnableBase;
+        /**
+         * The caps imfid applied, each carrying a free-text {@code scope}. The
+         * scope nomenclature is OPEN (a new one such as {@code EGALIM:<lineId>}
+         * may appear): parsing tolerates any value and the register displays
+         * nothing specific for now (imfid response §5 forward-compatibility).
+         */
+        public List<CapApplied> capsApplied = new ArrayList<>();
+        /** Non-blocking warnings, or empty. */
+        public List<String> warnings = new ArrayList<>();
+        /**
+         * The transaction balances (imfid response B) — present ONLY in CARD
+         * mode with a resolved card, null in ANONYMOUS or when no card is
+         * resolved.
+         */
+        public Balances balances;
+    }
+
+    /** One applied cap; {@code scope} is a free string (open nomenclature). */
+    public static class CapApplied {
+        /** The cap scope, e.g. GLOBAL or EGALIM:&lt;lineId&gt; — never interpreted POS-side. */
+        public String scope;
+        /** The amount the cap trimmed, or null. */
+        public BigDecimal amount;
+    }
+
+    /** The transaction balances block (imfid response B, option (a)). */
+    public static class Balances {
+        /** The available balance (book balance minus active reservations). */
+        public BigDecimal available;
+        /** The projection {@code available + total} — a FORECAST, credited only at ingestion. */
+        public BigDecimal projectedAfterEarn;
+        /** The ledger read instant (ISO local date-time). */
+        public String asOf;
     }
 
     /** One earn entry (rule) of the projection. */
@@ -441,6 +537,25 @@ public class ImfidClient {
         public String label;
         /** The rule's earn amount after caps. */
         public BigDecimal amount;
+        /** The base amount the earn was computed on, or null (imfid response A). */
+        public BigDecimal baseAmount;
+        /** The ids of the lines the earn covers, or null. */
+        public List<String> lineIds;
+        /**
+         * The advantage TYPE code the entry belongs to (imfid response A,
+         * BO-03-03-25/-33), or null on a rule predating the referential — the
+         * five advantage fields are then all null and the register falls back
+         * to its flat list.
+         */
+        public String advantageType;
+        /** The advantage type LABEL, printed verbatim (never translated), or null. */
+        public String advantageTypeLabel;
+        /** The order the advantage-type groups print in (never the evaluation priority), or null. */
+        public Integer advantageTypeOrder;
+        /** The advantage CATEGORY code, or null when the rule carries none. */
+        public String advantageCategory;
+        /** The advantage category LABEL, printed verbatim, or null. */
+        public String advantageCategoryLabel;
     }
 
     /**

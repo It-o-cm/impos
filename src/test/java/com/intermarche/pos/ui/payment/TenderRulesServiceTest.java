@@ -368,7 +368,7 @@ class TenderRulesServiceTest {
      */
     @Test
     void changeAllowedKeepsTheFallbackWhenUnadministered() {
-        TenderRulesService service = new TenderRulesService();
+        TenderRulesService service = serviceWithIslandChange(true);
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
@@ -383,7 +383,7 @@ class TenderRulesServiceTest {
      */
     @Test
     void changeAllowedReadsTheAdministeredRow() {
-        TenderRulesService service = new TenderRulesService();
+        TenderRulesService service = serviceWithIslandChange(true);
         TenderDefinition tender = mealVoucher();
         tender.changeAllowed = true;
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
@@ -391,6 +391,53 @@ class TenderRulesServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
             assertTrue(service.changeAllowed("TR", false));
+        }
+    }
+
+    /**
+     * Builds the service with a stubbed {@link PosSettingsService} answering the
+     * given island change permission (BO-03-10-04), so the change tests exercise
+     * the island veto in front of the per-tender rule.
+     *
+     * @param islandAllows what the island setting answers
+     * @return the wired service
+     */
+    private TenderRulesService serviceWithIslandChange(boolean islandAllows) {
+        TenderRulesService service = new TenderRulesService();
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
+        when(service.posSettingsService.islandChangeAllowed()).thenReturn(islandAllows);
+        return service;
+    }
+
+    /**
+     * BO-03-10-04: an island that forbids change PRIMES over an administered
+     * tender that would allow it — the change is refused despite the tender's
+     * own permission.
+     */
+    @Test
+    void changeAllowedIslandProhibitionPrimesOverAllowingTender() {
+        TenderRulesService service = serviceWithIslandChange(false);
+        TenderDefinition tender = mealVoucher();
+        tender.changeAllowed = true;
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        queries.put("TR", queryOf(tender));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertFalse(service.changeAllowed("TR", true));
+        }
+    }
+
+    /**
+     * BO-03-10-04: an island prohibition also overrides an allowing fallback on
+     * an unadministered tender — the veto does not even consult the tender row.
+     */
+    @Test
+    void changeAllowedIslandProhibitionPrimesOverAllowingFallback() {
+        TenderRulesService service = serviceWithIslandChange(false);
+        Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            wire(mocked, queries);
+            assertFalse(service.changeAllowed("TR", true));
         }
     }
 

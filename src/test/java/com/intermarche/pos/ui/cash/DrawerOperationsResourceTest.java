@@ -308,6 +308,20 @@ class DrawerOperationsResourceTest {
             transferFrom = fromLabel;
             transferTo = toLabel;
         }
+
+        /** The amount of the last apport bordereau, or null when none. */
+        private BigDecimal depositAmount;
+
+        /** The lines of the last apport bordereau. */
+        private List<String[]> depositLines = new ArrayList<>();
+
+        /** {@inheritDoc} */
+        @Override
+        public void printDepositTicket(BigDecimal amount, List<String[]> lines,
+                                       String operator, String terminalId) {
+            depositAmount = amount;
+            depositLines = lines;
+        }
     }
 
     /** A number service that names the register without reading a sequence. */
@@ -1013,5 +1027,113 @@ class DrawerOperationsResourceTest {
             assertEquals("/withdrawal?ok=1", target(response));
         }
         assertNotNull(movements.recorded);
+    }
+
+    // ----------------------------------------------------------------- APPORT
+
+    /**
+     * The apport page feeds the template with the denomination lists, the
+     * threshold, and the saved/error flags on both arms.
+     */
+    @Test
+    void theApportPageFeedsItsData() {
+        Map<String, Object> sink = new LinkedHashMap<>();
+        resource.apport = recordingTemplate(sink);
+        resource.apportPage(null, null);
+        assertNotNull(sink.get("bills"));
+        assertNotNull(sink.get("coins"));
+        assertNotNull(sink.get("rolls"));
+        assertEquals("100.00", sink.get("threshold"));
+        assertEquals(Boolean.FALSE, sink.get("saved"));
+        assertNull(sink.get("error"));
+        resource.apportPage("no-session", "1");
+        assertEquals(Boolean.TRUE, sink.get("saved"));
+        assertEquals("AUCUNE SESSION OUVERTE", sink.get("error"));
+    }
+
+    /**
+     * A register in training mode records no apport.
+     */
+    @Test
+    void anApportIsRefusedInTrainingMode() {
+        state.trainingMode = true;
+        Response response = resource.recordApport("50", "{\"b50\":1}");
+        assertEquals("/apport?error=training", target(response));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * Without an open session there is no drawer to bring money into.
+     */
+    @Test
+    void anApportIsRefusedWithoutAnOpenSession() {
+        sessions.open = null;
+        Response response = resource.recordApport("50", "{\"b50\":1}");
+        assertEquals("/apport?error=no-session", target(response));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * A count that adds up to nothing is refused.
+     */
+    @Test
+    void anApportIsRefusedWhenTheAmountIsNotPositive() {
+        Response response = resource.recordApport("0", "{}");
+        assertEquals("/apport?error=amount", target(response));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * Above the threshold with no supervisor, the apport is parked under the
+     * shared endorsement modal (op=apport) and nothing is recorded yet.
+     */
+    @Test
+    void anApportAboveThresholdWithNoSupervisorIsParked() {
+        endorsements.supervisor = false;
+        Response response = resource.recordApport("150", "{\"b50\":3}");
+        assertEquals("/apport", target(response));
+        assertEquals(DrawerOperationsResource.ENDORSEMENT_ACTION, endorsements.parkedAction);
+        assertEquals("apport", endorsements.parkedForm.get("op"));
+        assertEquals("/apport", endorsements.parkedReturnPath);
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * A within-threshold apport is recorded as a cash DEPOSIT carrying its
+     * per-denomination detail, and its bordereau is printed.
+     */
+    @Test
+    void anApportWithinThresholdIsRecordedAndPrinted() {
+        Response response = resource.recordApport("70", "{\"b50\":1,\"b20\":1}");
+        assertEquals("/apport?ok=1", target(response));
+        assertEquals(CashMovement.MovementType.DEPOSIT, movements.recorded.type);
+        assertEquals(CashMovement.CASH, movements.recorded.paymentMethod);
+        assertEquals("{\"b50\":1,\"b20\":1}", movements.recorded.denominationDetail);
+        assertEquals(0, new BigDecimal("70").compareTo(printer.depositAmount));
+        assertFalse(printer.depositLines.isEmpty());
+    }
+
+    /**
+     * When the movement service refuses the write, the apport ends on the
+     * endorsement error.
+     */
+    @Test
+    void anApportEndsOnErrorWhenTheWriteIsRefused() {
+        movements.refuse = true;
+        Response response = resource.recordApport("70", "{\"b50\":1,\"b20\":1}");
+        assertEquals("/apport?error=endorsement", target(response));
+    }
+
+    /**
+     * A parked apport is replayed with the manager's badge once the modal
+     * validated them; the DEPOSIT then carries that endorsing badge.
+     */
+    @Test
+    void aParkedApportIsReplayedWithTheEndorsingBadge() {
+        Response response = resource.performEndorsedApport(
+                Map.of("amount", "150", "detail", "{\"b50\":3}"), "22222222");
+        assertEquals("/apport?ok=1", target(response));
+        assertEquals("22222222", movements.recorded.endorsedBy);
+        assertEquals(CashMovement.MovementType.DEPOSIT, movements.recorded.type);
     }
 }

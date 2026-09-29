@@ -224,6 +224,14 @@ public class PosState implements Serializable {
     /** The refund screen state. */
     public RefundState refund = new RefundState();
 
+    /** The punctual container tare armed for the next weighing (LC-14-01-04/05). */
+    public com.intermarche.pos.ui.balance.TareState tare =
+            new com.intermarche.pos.ui.balance.TareState();
+
+    /** The change-order slip staging (per-denomination amounts and rolls, LC-12-05). */
+    public com.intermarche.pos.ui.cash.ChangeOrderState changeOrder =
+            new com.intermarche.pos.ui.cash.ChangeOrderState();
+
     /** The invoice screen state (ticket billed, addressee, step). */
     public com.intermarche.pos.ui.invoice.InvoiceState invoice =
             new com.intermarche.pos.ui.invoice.InvoiceState();

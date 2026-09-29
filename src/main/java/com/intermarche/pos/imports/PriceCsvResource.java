@@ -243,7 +243,7 @@ public class PriceCsvResource extends ImporterCsvResource {
         } else {
             // Checksum Optimization
             int incomingChecksum = computeIncomingChecksum(data, product);
-            if (price.checksum != incomingChecksum) {
+            if (price.changedFrom(incomingChecksum)) {
                 price = Price.findById(price.id);
                 product = Product.findById(product.id);
                 price.product = product;

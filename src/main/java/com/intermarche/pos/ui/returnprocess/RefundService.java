@@ -44,6 +44,13 @@ import java.util.List;
 public class RefundService {
 
     private static final int EXPIRATION_DAYS = 30;
+
+    /**
+     * The validity span of an avoir (credit note) from its issue, in days
+     * (LC-05-06-07). A store-wide policy; a back-office parameter could later
+     * override it.
+     */
+    private static final int VOUCHER_VALIDITY_DAYS = 365;
     private static final Logger LOGGER = Logger.getLogger(RefundService.class);
 
     /** Maximum amount encodable on a printed store voucher (4 cent digits). */
@@ -62,6 +69,9 @@ public class RefundService {
     /** Loyalty return-event outbox (imfid lot 3). */
     @jakarta.inject.Inject
     com.intermarche.pos.service.sync.register.FidEventOutboxService fidEventOutboxService;
+
+    @Inject
+    com.intermarche.pos.service.PosSettingsService posSettingsService;
 
     @Inject
     CashSessionService cashSessionService;
@@ -127,9 +137,72 @@ public class RefundService {
             state.refund.selectedLineId = null;
             state.refund.isEditingAmount = false;
             state.refund.manualTotalAmount = null;
+            state.refund.returnReason = null;
+            state.refund.creditAccountNumber = null;
+            state.refund.creditAccountName = null;
         }
         state.touch();
         LOGGER.info("Exiting method selectTicket");
+    }
+
+    /**
+     * Selects the in-account customer a credit refund (LC-05-06-05) will lower
+     * the balance of. The customer is looked up by account number; an unknown
+     * or blank number clears the selection and surfaces a refusal.
+     *
+     * @param state the current POS state
+     * @param accountNumber the account number the cashier scanned or typed
+     */
+    public void selectCreditAccount(PosState state, String accountNumber) {
+        LOGGER.info("Entering method selectCreditAccount with state: " + state + ", accountNumber: " + accountNumber);
+        String typed = accountNumber == null ? "" : accountNumber.trim();
+        if (typed.isEmpty()) {
+            state.refund.creditAccountNumber = null;
+            state.refund.creditAccountName = null;
+            state.refund.errorMessage = "CLIENT INTROUVABLE";
+            state.touch();
+            LOGGER.info("Exiting method selectCreditAccount");
+            return;
+        }
+        com.intermarche.pos.domain.payment.AccountCustomer account =
+                com.intermarche.pos.domain.payment.AccountCustomer
+                        .<com.intermarche.pos.domain.payment.AccountCustomer>find("accountNumber", typed)
+                        .firstResult();
+        if (account == null) {
+            state.refund.creditAccountNumber = null;
+            state.refund.creditAccountName = null;
+            state.refund.errorMessage = "CLIENT INTROUVABLE";
+            state.touch();
+            LOGGER.info("Exiting method selectCreditAccount");
+            return;
+        }
+        state.refund.creditAccountNumber = account.accountNumber;
+        state.refund.creditAccountName = account.getDisplayName();
+        state.refund.errorMessage = null;
+        state.touch();
+        LOGGER.info("Exiting method selectCreditAccount");
+    }
+
+    /**
+     * Records the return reason chosen by the cashier (LC-05-05-01). The reason
+     * is accepted only when it is non-blank AND belongs to the administered
+     * list of {@link com.intermarche.pos.service.PosSettingsService#returnReasons()};
+     * anything else (blank, null or an off-list value) clears the reason. A
+     * single reason applies to the whole return, all returned lines at once
+     * (the group assignment of LC-05-05-02).
+     *
+     * @param state the current POS state
+     * @param reason the reason the cashier tapped, possibly null or off-list
+     */
+    public void selectReason(PosState state, String reason) {
+        LOGGER.info("Entering method selectReason with state: " + state + ", reason: " + reason);
+        if (reason != null && !reason.isBlank() && posSettingsService.returnReasons().contains(reason)) {
+            state.refund.returnReason = reason;
+        } else {
+            state.refund.returnReason = null;
+        }
+        state.touch();
+        LOGGER.info("Exiting method selectReason");
     }
 
     /**
@@ -301,6 +374,14 @@ public class RefundService {
             LOGGER.info("Exiting method requestRefund");
             return;
         }
+        // LC-05-06-05: a credit refund needs an in-account customer to credit;
+        // without one, refuse before any endorsement is asked.
+        if (method == Refund.RefundMethod.CREDIT && state.refund.creditAccountNumber == null) {
+            state.refund.errorMessage = "AUCUN CLIENT EN COMPTE SÉLECTIONNÉ";
+            state.touch();
+            LOGGER.info("Exiting method requestRefund");
+            return;
+        }
         state.refund.errorMessage = null;
         endorsementService.requestAuthorization(state,
                 "REFUND_" + method.name() + "_" + state.refund.selectedTicket.id);
@@ -341,6 +422,7 @@ public class RefundService {
             case CARD -> "CARD";
             case VOUCHER -> "VOUCHER";
             case LOYALTY -> "FIDELITY";
+            case CREDIT -> "CREDIT";
         };
     }
 
@@ -371,6 +453,16 @@ public class RefundService {
             return;
         }
 
+        // LC-05-06-05 credit refund guard: crediting an in-account customer
+        // requires that customer to be selected. Checked HERE, before the
+        // refund is built — a refusal leaves NOTHING behind.
+        if (method == Refund.RefundMethod.CREDIT && state.refund.creditAccountNumber == null) {
+            state.refund.errorMessage = "AUCUN CLIENT EN COMPTE SÉLECTIONNÉ";
+            state.touch();
+            LOGGER.info("Exiting method performRefund");
+            return;
+        }
+
         Refund refund = new Refund();
         refund.refundNumber = ticketNumberService.nextRefundNumber();
         refund.originalTicketId = original.id;
@@ -379,6 +471,16 @@ public class RefundService {
         refund.terminalId = ticketNumberService.getTerminalId();
         refund.session = cashSessionService.getOpenSession();
         refund.status = Refund.RefundStatus.CLOSED;
+        // LC-05-05-01/02: the chosen reason (already validated against the
+        // administered list) is carried on the refund so it reaches the store
+        // reports; it applies to the whole return.
+        refund.returnReason = state.refund.returnReason;
+        // LC-05-06-05: name the credited account on the refund (only for a
+        // credit refund) so the refund record is exploitable in the store's
+        // account statements.
+        if (method == Refund.RefundMethod.CREDIT) {
+            refund.creditAccountNumber = state.refund.creditAccountNumber;
+        }
 
         VatBreakdown breakdown = new VatBreakdown();
         for (var entry : state.refund.returnQuantities.entrySet()) {
@@ -427,9 +529,14 @@ public class RefundService {
 
         refund.persist();
 
+        // LC-05-05-01: journal the reason with the refund so it is exploitable
+        // in the back-office reports; appended only when a reason was chosen.
+        String reasonSuffix = (refund.returnReason != null && !refund.returnReason.isBlank())
+                ? " MOTIF:" + refund.returnReason : "";
         technicalEventService.log(TechnicalEvent.EventType.REFUND_CREATED,
                 original.ticketNumber + " " + method.name() + " "
-                        + refund.totalAmount.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                        + refund.totalAmount.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                        + reasonSuffix);
         syncOutboxService.enqueue(SyncOutbox.EntityType.REFUND, refund.id);
 
         // Loyalty fiscal event (imfid spec §7): a return on a card-bearing
@@ -472,7 +579,25 @@ public class RefundService {
         applyMethodSideEffects(refund);
         ticketPrinterService.printRefund(refund.id);
 
-        state.refund.clear();
+        // LC-05-06-01: a PARTIAL refund (a hand-keyed amount smaller than what
+        // the ticket still has to give back) keeps the ticket selected and
+        // announces the remaining, so the cashier hands the rest back on
+        // another mean — the split of one return across several payment means,
+        // leg by leg. A full or line-based refund clears the screen as before.
+        BigDecimal remaining = original.totalIncludingTax
+                .subtract(alreadyRefundedTotal).subtract(refund.totalAmount);
+        if (state.refund.manualTotalAmount != null && remaining.signum() > 0) {
+            state.refund.returnQuantities.clear();
+            state.refund.manualTotalAmount = null;
+            state.refund.selectedLineId = null;
+            state.refund.isEditingAmount = false;
+            state.refund.creditAccountNumber = null;
+            state.refund.creditAccountName = null;
+            state.refund.errorMessage = "REMBOURSEMENT PARTIEL - RESTE "
+                    + remaining.setScale(2, RoundingMode.HALF_UP).toPlainString() + " €";
+        } else {
+            state.refund.clear();
+        }
         state.touch();
         LOGGER.info("Exiting method performRefund");
     }
@@ -501,6 +626,9 @@ public class RefundService {
                 note.initialAmount = refund.totalAmount;
                 note.balance = refund.totalAmount;
                 note.issuedAt = java.time.LocalDateTime.now();
+                // LC-05-06-07: the avoir carries an end of validity, stored on
+                // the instrument and printed on the AVOIR ticket.
+                note.validUntil = note.issuedAt.plusDays(VOUCHER_VALIDITY_DAYS);
                 note.issuingRefundId = refund.id;
                 // The number is derived from the generated id, but the column
                 // is NOT NULL and only 20 characters wide: the INSERT carries
@@ -512,7 +640,26 @@ public class RefundService {
                 note.persistAndFlush();
                 note.number = com.intermarche.pos.domain.payment.StoredValue.CREDIT_NOTE_PREFIX
                         + String.format("%012d", note.id);
-                ticketPrinterService.printRefundVoucher(refund, note.number);
+                ticketPrinterService.printRefundVoucher(refund, note.number, note.validUntil);
+            }
+            case CREDIT -> {
+                // LC-05-06-05: the refund lowers what the in-account customer
+                // owes the store. The account is credited by the refund amount
+                // (its outstanding balance goes down, possibly into an advance
+                // in the customer's favour). The account balance is otherwise
+                // owned by the nightly referential pull, so this POS-side credit
+                // is corrected at the next pull — a known, accepted limit.
+                com.intermarche.pos.domain.payment.AccountCustomer account =
+                        com.intermarche.pos.domain.payment.AccountCustomer
+                                .<com.intermarche.pos.domain.payment.AccountCustomer>find(
+                                        "accountNumber", refund.creditAccountNumber)
+                                .firstResult();
+                if (account != null) {
+                    BigDecimal balance = account.creditBalance == null
+                            ? BigDecimal.ZERO : account.creditBalance;
+                    account.creditBalance = balance.subtract(refund.totalAmount);
+                    account.persist();
+                }
             }
             case LOYALTY -> {
                 // The credit itself is born at imfid's ingestion of the

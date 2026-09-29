@@ -48,9 +48,17 @@ public class HomeService {
     @Inject
     TicketService ticketService;
 
+    /** Resolves the software tare deducted from a manually typed weight (LC-14-01-08). */
+    @Inject
+    com.intermarche.pos.ui.balance.TareService tareService;
+
     /** The back-office parameters (endorsement policy — LC-03-02-08). */
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
+
+    /** The cash session, read for the drawer-cap alert (EXP-17). */
+    @Inject
+    com.intermarche.pos.service.CashSessionService cashSessionService;
 
     /** Printer service — used by the endorsed operator-badge reprint. */
     @Inject
@@ -136,6 +144,38 @@ public class HomeService {
      *
      * @return the tenders with an eligible amount, in administered order, possibly empty
      */
+    /**
+     * The waiting label shown on the sale screen between two customers (EXP-03):
+     * the administered "next customer" prompt rendered when the ticket is empty,
+     * threaded to both the full sale page and the polled ticket fragment.
+     *
+     * @return the administered waiting label
+     */
+    public String waitingLabel() {
+        LOGGER.info("Entering method waitingLabel");
+        LOGGER.info("Exiting method waitingLabel");
+        return posSettingsService.waitingLabel();
+    }
+
+    /**
+     * The drawer-cap alert shown on the sale screen (EXP-17): a PRÉLÈVEMENT
+     * warning naming the drawer's theoretical cash when it exceeds the
+     * administered cap, or null when the cap is not exceeded (or not set). It
+     * never blocks the sale — it is only an indicator.
+     *
+     * @return the alert message, or null when nothing to warn about
+     */
+    public String drawerCapAlert() {
+        LOGGER.info("Entering method drawerCapAlert");
+        java.math.BigDecimal excess = cashSessionService.drawerCapExcess();
+        if (excess == null) {
+            LOGGER.info("Exiting method drawerCapAlert");
+            return null;
+        }
+        LOGGER.info("Exiting method drawerCapAlert");
+        return "PRÉLÈVEMENT — CONTENU TIROIR " + String.format("%.2f", excess).replace('.', ',') + " €";
+    }
+
     public List<RestrictedTenderRow> restrictedTenderRows() {
         LOGGER.info("Entering method restrictedTenderRows");
         List<RestrictedTenderRow> rows = new ArrayList<>();
@@ -633,7 +673,18 @@ public class HomeService {
                 state.ticket.setError("POIDS INVALIDE (0,001-99,999 KG)");
                 return;
             }
-            item.quantity = value.setScale(3, java.math.RoundingMode.HALF_UP);
+            // LC-14-01-08: a MANUALLY typed weight is a gross weight and no
+            // scale nets it, so the register itself deducts the software tare
+            // (container > article snapshot > default). A tare that leaves
+            // nothing on the plate is refused, like any invalid weight.
+            BigDecimal tare = tareService.resolveForManual(item, state);
+            BigDecimal net = value.subtract(tare).setScale(3, java.math.RoundingMode.HALF_UP);
+            if (net.compareTo(new BigDecimal("0.001")) < 0) {
+                state.ticket.setError("POIDS INVALIDE (0,001-99,999 KG)");
+                return;
+            }
+            item.quantity = net;
+            tareService.consume(state);
         } else {
             if (value == null || value.stripTrailingZeros().scale() > 0
                     || value.compareTo(BigDecimal.ONE) < 0

@@ -102,6 +102,11 @@ public class FidelityService {
         // leave must already hold the promotions, or the engine prices a sale
         // the holder is entitled to a discount on without seeing it.
         refreshCardPromotions(state);
+        // Promotions addendum §2/§3.1: the register applies the IMMEDIATE_DISCOUNT
+        // promotions itself (guarded so it never doubles with the engine — see
+        // applyCardPromotions). Done before the revaluation so the discounted
+        // lines are the ones synced and priced.
+        applyCardPromotions(state);
         if (!state.ticket.items.isEmpty()) {
             ticketService.recalculateTotal(state);
         }
@@ -466,12 +471,18 @@ public class FidelityService {
             return null;
         }
         try {
-            int status = imfidClient.confirm(reservationId, fiscalDate.toString());
-            if (status == 410) {
+            ImfidClient.ConfirmResult confirmation = imfidClient.confirm(reservationId, fiscalDate.toString());
+            if (confirmation.httpStatus == 410) {
                 LOGGER.warn("Bail fidélité expiré au moment fiscal: l'ingestion tranchera "
                         + "(EXPIRED_LEASE_CONFIRMED)");
-            } else if (status != 200) {
-                LOGGER.warnf("Confirmation de bail fidélité inattendue: HTTP %d", status);
+            } else if (confirmation.httpStatus != 200) {
+                LOGGER.warnf("Confirmation de bail fidélité inattendue: HTTP %d", confirmation.httpStatus);
+            }
+            // imfid response B: balanceAfter comes from the ledger and is printed
+            // as SOLDE APRES; the register never recomputes it. balanceBefore may
+            // be null on an idempotent replay — tolerated, it is not required here.
+            if (confirmation.balanceAfter != null) {
+                state.fidelity.balanceAfter = confirmation.balanceAfter;
             }
         } catch (Exception e) {
             LOGGER.warnf("Confirmation de bail fidélité injoignable (%s): l'ingestion tranchera",
@@ -510,6 +521,13 @@ public class FidelityService {
                     .append("\",\"amount\":").append(line.amount.toPlainString()).append('}');
         }
         displayed.append(']');
+        // BO-03-10-08: the island's promotion channel rides the ticket-closed
+        // event towards the loyalty programme. Appended ONLY when administered,
+        // so an unposted channel leaves the payload identical to the byte to
+        // what it was before the option existed.
+        String channel = posSettingsService.islandPromotionChannel();
+        String channelMember = (channel != null && !channel.isBlank())
+                ? ",\"channel\":\"" + channel + "\"" : "";
         LOGGER.info("Exiting method buildTicketClosedPayload");
         return "{\"ticketRef\":\"" + ticketRef + "\","
                 + "\"card\":\"" + card + "\","
@@ -518,6 +536,7 @@ public class FidelityService {
                 + "\"valuationResponse\":" + state.fidelity.lastValuationResponseJson + ","
                 + "\"displayedEarn\":" + displayed
                 + (reservationId != null ? ",\"reservationId\":" + reservationId : "")
+                + channelMember
                 + "}";
     }
 
@@ -678,26 +697,41 @@ public class FidelityService {
      */
     private void refreshEarn(PosState state) {
         FidelityState fid = state.fidelity;
-        if (!fid.active || !imfidClient.isConfigured()
-                || fid.lastValuationRequestJson == null || fid.lastValuationResponseJson == null) {
+        boolean coupleReady = imfidClient.isConfigured()
+                && fid.lastValuationRequestJson != null && fid.lastValuationResponseJson != null
+                && System.currentTimeMillis() >= fidSkipUntil;
+        if (!coupleReady) {
             fid.clearEarn();
             return;
         }
-        if (System.currentTimeMillis() < fidSkipUntil) {
+        if (fid.active) {
+            refreshCardEarn(fid);
+        } else if (posSettingsService.fidelityAnonymousProjection()) {
+            refreshAnonymousEarn(fid);
+        } else {
             fid.clearEarn();
-            return;
         }
+    }
+
+    /**
+     * Refreshes the earn projection for the ATTACHED card (imfid responses A
+     * and B): the entries carry their advantage grouping and the response's
+     * {@code balances} block feeds the PREVISIONNEL projection. Degraded = the
+     * projection is hidden, never a blocking error.
+     *
+     * @param fid the fidelity sub-state
+     */
+    private void refreshCardEarn(FidelityState fid) {
         try {
             ImfidClient.EarnProjection projection =
                     imfidClient.earn(fid.lastValuationRequestJson, fid.lastValuationResponseJson);
             fid.clearEarn();
             fid.earnTotal = projection.total;
             fid.burnableBase = projection.burnableBase;
-            if (projection.entries != null) {
-                for (ImfidClient.EarnEntry entry : projection.entries) {
-                    fid.earnEntries.add(
-                            new FidelityState.EarnLine(entry.ruleCode, entry.label, entry.amount));
-                }
+            stageEntries(fid, projection);
+            if (projection.balances != null) {
+                fid.projectedAfterEarn = projection.balances.projectedAfterEarn;
+                fid.balanceAsOf = projection.balances.asOf;
             }
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
@@ -705,5 +739,170 @@ public class FidelityService {
             LOGGER.warnf("imfid indisponible (%s): projection d'earn masquée, prochain essai dans %d s",
                     e.getMessage(), RETRY_SECONDS);
         }
+    }
+
+    /**
+     * Refreshes the ANONYMOUS projection for a card-less ticket (imfid response
+     * C): « ce que vous auriez gagné avec la carte ». The call carries
+     * {@code projectionMode=ANONYMOUS}; the answer has no balances and a zero
+     * burnable base, so only the total and its entries are staged and the line
+     * is flagged as an anonymous projection.
+     *
+     * @param fid the fidelity sub-state
+     */
+    private void refreshAnonymousEarn(FidelityState fid) {
+        try {
+            ImfidClient.EarnProjection projection = imfidClient.earn(
+                    fid.lastValuationRequestJson, fid.lastValuationResponseJson, "ANONYMOUS");
+            fid.clearEarn();
+            fid.earnTotal = projection.total;
+            fid.burnableBase = projection.burnableBase;
+            fid.anonymousProjection = true;
+            stageEntries(fid, projection);
+        } catch (Exception e) {
+            fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
+            fid.clearEarn();
+            LOGGER.warnf("imfid indisponible (%s): projection anonyme masquée, prochain essai dans %d s",
+                    e.getMessage(), RETRY_SECONDS);
+        }
+    }
+
+    /**
+     * Stages the projection's entries as displayed earn lines, carrying each
+     * entry's advantage grouping (imfid response A). The five advantage fields
+     * may be null (legacy rule) — they are staged as-is and the ticket falls
+     * back to a flat list.
+     *
+     * @param fid the fidelity sub-state
+     * @param projection the parsed earn projection
+     */
+    private void stageEntries(FidelityState fid, ImfidClient.EarnProjection projection) {
+        if (projection.entries == null) {
+            return;
+        }
+        for (ImfidClient.EarnEntry entry : projection.entries) {
+            fid.earnEntries.add(new FidelityState.EarnLine(entry.ruleCode, entry.label, entry.amount,
+                    entry.advantageType, entry.advantageTypeLabel, entry.advantageTypeOrder,
+                    entry.advantageCategory, entry.advantageCategoryLabel));
+        }
+    }
+
+    /**
+     * Applies the card's IMMEDIATE_DISCOUNT promotions to the cart as line
+     * remises (promotions addendum §3.1): PERCENT = value × the net price of
+     * the matching lines; AMOUNT = value × the number of units, a weighed line
+     * counting as ONE; the discount hits the lines carrying exactly the
+     * promotion's EAN, rounded to the cent, once per promotion.
+     * <p>
+     * §2 — NEVER BOTH. When the store forwards these promotions to the
+     * valuation engine ({@code fidelityJvPromotionEnabled}), the engine applies
+     * them and the register must not, or the advantage is doubled. The register
+     * applies them itself ONLY when that forwarding is off. CAGNOTTE promotions
+     * never reach here (the {@code benefit=IMMEDIATE_DISCOUNT} request filter
+     * excludes them) and are never applied by the register.
+     * <p>
+     * KNOWN LIMITATION (flagged for arbitrage): on an ENGINE-valued line the
+     * engine's {@code valuedTotal} overrides the unit price this remise edits,
+     * so the caisse-side application takes effect only on locally priced lines;
+     * a definitive activation needs the valuation-precedence arbitrage.
+     *
+     * @param state the current POS state
+     */
+    public void applyCardPromotions(PosState state) {
+        LOGGER.info("Entering method applyCardPromotions with state: " + state);
+        if (state.fidelity.cardPromotions == null || state.fidelity.cardPromotions.isEmpty()) {
+            LOGGER.info("Exiting method applyCardPromotions");
+            return;
+        }
+        if (posSettingsService.fidelityJvPromotionEnabled()) {
+            LOGGER.info("Exiting method applyCardPromotions");
+            return;
+        }
+        for (ImfidClient.CardPromotion promotion : state.fidelity.cardPromotions) {
+            if (promotion == null || promotion.ean == null || promotion.ean.isBlank()
+                    || !ImfidClient.BENEFIT_IMMEDIATE_DISCOUNT.equals(promotion.benefit)) {
+                continue;
+            }
+            applyOnePromotion(state, promotion);
+        }
+        LOGGER.info("Exiting method applyCardPromotions");
+    }
+
+    /**
+     * Applies one IMMEDIATE_DISCOUNT promotion to every cart line carrying its
+     * EAN (promotions addendum §3.1). The discount is computed once over the
+     * matching lines and taken on the first one through
+     * {@link com.intermarche.pos.ui.ticket.TicketService#applyRemise}.
+     *
+     * @param state the current POS state
+     * @param promotion the immediate-discount promotion to apply
+     */
+    private void applyOnePromotion(PosState state, ImfidClient.CardPromotion promotion) {
+        java.util.List<com.intermarche.pos.ui.ticket.TicketState.TicketItem> matches =
+                new java.util.ArrayList<>();
+        for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : state.ticket.items) {
+            if (item != null && promotion.ean.equals(item.ean)) {
+                matches.add(item);
+            }
+        }
+        if (matches.isEmpty()) {
+            return;
+        }
+        java.math.BigDecimal netTotal = java.math.BigDecimal.ZERO;
+        long units = 0L;
+        for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : matches) {
+            netTotal = netTotal.add(item.getTotalPrice());
+            units += unitsOf(item);
+        }
+        java.math.BigDecimal discount = immediateDiscount(
+                promotion.promotionType, promotion.value, netTotal, units);
+        if (discount.signum() > 0) {
+            ticketService.applyRemise(matches.get(0), discount);
+        }
+    }
+
+    /**
+     * Counts the units of a line for an AMOUNT-per-unit promotion (§3.1 /
+     * §22.2): a weighed line (a non-blank PLU) counts as ONE, a unit line
+     * counts its whole quantity.
+     *
+     * @param item the cart line
+     * @return the unit count, one for a weighed line
+     */
+    private long unitsOf(com.intermarche.pos.ui.ticket.TicketState.TicketItem item) {
+        boolean weighed = item.plu != null && !item.plu.isBlank();
+        if (weighed) {
+            return 1L;
+        }
+        return item.quantity == null ? 0L : item.quantity.longValue();
+    }
+
+    /**
+     * Computes an IMMEDIATE_DISCOUNT (promotions addendum §3.1), rounded to the
+     * cent once: PERCENT = value (a FRACTION, 0.05 = 5 %) × the net price;
+     * AMOUNT = value (euro per unit) × the number of units. Any other type or a
+     * non-positive value yields zero.
+     *
+     * @param promotionType PERCENT or AMOUNT
+     * @param value the promotion value (fraction for PERCENT, euro/unit for AMOUNT)
+     * @param netTotal the net price of the matching lines (PERCENT base)
+     * @param units the number of units (AMOUNT multiplier)
+     * @return the discount amount, rounded to the cent, never negative
+     */
+    static java.math.BigDecimal immediateDiscount(String promotionType, java.math.BigDecimal value,
+            java.math.BigDecimal netTotal, long units) {
+        if (value == null || value.signum() <= 0) {
+            return java.math.BigDecimal.ZERO;
+        }
+        java.math.BigDecimal raw;
+        if ("PERCENT".equals(promotionType)) {
+            raw = value.multiply(netTotal == null ? java.math.BigDecimal.ZERO : netTotal);
+        } else if ("AMOUNT".equals(promotionType)) {
+            raw = value.multiply(java.math.BigDecimal.valueOf(units));
+        } else {
+            return java.math.BigDecimal.ZERO;
+        }
+        java.math.BigDecimal rounded = raw.setScale(2, java.math.RoundingMode.HALF_UP);
+        return rounded.signum() < 0 ? java.math.BigDecimal.ZERO : rounded;
     }
 }

@@ -440,9 +440,9 @@ public class GroupKIT {
         if (openSession() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill(OPENING_FLOAT);
+        enterOpeningFloat(page, OPENING_FLOAT);
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -482,6 +482,7 @@ public class GroupKIT {
         }
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -585,18 +586,21 @@ public class GroupKIT {
     }
 
     /**
-     * Opens the price-modification modal for a gesture, forcing the menu that
-     * carries its button first (primary for REMISE), then taps the gesture button
-     * and waits until the modal numpad is ready.
+     * Opens the price-modification modal on a gesture and waits until its numpad
+     * is ready.
+     *
+     * <p>The separate REMISE / DISCOUNT / FORÇAGE menu links were folded into a
+     * single "REMISE / PRIX" entry whose modal carries the mode selector; each mode
+     * is a direct GET ({@code /action/price-mod/<type>}) that opens the modal on
+     * that mode, so navigate straight to it. {@code linkName} is kept for call-site
+     * readability (the mode the scenario intends).
      *
      * @param page the Playwright page driving the register
      * @param type the price-mod type slug (remise)
-     * @param linkName the exact visible button text
+     * @param linkName the mode the scenario intends, for call-site readability
      */
     private void openGesture(Page page, String type, String linkName) {
-        boolean secondary = "discount".equals(type) || "force_price".equals(type);
-        page.navigate(base.toString() + "action/menu/" + (secondary ? "secondary" : "main"));
-        page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName(linkName).setExact(true)).click();
+        page.navigate(base.toString() + "action/price-mod/" + type);
         page.locator("#priceKbArea").waitFor();
     }
 
@@ -856,4 +860,37 @@ public class GroupKIT {
         return QuarkusTransaction.requiringNew().call(
                 () -> ((Ticket) Ticket.findById(ticketId)).payments.get(0).amount);
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

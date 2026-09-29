@@ -96,6 +96,7 @@ class FidelityServiceTest {
         FidelityService service = new FidelityService();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         return service;
     }
 
@@ -125,6 +126,21 @@ class FidelityServiceTest {
         account.balance = new BigDecimal(balance);
         account.availableBalance = new BigDecimal(available);
         return account;
+    }
+
+    /**
+     * Builds a confirmation result carrying a status and an optional ledger
+     * balance after the burn (imfid response B).
+     *
+     * @param status the HTTP status
+     * @param balanceAfter the ledger balance after the burn, or null
+     * @return the confirmation result
+     */
+    private ImfidClient.ConfirmResult confirmResult(int status, String balanceAfter) {
+        ImfidClient.ConfirmResult result = new ImfidClient.ConfirmResult();
+        result.httpStatus = status;
+        result.balanceAfter = balanceAfter == null ? null : new BigDecimal(balanceAfter);
+        return result;
     }
 
     /**
@@ -421,7 +437,7 @@ class FidelityServiceTest {
         FidelityService service = serviceWithCard("2990000000019");
         com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
         state.payment.fidReservationId = 77L;
-        when(service.imfidClient.confirm(77L, "2026-08-12")).thenReturn(410);
+        when(service.imfidClient.confirm(77L, "2026-08-12")).thenReturn(confirmResult(410, null));
         assertEquals(77L, service.confirmLease(state, java.time.LocalDate.of(2026, 8, 12)));
     }
 
@@ -476,6 +492,38 @@ class FidelityServiceTest {
         assertTrue(payload.contains("\"reservationId\":77"));
         assertTrue(payload.contains("{\"ruleCode\":\"SOCLE\",\"amount\":0.28}"));
         assertTrue(payload.contains("},{"), "les lignes d'earn doivent être séparées: " + payload);
+    }
+
+    /**
+     * BO-03-10-08: when the island administers a promotion channel it rides the
+     * ticket-closed payload as a {@code channel} member.
+     */
+    @Test
+    void buildTicketClosedPayloadEmbedsThePromotionChannelWhenAdministered() {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.islandPromotionChannel()).thenReturn("PDV");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{}";
+        state.fidelity.lastValuationResponseJson = "{}";
+        String payload = service.buildTicketClosedPayload(state, "2026-C04-000001",
+                "2990000000019", java.time.LocalDate.of(2026, 8, 12), null);
+        assertTrue(payload.contains("\"channel\":\"PDV\""), "canal attendu: " + payload);
+    }
+
+    /**
+     * BO-03-10-08: an empty channel adds NO member — the payload stays identical
+     * to the byte to what it was before the option existed (the compat leg).
+     */
+    @Test
+    void buildTicketClosedPayloadOmitsTheChannelWhenBlank() {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.posSettingsService.islandPromotionChannel()).thenReturn("");
+        com.intermarche.pos.ui.PosState state = stateWithCard("2990000000019");
+        state.fidelity.lastValuationRequestJson = "{}";
+        state.fidelity.lastValuationResponseJson = "{}";
+        String payload = service.buildTicketClosedPayload(state, "2026-C04-000001",
+                "2990000000019", java.time.LocalDate.of(2026, 8, 12), null);
+        assertFalse(payload.contains("channel"), "aucun canal ne doit apparaître: " + payload);
     }
 
     /**
@@ -1166,7 +1214,7 @@ class FidelityServiceTest {
         FidelityService service = serviceWithCard("2990000000019");
         PosState state = new PosState();
         state.payment.fidReservationId = 77L;
-        when(service.imfidClient.confirm(anyLong(), any())).thenReturn(404);
+        when(service.imfidClient.confirm(anyLong(), any())).thenReturn(confirmResult(404, null));
         assertEquals(77L, service.confirmLease(state, java.time.LocalDate.of(2026, 8, 12)));
     }
 
@@ -1178,7 +1226,7 @@ class FidelityServiceTest {
         FidelityService service = serviceWithCard("2990000000019");
         PosState state = new PosState();
         state.payment.fidReservationId = 77L;
-        when(service.imfidClient.confirm(anyLong(), any())).thenReturn(200);
+        when(service.imfidClient.confirm(anyLong(), any())).thenReturn(confirmResult(200, null));
         assertEquals(77L, service.confirmLease(state, java.time.LocalDate.of(2026, 8, 12)));
     }
 
@@ -1936,5 +1984,235 @@ class FidelityServiceTest {
         state.fidelity.assignCard("2990000000019");
         service.onValuation(state, "{}", "{}");
         assertTrue(service.isUnavailable());
+    }
+
+    // --- imfid contracts: advantage grouping, balances, anonymous, promotions ---
+
+    /**
+     * Builds an earn projection carrying one advantage-typed entry and a
+     * balances block (imfid responses A and B).
+     *
+     * @return the projection
+     */
+    private ImfidClient.EarnProjection advantageProjection() {
+        ImfidClient.EarnProjection projection = new ImfidClient.EarnProjection();
+        projection.total = new BigDecimal("3.90");
+        projection.burnableBase = new BigDecimal("28.40");
+        ImfidClient.EarnEntry entry = new ImfidClient.EarnEntry();
+        entry.ruleCode = "BOOST_MARQUE_2026";
+        entry.label = "Boost marque";
+        entry.amount = new BigDecimal("1.50");
+        entry.advantageType = "PRODUCT";
+        entry.advantageTypeLabel = "Vos avantages produits";
+        entry.advantageTypeOrder = 10;
+        projection.entries.add(entry);
+        ImfidClient.Balances balances = new ImfidClient.Balances();
+        balances.available = new BigDecimal("42.30");
+        balances.projectedAfterEarn = new BigDecimal("46.20");
+        balances.asOf = "2026-09-17T14:01:57";
+        projection.balances = balances;
+        return projection;
+    }
+
+    /**
+     * A CARD refresh carries the entry's advantage grouping onto the staged
+     * earn line and the balances block onto the projected fields (imfid A + B).
+     *
+     * @throws Exception never (mocked client)
+     */
+    @Test
+    void onValuationStagesAdvantageFieldsAndBalances() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        when(service.imfidClient.earn(any(), any())).thenReturn(advantageProjection());
+        PosState state = new PosState();
+        state.fidelity.assignCard("2990000000019");
+        service.onValuation(state, "{}", "{}");
+        FidelityState.EarnLine line = state.fidelity.earnEntries.get(0);
+        assertEquals("PRODUCT", line.advantageType);
+        assertEquals("Vos avantages produits", line.advantageTypeLabel);
+        assertEquals(10, line.advantageTypeOrder);
+        assertEquals(0, new BigDecimal("46.20").compareTo(state.fidelity.projectedAfterEarn));
+        assertEquals("2026-09-17T14:01:57", state.fidelity.balanceAsOf);
+        assertFalse(state.fidelity.anonymousProjection);
+    }
+
+    /**
+     * A card-less ticket, with the store setting on, asks imfid for the
+     * ANONYMOUS projection and flags the staged total as anonymous, with no
+     * projected balance (imfid response C).
+     *
+     * @throws Exception never (mocked client)
+     */
+    @Test
+    void onValuationProjectsAnonymouslyWithoutACardWhenEnabled() throws Exception {
+        FidelityService service = serviceWithCard("unused");
+        when(service.posSettingsService.fidelityAnonymousProjection()).thenReturn(true);
+        ImfidClient.EarnProjection projection = new ImfidClient.EarnProjection();
+        projection.total = new BigDecimal("1.20");
+        projection.burnableBase = BigDecimal.ZERO;
+        when(service.imfidClient.earn(any(), any(), eq("ANONYMOUS"))).thenReturn(projection);
+        PosState state = new PosState();
+        service.onValuation(state, "{}", "{}");
+        assertTrue(state.fidelity.anonymousProjection);
+        assertEquals(0, new BigDecimal("1.20").compareTo(state.fidelity.earnTotal));
+        assertNull(state.fidelity.projectedAfterEarn);
+        verify(service.imfidClient).earn(any(), any(), eq("ANONYMOUS"));
+    }
+
+    /**
+     * A card-less ticket with the setting OFF asks nothing anonymous — the
+     * behaviour is strictly unchanged.
+     *
+     * @throws Exception never (mocked client)
+     */
+    @Test
+    void onValuationAsksNoAnonymousProjectionWhenDisabled() throws Exception {
+        FidelityService service = serviceWithCard("unused");
+        when(service.posSettingsService.fidelityAnonymousProjection()).thenReturn(false);
+        PosState state = new PosState();
+        service.onValuation(state, "{}", "{}");
+        assertFalse(state.fidelity.anonymousProjection);
+        assertNull(state.fidelity.earnTotal);
+        verify(service.imfidClient, never()).earn(any(), any(), any());
+    }
+
+    /**
+     * Confirming a lease reads {@code balanceAfter} from the ledger body onto
+     * the state (imfid response B); a null {@code balanceBefore} is tolerated.
+     *
+     * @throws Exception never (mocked client)
+     */
+    @Test
+    void confirmLeaseReadsBalanceAfterFromTheLedger() throws Exception {
+        FidelityService service = serviceWithCard("2990000000019");
+        PosState state = new PosState();
+        state.payment.fidReservationId = 77L;
+        when(service.imfidClient.confirm(77L, "2026-08-12")).thenReturn(confirmResult(200, "30.30"));
+        assertEquals(77L, service.confirmLease(state, java.time.LocalDate.of(2026, 8, 12)));
+        assertEquals(0, new BigDecimal("30.30").compareTo(state.fidelity.balanceAfter));
+    }
+
+    /**
+     * PERCENT is a fraction of the net line price (§3.1): 0.10 of 3,50 € is
+     * 0,35 €.
+     */
+    @Test
+    void immediateDiscountPercentIsFractionOfNet() {
+        assertEquals(0, new BigDecimal("0.35").compareTo(FidelityService.immediateDiscount(
+                "PERCENT", new BigDecimal("0.10"), new BigDecimal("3.50"), 1)));
+    }
+
+    /**
+     * AMOUNT is a euro-per-unit times the unit count (§3.1): 0,50 € over two
+     * units is 1,00 €.
+     */
+    @Test
+    void immediateDiscountAmountIsPerUnit() {
+        assertEquals(0, new BigDecimal("1.00").compareTo(FidelityService.immediateDiscount(
+                "AMOUNT", new BigDecimal("0.5000"), new BigDecimal("6.00"), 2)));
+    }
+
+    /**
+     * An unknown promotion type and a non-positive value both yield a zero
+     * discount (§3.1 defensive arms).
+     */
+    @Test
+    void immediateDiscountUnknownTypeOrNonPositiveIsZero() {
+        assertEquals(0, BigDecimal.ZERO.compareTo(FidelityService.immediateDiscount(
+                "COUPON", new BigDecimal("0.10"), new BigDecimal("3.50"), 1)));
+        assertEquals(0, BigDecimal.ZERO.compareTo(FidelityService.immediateDiscount(
+                "PERCENT", BigDecimal.ZERO, new BigDecimal("3.50"), 1)));
+        assertEquals(0, BigDecimal.ZERO.compareTo(FidelityService.immediateDiscount(
+                "AMOUNT", null, new BigDecimal("3.50"), 1)));
+    }
+
+    /**
+     * Builds an immediate-discount card promotion.
+     *
+     * @param ean the promoted EAN
+     * @param type PERCENT or AMOUNT
+     * @param value the promotion value
+     * @param benefit CAGNOTTE or IMMEDIATE_DISCOUNT
+     * @return the promotion
+     */
+    private ImfidClient.CardPromotion promo(String ean, String type, String value, String benefit) {
+        ImfidClient.CardPromotion promotion = new ImfidClient.CardPromotion();
+        promotion.ean = ean;
+        promotion.promotionType = type;
+        promotion.value = new BigDecimal(value);
+        promotion.benefit = benefit;
+        return promotion;
+    }
+
+    /**
+     * With the engine forwarding OFF, the register applies an IMMEDIATE_DISCOUNT
+     * to the matching-EAN line itself (§2/§3.1): café 0,50 € × 2 units = 1,00 €.
+     */
+    @Test
+    void applyCardPromotionsAppliesImmediateDiscountWhenEngineForwardingOff() {
+        FidelityService service = serviceWithCard("2990000000019");
+        service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(false);
+        PosState state = new PosState();
+        state.ticket.addItem("3300000000004", null, "CAFE GRAINS 500G",
+                new BigDecimal("3.00"), new BigDecimal("2"), new BigDecimal("5.5"));
+        com.intermarche.pos.ui.ticket.TicketState.TicketItem item = state.ticket.items.get(0);
+        state.fidelity.cardPromotions = java.util.List.of(
+                promo("3300000000004", "AMOUNT", "0.5000", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService).applyRemise(item, new BigDecimal("1.00"));
+    }
+
+    /**
+     * With the engine forwarding ON, the register applies NOTHING — the engine
+     * applies the discount, and §2 forbids both.
+     */
+    @Test
+    void applyCardPromotionsSkippedWhenEngineForwardingOn() {
+        FidelityService service = serviceWithCard("2990000000019");
+        service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(true);
+        PosState state = new PosState();
+        state.ticket.addItem("3300000000004", null, "CAFE",
+                new BigDecimal("3.00"), new BigDecimal("2"), new BigDecimal("5.5"));
+        state.fidelity.cardPromotions = java.util.List.of(
+                promo("3300000000004", "AMOUNT", "0.5000", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService, never()).applyRemise(any(), any());
+    }
+
+    /**
+     * A promotion whose EAN is on no cart line applies nothing.
+     */
+    @Test
+    void applyCardPromotionsIgnoresNonMatchingEan() {
+        FidelityService service = serviceWithCard("2990000000019");
+        service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(false);
+        PosState state = new PosState();
+        state.ticket.addItem("9999999999999", null, "AUTRE",
+                new BigDecimal("3.00"), new BigDecimal("1"), new BigDecimal("5.5"));
+        state.fidelity.cardPromotions = java.util.List.of(
+                promo("3300000000004", "AMOUNT", "0.5000", "IMMEDIATE_DISCOUNT"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService, never()).applyRemise(any(), any());
+    }
+
+    /**
+     * A CAGNOTTE promotion is NEVER applied by the register (§2): it is skipped
+     * even when present in the list — the double advantage is impossible.
+     */
+    @Test
+    void applyCardPromotionsNeverAppliesCagnotte() {
+        FidelityService service = serviceWithCard("2990000000019");
+        service.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
+        when(service.posSettingsService.fidelityJvPromotionEnabled()).thenReturn(false);
+        PosState state = new PosState();
+        state.ticket.addItem("3400000000003", null, "THE VERT",
+                new BigDecimal("3.50"), new BigDecimal("1"), new BigDecimal("5.5"));
+        state.fidelity.cardPromotions = java.util.List.of(
+                promo("3400000000003", "PERCENT", "0.1000", "CAGNOTTE"));
+        service.applyCardPromotions(state);
+        verify(service.ticketService, never()).applyRemise(any(), any());
     }
 }

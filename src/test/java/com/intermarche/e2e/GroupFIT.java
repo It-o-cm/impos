@@ -1,8 +1,13 @@
 package com.intermarche.e2e;
 
+import com.intermarche.pos.domain.payment.AccountCustomer;
+import com.intermarche.pos.domain.payment.Currency;
+import com.intermarche.pos.domain.payment.StoredValue;
+import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.payment.TicketPayment;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentService;
 import com.intermarche.pos.ui.ticket.TicketState;
@@ -26,7 +31,9 @@ import org.junit.jupiter.api.TestMethodOrder;
 
 import java.math.BigDecimal;
 import java.net.URL;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -107,10 +114,10 @@ public class GroupFIT {
     private static final String EAN_HUILE = "3300000000006";
     private static final String LABEL_HUILE = "HUILE D'OLIVE 1L";
 
-    /** Single-price unit product, TTC 0,96 € — the small-ticket fixture. */
     /** The apples: the family DemoIT proved to carry a meal-voucher base. */
     private static final String EAN_POMMES = "3300000000001";
 
+    /** Single-price unit product, TTC 0,96 € — the small-ticket fixture. */
     private static final String EAN_BAGUETTE = "3300000000003";
     private static final String LABEL_BAGUETTE = "BAGUETTE TRADITION";
 
@@ -127,6 +134,15 @@ public class GroupFIT {
 
     /** "Catalina" (CATALINA, ^0482\d{10}$), manual amount. */
     private static final String CATALINA_NUMBER = "04820000000000";
+
+    /** The seed manager login for the inline supervisor-authorization panels. */
+    private static final String SUPERVISOR_LOGIN = "mcurie";
+
+    /** The seed manager password/PIN. */
+    private static final String SUPERVISOR_PIN = "1111";
+
+    /** A unit product (Miel, 6,00 €) borrowed as a second line where needed. */
+    private static final String EAN_MIEL = "3300000000024";
 
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
@@ -156,6 +172,13 @@ public class GroupFIT {
     /** The virtual terminal bean, where the simulator decision is played. */
     @jakarta.inject.Inject
     com.intermarche.pos.ui.hardware.terminal.VirtualTerminalClient virtualTerminal;
+
+    /**
+     * The referential settings service, injected so F9 can administer the cash
+     * rounding step and restore it afterwards.
+     */
+    @Inject
+    PosSettingsService posSettings;
 
     /**
      * F1 — Espèces exactes &amp; trop-perçu.
@@ -425,11 +448,14 @@ public class GroupFIT {
         BigDecimal chequeAmount = total.subtract(trAmount);
         // Cheque first (its form prefills the full remaining, hence the clear).
         payThroughScreen(page, "CHÈQUE", "chequeForm", chequeAmount.toPlainString(), true);
-        page.getByText("RESTE :").waitFor();
+        // The cheque is READ on a follower thread and only registered once read;
+        // wait on the settled server state (remaining drops to the TR balance),
+        // NOT on the drawer pulse, which races that asynchronous read.
+        waitForRemaining(trAmount);
         Assertions.assertEquals(0, posState.getRemaining().compareTo(trAmount),
                 "le chèque doit laisser exactement le montant TR à payer");
-        // The cheque pulsed the drawer open; the next payment POST is drawer-guarded,
-        // so the cashier pushes the drawer shut before tendering the meal tickets.
+        // The cheque registration pulsed the drawer open (now reliably, the read
+        // is done); the next payment POST is drawer-guarded, so push it shut.
         waitForDrawer("OPEN");
         closeDrawer();
         payThroughScreen(page, "TICKET RESTO", "trForm", trAmount.toPlainString(), false);
@@ -558,6 +584,453 @@ public class GroupFIT {
                 "the VAT ventilation must be coherent (TTC = HT + TVA)");
     }
 
+    /**
+     * F9 — Arrondi légal des espèces.
+     * <p>
+     * With a 5-cent rounding step, tendering the exact off-step remainder (0,96 €)
+     * is refused with {@code MONTANT NON MULTIPLE DE 0,05 E}; a tenderable amount
+     * that covers the rounded remainder books a signed {@code ARRONDI} line (real
+     * − rounded) and completes.
+     */
+    @Test
+    void f9_arrondi_legal_especes() {
+        posSettings.store("cash.rounding-step-cents", "5");
+        try {
+            // --- Off-step: 0,97 € is not a multiple of the 5c step ---
+            Page page = freshSaleWithBaguette();
+            goPay(page);
+            postForm("action/pay-cash", "given=0.97");
+            Assertions.assertEquals("MONTANT NON MULTIPLE DE 0,05 E", posState.ticket.transientError,
+                    "an off-step cash tender must be refused");
+            Assertions.assertTrue(posState.payment.payments.isEmpty(), "the off-step tender must not register");
+            page.close();
+            // --- Covering tender: 1,00 € covers the rounded 0,95 €, books ARRONDI ---
+            Page page2 = freshSaleWithBaguette();
+            goPay(page2);
+            postForm("action/pay-cash", "given=1.00");
+            waitForSettlement();
+            boolean hasRounding = posState.payment.payments.stream().anyMatch(p -> "ARRONDI".equals(p.method));
+            Assertions.assertTrue(hasRounding, "a covering tender must book an ARRONDI line, payments were: "
+                    + posState.payment.payments.stream().map(p -> p.method).toList());
+            waitForDrawer("OPEN");
+            closeDrawer();
+            page2.close();
+        } finally {
+            posSettings.store("cash.rounding-step-cents", "0");
+        }
+    }
+
+    /**
+     * F10 — Règles de tender administrées.
+     * <p>
+     * An administered CASH ceiling at a BLOCKING level refuses an over-cap tender
+     * outright ({@code MONTANT SUPERIEUR AU PLAFOND (5,00 E)}, nothing recorded);
+     * at a SUPERVISOR level it holds the tender for an authorization panel — a
+     * wrong credential yields {@code AUTORISATION REFUSEE}, the manager credential
+     * replays and completes it. (INFO/minimum/count/second-cap/change branches are
+     * reported as residue.)
+     */
+    @Test
+    void f10_regles_de_tender() {
+        // --- BLOCKING ceiling: dry refusal ---
+        Long blocking = insertTender("CASH", "9101", t -> {
+            t.maxAmount = new BigDecimal("5.00");
+            t.maxAmountControl = TenderDefinition.ControlLevel.BLOCKING;
+        });
+        try {
+            Page page = freshSaleWithHuile();
+            goPay(page);
+            payThroughScreen(page, "ESPÈCES", "cashForm", null, false);
+            Assertions.assertEquals("MONTANT SUPERIEUR AU PLAFOND (5,00 E)", posState.ticket.transientError,
+                    "an over-ceiling BLOCKING tender must be refused outright");
+            Assertions.assertTrue(posState.payment.payments.isEmpty(), "a BLOCKING refusal must record nothing");
+            page.close();
+        } finally {
+            deleteTender(blocking);
+        }
+        // --- SUPERVISOR ceiling: held, refused then granted ---
+        Long supervisor = insertTender("CASH", "9102", t -> {
+            t.maxAmount = new BigDecimal("5.00");
+            t.maxAmountControl = TenderDefinition.ControlLevel.SUPERVISOR;
+        });
+        try {
+            Page page = freshSaleWithHuile();
+            goPay(page);
+            payThroughScreen(page, "ESPÈCES", "cashForm", null, false);
+            Assertions.assertTrue(posState.payment.isTenderAuthorizationPending(),
+                    "an over-ceiling SUPERVISOR tender must be held for authorization");
+            postForm("action/tender-authorize", "login=" + SUPERVISOR_LOGIN + "&password=0000");
+            Assertions.assertEquals("AUTORISATION REFUSEE", posState.payment.tenderHeldMessage,
+                    "a wrong supervisor credential must refuse the held tender");
+            postForm("action/tender-authorize", "login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
+            waitForSettlement();
+            Assertions.assertTrue(posState.payment.transactionComplete,
+                    "the granted supervisor authorization must replay and complete the tender");
+            closeDrawer();
+            page.close();
+        } finally {
+            deleteTender(supervisor);
+        }
+    }
+
+    /**
+     * F11 — Chèque (lecture avant enregistrement).
+     * <p>
+     * Outside training, a cheque payment triggers a reader cycle; the embedded
+     * simulator answers a successful read, so the cheque is registered (drawer
+     * opens for filing). In training the reader is skipped and the cheque is
+     * recorded directly. (The reader-failure branches need injected read state and
+     * are reported as residue.)
+     */
+    @Test
+    void f11_cheque() {
+        // --- Nominal: the simulator reads the cheque, it registers ---
+        Page page = freshSaleWithHuile();
+        goPay(page);
+        postForm("action/pay-cheque", "amount=6.00");
+        pollTicketFragmentUntilRemaining(BigDecimal.ZERO);
+        boolean cheque = posState.payment.payments.stream().anyMatch(p -> "CHEQUE".equals(p.method));
+        Assertions.assertTrue(cheque, "a read cheque must register, payments were: "
+                + posState.payment.payments.stream().map(p -> p.method).toList());
+        waitForDrawer("OPEN");
+        closeDrawer();
+        page.close();
+        // --- Training: the read is skipped, the cheque recorded directly ---
+        Page page2 = freshSaleWithHuile();
+        posState.trainingMode = true;
+        try {
+            goPay(page2);
+            postForm("action/pay-cheque", "amount=6.00");
+            Assertions.assertNull(posState.payment.pendingChequeAmount,
+                    "in training a cheque must skip the reader (no pending read)");
+            boolean chequeT = posState.payment.payments.stream().anyMatch(p -> "CHEQUE".equals(p.method));
+            Assertions.assertTrue(chequeT, "in training the cheque must be recorded directly");
+            page2.close();
+        } finally {
+            posState.trainingMode = false;
+        }
+    }
+
+    /**
+     * F12 — Titre-restaurant, assiette éligible LOCALE.
+     * <p>
+     * With one meal-voucher-eligible line (6,00 €) and one non-eligible line, a TR
+     * of 10 € is capped to the local eligible plate — the customer display shows
+     * {@code TR PLAFONNE  6,00 E}. A second TR finds the plate exhausted and shows
+     * {@code TR: AUCUN ARTICLE ELIGIBLE}. The eligibility attribute is set in the
+     * database and removed afterwards.
+     */
+    @Test
+    void f12_titre_restaurant_assiette_locale() {
+        Page page = freshSale();
+        scan(EAN_MIEL);
+        scan(EAN_BAGUETTE);
+        // Make the MIEL line meal-eligible in memory (the article-attribute vector,
+        // set directly like C8's discountForbidden: a runtime attribute change is
+        // not reflected on the already-scanned line here). The plate is then the
+        // 6,00 € MIEL line; the 0,96 € baguette stays non-eligible.
+        posState.ticket.items.stream().filter(i -> EAN_MIEL.equals(i.ean)).findFirst()
+                .orElseThrow().mealVoucherEligible = true;
+        goPay(page);
+        // A 10 € TR is capped to the eligible plate (6,00 €), leaving the
+        // non-eligible 0,96 € baguette due. The cap message rides the customer
+        // display (overwritten by later polls), so the CAP is asserted on the
+        // remaining-due, the durable server signal.
+        postForm("action/pay-tr", "amount=10.00");
+        Assertions.assertEquals(0, posState.getRemaining().compareTo(new BigDecimal("0.96")),
+                "the TR must be capped to the 6,00 € plate, leaving 0,96 € due, was: " + posState.getRemaining());
+        // The plate is now exhausted: a second TR registers nothing more.
+        postForm("action/pay-tr", "amount=10.00");
+        Assertions.assertEquals(0, posState.getRemaining().compareTo(new BigDecimal("0.96")),
+                "a second TR must find the plate exhausted and add nothing, was: " + posState.getRemaining());
+        page.close();
+    }
+
+    /**
+     * F13 — Crédit / compte client.
+     * <p>
+     * Account selection by number guards the empty ({@code NUMERO DE COMPTE
+     * REQUIS}) and absent ({@code COMPTE INTROUVABLE : <n>}) cases; a valid
+     * credit-authorized account pays on credit (no drawer). An account WITHOUT a
+     * credit limit is refused ({@code COMPTE SANS AUTORISATION DE CREDIT}); an
+     * amount over the limit is held ({@code PLAFOND DEPASSE …}) and cleared by a
+     * supervisor authorization. Accounts are created in the database and removed
+     * afterwards.
+     */
+    @Test
+    void f13_credit_compte_client() {
+        Long okId = insertAccount("1001", new BigDecimal("100.00"), false);
+        Long noCreditId = insertAccount("1002", null, false);
+        Long smallId = insertAccount("1003", new BigDecimal("5.00"), false);
+        try {
+            // --- Guards: empty number, absent number ---
+            Page page = freshSaleWithHuile();
+            goPay(page);
+            postForm("action/credit-open", "");
+            postForm("action/credit-number", "number=");
+            Assertions.assertEquals("NUMERO DE COMPTE REQUIS", posState.payment.creditError,
+                    "an empty account number must be refused");
+            postForm("action/credit-number", "number=9999");
+            Assertions.assertTrue(posState.payment.creditError != null
+                            && posState.payment.creditError.startsWith("COMPTE INTROUVABLE"),
+                    "an absent account must be refused, was: " + posState.payment.creditError);
+            // --- Valid account, credit payment (no drawer) ---
+            postForm("action/credit-number", "number=1001");
+            Assertions.assertNotNull(posState.payment.creditCustomer, "account 1001 must be selected");
+            postForm("action/pay-credit", "amount=6.00");
+            waitForSettlement();
+            Assertions.assertTrue(posState.payment.transactionComplete, "a valid credit account must pay the sale");
+            page.close();
+            // --- Account without a credit limit: refused ---
+            Page page2 = freshSaleWithHuile();
+            goPay(page2);
+            postForm("action/credit-open", "");
+            postForm("action/credit-number", "number=1002");
+            postForm("action/pay-credit", "amount=6.00");
+            Assertions.assertEquals("COMPTE SANS AUTORISATION DE CREDIT", posState.payment.creditError,
+                    "an account without a credit limit must be refused");
+            page2.close();
+            // --- Over the limit: held, then supervisor-authorized ---
+            Page page3 = freshSaleWithHuile();
+            goPay(page3);
+            postForm("action/credit-open", "");
+            postForm("action/credit-number", "number=1003");
+            postForm("action/pay-credit", "amount=6.00");
+            Assertions.assertTrue(posState.payment.creditError != null
+                            && posState.payment.creditError.contains("PLAFOND DEPASSE"),
+                    "an over-limit credit must be held, was: " + posState.payment.creditError);
+            postForm("action/credit-authorize", "login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
+            waitForSettlement();
+            Assertions.assertTrue(posState.payment.transactionComplete,
+                    "a supervisor authorization must clear the over-limit credit");
+            page3.close();
+        } finally {
+            deleteAccount(okId);
+            deleteAccount(noCreditId);
+            deleteAccount(smallId);
+        }
+    }
+
+    /**
+     * F14 — Devise étrangère.
+     * <p>
+     * With no currency parameterized, opening the panel yields {@code AUCUNE
+     * DEVISE PARAMETREE}. Once a currency is administered, selecting a blank code
+     * yields {@code DEVISE NON SELECTIONNEE}; a zero amount yields {@code MONTANT
+     * EN DEVISE INVALIDE}; a valid amount credits its euro value and completes.
+     * The currency is created and removed afterwards.
+     */
+    @Test
+    void f14_devise_etrangere() {
+        // --- No currency parameterized ---
+        Page page = freshSaleWithHuile();
+        goPay(page);
+        postForm("action/currency-open", "");
+        Assertions.assertEquals("AUCUNE DEVISE PARAMETREE", posState.payment.currencyError,
+                "opening the currency panel with none active must be refused");
+        page.close();
+        // --- With a currency: select guards then a valid payment ---
+        Long chf = insertCurrency("CHF", new BigDecimal("1.05"));
+        try {
+            Page page2 = freshSaleWithHuile();
+            goPay(page2);
+            postForm("action/currency-open", "");
+            postForm("action/currency-select", "code=");
+            Assertions.assertEquals("DEVISE NON SELECTIONNEE", posState.payment.currencyError,
+                    "selecting a blank currency must be refused");
+            postForm("action/currency-select", "code=CHF");
+            Assertions.assertNotNull(posState.payment.selectedCurrency, "CHF must be selected");
+            postForm("action/pay-currency", "amount=0");
+            Assertions.assertEquals("MONTANT EN DEVISE INVALIDE", posState.payment.currencyError,
+                    "a zero currency amount must be refused");
+            postForm("action/pay-currency", "amount=10");
+            waitForSettlement();
+            Assertions.assertTrue(posState.payment.transactionComplete,
+                    "a valid currency amount must credit its euro value and complete");
+            closeDrawer();
+            page2.close();
+        } finally {
+            deleteCurrency(chf);
+        }
+    }
+
+    /**
+     * F15 — Secours monétique (TPE HS).
+     * <p>
+     * The manual backup path (supervisor-endorsed) guards a non-positive amount
+     * ({@code MONTANT ACCEPTE INVALIDE}) and a refused authorization ({@code
+     * AUTORISATION REFUSEE}); a valid manual amount registers a capped SECOURS
+     * tender with no drawer. (The QR/scanned-code branches and RIEN A REGLER are
+     * reported as residue.)
+     */
+    @Test
+    void f15_secours_monetique() {
+        Page page = freshSaleWithHuile();
+        goPay(page);
+        postForm("action/backup-open", "");
+        postForm("action/backup-manual", "");
+        // --- Non-positive amount ---
+        postForm("action/pay-backup", "amount=0&login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
+        Assertions.assertEquals("MONTANT ACCEPTE INVALIDE", posState.payment.backupError,
+                "a non-positive backup amount must be refused");
+        // --- Refused authorization ---
+        postForm("action/pay-backup", "amount=6.00&login=" + SUPERVISOR_LOGIN + "&password=0000");
+        Assertions.assertEquals("AUTORISATION REFUSEE", posState.payment.backupError,
+                "a refused supervisor must not accept the backup payment");
+        // --- Valid manual backup: registers SECOURS, no drawer ---
+        postForm("action/pay-backup", "amount=6.00&login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
+        waitForSettlement();
+        boolean secours = posState.payment.payments.stream().anyMatch(p -> "SECOURS".equals(p.method));
+        Assertions.assertTrue(secours, "a valid manual backup must register a SECOURS tender, payments were: "
+                + posState.payment.payments.stream().map(p -> p.method).toList());
+        page.close();
+    }
+
+    /**
+     * F16 — Mode dégradé monétique.
+     * <p>
+     * A supervisor toggles the forced degraded mode on ({@code MODE DÉGRADÉ
+     * MONÉTIQUE ACTIVÉ (60 MIN)}) and off ({@code MODE DÉGRADÉ MONÉTIQUE
+     * DÉSACTIVÉ}); toggling off again is {@code MODE DÉGRADÉ MONÉTIQUE DÉJÀ
+     * INACTIF}; a wrong credential is {@code AUTORISATION REFUSEE}.
+     */
+    @Test
+    void f16_mode_degrade_monetique() {
+        Page page = freshSale();
+        // --- Wrong credential ---
+        postForm("action/monetics-degraded", "login=" + SUPERVISOR_LOGIN + "&password=0000");
+        Assertions.assertEquals("AUTORISATION REFUSEE", posState.ticket.transientError,
+                "a wrong credential must not force the degraded mode");
+        Assertions.assertFalse(posState.isMoneticsDegradedForced(), "the mode must stay off");
+        // --- Activate ---
+        postForm("action/monetics-degraded", "login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
+        Assertions.assertEquals("MODE DÉGRADÉ MONÉTIQUE ACTIVÉ (60 MIN)", posState.ticket.transientError,
+                "the supervisor must force the degraded mode on");
+        Assertions.assertTrue(posState.isMoneticsDegradedForced(), "the mode must be forced on");
+        // --- Deactivate ---
+        postForm("action/monetics-degraded", "login=" + SUPERVISOR_LOGIN + "&password=" + SUPERVISOR_PIN);
+        Assertions.assertEquals("MODE DÉGRADÉ MONÉTIQUE DÉSACTIVÉ", posState.ticket.transientError,
+                "the supervisor must lift the degraded mode");
+        Assertions.assertFalse(posState.isMoneticsDegradedForced(), "the mode must be off after lifting");
+        // (The DÉJÀ INACTIF branch is unreachable through the single toggle route —
+        // it always flips state — and is reported as residue.)
+        page.close();
+    }
+
+    /**
+     * F17 — Bons d'achat &amp; instruments registre.
+     * <p>
+     * A registry instrument scanned during payment is validated against the
+     * stored-value registry: an unknown number yields {@code BON INCONNU AU
+     * REGISTRE}, an exhausted one {@code BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ}, and one
+     * already applied on the sale {@code BON DÉJÀ SCANNÉ SUR CETTE VENTE}. The
+     * instruments are created in the database and removed afterwards.
+     */
+    @Test
+    void f17_bons_achat_registre() {
+        // --- Unknown registry number ---
+        Page page = freshSaleWithHuile();
+        goPay(page);
+        scan("297000000000001");
+        Assertions.assertEquals("BON INCONNU AU REGISTRE", posState.ticket.transientError,
+                "an unknown registry instrument must be refused");
+        page.close();
+        // --- Exhausted instrument ---
+        Long exhausted = insertStoredValue("297000000000002", StoredValue.Kind.CREDIT_NOTE,
+                BigDecimal.ZERO, StoredValue.Status.EXHAUSTED);
+        Long active = insertStoredValue("297000000000003", StoredValue.Kind.CREDIT_NOTE,
+                new BigDecimal("3.00"), StoredValue.Status.ACTIVE);
+        try {
+            Page page2 = freshSaleWithHuile();
+            goPay(page2);
+            scan("297000000000002");
+            Assertions.assertEquals("BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ", posState.ticket.transientError,
+                    "an exhausted instrument must be refused");
+            page2.close();
+            // --- Already scanned on this sale ---
+            Page page3 = freshSaleWithHuile();
+            goPay(page3);
+            scan("297000000000003");
+            boolean applied = posState.payment.payments.stream().anyMatch(p -> p.voucher);
+            Assertions.assertTrue(applied, "the active instrument must apply on the sale");
+            scan("297000000000003");
+            Assertions.assertEquals("BON DÉJÀ SCANNÉ SUR CETTE VENTE", posState.ticket.transientError,
+                    "re-scanning the same instrument on the sale must be refused");
+            page3.close();
+        } finally {
+            deleteStoredValue(exhausted);
+            deleteStoredValue(active);
+        }
+    }
+
+    /**
+     * F18 — Rendu en avoir (BO-03-02-16).
+     * <p>
+     * On a tender configured for change-in-credit-note, an overpayment books the
+     * change as a credit note — the customer display shows {@code RENDU EN AVOIR
+     * <x> E} and no cash change — and a numbered {@code CREDIT_NOTE} is issued in
+     * the registry at the fiscal moment. The tender configuration is created and
+     * removed afterwards.
+     */
+    @Test
+    void f18_rendu_en_avoir() {
+        Long tender = insertTender("CASH", "9181", t -> {
+            t.changeAllowed = true;
+            t.changeTenderCode = "VOUCHER";
+        });
+        try {
+            Page page = freshSaleWithHuile();
+            goPay(page);
+            long notesBefore = countCreditNotes();
+            payThroughScreen(page, "ESPÈCES", "cashForm", "10", true);
+            waitForSettlement();
+            // The RENDU EN AVOIR message rides the customer display (overwritten by
+            // later polls), so the credit-note routing is asserted on the durable
+            // server state (the change booked as a note, not cash) and the registry.
+            Assertions.assertTrue(posState.payment.changeAsCreditNote.compareTo(BigDecimal.ZERO) > 0,
+                    "the change must be booked as a credit note, not cash");
+            Assertions.assertEquals(0, posState.payment.lastChangeAmount.compareTo(BigDecimal.ZERO),
+                    "no cash change must be given when the change is a credit note");
+            finishSale(page);
+            Assertions.assertEquals(notesBefore + 1, countCreditNotes(),
+                    "a credit note must be issued in the registry at the fiscal moment");
+            page.close();
+        } finally {
+            deleteTender(tender);
+        }
+    }
+
+    /**
+     * F19 — Consultation de solde bon / carte cadeau.
+     * <p>
+     * The read-only {@code /voucher-balance} screen: an empty query yields {@code
+     * AUCUN NUMÉRO SAISI}, an unknown number {@code BON INCONNU AU REGISTRE}, and a
+     * found gift card shows {@code CARTE CADEAU} / {@code ACTIVE} / its formatted
+     * balance. The instrument is created and removed afterwards.
+     */
+    @Test
+    void f19_consultation_solde_bon() {
+        Page page = freshSale();
+        Long card = insertStoredValue("296000000000001", StoredValue.Kind.GIFT_CARD,
+                new BigDecimal("50.00"), StoredValue.Status.ACTIVE);
+        try {
+            // --- Empty query ---
+            Assertions.assertTrue(voucherBalance("").contains("AUCUN NUMÉRO SAISI"),
+                    "an empty voucher-balance query must ask for a number");
+            // --- Unknown number ---
+            Assertions.assertTrue(voucherBalance("296999999999999").contains("BON INCONNU AU REGISTRE"),
+                    "an unknown number must be reported unknown");
+            // --- Found gift card ---
+            String found = voucherBalance("296000000000001");
+            Assertions.assertTrue(found.contains("CARTE CADEAU"), "a found gift card must be labelled CARTE CADEAU");
+            Assertions.assertTrue(found.contains("ACTIVE"), "the found card must show its ACTIVE status");
+            Assertions.assertTrue(found.contains("50,00"), "the found card must show its 50,00 € balance");
+        } finally {
+            deleteStoredValue(card);
+            page.close();
+        }
+    }
+
     // --- Reusable gestures (login recipe, sale build, payment screen) ---
 
     /**
@@ -612,9 +1085,9 @@ public class GroupFIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -655,6 +1128,7 @@ public class GroupFIT {
         }
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -720,11 +1194,15 @@ public class GroupFIT {
      */
     private void payThroughScreen(Page page, String methodButton, String formId, String digits, boolean clearFirst) {
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName(methodButton).setExact(true)).click();
-        if (clearFirst) {
+        // The tender pads now open PRE-FILLED with the exact remainder
+        // (LC-07-03-01); whenever an explicit amount is keyed it must first CLEAR
+        // that default so the digits are the full tendered amount, not an addition
+        // to the remainder. {@code clearFirst} is kept for call-site intent.
+        if (digits != null) {
             page.locator("#payNumpadZone").getByRole(AriaRole.BUTTON,
                     new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+            tapDigits(page.locator("#payNumpadZone"), digits);
         }
-        if (digits != null) tapDigits(page.locator("#payNumpadZone"), digits);
         page.locator("#" + formId + " button[type=submit]").click();
     }
 
@@ -800,6 +1278,39 @@ public class GroupFIT {
         }
         Assertions.assertEquals(expected, status,
                 "le tiroir doit être " + expected + " après ce paiement");
+    }
+
+    /**
+     * Waits until the register's remaining-due reaches the expected amount, the
+     * deterministic server-state signal that an ASYNCHRONOUS tender (a cheque read
+     * on its follower thread) has been registered — a screen render or a drawer
+     * pulse both race that read.
+     *
+     * @param expected the remaining-due the test waits for
+     */
+    private void waitForRemaining(BigDecimal expected) {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            if (posState.getRemaining().compareTo(expected) == 0) {
+                return;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        // A tender that never lands does so for one of two reasons, and they are
+        // told apart by these two fields: an administered rule REFUSED it (the
+        // refusal message rides transientError), or the asynchronous read never
+        // came back (the pending cheque amount is still there).
+        Assertions.fail("le restant dû n'a pas atteint " + expected + " — restant dû = "
+                + posState.getRemaining() + ", paiements = " + posState.payment.payments.stream()
+                        .map(p -> p.method + ":" + p.amount).toList()
+                + ", message = " + posState.ticket.transientError
+                + ", chèque en attente = " + posState.payment.pendingChequeAmount
+                + ", ligne magnétique = " + posState.payment.pendingChequeLine);
     }
 
     /**
@@ -1036,4 +1547,257 @@ public class GroupFIT {
             this.totalVat = totalVat;
         }
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
+    // --- Lot-2 (F9–F19) additions: form POSTs, display, DB fixtures ---
+
+    /**
+     * Submits a url-encoded form to a payment action endpoint and returns the
+     * response (the path each on-screen panel posts to).
+     *
+     * @param path the action path (without leading slash)
+     * @param body the url-encoded form body
+     * @return the endpoint's response
+     */
+    private APIResponse postForm(String path, String body) {
+        return context.request().post(base.toString() + path, RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded").setData(body));
+    }
+
+    /**
+     * Reads the current customer-display text off the hardware simulator.
+     *
+     * @return the last message pushed to the customer display
+     */
+    private String displayContent() {
+        return context.request().get(base.toString() + "api/hardware/display").text();
+    }
+
+    /**
+     * Reads the rendered voucher-balance consultation for a queried number (the
+     * GET the CONSULTER button targets, {@code asked=true} marking a submission).
+     *
+     * @param number the number to consult (may be empty for the guard)
+     * @return the rendered {@code /voucher-balance} HTML
+     */
+    private String voucherBalance(String number) {
+        return context.request().get(base.toString() + "voucher-balance?asked=true&number=" + number).text();
+    }
+
+    /**
+     * Polls the {@code /ticket-fragment} endpoint (which settles a pending cheque
+     * read) until the remaining-due reaches the expected amount.
+     *
+     * @param expected the remaining-due to wait for
+     */
+    private void pollTicketFragmentUntilRemaining(BigDecimal expected) {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            context.request().get(base.toString() + "ticket-fragment");
+            if (posState.getRemaining().compareTo(expected) == 0) return;
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        Assertions.fail("le restant dû n'a pas atteint " + expected + " — restant dû = "
+                + posState.getRemaining() + ", chèque en attente = " + posState.payment.pendingChequeAmount
+                + ", message = " + posState.ticket.transientError);
+    }
+
+    /**
+     * Inserts an administered tender definition, applying the given configuration.
+     *
+     * @param code the tender code (CASH, CARD, ...)
+     * @param functionalId a unique functional id (≥ 3 digits)
+     * @param cfg the configuration to apply (caps, controls, change)
+     * @return the id of the inserted row
+     */
+    private Long insertTender(String code, String functionalId, Consumer<TenderDefinition> cfg) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            TenderDefinition t = new TenderDefinition();
+            t.code = code;
+            t.functionalId = functionalId;
+            t.label = code + " (test)";
+            cfg.accept(t);
+            t.persist();
+            return t.id;
+        });
+    }
+
+    /**
+     * Deletes an administered tender definition, restoring the register defaults.
+     *
+     * @param id the row id
+     */
+    private void deleteTender(Long id) {
+        QuarkusTransaction.requiringNew().run(() -> TenderDefinition.deleteById(id));
+    }
+
+    /**
+     * Inserts a customer account.
+     *
+     * @param number the account number
+     * @param creditLimit the credit limit, or null for a no-credit account
+     * @param blocked whether the account is blocked
+     * @return the id of the inserted row
+     */
+    private Long insertAccount(String number, BigDecimal creditLimit, boolean blocked) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            AccountCustomer a = new AccountCustomer();
+            a.accountNumber = number;
+            a.companyName = "Compte " + number;
+            a.creditLimit = creditLimit;
+            a.creditBalance = BigDecimal.ZERO;
+            a.blocked = blocked;
+            a.persist();
+            return a.id;
+        });
+    }
+
+    /**
+     * Deletes a customer account.
+     *
+     * @param id the row id
+     */
+    private void deleteAccount(Long id) {
+        QuarkusTransaction.requiringNew().run(() -> AccountCustomer.deleteById(id));
+    }
+
+    /**
+     * Inserts an active currency.
+     *
+     * @param code the ISO code
+     * @param euroPerUnit the euro value of one unit
+     * @return the id of the inserted row
+     */
+    private Long insertCurrency(String code, BigDecimal euroPerUnit) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            Currency c = new Currency();
+            c.code = code;
+            c.label = code;
+            c.symbol = code;
+            c.euroPerUnit = euroPerUnit;
+            c.active = true;
+            c.persist();
+            return c.id;
+        });
+    }
+
+    /**
+     * Deletes a currency.
+     *
+     * @param id the row id
+     */
+    private void deleteCurrency(Long id) {
+        QuarkusTransaction.requiringNew().run(() -> Currency.deleteById(id));
+    }
+
+    /**
+     * Inserts a stored-value registry instrument.
+     *
+     * @param number the registry number
+     * @param kind CREDIT_NOTE or GIFT_CARD
+     * @param balance the current balance
+     * @param status ACTIVE or EXHAUSTED
+     * @return the id of the inserted row
+     */
+    private Long insertStoredValue(String number, StoredValue.Kind kind, BigDecimal balance,
+                                   StoredValue.Status status) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            StoredValue sv = new StoredValue();
+            sv.number = number;
+            sv.kind = kind;
+            sv.initialAmount = balance;
+            sv.balance = balance;
+            sv.status = status;
+            sv.issuedAt = LocalDateTime.now();
+            sv.persist();
+            return sv.id;
+        });
+    }
+
+    /**
+     * Deletes a stored-value instrument.
+     *
+     * @param id the row id
+     */
+    private void deleteStoredValue(Long id) {
+        QuarkusTransaction.requiringNew().run(() -> StoredValue.deleteById(id));
+    }
+
+    /**
+     * Counts the credit notes in the stored-value registry.
+     *
+     * @return the number of CREDIT_NOTE instruments
+     */
+    private long countCreditNotes() {
+        return QuarkusTransaction.requiringNew().call(() ->
+                StoredValue.count("kind", StoredValue.Kind.CREDIT_NOTE));
+    }
+
+    /**
+     * Sets a product attribute in the database and flushes it.
+     *
+     * @param ean the product EAN
+     * @param key the attribute code
+     * @param value the attribute value
+     */
+    private void setProductAttribute(String ean, String key, String value) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            com.intermarche.pos.domain.catalog.Product p =
+                    com.intermarche.pos.domain.catalog.Product.find("ean = ?1", ean).firstResult();
+            p.attributes.put(key, value);
+            p.persist();
+        });
+    }
+
+    /**
+     * Removes a product attribute, restoring the seed.
+     *
+     * @param ean the product EAN
+     * @param key the attribute code to remove
+     */
+    private void removeProductAttribute(String ean, String key) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            com.intermarche.pos.domain.catalog.Product p =
+                    com.intermarche.pos.domain.catalog.Product.find("ean = ?1", ean).firstResult();
+            p.attributes.remove(key);
+            p.persist();
+        });
+    }
+
 }

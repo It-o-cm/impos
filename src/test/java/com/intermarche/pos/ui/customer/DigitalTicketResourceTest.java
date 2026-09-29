@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.customer;
 
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.sale.TicketLine;
+import com.intermarche.pos.domain.sale.TicketLineValuation;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -118,6 +119,116 @@ class DigitalTicketResourceTest {
             resource.view(7L, KEY, false);
         }
         assertEquals(1, ((List<?>) captured.get("buckets")).size());
+    }
+
+    /**
+     * Builds a per-line valuation trace for the digital-double placement tests.
+     *
+     * @param lineUid the valued line uid
+     * @param localTotal the register-local total
+     * @param valuedTotal the engine-valued total
+     * @param correction the correction added back, or null
+     * @param advantageLabel the advantage label, or null
+     * @param offerLabel the offer label, or null
+     * @param printMode the print placement, or null
+     * @return the configured valuation
+     */
+    private TicketLineValuation valuation(String lineUid, String localTotal, String valuedTotal,
+            String correction, String advantageLabel, String offerLabel, String printMode) {
+        TicketLineValuation valuation = new TicketLineValuation();
+        valuation.lineUid = lineUid;
+        valuation.localTotal = new BigDecimal(localTotal);
+        valuation.valuedTotal = new BigDecimal(valuedTotal);
+        valuation.correctionAmount = correction == null ? null : new BigDecimal(correction);
+        valuation.advantageLabel = advantageLabel;
+        valuation.offerLabel = offerLabel;
+        valuation.advantagePrintMode = printMode;
+        return valuation;
+    }
+
+    /**
+     * The digital double places a LINE-mode advantage under its article (spec
+     * §1): the trace lands in {@code lineAdvantages} keyed by line uid, with the
+     * signed delta formatted with a French comma, and the footer stays empty.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void viewPlacesLineAdvantageUnderItsLine() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", ticket.id))
+                    .thenReturn(List.of(valuation("U1", "10.00", "8.00", null, "DISC", "OFFRE", "LINE")));
+            resource.view(7L, KEY, false);
+        }
+        Map<String, Map<String, String>> lineAdvantages =
+                (Map<String, Map<String, String>>) captured.get("lineAdvantages");
+        assertEquals(1, lineAdvantages.size());
+        assertEquals("DISC", lineAdvantages.get("U1").get("label"));
+        assertEquals("-2,00", lineAdvantages.get("U1").get("amount"));
+        assertTrue(((List<?>) captured.get("footerAdvantages")).isEmpty());
+    }
+
+    /**
+     * The digital double places an advantage with no printMode in the footer
+     * (spec §1, Option B default), falling back to the offer label when the
+     * advantage label is absent.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void viewPlacesFooterAdvantageWithOfferLabelFallback() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", ticket.id))
+                    .thenReturn(List.of(valuation("U1", "10.00", "8.00", null, null, "OFFRE", null)));
+            resource.view(7L, KEY, false);
+        }
+        List<Map<String, String>> footer = (List<Map<String, String>>) captured.get("footerAdvantages");
+        assertEquals(1, footer.size());
+        assertEquals("OFFRE", footer.get(0).get("label"));
+        assertTrue(((Map<?, ?>) captured.get("lineAdvantages")).isEmpty());
+    }
+
+    /**
+     * The digital double falls back to the "AVANTAGE" label when neither label
+     * is set, and subtracts a correction from the delta (spec §1): 9,00−10,00
+     * less a 1,00 correction reads as −2,00 €.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void viewUsesDefaultLabelAndSubtractsCorrection() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", ticket.id))
+                    .thenReturn(List.of(valuation("U1", "10.00", "9.00", "1.00", null, null, "FOOTER")));
+            resource.view(7L, KEY, false);
+        }
+        List<Map<String, String>> footer = (List<Map<String, String>>) captured.get("footerAdvantages");
+        assertEquals("AVANTAGE", footer.get(0).get("label"));
+        assertEquals("-2,00", footer.get(0).get("amount"));
+    }
+
+    /**
+     * The digital double ignores a valuation whose delta is zero (the
+     * zero-delta arm): neither placement receives an entry.
+     */
+    @Test
+    void viewIgnoresZeroDeltaValuation() {
+        DigitalTicketResource resource = newResource(Optional.empty());
+        Ticket ticket = closableTicket(KEY, Ticket.TicketStatus.CLOSED);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(7L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", ticket.id))
+                    .thenReturn(List.of(valuation("U1", "10.00", "10.00", null, "DISC", "OFFRE", "LINE")));
+            resource.view(7L, KEY, false);
+        }
+        assertTrue(((Map<?, ?>) captured.get("lineAdvantages")).isEmpty());
+        assertTrue(((List<?>) captured.get("footerAdvantages")).isEmpty());
     }
 
     // --- view / load happy path + render ticket-present ---

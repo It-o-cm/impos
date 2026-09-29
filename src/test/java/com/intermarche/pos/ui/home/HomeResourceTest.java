@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -74,6 +75,11 @@ class HomeResourceTest {
         resource.supervisor = mock(Template.class);
         resource.ticket = mock(Template.class);
         resource.drawerError = mock(Template.class);
+        resource.exchangeHealthService = mock(com.intermarche.pos.ui.supervision.ExchangeHealthService.class);
+        // The ticket-fragment poll settles a finished cheque reading on every
+        // answer (the register writes its draft from one thread at a time), so it
+        // reaches the payment service — a mock keeps that read from hitting null.
+        resource.paymentService = mock(com.intermarche.pos.ui.payment.PaymentService.class);
         return resource;
     }
 
@@ -333,7 +339,12 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance view = mock(TemplateInstance.class);
         when(resource.supervisor.data("state", resource.state)).thenReturn(view);
-        assertSame(view, resource.supervisorPage());
+        // The page now seeds the exchange-health panel and the one-shot relaunch
+        // notice too; every chained data(...) returns the same instance so the
+        // page's identity is unchanged.
+        when(view.data(any(), any())).thenReturn(view);
+        assertSame(view, resource.supervisorPage(null, true));
+        verify(resource.exchangeHealthService).build();
     }
 
     /**

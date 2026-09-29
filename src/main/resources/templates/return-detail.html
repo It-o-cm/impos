@@ -80,6 +80,10 @@
 
     .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
 
+    .return-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+    .reason-btn { flex: 1 1 45%; text-align: center; padding: 6px 4px; border-radius: 6px; text-decoration: none; font-size: var(--fs-label); border: 1px solid var(--border-strong); color: var(--text-main); background: var(--bg-page); }
+    .reason-btn.on { background: var(--primary); border-color: var(--primary); color: white; font-weight: bold; }
+
     .btn { height: 2.625rem; display: flex; align-items: center; justify-content: center; padding: 0 12px; }
 
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 5rem; }
@@ -184,6 +188,21 @@
 
         <div id="numpadContainer"></div>
 
+        {#if reasons && !reasons.isEmpty()}
+        <!-- LC-05-05-01/02 : le motif de retour, choisi dans la liste
+             paramétrée au BackOffice, s'applique à tout le retour. Le choix
+             persiste côté serveur pour survivre à l'aval manager. -->
+        <div class="return-reasons">
+          {#for reason in reasons}
+          {#if state.refund.returnReason == reason}
+          <a href="/return/reason?reason={reason}" class="reason-btn on">{reason}</a>
+          {#else}
+          <a href="/return/reason?reason={reason}" class="reason-btn">{reason}</a>
+          {/if}
+          {/for}
+        </div>
+        {/if}
+
         <div class="payment-grid">
           {#if state.refund.errorMessage??}
             <div style="grid-column: 1 / -1; background: rgba(211,47,47,0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; font-size: var(--fs-label); text-align: center; border-radius: 6px;">{state.refund.errorMessage}</div>
@@ -192,6 +211,15 @@
           <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">CARTE BANCAIRE</a>
           <a href="/return/pay/voucher" class="btn btn-muted" onclick="return submitAction(this);">BON D'ACHAT</a>
           <a href="/return/pay/loyalty" class="btn btn-warning" onclick="return submitAction(this);">CAGNOTTE</a>
+          {! LC-05-06-05 credit-client refund: name the in-account customer, then
+           ! hand the amount back onto their account. The partial-amount form
+           ! above lets one return be split across several of these means
+           ! (LC-05-06-01), leg by leg. !}
+          <a href="/return/pay/credit" class="btn btn-info" style="grid-column: 1 / -1;" onclick="return submitAction(this);">CRÉDIT CLIENT{#if state.refund.creditAccountName??} — {state.refund.creditAccountName}{/if}</a>
+          <form action="/return/credit-account" method="GET" style="grid-column: 1 / -1; display:flex; gap:6px;">
+            <input type="text" name="number" placeholder="N° compte client" value="{state.refund.creditAccountNumber ?: ''}" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;">
+            <button type="submit" class="btn btn-muted">CLIENT</button>
+          </form>
         </div>
       </div>
     </div>

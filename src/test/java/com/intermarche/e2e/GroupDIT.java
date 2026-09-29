@@ -2,7 +2,9 @@ package com.intermarche.e2e;
 
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Locator;
@@ -106,6 +108,29 @@ public class GroupDIT {
     PosState posState;
 
     /**
+     * The referential settings service, injected so D4–D8 can toggle the fidelity
+     * flags (external-enabled, allow-multiple-scan), always restored afterwards.
+     */
+    @Inject
+    PosSettingsService posSettings;
+
+    /**
+     * The fidelity service, injected as the oracle for D7's rule that a
+     * not-configured store is NOT reported as "unavailable".
+     */
+    @Inject
+    FidelityService fidelityService;
+
+    /** A looked-up ACTIVE card number for the D5 forged-select attach. */
+    private static final String CARD_ACTIVE = "2990000000040";
+
+    /** A looked-up RESILIATED card number for the D5 refusal. */
+    private static final String CARD_RESILIATED = "2990000000057";
+
+    /** A looked-up PENDING_ACTIVATION card number for the D5 attach-with-notice. */
+    private static final String CARD_PENDING = "2990000000064";
+
+    /**
      * D1 — Scan carte en cours de panier.
      * <p>
      * A fidelity card scanned on the bus during a running cart is attached: the
@@ -207,6 +232,151 @@ public class GroupDIT {
         page.close();
     }
 
+    /**
+     * D4 — Recherche manuelle (lookup) — branche jouable en caisse seule.
+     * <p>
+     * A lookup against the imfid backend that is unreachable in an autonomous e2e
+     * run (default {@code :8060}) degrades to {@code SERVICE FIDÉLITÉ
+     * INDISPONIBLE}. That unavailable check runs FIRST (a breaker short-circuit),
+     * so the no-criterion, CRM-managed, service-refusal, empty-result, over-20 and
+     * real-match branches are only reachable with a live imfid (there is no
+     * in-repo imfid simulator) and are reported as residue.
+     */
+    @Test
+    void d04_recherche_manuelle_lookup() {
+        Page page = freshSale();
+        // A lookup against an unreachable imfid → the unavailable message,
+        // asserted on the rendered fidelity page (the POST is a PRG redirect).
+        postLookup("tel", "0600000000");
+        Assertions.assertTrue(fidelityPageHtml().contains("SERVICE FIDÉLITÉ INDISPONIBLE"),
+                "a lookup against an unreachable imfid must degrade to the unavailable message");
+        page.close();
+    }
+
+    /**
+     * D5 — Attachement d'une carte trouvée.
+     * <p>
+     * Driven through the SÉLECTIONNER endpoint ({@code /action/fidelity-select},
+     * the button's own POST) carrying the looked-up card's status, since a live
+     * match list needs imfid: an ACTIVE card attaches; a {@code RESILIATED} card
+     * is refused with {@code CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À
+     * L'ACCUEIL} and never attached; a {@code PENDING_ACTIVATION} card attaches
+     * with the notice {@code CARTE EN ATTENTE D'ACTIVATION - CAGNOTTE SANS
+     * UTILISATION}.
+     */
+    @Test
+    void d05_attachement_carte_trouvee() {
+        // --- ACTIVE → attached ---
+        Page page = freshSale();
+        postSelect(CARD_ACTIVE, "ACTIVE");
+        Assertions.assertTrue(posState.fidelity.active, "an ACTIVE looked-up card must attach");
+        Assertions.assertNull(posState.ticket.transientError, "an ACTIVE attach must raise no notice");
+        page.close();
+        // --- RESILIATED → refused, not attached ---
+        Page page2 = freshSale();
+        postSelect(CARD_RESILIATED, "RESILIATED");
+        Assertions.assertFalse(posState.fidelity.active, "a RESILIATED card must be refused (not attached)");
+        Assertions.assertNotNull(posState.fidelity.lastLookup, "the refusal must be stored in the lookup state");
+        Assertions.assertEquals("CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL",
+                posState.fidelity.lastLookup.message,
+                "a RESILIATED card must be refused with the accueil message");
+        page2.close();
+        // --- PENDING_ACTIVATION → attached + notice ---
+        Page page3 = freshSale();
+        postSelect(CARD_PENDING, "PENDING_ACTIVATION");
+        Assertions.assertTrue(posState.fidelity.active, "a PENDING_ACTIVATION card must attach");
+        Assertions.assertEquals("CARTE EN ATTENTE D'ACTIVATION - CAGNOTTE SANS UTILISATION",
+                posState.ticket.transientError, "a pending card must attach with the activation notice");
+        page3.close();
+    }
+
+    /**
+     * D6 — Consultation en magasin — branches jouables en caisse seule.
+     * <p>
+     * With no card attached the consultation shows {@code AUCUNE CARTE ATTACHÉE —
+     * SCANNEZ OU SAISISSEZ LA CARTE}; with a card attached but the external
+     * fidelity switched off at the referential it shows {@code SERVICE FIDÉLITÉ
+     * NON CONFIGURÉ}. The balances, translated movements and the 404
+     * ({@code CARTE FIDÉLITÉ INCONNUE}) branches require a controllable imfid and
+     * are reported as residue.
+     */
+    @Test
+    void d06_consultation_en_magasin() {
+        Page page = freshSale();
+        // No card attached → the "attach a card" message.
+        Assertions.assertTrue(fidelityPageHtml().contains("AUCUNE CARTE ATTACHÉE — SCANNEZ OU SAISISSEZ LA CARTE"),
+                "an empty consultation must invite scanning a card");
+        // A card attached but the external fidelity disabled → not configured.
+        scan(CARD_1);
+        page.locator("#fidIcon.active").waitFor();
+        posSettings.store("fidelity.external-enabled", "false");
+        try {
+            Assertions.assertTrue(fidelityPageHtml().contains("SERVICE FIDÉLITÉ NON CONFIGURÉ"),
+                    "consulting with the external fidelity disabled must report NON CONFIGURÉ");
+        } finally {
+            posSettings.store("fidelity.external-enabled", "true");
+        }
+        page.close();
+    }
+
+    /**
+     * D7 — Service dégradé / disjoncteur.
+     * <p>
+     * With imfid unreachable (the autonomous default), a scanned card still
+     * attaches locally and raises NO blocking error, and the sale continues and is
+     * valued without it. And a store that is simply NOT CONFIGURED is not the same
+     * as "unavailable": {@link FidelityService#isUnavailable()} stays false when
+     * the external fidelity is switched off.
+     */
+    @Test
+    void d07_service_degrade_disjoncteur() {
+        Page page = freshSale();
+        // imfid is down (:8060) in the autonomous run: the card attaches locally.
+        scan(CARD_1);
+        page.locator("#fidIcon.active").waitFor();
+        Assertions.assertTrue(posState.fidelity.active, "a card attaches locally even when imfid is down");
+        Assertions.assertNull(posState.ticket.transientError,
+                "a degraded fidelity service must raise no blocking error");
+        // The sale continues and is valued without fidelity.
+        scan(EAN_BAGUETTE);
+        page.getByText(LABEL_BAGUETTE).waitFor();
+        Assertions.assertEquals(1, posState.ticket.items.size(),
+                "the sale must continue normally under a degraded fidelity service");
+        // Not configured is NOT unavailable.
+        posSettings.store("fidelity.external-enabled", "false");
+        try {
+            Assertions.assertFalse(fidelityService.isUnavailable(),
+                    "a not-configured store must not count as unavailable");
+        } finally {
+            posSettings.store("fidelity.external-enabled", "true");
+        }
+        page.close();
+    }
+
+    /**
+     * D8 — Carte déjà scannée.
+     * <p>
+     * With multi-scan disabled at the referential, re-scanning an already-attached
+     * card is refused with {@code CARTE FIDÉLITÉ DÉJÀ SCANNÉE}. The flag is
+     * restored afterwards.
+     */
+    @Test
+    void d08_carte_deja_scannee() {
+        Page page = freshSale();
+        posSettings.store("fidelity.allow-multiple-scan", "false");
+        try {
+            scan(CARD_1);
+            page.locator("#fidIcon.active").waitFor();
+            Assertions.assertTrue(posState.fidelity.active, "the first card scan must attach");
+            scan(CARD_1);
+            Assertions.assertEquals("CARTE FIDÉLITÉ DÉJÀ SCANNÉE", posState.ticket.transientError,
+                    "a re-scan with multi-scan disabled must be refused");
+        } finally {
+            posSettings.store("fidelity.allow-multiple-scan", "true");
+        }
+        page.close();
+    }
+
     // --- Reusable gestures (login recipe & hardware bus) ---
 
     /**
@@ -237,9 +407,9 @@ public class GroupDIT {
         // No session yet: the unlock lands on the SESSION screen (drawer open,
         // that screen is not guarded). Close the drawer, install the float and
         // open the session, which flows straight into the sale.
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -264,6 +434,7 @@ public class GroupDIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -339,4 +510,78 @@ public class GroupDIT {
     private CashSession openSessionOnC04() {
         return QuarkusTransaction.requiringNew().call(() -> CashSession.findOpenByTerminal("C04"));
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
+    // --- Lot-1 (D4–D8) additions: fidelity lookup / select / consultation ---
+
+    /**
+     * Runs a fidelity lookup on its endpoint ({@code /action/fidelity-lookup},
+     * the form the RECHERCHER button posts) and returns the rendered response.
+     *
+     * @param mode the lookup mode (tel, email, name)
+     * @param value the criterion value (may be empty to exercise the guard)
+     * @return the endpoint's rendered response
+     */
+    private APIResponse postLookup(String mode, String value) {
+        return context.request().post(base.toString() + "action/fidelity-lookup", RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                .setData("mode=" + mode + "&value=" + value));
+    }
+
+    /**
+     * Attaches a looked-up card through the SÉLECTIONNER endpoint
+     * ({@code /action/fidelity-select}, the button's own POST) carrying the card
+     * and its status — the attach decision the service makes from that status.
+     *
+     * @param card the card number to attach
+     * @param status the card status (ACTIVE, RESILIATED, PENDING_ACTIVATION)
+     * @return the endpoint's rendered response
+     */
+    private APIResponse postSelect(String card, String status) {
+        return context.request().post(base.toString() + "action/fidelity-select", RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                .setData("card=" + card + "&lastName=&firstName=&status=" + status + "&email="));
+    }
+
+    /**
+     * Reads the rendered fidelity page ({@code GET /fidelity}), whose consultation
+     * panel carries the balance/movement messages.
+     *
+     * @return the rendered fidelity page HTML
+     */
+    private String fidelityPageHtml() {
+        return context.request().get(base.toString() + "fidelity").text();
+    }
+
 }

@@ -1,7 +1,10 @@
 package com.intermarche.e2e;
 
+import com.intermarche.pos.domain.payment.StoredValue;
+import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.domain.sale.Ticket;
+import com.intermarche.pos.domain.sync.FidEvent;
 import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.CashSessionService;
@@ -124,6 +127,12 @@ public class GroupHIT {
 
     /** The uppercased line label of {@link #EAN_HUILE} on a ticket. */
     private static final String LABEL_HUILE = "HUILE D'OLIVE 1L";
+
+    /** A valid fidelity card ({@code ^299\d{10}$}) attached to the H6 sale. */
+    private static final String FIDELITY_CARD = "2990000000033";
+
+    /** A gift-card money product, EAN, 25,00 € — the H7 non-returnable line. */
+    private static final String EAN_GIFT25 = "3400025000001";
 
     /** The store-voucher number format printed by a voucher refund. */
     private static final Pattern STORE_VOUCHER = Pattern.compile("50\\d{12}");
@@ -408,6 +417,251 @@ public class GroupHIT {
         page.close();
     }
 
+    /**
+     * H6 — Remboursement en cagnotte (fidélité).
+     * <p>
+     * A LOYALTY refund credits the customer's loyalty balance: on a closed ticket
+     * that CARRIES a fidelity card, the CAGNOTTE method shows {@code CREDIT
+     * FIDELITE <x> E} on the customer display, prints a credit receipt
+     * ({@code REMBOURSEMENT EN CAGNOTTE}) and posts a {@code TICKET_RETURN}
+     * fidelity event to the outbox — the refund is created as {@code LOYALTY}. On
+     * a closed ticket WITHOUT a fidelity card the same method is refused INSIDE
+     * the creation transaction with {@code AUCUNE CARTE FIDÉLITÉ SUR LE TICKET
+     * D'ORIGINE}: the transaction commits nothing (rollback), so no refund is
+     * persisted.
+     */
+    @Test
+    void h6_remboursement_en_cagnotte() {
+        // --- Case 1: original ticket WITH a fidelity card → loyalty credit ---
+        Page sale = freshSale();
+        Long withCard = closeCashSaleWithCardOn(sale, "10", FIDELITY_CARD, EAN_HUILE);
+        sale.close();
+        Assertions.assertEquals(FIDELITY_CARD, fidelityCardOf(withCard),
+                "the built ticket must carry the scanned fidelity card (H6 precondition)");
+        String numberWith = ticketNumber(withCard);
+        Long lineWith = firstLineId(withCard);
+        long fidBefore = fidEventCount(FidEvent.EventType.TICKET_RETURN);
+        Page page = freshSale();
+        assertTicketFoundBySearch(numberWith);
+        openReturnDetail(page, withCard);
+        selectReturnLine(page, lineWith);
+        addReturnQty(page, lineWith);
+        clearPrinter();
+        page.navigate(base.toString() + "return/pay/loyalty");
+        // Approve WITHOUT navigating away, so the customer display still carries
+        // the credit message when it is read (a later sale-screen poll would
+        // overwrite the customer display).
+        approveEndorsementNoNav(page);
+        // The customer display carries the raw-scale amount (4 decimals), unlike
+        // the 2-decimal printed receipt below — assert the display's exact form.
+        Assertions.assertTrue(displayContent().contains("CREDIT FIDELITE 6,0000 E"),
+                "the loyalty refund must show the credit on the customer display, was: " + displayContent());
+        List<RefundSnap> refunds = refundsFor(withCard);
+        Assertions.assertEquals(1, refunds.size(), "the loyalty refund must be created");
+        Assertions.assertEquals("LOYALTY", refunds.get(0).method, "the refund method must be LOYALTY");
+        Assertions.assertEquals(0, refunds.get(0).totalAmount.compareTo(new BigDecimal("6.00")),
+                "the loyalty refund must credit the 6,00 € line");
+        String paper = printerContent();
+        Assertions.assertTrue(paper.contains("REMBOURSEMENT EN CAGNOTTE"),
+                "a loyalty refund must print the credit receipt, paper was:\n" + paper);
+        Assertions.assertTrue(paper.contains("CREDIT CARTE") && paper.contains("+6,00 E"),
+                "the credit receipt must carry the +6,00 € credit line, paper was:\n" + paper);
+        Assertions.assertEquals(fidBefore + 1, fidEventCount(FidEvent.EventType.TICKET_RETURN),
+                "the loyalty refund must post exactly one TICKET_RETURN fidelity event");
+        closeDrawer();
+        page.close();
+        // --- Case 2: original ticket WITHOUT a fidelity card → transaction refusal ---
+        Page sale2 = freshSale();
+        Long noCard = closeCashSaleOn(sale2, "10", EAN_HUILE);
+        sale2.close();
+        Assertions.assertNull(fidelityCardOf(noCard),
+                "the control ticket must carry NO fidelity card");
+        String numberNo = ticketNumber(noCard);
+        Long lineNo = firstLineId(noCard);
+        Page page2 = freshSale();
+        assertTicketFoundBySearch(numberNo);
+        openReturnDetail(page2, noCard);
+        selectReturnLine(page2, lineNo);
+        addReturnQty(page2, lineNo);
+        page2.navigate(base.toString() + "return/pay/loyalty");
+        // The card-presence guard is inside the creation transaction, so the
+        // endorsement IS opened and approved; the transaction then refuses.
+        approveEndorsementWithManager(page2);
+        page2.navigate(base.toString() + "return");
+        page2.getByText("AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE").waitFor();
+        Assertions.assertEquals("AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE", posState.refund.errorMessage,
+                "a loyalty refund on a card-less ticket must be refused in transaction");
+        Assertions.assertTrue(refundsFor(noCard).isEmpty(),
+                "the in-transaction refusal must roll back — no refund persisted");
+        page2.close();
+    }
+
+    /**
+     * H7 — Retour interdit sur carte cadeau.
+     * <p>
+     * A gift-card (money product) line cannot be refunded: selecting it and
+     * dialling a return quantity is refused at STAGING with {@code RETOUR
+     * INTERDIT SUR CARTE CADEAU}, the staged quantity stays zero, no endorsement
+     * is opened and no refund is created.
+     */
+    @Test
+    void h7_retour_interdit_carte_cadeau() {
+        // --- Build a closed ticket whose only line is a gift card (25,00 €) ---
+        Page sale = freshSale();
+        Long ticketId = closeCashSaleOn(sale, "30", EAN_GIFT25);
+        sale.close();
+        String number = ticketNumber(ticketId);
+        Long lineId = firstLineId(ticketId);
+        // --- Open it, select the gift-card line and try to dial a quantity ---
+        Page page = freshSale();
+        assertTicketFoundBySearch(number);
+        openReturnDetailNoLabel(page, ticketId);
+        selectReturnLine(page, lineId);
+        addReturnQty(page, lineId);
+        // --- Staging refusal: message set, quantity zero, no endorsement/refund ---
+        page.getByText("RETOUR INTERDIT SUR CARTE CADEAU").waitFor();
+        Assertions.assertEquals("RETOUR INTERDIT SUR CARTE CADEAU", posState.refund.errorMessage,
+                "a gift-card line must be refused for refund at staging");
+        Assertions.assertEquals(0, posState.refund.getReturnQty(lineId).compareTo(BigDecimal.ZERO),
+                "the gift-card line must stage no returnable quantity");
+        Assertions.assertFalse(posState.endorsement.active,
+                "a staging refusal must not open an endorsement");
+        Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
+                "no refund must be created on a gift-card line");
+        page.close();
+    }
+
+    /**
+     * H8 — Méthode non autorisée au remboursement &amp; rien à rembourser.
+     * <p>
+     * Two guards of {@code RefundService.requestRefund}, exercised on a closed
+     * ticket: requesting any method on a ZERO staging is refused with {@code RIEN
+     * À REMBOURSER}; and a refund method whose administered tender forbids refunds
+     * ({@code refundAllowed = false}) is refused with {@code MOYEN NON AUTORISE AU
+     * REMBOURSEMENT}. Neither opens an endorsement nor creates a refund. The
+     * administered {@code CARD} tender row is removed afterwards to leave the
+     * shared referential clean.
+     */
+    @Test
+    void h8_methode_non_autorisee_et_rien_a_rembourser() {
+        // --- Build a plain 6,00 € closed ticket ---
+        Page sale = freshSale();
+        Long ticketId = closeCashSaleOn(sale, "10", EAN_HUILE);
+        sale.close();
+        String number = ticketNumber(ticketId);
+        Long lineId = firstLineId(ticketId);
+        // --- Guard 1: request a method on a zero staging → RIEN À REMBOURSER ---
+        Page a = freshSale();
+        assertTicketFoundBySearch(number);
+        openReturnDetail(a, ticketId);
+        a.navigate(base.toString() + "return/pay/cash");
+        a.getByText("RIEN À REMBOURSER").waitFor();
+        Assertions.assertFalse(posState.endorsement.active,
+                "a zero-total refund request must not open an endorsement");
+        Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
+                "a zero staging must create no refund");
+        a.close();
+        // --- Guard 2: administer CARD as refund-forbidden and request it ---
+        forbidCardRefund();
+        try {
+            Page b = freshSale();
+            assertTicketFoundBySearch(number);
+            openReturnDetail(b, ticketId);
+            selectReturnLine(b, lineId);
+            addReturnQty(b, lineId);
+            b.navigate(base.toString() + "return/pay/card");
+            b.getByText("MOYEN NON AUTORISE AU REMBOURSEMENT").waitFor();
+            Assertions.assertEquals("MOYEN NON AUTORISE AU REMBOURSEMENT", posState.refund.errorMessage,
+                    "a refund-forbidden tender must be refused before any endorsement");
+            Assertions.assertFalse(posState.endorsement.active,
+                    "a forbidden refund method must not open an endorsement");
+            Assertions.assertTrue(refundsFor(ticketId).isEmpty(),
+                    "a forbidden refund method must create no refund");
+            b.close();
+        } finally {
+            // Restore the referential: drop the administered CARD tender row.
+            allowAllRefunds();
+        }
+    }
+
+    /**
+     * H9 — Bon d'avoir (VOUCHER), registre sans plafond.
+     * <p>
+     * A VOUCHER refund now issues a stored-value {@code CREDIT_NOTE} of ANY amount
+     * — the historical 99,99 € encoded-format cap is lifted. A ticket well above
+     * that cap (102,00 €) refunded as a voucher prints an {@code AVOIR} bearing a
+     * {@code 297}-prefixed registry number, and the registry holds a note whose
+     * initial amount and balance are the full 102,00 € (consultable — cross F19).
+     * The ticket-search guards are also proven: a pattern under three characters
+     * yields {@code Saisir au moins 3 caractères}, and a three-plus pattern with
+     * no match yields {@code Aucun ticket trouvé}.
+     */
+    @Test
+    void h9_bon_avoir_registre_sans_plafond() {
+        // --- Search guards (no ticket needed) ---
+        APIResponse tooShort = context.request().post(base.toString() + "return/search",
+                RequestOptions.create()
+                        .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                        .setData("rawValue=ab"));
+        Assertions.assertTrue(tooShort.text().contains("Saisir au moins 3 caractères"),
+                "a search pattern under three characters must be refused with the floor message");
+        APIResponse noHit = context.request().post(base.toString() + "return/search",
+                RequestOptions.create()
+                        .setHeader("Content-Type", "application/x-www-form-urlencoded")
+                        .setData("rawValue=ZZ999X"));
+        Assertions.assertTrue(noHit.text().contains("Aucun ticket trouvé"),
+                "a three-plus pattern with no match must render the empty-result message");
+        // --- Build a 102,00 € ticket (17 × 6,00 €), above the old 99,99 € cap ---
+        Page sale = freshSale();
+        for (int i = 0; i < 17; i++) scan(EAN_HUILE);
+        goPay(sale);
+        payCashComplete(sale, "200");
+        Long ticketId = posState.payment.ticketDbId;
+        Assertions.assertNotNull(ticketId, "the settled sale must carry a persisted draft");
+        finishSale(sale);
+        sale.close();
+        String number = ticketNumber(ticketId);
+        // --- Refund the full 102,00 € as a voucher (free amount = ticket total) ---
+        Page page = freshSale();
+        assertTicketFoundBySearch(number);
+        openReturnDetail(page, ticketId);
+        page.navigate(base.toString() + "return/edit-amount");
+        page.locator("#mainInput").waitFor();
+        tapDigits(page.locator("#numpadContainer"), "102");
+        page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("ESPÈCES").setExact(true)).click();
+        page.getByText("Montant Retour").waitFor();
+        Assertions.assertEquals(0, posState.refund.getTotalRefundAmount().compareTo(new BigDecimal("102")),
+                "the full 102,00 € must stage within the ticket cap");
+        clearPrinter();
+        page.navigate(base.toString() + "return/pay/voucher");
+        approveEndorsementWithManager(page);
+        // --- The created refund and the printed AVOIR ---
+        List<RefundSnap> refunds = refundsFor(ticketId);
+        Assertions.assertEquals(1, refunds.size(), "the voucher refund must be created");
+        Assertions.assertEquals("VOUCHER", refunds.get(0).method, "the refund method must be VOUCHER");
+        Assertions.assertEquals(0, refunds.get(0).totalAmount.compareTo(new BigDecimal("102.00")),
+                "the credit note must carry the full 102,00 €, above the old 99,99 € cap");
+        String paper = printerContent();
+        Assertions.assertTrue(paper.contains("AVOIR"),
+                "the printed credit note must be titled AVOIR, paper was:\n" + paper);
+        Matcher m = CREDIT_NOTE.matcher(paper);
+        Assertions.assertTrue(m.find(),
+                "the credit note must carry a 297-prefixed registry number, paper was:\n" + paper);
+        String noteNumber = m.group();
+        // --- The registry holds the note at its full, uncapped amount ---
+        StoredValueSnap sv = storedValue(noteNumber);
+        Assertions.assertNotNull(sv, "the registry must hold the issued credit note " + noteNumber);
+        Assertions.assertEquals("CREDIT_NOTE", sv.kind, "the instrument must be a CREDIT_NOTE");
+        Assertions.assertEquals("ACTIVE", sv.status, "a fresh credit note must be ACTIVE");
+        Assertions.assertEquals(0, sv.initialAmount.compareTo(new BigDecimal("102.00")),
+                "the note's initial amount must be the full 102,00 €");
+        Assertions.assertEquals(0, sv.balance.compareTo(new BigDecimal("102.00")),
+                "an unused note keeps its full 102,00 € balance (consultable — cross F19)");
+        Assertions.assertTrue(sv.initialAmount.compareTo(new BigDecimal("99.99")) > 0,
+                "the 102,00 € note proves the historical 99,99 € cap is lifted");
+        page.close();
+    }
+
     // --- Reusable gestures (login recipe, sale build, hardware bus) ---
 
     /**
@@ -435,9 +689,9 @@ public class GroupHIT {
         if (openSessionOnC04() != null) return;
         Page page = context.newPage();
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -477,6 +731,7 @@ public class GroupHIT {
         }
         tapDigits(page.locator("#keyboardArea"), pin);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
     }
 
     /**
@@ -886,4 +1141,190 @@ public class GroupHIT {
             this.totalExcludingTax = totalExcludingTax;
         }
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
+    // --- Lot-1 (H6–H9) additions: fidelity refund, gift card, tender rules, registry ---
+
+    /**
+     * Builds and finalizes a cash sale that also attaches a fidelity card:
+     * scans the products, presents the card on the bus (synced onto the draft),
+     * tenders cash and completes — the origin ticket for a loyalty refund. The
+     * card is scanned AFTER a product so a draft already exists and the
+     * scan-driven sync copies it onto the persisted ticket.
+     *
+     * @param page the Playwright page on the empty sale screen
+     * @param cashDigits the cash amount to tap (must cover the total)
+     * @param card the fidelity card to attach
+     * @param eans the product EANs to scan
+     * @return the database id of the closed ticket
+     */
+    private Long closeCashSaleWithCardOn(Page page, String cashDigits, String card, String... eans) {
+        for (String ean : eans) scan(ean);
+        scan(card);
+        page.locator("#fidIcon.active").waitFor();
+        goPay(page);
+        payCashComplete(page, cashDigits);
+        Long ticketId = posState.payment.ticketDbId;
+        Assertions.assertNotNull(ticketId, "the settled sale must carry a persisted draft");
+        finishSale(page);
+        return ticketId;
+    }
+
+    /**
+     * Opens a found ticket's refund detail without asserting any product label —
+     * used when the line is not the HUILE fixture (e.g. a gift card).
+     *
+     * @param page the Playwright page driving the register
+     * @param ticketId the database id of the ticket to open
+     */
+    private void openReturnDetailNoLabel(Page page, Long ticketId) {
+        page.navigate(base.toString() + "return/select/" + ticketId);
+        page.getByText("Montant Retour").waitFor();
+    }
+
+    /**
+     * Validates the pending endorsement as the manager WITHOUT navigating back to
+     * the sale afterwards, so a side effect written on the customer display (the
+     * loyalty credit message) can be read before a later poll overwrites it.
+     *
+     * @param page the Playwright page carrying the endorsement modal
+     */
+    private void approveEndorsementNoNav(Page page) {
+        scan(MANAGER_BADGE);
+        page.getByText("Code PIN :").waitFor();
+        tapDigits(page.locator("#endorseKeyboardArea"), MANAGER_PIN);
+        page.locator("#endorseModal").getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("SUIVANT").setExact(true)).click();
+        waitForEndorsementConsumed();
+    }
+
+    /**
+     * Reads the current customer-display text off the hardware simulator.
+     *
+     * @return the last message pushed to the customer display
+     */
+    private String displayContent() {
+        return context.request().get(base.toString() + "api/hardware/display").text();
+    }
+
+    /**
+     * Counts the fidelity outbox events of a given type.
+     *
+     * @param type the fidelity event type
+     * @return the number of queued events of that type
+     */
+    private long fidEventCount(FidEvent.EventType type) {
+        return QuarkusTransaction.requiringNew().call(() -> FidEvent.count("eventType", type));
+    }
+
+    /**
+     * Reads the fidelity card persisted on a ticket.
+     *
+     * @param ticketId the database id of the ticket
+     * @return the ticket's fidelity card number, or null when none is attached
+     */
+    private String fidelityCardOf(Long ticketId) {
+        return QuarkusTransaction.requiringNew().call(() -> ((Ticket) Ticket.findById(ticketId)).fidelityCard);
+    }
+
+    /**
+     * Administers a {@code CARD} tender row that forbids refunds (BO-03-02-15),
+     * so a card refund is refused with {@code MOYEN NON AUTORISE AU
+     * REMBOURSEMENT}. No tender is seeded by default (a missing tender is
+     * allowed), so the row is created for the guard and dropped afterwards.
+     */
+    private void forbidCardRefund() {
+        QuarkusTransaction.requiringNew().run(() -> {
+            TenderDefinition t = new TenderDefinition();
+            t.code = "CARD";
+            t.functionalId = "CARDRF";
+            t.label = "Carte bancaire (refund forbidden, test)";
+            t.refundAllowed = false;
+            t.persist();
+        });
+    }
+
+    /**
+     * Removes the administered {@code CARD} tender row, restoring the default
+     * "no tender defined = refund allowed" state for the shared referential.
+     */
+    private void allowAllRefunds() {
+        QuarkusTransaction.requiringNew().run(() -> TenderDefinition.delete("code = ?1", "CARD"));
+    }
+
+    /**
+     * Reads a stored-value instrument off the registry into an immutable
+     * snapshot, so assertions never hold a live entity.
+     *
+     * @param number the registry number to look up
+     * @return the snapshot, or null when the registry never issued the number
+     */
+    private StoredValueSnap storedValue(String number) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            StoredValue sv = StoredValue.findByNumber(number);
+            return sv == null ? null
+                    : new StoredValueSnap(sv.kind.name(), sv.status.name(), sv.initialAmount, sv.balance);
+        });
+    }
+
+    /**
+     * Immutable snapshot of a stored-value instrument's durable fields.
+     */
+    private static final class StoredValueSnap {
+        /** The instrument kind (CREDIT_NOTE, GIFT_CARD). */
+        final String kind;
+        /** The lifecycle status (ACTIVE, EXHAUSTED). */
+        final String status;
+        /** The amount the instrument was issued with. */
+        final BigDecimal initialAmount;
+        /** The current redeemable balance. */
+        final BigDecimal balance;
+
+        /**
+         * Creates a stored-value snapshot.
+         *
+         * @param kind the instrument kind
+         * @param status the lifecycle status
+         * @param initialAmount the issued amount
+         * @param balance the current balance
+         */
+        StoredValueSnap(String kind, String status, BigDecimal initialAmount, BigDecimal balance) {
+            this.kind = kind;
+            this.status = status;
+            this.initialAmount = initialAmount;
+            this.balance = balance;
+        }
+    }
+
 }

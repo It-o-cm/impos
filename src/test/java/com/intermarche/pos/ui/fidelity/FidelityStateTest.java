@@ -187,6 +187,41 @@ class FidelityStateTest {
         assertEquals("F&L-SAM", line.ruleCode);
         assertEquals("Fruits & légumes samedi", line.label);
         assertEquals(0, new BigDecimal("0.75").compareTo(line.amount));
+        assertNull(line.advantageType);
+        assertNull(line.advantageTypeOrder);
+    }
+
+    /**
+     * The advantage-carrying constructor keeps the five grouping fields (imfid
+     * response A).
+     */
+    @Test
+    void earnLineCarriesTheAdvantageGrouping() {
+        FidelityState.EarnLine line = new FidelityState.EarnLine("BOOST", "Boost marque",
+                new BigDecimal("1.50"), "PRODUCT", "Vos avantages produits", 10,
+                "FRAIS", "Produits frais");
+        assertEquals("PRODUCT", line.advantageType);
+        assertEquals("Vos avantages produits", line.advantageTypeLabel);
+        assertEquals(10, line.advantageTypeOrder);
+        assertEquals("FRAIS", line.advantageCategory);
+        assertEquals("Produits frais", line.advantageCategoryLabel);
+    }
+
+    /**
+     * {@code clearEarn()} also drops the projected balance, its as-of and the
+     * anonymous-projection flag (imfid responses B and C), so a fresh valuation
+     * never shows a stale forecast.
+     */
+    @Test
+    void clearEarnAlsoResetsTheProjectionFields() {
+        FidelityState fid = new FidelityState();
+        fid.projectedAfterEarn = new BigDecimal("46.20");
+        fid.balanceAsOf = "2026-09-17T14:01:57";
+        fid.anonymousProjection = true;
+        fid.clearEarn();
+        assertNull(fid.projectedAfterEarn);
+        assertNull(fid.balanceAsOf);
+        assertFalse(fid.anonymousProjection);
     }
 
     /**

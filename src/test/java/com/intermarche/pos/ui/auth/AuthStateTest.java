@@ -90,4 +90,98 @@ class AuthStateTest {
         state.clearScannedBadge();
         Assertions.assertNull(state.scannedBadgeId);
     }
+
+    /**
+     * Verifies that pause moves the logged-in operator identity aside into the
+     * lockedOperator fields, clears the active operator, locks the register and
+     * empties the badge and close-request mailboxes.
+     */
+    @Test
+    void pauseMovesOperatorAsideAndLocks() {
+        AuthState state = new AuthState();
+        state.login(7L, "Alice", "12341234");
+        state.setScannedBadge("BADGE-77");
+        state.closeRequestedByBadge = true;
+        state.pause();
+        Assertions.assertEquals(7L, state.lockedOperatorId);
+        Assertions.assertEquals("Alice", state.lockedOperatorName);
+        Assertions.assertEquals("12341234", state.lockedOperatorBadgeId);
+        Assertions.assertTrue(state.isLocked);
+        Assertions.assertNull(state.operatorId);
+        Assertions.assertEquals("", state.operatorName);
+        Assertions.assertNull(state.operatorBadgeId);
+        Assertions.assertNull(state.scannedBadgeId);
+        Assertions.assertFalse(state.closeRequestedByBadge);
+    }
+
+    /**
+     * Verifies that isPaused is false on a register that is not locked, even
+     * when a locked-operator id lingers (the isLocked arm false).
+     */
+    @Test
+    void isPausedFalseWhenNotLocked() {
+        AuthState state = new AuthState();
+        state.isLocked = false;
+        state.lockedOperatorId = 7L;
+        Assertions.assertFalse(state.isPaused());
+    }
+
+    /**
+     * Verifies that isPaused is false on a locked register with no locked
+     * operator (a free lock / fermeture, the lockedOperatorId arm null).
+     */
+    @Test
+    void isPausedFalseWhenLockedWithoutLockedOperator() {
+        AuthState state = new AuthState();
+        state.isLocked = true;
+        state.lockedOperatorId = null;
+        Assertions.assertFalse(state.isPaused());
+    }
+
+    /**
+     * Verifies that isPaused is true on a locked register that holds a locked
+     * operator (both arms true).
+     */
+    @Test
+    void isPausedTrueWhenLockedWithLockedOperator() {
+        AuthState state = new AuthState();
+        state.login(7L, "Alice", "12341234");
+        state.pause();
+        Assertions.assertTrue(state.isPaused());
+    }
+
+    /**
+     * Verifies that login clears any lingering locked-operator identity and the
+     * forced-password-change flag left by a previous pause.
+     */
+    @Test
+    void loginClearsLockedOperatorAndPasswordFlag() {
+        AuthState state = new AuthState();
+        state.lockedOperatorId = 3L;
+        state.lockedOperatorName = "Old";
+        state.lockedOperatorBadgeId = "00000000";
+        state.passwordChangeRequired = true;
+        state.login(7L, "Alice", "12341234");
+        Assertions.assertNull(state.lockedOperatorId);
+        Assertions.assertEquals("", state.lockedOperatorName);
+        Assertions.assertNull(state.lockedOperatorBadgeId);
+        Assertions.assertTrue(state.passwordChangeRequired);
+    }
+
+    /**
+     * Verifies that logout clears the locked-operator identity and the
+     * forced-password-change flag (a fermeture forgets everything).
+     */
+    @Test
+    void logoutClearsLockedOperatorAndPasswordFlag() {
+        AuthState state = new AuthState();
+        state.login(7L, "Alice", "12341234");
+        state.pause();
+        state.passwordChangeRequired = true;
+        state.logout();
+        Assertions.assertNull(state.lockedOperatorId);
+        Assertions.assertEquals("", state.lockedOperatorName);
+        Assertions.assertNull(state.lockedOperatorBadgeId);
+        Assertions.assertFalse(state.passwordChangeRequired);
+    }
 }

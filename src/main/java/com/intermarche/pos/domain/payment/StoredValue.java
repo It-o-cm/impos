@@ -76,6 +76,14 @@ public class StoredValue extends PanacheEntity {
     @Column(name = "exhausted_at")
     public LocalDateTime exhaustedAt;
 
+    /**
+     * The end of the instrument's validity (LC-05-06-07), or null when it never
+     * expires. Set on a credit note (avoir) at issue and printed on the AVOIR
+     * ticket; the redemption side may later refuse an expired instrument.
+     */
+    @Column(name = "valid_until")
+    public LocalDateTime validUntil;
+
     /** The instrument kinds of the registry. */
     public enum Kind {
         /** A refund-issued credit note (avoir). */

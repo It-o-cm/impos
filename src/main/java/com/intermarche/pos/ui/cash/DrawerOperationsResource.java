@@ -68,6 +68,9 @@ public class DrawerOperationsResource {
     /** The withdrawal screen. */
     @Inject @Location("withdrawal") Template withdrawal;
 
+    /** The coin-supply (apport de monnaie) screen (EXP-15). */
+    @Inject @Location("apport") Template apport;
+
     /** The settlement-transfer screen. */
     @Inject @Location("transfer") Template transfer;
 
@@ -130,6 +133,103 @@ public class DrawerOperationsResource {
                 .data("threshold", posSettingsService.cashMovementEndorsementThreshold().toPlainString())
                 .data("saved", ok != null)
                 .data("error", messageOf(error));
+    }
+
+    /**
+     * Shows the coin-supply (apport de monnaie) screen (EXP-15): cash brought
+     * into the drawer, entered denomination by denomination like the cash
+     * withdrawal, reusing the count-page fragment tabs.
+     *
+     * @param error an optional error code from a redirect
+     * @param ok a non-null flag when the previous apport was recorded
+     * @return the apport page
+     */
+    @GET
+    @Path("/apport")
+    @Produces(MediaType.TEXT_HTML)
+    public TemplateInstance apportPage(@QueryParam("error") String error,
+                                       @QueryParam("ok") String ok) {
+        LOGGER.info("Entering method apportPage with error: " + error + ", ok: " + ok);
+        LOGGER.info("Exiting method apportPage");
+        return apport
+                .data("state", state)
+                .data("bills", cashCountService.getBills())
+                .data("coins", cashCountService.getCoins())
+                .data("rolls", cashCountService.getRolls())
+                .data("threshold", posSettingsService.cashMovementEndorsementThreshold().toPlainString())
+                .data("saved", ok != null)
+                .data("error", messageOf(error));
+    }
+
+    /**
+     * Records a coin-supply movement (EXP-15): a cash DEPOSIT carrying its
+     * per-denomination detail, endorsed above the threshold, its bordereau
+     * printed.
+     *
+     * @param amountStr the total brought in, computed client-side from the count
+     * @param detail the per-denomination JSON detail
+     * @return a redirect back to the apport screen carrying the outcome
+     */
+    @POST
+    @Path("/action/apport/record")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response recordApport(@FormParam("amount") String amountStr,
+                                 @FormParam("detail") String detail) {
+        LOGGER.info("Entering method recordApport with amountStr: " + amountStr + ", detail: " + detail);
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method recordApport");
+            return redirect("/apport?error=training");
+        }
+        CashSession session = cashSessionService.getOpenSession();
+        if (session == null) {
+            LOGGER.info("Exiting method recordApport");
+            return redirect("/apport?error=no-session");
+        }
+        BigDecimal amount = parseAmount(amountStr);
+        if (amount.signum() <= 0) {
+            LOGGER.info("Exiting method recordApport");
+            return redirect("/apport?error=amount");
+        }
+        String endorsedBy = supervisorBadge();
+        if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
+            java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+            form.put("op", "apport");
+            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("detail", detail == null ? "" : detail);
+            endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/apport");
+            LOGGER.info("Exiting method recordApport: aval demande");
+            return redirect("/apport");
+        }
+        CashMovement recorded = cashMovementService.record(session, cashierOf(),
+                CashMovement.MovementType.DEPOSIT, amount, "Apport de monnaie", endorsedBy,
+                CashMovement.CASH, null, detail);
+        state.touch();
+        if (recorded == null) {
+            LOGGER.info("Exiting method recordApport");
+            return redirect("/apport?error=endorsement");
+        }
+        ticketPrinterService.printDepositTicket(amount, denominationLines(detail),
+                state.getOperatorName(), ticketNumberService.getTerminalId());
+        LOGGER.info("Exiting method recordApport");
+        return redirect("/apport?ok=1");
+    }
+
+    /**
+     * Replays a parked apport once the shared modal validated a manager.
+     *
+     * @param form the parked form fields
+     * @param endorsedBy the endorsing manager's badge or login
+     * @return a redirect back to the apport screen carrying the outcome
+     */
+    public Response performEndorsedApport(java.util.Map<String, String> form, String endorsedBy) {
+        LOGGER.info("Entering method performEndorsedApport with endorsedBy: " + endorsedBy);
+        endorsedByOverride = endorsedBy;
+        try {
+            LOGGER.info("Exiting method performEndorsedApport");
+            return recordApport(form.get("amount"), form.get("detail"));
+        } finally {
+            endorsedByOverride = null;
+        }
     }
 
     /**

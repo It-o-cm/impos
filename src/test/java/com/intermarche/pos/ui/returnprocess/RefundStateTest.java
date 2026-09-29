@@ -305,6 +305,9 @@ class RefundStateTest {
         s.isEditingAmount = true;
         s.manualTotalAmount = BigDecimal.TEN;
         s.errorMessage = "err";
+        s.returnReason = "Article périmé";
+        s.creditAccountNumber = "CC1";
+        s.creditAccountName = "SARL DUPONT";
         s.clearSelection();
         assertEquals("abc", s.searchPattern);
         assertEquals(1, s.foundTickets.size());
@@ -315,6 +318,9 @@ class RefundStateTest {
         assertFalse(s.isEditingAmount);
         assertNull(s.manualTotalAmount);
         assertNull(s.errorMessage);
+        assertNull(s.returnReason);
+        assertNull(s.creditAccountNumber);
+        assertNull(s.creditAccountName);
     }
 
     /**
@@ -332,6 +338,9 @@ class RefundStateTest {
         s.isEditingAmount = true;
         s.manualTotalAmount = BigDecimal.TEN;
         s.errorMessage = "err";
+        s.returnReason = "Erreur de caisse";
+        s.creditAccountNumber = "CC1";
+        s.creditAccountName = "SARL DUPONT";
         s.clear();
         assertEquals("", s.searchPattern);
         assertTrue(s.foundTickets.isEmpty());
@@ -342,6 +351,21 @@ class RefundStateTest {
         assertFalse(s.isEditingAmount);
         assertNull(s.manualTotalAmount);
         assertNull(s.errorMessage);
+        assertNull(s.returnReason);
+        assertNull(s.creditAccountNumber);
+        assertNull(s.creditAccountName);
+    }
+
+    /**
+     * The return-reason getter reflects the field in both its arms: null by
+     * default and the stored reason once set (LC-05-05-01/02).
+     */
+    @Test
+    void getReturnReasonReflectsField() {
+        RefundState s = new RefundState();
+        assertNull(s.getReturnReason());
+        s.returnReason = "Produit non conforme";
+        assertEquals("Produit non conforme", s.getReturnReason());
     }
 
     /**

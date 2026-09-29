@@ -103,6 +103,10 @@ class AuthResourceTest {
         TemplateInstance withError = mock(TemplateInstance.class);
         when(resource.lock.data("state", resource.state)).thenReturn(withState);
         when(withState.data("error", expectedMessage)).thenReturn(withError);
+        // The lock view now carries more fluent data() links (welcomeMessage,
+        // paused, lockedBadge, lockedName): the tail echoes itself so the final
+        // link is still the recognizable view.
+        when(withError.data(anyString(), any())).thenReturn(withError);
         return withError;
     }
 
@@ -384,7 +388,7 @@ class AuthResourceTest {
     void closePageWithoutObstacleClosesTheRegister() {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.NONE);
         Response response = resource.closePage();
         assertEquals("/lock", response.getLocation().toString());
@@ -400,7 +404,7 @@ class AuthResourceTest {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
         when(resource.state.auth.takeCloseRequest()).thenReturn(false);
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PASSWORD);
         TemplateInstance view = stubClose(resource);
         Response response = resource.closePage();
@@ -418,7 +422,7 @@ class AuthResourceTest {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
         when(resource.state.auth.takeCloseRequest()).thenReturn(true);
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PASSWORD);
         Response response = resource.closePage();
         assertEquals("/lock", response.getLocation().toString());
@@ -435,7 +439,7 @@ class AuthResourceTest {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
         when(resource.state.auth.takeCloseRequest()).thenReturn(true);
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
         TemplateInstance view = stubClose(resource);
         Response response = resource.closePage();
@@ -469,7 +473,7 @@ class AuthResourceTest {
     void closeRegisterForcesTheCloseOnSupervisorEndorsement() {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
         when(resource.endorsementService.authorize("mcurie", "1111",
                 SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(true);
@@ -487,7 +491,7 @@ class AuthResourceTest {
     void closeRegisterRefusesTheForcedCloseOnBadSupervisor() {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
         when(resource.endorsementService.authorize("mcurie", "bad",
                 SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(false);
@@ -507,7 +511,7 @@ class AuthResourceTest {
     void closeRegisterClosesOnCorrectOperatorPassword() {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PASSWORD);
         when(resource.sessionCloseService.passwordMatches(resource.state, "1234")).thenReturn(true);
         Response response = resource.closeRegister("1234", null, null);
@@ -525,7 +529,7 @@ class AuthResourceTest {
     void closeRegisterRefusesOnWrongOperatorPassword() {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PASSWORD);
         when(resource.sessionCloseService.passwordMatches(resource.state, "wrong")).thenReturn(false);
         TemplateInstance view = stubClose(resource);
@@ -544,7 +548,7 @@ class AuthResourceTest {
     void closeRegisterShowsSupervisorRequiredOnPendingTickets() {
         AuthResource resource = newResource();
         resource.state.auth.operatorBadgeId = "007";
-        when(resource.sessionCloseService.obstacle())
+        when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
         TemplateInstance view = stubClose(resource);
         Response response = resource.closeRegister(null, null, null);
@@ -552,5 +556,162 @@ class AuthResourceTest {
         assertSame(view, response.getEntity());
         verify(resource.sessionCloseService, never()).close(any(), any());
         verify(resource.sessionCloseService, never()).passwordMatches(any(), any());
+    }
+
+    // --- lockRegister (verrouillage) ---
+
+    /**
+     * {@code lockRegister()} pauses the register through the service and redirects
+     * to the lock screen (EXP-12).
+     */
+    @Test
+    void lockRegisterPausesAndRedirectsToLock() {
+        AuthResource resource = newResource();
+        Response response = resource.lockRegister();
+        verify(resource.authService).pause(resource.state);
+        verify(resource.state).touch();
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/lock", response.getLocation().toString());
+    }
+
+    // --- unlock (resume of a paused register) ---
+
+    /**
+     * A resume of a paused register drops straight onto the sale — no hardware
+     * gate, no drawer pulse — when no forced PIN change is pending
+     * (wasPaused true, passwordChangeRequired false arm).
+     */
+    @Test
+    void unlockResumesPausedRegisterToSale() {
+        AuthResource resource = newResource();
+        when(resource.state.auth.isPaused()).thenReturn(true);
+        resource.state.auth.passwordChangeRequired = false;
+        when(resource.authService.login(resource.state, "alice", "1234"))
+                .thenReturn(AuthService.LoginResult.SUCCESS);
+        Response response = resource.unlock("alice", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.state).touch();
+        verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    /**
+     * A FORCED resume (EXP-14) lands on the mandatory PIN-change screen
+     * (wasPaused true, passwordChangeRequired true arm).
+     */
+    @Test
+    void unlockForcedResumeLandsOnPinChange() {
+        AuthResource resource = newResource();
+        when(resource.state.auth.isPaused()).thenReturn(true);
+        resource.state.auth.passwordChangeRequired = true;
+        when(resource.authService.login(resource.state, "alice", "1234"))
+                .thenReturn(AuthService.LoginResult.SUCCESS);
+        Response response = resource.unlock("alice", "1234");
+        assertEquals("/pin-change", response.getLocation().toString());
+        verify(resource.hardwareService, never()).openDrawer();
+    }
+
+    // --- forceUnlock (EXP-14) ---
+
+    /**
+     * A supervisor whose endorsement is refused cannot force the unlock: the
+     * resume is never attempted and the lock screen shows the refusal
+     * (authorize false arm, short-circuit).
+     */
+    @Test
+    void forceUnlockRefusedWhenSupervisorDenied() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorize("mcurie", "bad",
+                AuthService.FORCE_UNLOCK_ACTION)).thenReturn(false);
+        Response response = resource.forceUnlock("mcurie", "bad");
+        assertEquals("/lock?error=supervisor", response.getLocation().toString());
+        verify(resource.authService, never()).forceResume(any());
+    }
+
+    /**
+     * An endorsed supervisor whose forced resume finds no paused register still
+     * ends on the lock screen (authorize true, forceResume false arm).
+     */
+    @Test
+    void forceUnlockRefusedWhenNotPaused() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorize("mcurie", "1111",
+                AuthService.FORCE_UNLOCK_ACTION)).thenReturn(true);
+        when(resource.authService.forceResume(resource.state)).thenReturn(false);
+        Response response = resource.forceUnlock("mcurie", "1111");
+        assertEquals("/lock?error=supervisor", response.getLocation().toString());
+    }
+
+    /**
+     * An endorsed supervisor forcing the resume of a paused register lands the
+     * cashier on the mandatory PIN-change screen (both true arm).
+     */
+    @Test
+    void forceUnlockSucceedsRedirectsToPinChange() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorize("mcurie", "1111",
+                AuthService.FORCE_UNLOCK_ACTION)).thenReturn(true);
+        when(resource.authService.forceResume(resource.state)).thenReturn(true);
+        Response response = resource.forceUnlock("mcurie", "1111");
+        assertEquals("/pin-change", response.getLocation().toString());
+        verify(resource.state).touch();
+    }
+
+    // --- forceCloseAbandoned (EXP-96) ---
+
+    /**
+     * An endorsed supervisor forces the fin de journée of an abandoned post: the
+     * register is closed and returns to the lock screen (authorize true arm).
+     */
+    @Test
+    void forceCloseAbandonedClosesOnEndorsement() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorize("mcurie", "1111",
+                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(true);
+        Response response = resource.forceCloseAbandoned("mcurie", "1111");
+        assertEquals("/lock", response.getLocation().toString());
+        verify(resource.sessionCloseService).close(resource.state, "poste abandonné — superviseur");
+        verify(resource.state).touch();
+    }
+
+    /**
+     * A refused supervisor cannot force the fin de journée: nothing is closed and
+     * the lock screen shows the refusal (authorize false arm).
+     */
+    @Test
+    void forceCloseAbandonedRefusedOnBadSupervisor() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorize("mcurie", "bad",
+                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(false);
+        Response response = resource.forceCloseAbandoned("mcurie", "bad");
+        assertEquals("/lock?error=supervisor", response.getLocation().toString());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    // --- lockPage (paused keeps the pause; supervisor error message) ---
+
+    /**
+     * {@code lockPage()} on a PAUSED register does NOT log the operator out — the
+     * pause keeps the identity and the ticket (EXP-12, isPaused true arm).
+     */
+    @Test
+    void lockPageKeepsThePauseWhenPaused() {
+        AuthResource resource = newResource();
+        when(resource.state.auth.isPaused()).thenReturn(true);
+        TemplateInstance view = stubLock(resource, null);
+        assertSame(view, resource.lockPage(null));
+        verify(resource.authService, never()).logout(any());
+    }
+
+    /**
+     * {@code lockPage("supervisor")} renders the supervisor-refusal message (the
+     * new error arm).
+     */
+    @Test
+    void lockPageShowsSupervisorRefusalMessage() {
+        AuthResource resource = newResource();
+        TemplateInstance view = stubLock(resource, "AUTORISATION SUPERVISEUR REFUSÉE");
+        assertSame(view, resource.lockPage("supervisor"));
+        verify(resource.authService).logout(resource.state);
     }
 }

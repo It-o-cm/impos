@@ -54,7 +54,32 @@ public class FidelityState implements Serializable {
     /** The matching raw response JSON. */
     public String lastValuationResponseJson = null;
 
-    /** One displayed earn line: the rule label and its amount. */
+    /**
+     * The projected balance after this ticket's earn (imfid response B,
+     * {@code balances.projectedAfterEarn}), or null when no card is resolved or
+     * the projection is anonymous. A FORECAST printed as PREVISIONNEL — nothing
+     * is credited before ingestion.
+     */
+    public java.math.BigDecimal projectedAfterEarn = null;
+
+    /** The ledger read instant of the balances block (imfid response B), or null. */
+    public String balanceAsOf = null;
+
+    /**
+     * True when the staged {@link #earnTotal} is an ANONYMOUS projection (imfid
+     * response C) — a non-holder ticket showing « ce que vous auriez gagné avec
+     * la carte ». It carries no balances and a zero burnable base.
+     */
+    public boolean anonymousProjection = false;
+
+    /**
+     * The balance AFTER the fidelity burn, read from the ledger at lease
+     * confirmation (imfid response B), or null when no burn was confirmed. The
+     * register never recomputes it — it prints what the ledger returned.
+     */
+    public java.math.BigDecimal balanceAfter = null;
+
+    /** One displayed earn line: the rule label, its amount and its advantage grouping. */
     public static class EarnLine implements Serializable {
         private static final long serialVersionUID = 1L;
         /** The rule code (displayedEarn trace at close). */
@@ -63,18 +88,52 @@ public class FidelityState implements Serializable {
         public String label;
         /** The earn amount. */
         public java.math.BigDecimal amount;
+        /** The advantage type code the line groups under, or null (legacy rule). */
+        public String advantageType;
+        /** The advantage type label, printed verbatim, or null. */
+        public String advantageTypeLabel;
+        /** The order the advantage-type groups print in, or null. */
+        public Integer advantageTypeOrder;
+        /** The advantage category code, or null. */
+        public String advantageCategory;
+        /** The advantage category label, printed verbatim, or null. */
+        public String advantageCategoryLabel;
 
         /**
-         * Creates a displayed earn line.
+         * Creates a displayed earn line without advantage grouping (legacy).
          *
          * @param ruleCode the rule code
          * @param label the printable label
          * @param amount the earn amount
          */
         public EarnLine(String ruleCode, String label, java.math.BigDecimal amount) {
+            this(ruleCode, label, amount, null, null, null, null, null);
+        }
+
+        /**
+         * Creates a displayed earn line carrying its advantage grouping (imfid
+         * response A).
+         *
+         * @param ruleCode the rule code
+         * @param label the printable label
+         * @param amount the earn amount
+         * @param advantageType the advantage type code, or null
+         * @param advantageTypeLabel the advantage type label, or null
+         * @param advantageTypeOrder the group print order, or null
+         * @param advantageCategory the advantage category code, or null
+         * @param advantageCategoryLabel the advantage category label, or null
+         */
+        public EarnLine(String ruleCode, String label, java.math.BigDecimal amount,
+                String advantageType, String advantageTypeLabel, Integer advantageTypeOrder,
+                String advantageCategory, String advantageCategoryLabel) {
             this.ruleCode = ruleCode;
             this.label = label;
             this.amount = amount;
+            this.advantageType = advantageType;
+            this.advantageTypeLabel = advantageTypeLabel;
+            this.advantageTypeOrder = advantageTypeOrder;
+            this.advantageCategory = advantageCategory;
+            this.advantageCategoryLabel = advantageCategoryLabel;
         }
     }
 
@@ -83,6 +142,9 @@ public class FidelityState implements Serializable {
         earnTotal = null;
         earnEntries = new java.util.ArrayList<>();
         burnableBase = null;
+        projectedAfterEarn = null;
+        balanceAsOf = null;
+        anonymousProjection = false;
     }
 
     /**
@@ -243,6 +305,7 @@ public class FidelityState implements Serializable {
         holderEmail = null;
         accountStatus = null;
         availableBalance = null;
+        balanceAfter = null;
         clearLookup();
     }
 

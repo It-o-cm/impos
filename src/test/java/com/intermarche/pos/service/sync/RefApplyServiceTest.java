@@ -13,6 +13,7 @@ import com.intermarche.pos.domain.setting.EchelonLevel;
 import com.intermarche.pos.domain.setting.EchelonSetting;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.sync.EngineFeed;
+import com.intermarche.pos.domain.store.CheckoutIsland;
 import com.intermarche.pos.domain.store.Enseigne;
 import com.intermarche.pos.domain.store.Pdv;
 import com.intermarche.pos.domain.setting.PosSetting;
@@ -1987,5 +1988,150 @@ class RefApplyServiceTest {
         dto.accountNumber = account;
         dto.companyName = account + " SARL";
         return dto;
+    }
+
+    /**
+     * Builds a minimal active checkout-island payload carrying only its code and
+     * label, so a test sets whichever attachment form it exercises.
+     *
+     * @param code the island code (upsert key)
+     * @return the payload
+     */
+    private RefPayloads.CheckoutIslandDto islandDto(String code) {
+        RefPayloads.CheckoutIslandDto dto = new RefPayloads.CheckoutIslandDto();
+        dto.code = code;
+        dto.label = code + " label";
+        dto.active = true;
+        return dto;
+    }
+
+    /**
+     * Builds one contact-point payload binding a register to a contact point.
+     *
+     * @param code the contact-point code
+     * @param terminalId the bound register identifier, possibly null or blank
+     * @return the payload
+     */
+    private RefPayloads.ContactPointDto contactPoint(String code, String terminalId) {
+        RefPayloads.ContactPointDto dto = new RefPayloads.ContactPointDto();
+        dto.code = code;
+        dto.terminalId = terminalId;
+        return dto;
+    }
+
+    /**
+     * OLD FORM (compat): a payload carrying only the semicolon {@code
+     * terminalIds} string applies exactly as before — the string is kept as the
+     * island's attachment, so a caisse facing an un-migrated node keeps its
+     * islands.
+     */
+    @Test
+    void applyCheckoutIslandsKeepsTheOldTerminalIdsString() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CheckoutIslandDto dto = islandDto("CAISSES_AVANT");
+        dto.terminalIds = "POS01;POS02";
+        dto.contactPoints = null;
+        PanacheQuery<CheckoutIsland> absent = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CheckoutIsland> created = mockConstruction(CheckoutIsland.class)) {
+            mocked.when(() -> CheckoutIsland.find("code", "CAISSES_AVANT")).thenReturn(absent);
+            mocked.when(CheckoutIsland::listAll).thenReturn(List.of());
+            service.applyCheckoutIslands(List.of(dto));
+            assertEquals("POS01;POS02", created.constructed().get(0).terminalIds);
+        }
+    }
+
+    /**
+     * NEW FORM (compat): a payload carrying only the contact-point relation and
+     * NO {@code terminalIds} string still attaches the registers — the effective
+     * list is derived by joining the contact-point terminals. This is the one
+     * unacceptable failure guarded against: an island must not be lost because
+     * the field was renamed.
+     */
+    @Test
+    void applyCheckoutIslandsDerivesTerminalsFromContactPoints() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CheckoutIslandDto dto = islandDto("CAISSES_AVANT");
+        dto.terminalIds = null;
+        dto.contactPoints = List.of(contactPoint("PC1", "POS03"), contactPoint("PC2", "POS04"));
+        PanacheQuery<CheckoutIsland> absent = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CheckoutIsland> created = mockConstruction(CheckoutIsland.class)) {
+            mocked.when(() -> CheckoutIsland.find("code", "CAISSES_AVANT")).thenReturn(absent);
+            mocked.when(CheckoutIsland::listAll).thenReturn(List.of());
+            service.applyCheckoutIslands(List.of(dto));
+            assertEquals("POS03;POS04", created.constructed().get(0).terminalIds);
+        }
+    }
+
+    /**
+     * BOTH FORMS present resolve deterministically to the contact-point relation
+     * (the new form), without preference or warning.
+     */
+    @Test
+    void applyCheckoutIslandsPrefersContactPointsWhenBothPresent() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CheckoutIslandDto dto = islandDto("CAISSES_AVANT");
+        dto.terminalIds = "OLD01;OLD02";
+        dto.contactPoints = List.of(contactPoint("PC1", "POSA"));
+        PanacheQuery<CheckoutIsland> absent = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CheckoutIsland> created = mockConstruction(CheckoutIsland.class)) {
+            mocked.when(() -> CheckoutIsland.find("code", "CAISSES_AVANT")).thenReturn(absent);
+            mocked.when(CheckoutIsland::listAll).thenReturn(List.of());
+            service.applyCheckoutIslands(List.of(dto));
+            assertEquals("POSA", created.constructed().get(0).terminalIds);
+        }
+    }
+
+    /**
+     * NEITHER form present leaves the attachment null — a genuinely empty island,
+     * not a rename loss.
+     */
+    @Test
+    void applyCheckoutIslandsWithNeitherFormLeavesNull() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CheckoutIslandDto dto = islandDto("CAISSES_AVANT");
+        dto.terminalIds = null;
+        dto.contactPoints = null;
+        PanacheQuery<CheckoutIsland> absent = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CheckoutIsland> created = mockConstruction(CheckoutIsland.class)) {
+            mocked.when(() -> CheckoutIsland.find("code", "CAISSES_AVANT")).thenReturn(absent);
+            mocked.when(CheckoutIsland::listAll).thenReturn(List.of());
+            service.applyCheckoutIslands(List.of(dto));
+            assertNull(created.constructed().get(0).terminalIds);
+        }
+    }
+
+    /**
+     * An empty contact-point list is NOT the new form: it falls back to the
+     * {@code terminalIds} string, and a contact point with a null or blank
+     * terminal is dropped from the derived list.
+     */
+    @Test
+    void applyCheckoutIslandsEmptyContactPointsFallBackAndDropBlanks() {
+        RefApplyService service = new RefApplyService();
+        RefPayloads.CheckoutIslandDto emptyList = islandDto("EMPTY");
+        emptyList.terminalIds = "POS09";
+        emptyList.contactPoints = List.of();
+        RefPayloads.CheckoutIslandDto withBlanks = islandDto("BLANKS");
+        withBlanks.terminalIds = null;
+        java.util.List<RefPayloads.ContactPointDto> points = new java.util.ArrayList<>();
+        points.add(contactPoint("PC0", null));
+        points.add(contactPoint("PC1", "   "));
+        points.add(contactPoint("PC2", "POS05"));
+        withBlanks.contactPoints = points;
+        PanacheQuery<CheckoutIsland> emptyQuery = queryReturning(null);
+        PanacheQuery<CheckoutIsland> blanksQuery = queryReturning(null);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<CheckoutIsland> created = mockConstruction(CheckoutIsland.class)) {
+            mocked.when(() -> CheckoutIsland.find("code", "EMPTY")).thenReturn(emptyQuery);
+            mocked.when(() -> CheckoutIsland.find("code", "BLANKS")).thenReturn(blanksQuery);
+            mocked.when(CheckoutIsland::listAll).thenReturn(List.of());
+            service.applyCheckoutIslands(List.of(emptyList, withBlanks));
+            assertEquals("POS09", created.constructed().get(0).terminalIds);
+            assertEquals("POS05", created.constructed().get(1).terminalIds);
+        }
     }
 }

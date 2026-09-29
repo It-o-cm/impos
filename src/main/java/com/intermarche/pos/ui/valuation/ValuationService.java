@@ -147,6 +147,35 @@ public class ValuationService {
         public BigDecimal mealThreshold;
         /** Human-readable upsell suggestions, product labels resolved locally. */
         public List<String> upsells = new ArrayList<>();
+        /** Offer messages to show and print, empty when the engine emitted none. */
+        public List<EngineMessage> messages = new ArrayList<>();
+    }
+
+    /**
+     * One offer message extracted from a valuation response (GB-01-07-05/06):
+     * a code, the text to show and print, and where to print it. It carries no
+     * money — showing or dropping it never changes a total.
+     */
+    public static class EngineMessage {
+        /** The stable message code, or null. */
+        public String code;
+        /** The text shown on screen and printed. */
+        public String text;
+        /** The print placement (FOOTER by default), or null. */
+        public String printMode;
+
+        /**
+         * Creates an offer message.
+         *
+         * @param code the message code, or null
+         * @param text the message text
+         * @param printMode the print placement, or null
+         */
+        public EngineMessage(String code, String text, String printMode) {
+            this.code = code;
+            this.text = text;
+            this.printMode = printMode;
+        }
     }
 
     /**
@@ -178,6 +207,19 @@ public class ValuationService {
                     String offer = advantage.suggestion.offerCode != null
                             ? " (" + advantage.suggestion.offerCode + ")" : "";
                     hints.upsells.add("+" + qty + " x " + label + offer);
+                }
+            }
+            // GB-01-07-05/06: the offer messages, shown on the seller screen as
+            // the basket grows and printed on the ticket. A blank text is
+            // dropped — a message says something or it is not a message — and a
+            // response without the block leaves the list empty.
+            if (response.messages != null) {
+                for (ValuationPayloads.MessageDto message : response.messages) {
+                    if (message.text == null || message.text.isBlank()) {
+                        continue;
+                    }
+                    hints.messages.add(new EngineMessage(
+                            message.code, message.text.trim(), message.printMode));
                 }
             }
         } catch (Exception e) {
@@ -266,6 +308,7 @@ public class ValuationService {
                 state.payment.valuationMealEligible = hints.mealEligible;
                 state.payment.valuationMealThreshold = hints.mealThreshold;
                 state.payment.valuationUpsells = new java.util.ArrayList<>(hints.upsells);
+                state.payment.valuationMessages = new java.util.ArrayList<>(hints.messages);
                 if (outcome.engineTotalInclTax != null) {
                     LOGGER.debugf("Revalorisation: caisse=%s moteur=%s",
                             state.ticket.totalAmount, outcome.engineTotalInclTax);
@@ -316,6 +359,7 @@ public class ValuationService {
         state.payment.valuationMealEligible = null;
         state.payment.valuationMealThreshold = null;
         state.payment.valuationUpsells = new java.util.ArrayList<>();
+        state.payment.valuationMessages = new java.util.ArrayList<>();
     }
 
     /**

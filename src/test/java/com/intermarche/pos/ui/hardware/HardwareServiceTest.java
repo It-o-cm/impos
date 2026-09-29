@@ -413,6 +413,60 @@ class HardwareServiceTest {
     }
 
     /**
+     * {@code requestWeighing(tare)} sends a strictly positive tare to the scale
+     * and returns the NET weight it answers, recorded as-is (LC-14-01-03/06,
+     * positive-tare arm).
+     */
+    @Test
+    void requestWeighingWithTareSendsTareAndReturnsNet() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0.010")).thenReturn("0,290");
+        assertEquals(0.290, serviceWith(client).requestWeighing(new java.math.BigDecimal("0.010")));
+        verify(client).getWeightWithTare("0.010");
+        verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * {@code requestWeighing(tare)} sends "0" for a null tare (null-tare arm),
+     * i.e. a plain weighing.
+     */
+    @Test
+    void requestWeighingWithNullTareSendsZero() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0")).thenReturn("1,500");
+        assertEquals(1.5, serviceWith(client).requestWeighing(null));
+        verify(client).getWeightWithTare("0");
+        verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * {@code requestWeighing(tare)} sends "0" for a non-positive tare
+     * (signum-not-positive arm), never a negative or zero tare string.
+     */
+    @Test
+    void requestWeighingWithZeroTareSendsZero() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0")).thenReturn("1,500");
+        assertEquals(1.5, serviceWith(client).requestWeighing(java.math.BigDecimal.ZERO));
+        verify(client).getWeightWithTare("0");
+        verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * {@code requestWeighing(tare)} answers 0.0 when the client throws, the
+     * degraded-mode catch arm shared with the plain weighing.
+     */
+    @Test
+    void requestWeighingWithTareReturnsZeroOnFailure() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0.010"))
+                .thenThrow(new RuntimeException("scale down"));
+        assertEquals(0.0, serviceWith(client).requestWeighing(new java.math.BigDecimal("0.010")));
+        verify(client).getWeightWithTare("0.010");
+        verifyNoMoreInteractions(client);
+    }
+
+    /**
      * {@code displayMessage()} forwards the text to the customer line display on
      * the success arm.
      */

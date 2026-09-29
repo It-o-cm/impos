@@ -48,6 +48,14 @@ public class SessionCloseService {
         /** Nothing: the register may close now. */
         NONE,
 
+        /**
+         * A sale is in progress (EXP-11): the register cannot be fermée while a
+         * ticket is being built. Unlike the two below this is NOT forceable — the
+         * operator finishes, parks or abandons the ticket first, or verrouille
+         * instead of fermer.
+         */
+        IN_TRANSACTION,
+
         /** Parked tickets are still waiting and an endorsement is required. */
         PENDING_TICKETS,
 
@@ -77,7 +85,25 @@ public class SessionCloseService {
      * @return the first obstacle, or {@link Obstacle#NONE}
      */
     public Obstacle obstacle() {
+        return obstacle(null);
+    }
+
+    /**
+     * Returns what stands between the operator and a closed register, the sale in
+     * progress checked first (EXP-11).
+     *
+     * @param state the current register state, read for the in-progress ticket;
+     *        null skips the in-transaction check (the historical no-arg contract)
+     * @return the first obstacle, or {@link Obstacle#NONE}
+     */
+    public Obstacle obstacle(PosState state) {
         LOGGER.info("Entering method obstacle");
+        if (state != null && !state.ticket.items.isEmpty()) {
+            // EXP-11: a fermeture during a transaction is impossible. This is a
+            // hard block, ordered before the forceable obstacles.
+            LOGGER.info("Exiting method obstacle with IN_TRANSACTION");
+            return Obstacle.IN_TRANSACTION;
+        }
         if (posSettingsService.closeEndorsementOnPending() && pendingCount() > 0) {
             LOGGER.info("Exiting method obstacle with PENDING_TICKETS");
             return Obstacle.PENDING_TICKETS;
@@ -131,8 +157,12 @@ public class SessionCloseService {
      */
     public void close(PosState state, String forcedBy) {
         LOGGER.info("Entering method close with forcedBy: " + forcedBy);
-        String badge = state.auth.operatorBadgeId;
-        String name = state.auth.operatorName;
+        // A forced close from the PAUSED lock screen (EXP-96) has no logged-in
+        // operator: the abandoned post's identity is held in the locked* fields.
+        String badge = state.auth.operatorBadgeId != null
+                ? state.auth.operatorBadgeId : state.auth.lockedOperatorBadgeId;
+        String name = state.auth.operatorBadgeId != null
+                ? state.auth.operatorName : state.auth.lockedOperatorName;
         if (forcedBy != null) {
             technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
                     "Fermeture forcée de la caisse " + terminalId + " — " + forcedBy, badge);

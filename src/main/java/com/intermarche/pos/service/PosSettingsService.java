@@ -283,6 +283,14 @@ public class PosSettingsService {
                 "Scan multiple de carte de fidélité",
                 "Plusieurs cartes de fidélité peuvent être scannées pendant la transaction, seule la dernière est retenue. Désactivé : une carte déjà scannée bloque les suivantes (BO-10-03-02).",
                 "true", null),
+        new Def("fidelity.projected-label", Type.TEXT, "FIDÉLITÉ",
+                "Libellé de la cagnotte prévisionnelle",
+                "Libellé imprimé devant le solde de cagnotte projeté après la vente (imfid réponse B). Le montant est prévisionnel : rien n'est crédité avant l'ingestion du ticket (BO-03-03-31).",
+                "CAGNOTTE PREVISIONNELLE", null),
+        new Def("fidelity.anonymous-projection", Type.BOOL, "FIDÉLITÉ",
+                "Projection cagnotte sans carte",
+                "Sur un ticket sans carte, la caisse demande à imfid ce que le client aurait gagné avec la carte et l'imprime (imfid réponse C). Désactivé : rien n'est demandé ni imprimé pour un ticket sans carte (BO-03-03-28).",
+                "false", null),
         new Def("sale.line-warning-threshold", Type.TEXT, "AFFICHAGE",
                 "Seuil d'avertissement prix article (\u20ac)",
                 "Prix unitaire au-del\u00e0 duquel la saisie d'un article affiche un avertissement au caissier. 0 = aucun avertissement.",
@@ -331,6 +339,26 @@ public class PosSettingsService {
                 "Impression du ticket de transfert",
                 "Un ticket « Transfert règlement » est imprimé après validation, indiquant les moyens source et destination et le montant transféré (LC-12-10-05).",
                 "true", null),
+        new Def("movement.financial-sources", Type.TEXT, "MOUVEMENT FINANCIER",
+                "Moyens de paiement source",
+                "Moyens de paiement proposés en SOURCE d'un mouvement financier — un montant perçu dans ce moyen est rendu dans un autre hors d'une vente, séparés par des points-virgules, sous la forme CLÉ:LIBELLÉ — exemple CASH:Espèces;CARD:Carte bancaire. Vide : le mouvement financier n'est pas proposé (LC-12-06-01/02).",
+                "CASH:Espèces;CARD:Carte bancaire", null),
+        new Def("movement.financial-destinations", Type.TEXT, "MOUVEMENT FINANCIER",
+                "Moyens de paiement destination",
+                "Moyens de paiement proposés en DESTINATION d'un mouvement financier, même syntaxe que la source — exemple CREDIT:Crédit client, sert notamment à régler la dette d'un client en compte. Vide : le mouvement financier n'est pas proposé (LC-12-06-01/02).",
+                "CREDIT:Crédit client;CASH:Espèces", null),
+        new Def("movement.financial-print", Type.BOOL, "MOUVEMENT FINANCIER",
+                "Impression du ticket de mouvement financier",
+                "Un ticket « Mouvement financier » est imprimé après validation, indiquant le moyen perçu, le moyen rendu et le montant. Désactivé : aucun ticket n'est imprimé (LC-12-06-03).",
+                "true", null),
+        new Def("change-order.print", Type.BOOL, "COMMANDE DE MONNAIE",
+                "Impression du bordereau de commande de monnaie",
+                "Le bordereau de commande de monnaie est imprimé : numéro de caisse, opérateur, horodatage et un tableau des dénominations avec les colonnes montant et nombre de rouleaux, remplies ou vides selon la saisie. Désactivé : aucun bordereau rempli n'est imprimé (LC-12-05-08).",
+                "true", null),
+        new Def("change-order.roll-values", Type.TEXT, "COMMANDE DE MONNAIE",
+                "Valeur des rouleaux par dénomination",
+                "Correspondance entre la valeur faciale d'une pièce ou d'un billet et la valeur en euros d'un rouleau complet, séparées par des points-virgules, sous la forme FACIALE:VALEUR_ROULEAU — exemple 0.20:8.00;0.01:0.50. Sert au calcul croisé montant <-> nombre de rouleaux (LC-12-05-06/07). Vide : aucun calcul croisé n'est proposé.",
+                "2:100.00;1:50.00;0.50:20.00;0.20:8.00;0.10:4.00;0.05:2.00;0.02:1.00;0.01:0.50", null),
         new Def("abandon.reasons", Type.TEXT, "ABANDON DE TICKET",
                 "Motifs d'abandon",
                 "Motifs proposés au caissier pour abandonner un ticket, séparés par des points-virgules. Le motif choisi est journalisé et imprimé sur le ticket d'abandon. Vide : la saisie du motif n'est pas demandée (LC-04-04-10).",
@@ -347,6 +375,34 @@ public class PosSettingsService {
                 "Détail des articles sur le ticket d'abandon",
                 "Le ticket d'abandon liste les articles du ticket abandonné. Désactivé : seuls l'entête, le motif et le total abandonné sont imprimés (LC-04-04-12).",
                 "true", null),
+        new Def("return.reasons", Type.TEXT, "RETOUR CLIENT",
+                "Motifs de retour",
+                "Motifs proposés au caissier lors d'un retour, séparés par des points-virgules. Le motif choisi s'applique à tout le retour, est journalisé et imprimé sur le ticket de retour (exploitable dans les rapports BackOffice). Vide : la saisie du motif n'est pas demandée (LC-05-05-01/02).",
+                "Article défectueux;Erreur de caisse;Produit non conforme;Changement d'avis;Article périmé", null),
+        new Def("return.print-reason", Type.BOOL, "RETOUR CLIENT",
+                "Impression du motif de retour",
+                "Le motif choisi est imprimé sur le ticket de retour. Désactivé : le motif est journalisé mais n'apparaît pas sur le ticket (LC-05-05-03).",
+                "true", null),
+        new Def("island.change-allowed", Type.BOOL, "ILOT / TPV",
+                "Rendu monnaie autorisé sur l'îlot",
+                "Le rendu monnaie est autorisé sur cet îlot de caisses. Désactivé : l'îlot interdit le rendu même là où la règle du moyen de paiement l'autoriserait — l'interdiction d'îlot prime (BO-03-10-04).",
+                "true", null),
+        new Def("island.auto-declaration", Type.BOOL, "ILOT / TPV",
+                "Déclaration automatique de fin de période",
+                "À la clôture, l'hôtesse est dispensée du comptage : le montant déclaré est le théorique et le journal note que la déclaration était automatique. Désactivé : l'écran de comptage est présenté comme aujourd'hui (BO-03-10-10).",
+                "false", null),
+        new Def("island.promotion-channel", Type.TEXT, "ILOT / TPV",
+                "Canal promotion de l'îlot",
+                "Canal remonté à la fidélité pour les ventes de cet îlot (point de vente, Web, autres). Vide : aucun canal n'est ajouté et la remontée reste identique à l'octet près (BO-03-10-08).",
+                "", null),
+        new Def("balance.default-tare", Type.TEXT, "BALANCE",
+                "Tare logicielle par défaut (kg)",
+                "Tare envoyée à la balance à chaque pesée, sauf tare article ou tare contenant qui la remplacent ponctuellement. La balance priorise cette tare et renvoie le poids net, enregistré tel quel. 0 : aucune tare par défaut (LC-14-01-03/06).",
+                "0", null),
+        new Def("balance.tare-containers", Type.TEXT, "BALANCE",
+                "Contenants de tare (code:libellé:poids)",
+                "Liste des contenants proposés au caissier pour une tare ponctuelle, séparés par des points-virgules, sous la forme CODE:LIBELLÉ:POIDS_KG (ex. SACPAP:Sac kraft:0.010;BQS:Barquette S:0.035). La tare contenant remplace ponctuellement la tare article ou par défaut et n'est pas persistante. Vide : aucun contenant proposé (LC-14-01-04/05).",
+                "", null),
         new Def("tender.restricted", Type.TEXT, "RÈGLEMENTS RESTREINTS",
                 "Règlements restreints affichés en caisse",
                 "Moyens de paiement restreints dont l'assiette éligible est affichée pendant la vente, séparés par des points-virgules, sous la forme CODE:ATTRIBUT:LIBELLÉ — attributs disponibles : MEAL_VOUCHER_ELIGIBLE, ECO_VOUCHER_ELIGIBLE, SOCIAL_CARD_ELIGIBLE. Vide : titre-restaurant, éco-chèque et carte achat sociale (LC-09-01-11 à -18).",
@@ -474,7 +530,19 @@ public class PosSettingsService {
         new Def("training.theme", Type.TEXT, "MODE ÉCOLE",
                 "Thème de l'écran caisse en formation",
                 "Nom du thème appliqué à l'écran caisse en mode école, pour le distinguer de l'écran de vente standard (sombre, clair). Vide : la formation garde le thème habituel et seul le bandeau la signale (BO-10-07-08).",
-                "", null));
+                "", null),
+        new Def("session.welcome-message", Type.TEXT, "SESSION CAISSE",
+                "Message d'accueil caisse fermée",
+                "Texte d'accueil affiché sur l'écran de la caisse fermée, invitant l'opérateur à se connecter (EXP-01, LC-01-01).",
+                "Bonjour : Connectez-vous", null),
+        new Def("sale.waiting-label", Type.TEXT, "AFFICHAGE",
+                "Libellé d'attente d'articles",
+                "Texte affiché sur la visu caisse quand le ticket est vide, entre deux clients (EXP-03).",
+                "CLIENT SUIVANT", null),
+        new Def("cash.drawer-cap", Type.TEXT, "TIROIR",
+                "Plafond de contenu du tiroir (€)",
+                "Montant d'espèces au-delà duquel la caisse affiche une alerte PRÉLÈVEMENT sans bloquer la vente, calé sur le montant garanti par l'assurance. 0 = aucun plafond (EXP-17).",
+                "0.00", null));
 
     /**
      * The echelon inheritance engine, or null on a node where none is wired
@@ -814,6 +882,45 @@ public class PosSettingsService {
         LOGGER.info("Entering method customerClosedMessage");
         LOGGER.info("Exiting method customerClosedMessage");
         return value("customer.message-closed");
+    }
+
+    /**
+     * The welcome message shown on the closed-register lock screen (EXP-01):
+     * the invitation to log in that replaces the historical
+     * "inutilisable" text.
+     *
+     * @return the administered welcome message
+     */
+    public String welcomeMessage() {
+        LOGGER.info("Entering method welcomeMessage");
+        LOGGER.info("Exiting method welcomeMessage");
+        return value("session.welcome-message");
+    }
+
+    /**
+     * The waiting label shown on the sale screen between two customers, when the
+     * ticket is empty (EXP-03): the retail "next customer" prompt that replaces
+     * the historical "waiting for articles" text.
+     *
+     * @return the administered waiting label
+     */
+    public String waitingLabel() {
+        LOGGER.info("Entering method waitingLabel");
+        LOGGER.info("Exiting method waitingLabel");
+        return value("sale.waiting-label");
+    }
+
+    /**
+     * The drawer content cap in euros (EXP-17): the amount of cash above which
+     * the register warns to withdraw, calé sur le montant garanti par l'assurance.
+     * Zero disables the cap.
+     *
+     * @return the administered cap, guarded against a corrupt row
+     */
+    public BigDecimal drawerCap() {
+        LOGGER.info("Entering method drawerCap");
+        LOGGER.info("Exiting method drawerCap");
+        return bigDecimalValue("cash.drawer-cap");
     }
 
     /**
@@ -1363,6 +1470,32 @@ public class PosSettingsService {
     }
 
     /**
+     * The administered label printed before the projected loyalty balance
+     * (imfid response B): the forecast cagnotte after this sale, credited only
+     * at ingestion (BO-03-03-31).
+     *
+     * @return the projected-balance label
+     */
+    public String fidelityProjectedLabel() {
+        LOGGER.info("Entering method fidelityProjectedLabel");
+        LOGGER.info("Exiting method fidelityProjectedLabel");
+        return value("fidelity.projected-label");
+    }
+
+    /**
+     * Whether a card-less ticket asks imfid for the anonymous earn projection
+     * — « ce que vous auriez gagné avec la carte » (imfid response C,
+     * BO-03-03-28). Disabled: nothing is asked or printed without a card.
+     *
+     * @return true when the anonymous projection is enabled
+     */
+    public boolean fidelityAnonymousProjection() {
+        LOGGER.info("Entering method fidelityAnonymousProjection");
+        LOGGER.info("Exiting method fidelityAnonymousProjection");
+        return boolValue("fidelity.anonymous-projection");
+    }
+
+    /**
      * Whether the holder's name found by a loyalty lookup is carried onto the
      * register (BO-10-03-04): disabled, the register keeps the pseudonymity of
      * a scanned card and shows the card number alone.
@@ -1864,6 +1997,158 @@ public class PosSettingsService {
     }
 
     /**
+     * The return reasons offered to the cashier (LC-05-05-01), parsed from the
+     * semicolon-separated administered list; blank entries are dropped, and an
+     * empty setting yields an empty list — the reason is then not asked for.
+     * Never null.
+     *
+     * @return the administered return reasons, in order
+     */
+    public List<String> returnReasons() {
+        LOGGER.info("Entering method returnReasons");
+        String raw = value("return.reasons");
+        if (raw.isBlank()) {
+            LOGGER.info("Exiting method returnReasons");
+            return List.of();
+        }
+        List<String> reasons = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                reasons.add(trimmed);
+            }
+        }
+        LOGGER.info("Exiting method returnReasons");
+        return reasons;
+    }
+
+    /**
+     * Whether the chosen return reason is printed on the return ticket
+     * (LC-05-05-03). Disabled: the reason is still journaled but does not reach
+     * the paper.
+     *
+     * @return true when the reason is printed on the return ticket
+     */
+    public boolean printReturnReason() {
+        LOGGER.info("Entering method printReturnReason");
+        LOGGER.info("Exiting method printReturnReason");
+        return boolValue("return.print-reason");
+    }
+
+    /**
+     * Whether the island this register belongs to allows change to be given
+     * (BO-03-10-04). The node resolves the value per contact point / island /
+     * PDV and delivers it through the SETTINGS domain. Defaults to true, so an
+     * unposted setting leaves the change decision entirely to the tender rule,
+     * exactly as before the option existed.
+     *
+     * @return true when the island allows change
+     */
+    public boolean islandChangeAllowed() {
+        LOGGER.info("Entering method islandChangeAllowed");
+        LOGGER.info("Exiting method islandChangeAllowed");
+        return boolValue("island.change-allowed");
+    }
+
+    /**
+     * Whether the island is set to declare the end-of-period cash count
+     * automatically (BO-03-10-10): the cashier is dispensed from counting, the
+     * declared amount is the theoretical, and the journal marks the declaration
+     * as automatic. Defaults to false, so an unposted setting keeps the counting
+     * screen exactly as today.
+     *
+     * @return true when the count is declared automatically at closing
+     */
+    public boolean islandAutoDeclaration() {
+        LOGGER.info("Entering method islandAutoDeclaration");
+        LOGGER.info("Exiting method islandAutoDeclaration");
+        return boolValue("island.auto-declaration");
+    }
+
+    /**
+     * The promotion channel of the island reported to the loyalty programme
+     * (BO-03-10-08): point of sale, Web or another channel. Defaults to the
+     * empty string, in which case no channel is added and the loyalty remontée
+     * stays identical to the byte to what it is today. Never null.
+     *
+     * @return the promotion channel, or an empty string when none is administered
+     */
+    public String islandPromotionChannel() {
+        LOGGER.info("Entering method islandPromotionChannel");
+        LOGGER.info("Exiting method islandPromotionChannel");
+        return value("island.promotion-channel");
+    }
+
+    /**
+     * One administered tare container (LC-14-01-04): its code (used for a
+     * selection tap or a scanned barcode), its cashier-facing label and its
+     * tare in kilograms.
+     *
+     * @param code the container code / barcode
+     * @param label the cashier-facing label
+     * @param tareKg the container tare in kilograms
+     */
+    public record TareContainer(String code, String label, BigDecimal tareKg) {
+    }
+
+    /**
+     * The software tare sent to the scale by default (LC-14-01-03), parsed from
+     * the administered value; an unreadable value is zero, never an error — one
+     * malformed setting must not stop the scale from weighing. Never null.
+     *
+     * @return the default tare in kilograms, zero when none is administered
+     */
+    public BigDecimal defaultTare() {
+        LOGGER.info("Entering method defaultTare");
+        LOGGER.info("Exiting method defaultTare");
+        return bigDecimalValue("balance.default-tare");
+    }
+
+    /**
+     * The administered tare containers (LC-14-01-04), parsed from the
+     * semicolon-separated {@code CODE:LIBELLÉ:POIDS_KG} list; a row missing a
+     * field or carrying an unreadable weight is dropped, and an empty setting
+     * yields an empty list — no container is then offered. Never null.
+     *
+     * @return the administered tare containers, in order
+     */
+    public List<TareContainer> tareContainers() {
+        LOGGER.info("Entering method tareContainers");
+        String raw = value("balance.tare-containers");
+        if (raw.isBlank()) {
+            LOGGER.info("Exiting method tareContainers");
+            return List.of();
+        }
+        List<TareContainer> containers = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String[] fields = trimmed.split(":");
+            if (fields.length != 3) {
+                continue;
+            }
+            String code = fields[0].trim();
+            String label = fields[1].trim();
+            if (code.isEmpty() || label.isEmpty()) {
+                continue;
+            }
+            try {
+                BigDecimal tareKg = new BigDecimal(fields[2].trim().replace(',', '.'));
+                if (tareKg.signum() < 0) {
+                    continue;
+                }
+                containers.add(new TareContainer(code, label, tareKg));
+            } catch (NumberFormatException e) {
+                // A malformed weight drops just its row, never the whole list.
+            }
+        }
+        LOGGER.info("Exiting method tareContainers");
+        return containers;
+    }
+
+    /**
      * The tenders offered for a manual withdrawal (LC-12-03-02/03), as the raw
      * semicolon list of {@code CLÉ:LIBELLÉ} pairs.
      *
@@ -1907,6 +2192,68 @@ public class PosSettingsService {
         LOGGER.info("Entering method drawerTransferPrint");
         LOGGER.info("Exiting method drawerTransferPrint");
         return boolValue("drawer.transfer-print");
+    }
+
+    /**
+     * The payment means offered as the SOURCE of a financial movement
+     * (LC-12-06-01/02), as the raw semicolon list of {@code CLÉ:LIBELLÉ} pairs;
+     * blank means the gesture is not offered. Never null.
+     *
+     * @return the administered source list
+     */
+    public String financialMovementSources() {
+        LOGGER.info("Entering method financialMovementSources");
+        LOGGER.info("Exiting method financialMovementSources");
+        return value("movement.financial-sources");
+    }
+
+    /**
+     * The payment means offered as the DESTINATION of a financial movement
+     * (LC-12-06-01/02), as the raw semicolon list of {@code CLÉ:LIBELLÉ} pairs;
+     * blank means the gesture is not offered. Never null.
+     *
+     * @return the administered destination list
+     */
+    public String financialMovementDestinations() {
+        LOGGER.info("Entering method financialMovementDestinations");
+        LOGGER.info("Exiting method financialMovementDestinations");
+        return value("movement.financial-destinations");
+    }
+
+    /**
+     * Whether a financial-movement ticket is printed (LC-12-06-03).
+     *
+     * @return true when the ticket comes out
+     */
+    public boolean financialMovementPrint() {
+        LOGGER.info("Entering method financialMovementPrint");
+        LOGGER.info("Exiting method financialMovementPrint");
+        return boolValue("movement.financial-print");
+    }
+
+    /**
+     * Whether the filled change-order slip is printed (LC-12-05-08).
+     *
+     * @return true when the filled slip comes out
+     */
+    public boolean changeOrderPrint() {
+        LOGGER.info("Entering method changeOrderPrint");
+        LOGGER.info("Exiting method changeOrderPrint");
+        return boolValue("change-order.print");
+    }
+
+    /**
+     * The administered correspondence between a coin/note face value and the
+     * euro value of a whole roll of that denomination (LC-12-05-06/07), as the
+     * raw semicolon list of {@code FACIALE:VALEUR_ROULEAU} pairs; blank means no
+     * cross-calculation is offered. Never null.
+     *
+     * @return the administered roll-value list
+     */
+    public String changeOrderRollValues() {
+        LOGGER.info("Entering method changeOrderRollValues");
+        LOGGER.info("Exiting method changeOrderRollValues");
+        return value("change-order.roll-values");
     }
 
     /**

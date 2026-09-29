@@ -376,6 +376,76 @@ class TicketPrinterServiceTest {
         }
     }
 
+    /**
+     * A discount whose engine placement is LINE prints under its article, the
+     * label indented by two spaces (spec §1, the LINE arm): the delta 8,00−10,00
+     * reads as −2,00 € right below the line.
+     */
+    @Test
+    void printTicketPrintsLinePlacedAdvantageUnderTheArticle() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PRODUIT", "1", "10.00", "8.00"));
+        List<TicketLineValuation> valuations = new ArrayList<>();
+        TicketLineValuation valuation = valuation("U1", "10.00", "8.00", "DISC", "OFFRE");
+        valuation.advantagePrintMode = "LINE";
+        valuations.add(valuation);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L)).thenReturn(valuations);
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("\n  DISC"));
+            assertTrue(out.contains("-2,00 E"));
+        }
+    }
+
+    /**
+     * A discount whose engine placement is absent prints in the footer, not
+     * indented (spec §1, Option B default): the same −2,00 € appears without the
+     * two-space indent, below the totals separator.
+     */
+    @Test
+    void printTicketPrintsFooterPlacedAdvantageWhenPlacementAbsent() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PRODUIT", "1", "10.00", "8.00"));
+        List<TicketLineValuation> valuations = new ArrayList<>();
+        valuations.add(valuation("U1", "10.00", "8.00", "DISC", "OFFRE"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L)).thenReturn(valuations);
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("\nDISC"));
+            assertTrue(!out.contains("\n  DISC"));
+            assertTrue(out.indexOf("DISC") < out.indexOf("TOTAL TTC"));
+        }
+    }
+
+    /**
+     * The engine offer messages print in the footer, before the courtesy line
+     * (spec §3): the retained text appears on the receipt and above "MERCI DE
+     * VOTRE VISITE".
+     */
+    @Test
+    void printTicketPrintsEngineMessagesInTheFooter() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.messages = new ArrayList<>(List.of(
+                new com.intermarche.pos.domain.sale.TicketMessage(
+                        "BELOW_TRIGGER", "PROFITEZ DE NOS OFFRES", "FOOTER")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("PROFITEZ DE NOS OFFRES"));
+            assertTrue(out.indexOf("PROFITEZ DE NOS OFFRES") < out.indexOf("MERCI DE VOTRE VISITE"));
+        }
+    }
+
     // --- printCardReceipt: what it printed, and how much of it (LC-08-03-11) ---
 
     /**
@@ -901,6 +971,26 @@ class TicketPrinterServiceTest {
     }
 
     /**
+     * Covers the CREDIT arm of {@code printRefund} (LC-05-06-05): a customer
+     * in-account credit refund prints the {@code CREDIT CLIENT} mode label.
+     */
+    @Test
+    void printRefundPrintsCreditClientMethod() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CREDIT, refundLine("PAIN", "1", "6.00"));
+        Ticket original = new Ticket();
+        original.ticketNumber = "C04-00000009";
+        original.store = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(original);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("CREDIT CLIENT"));
+        }
+    }
+
+    /**
      * Covers the null-address arm of {@code printRefund}: the original store is
      * present but its address is null, so the city line is skipped, and the
      * VOUCHER refund method is printed.
@@ -941,6 +1031,98 @@ class TicketPrinterServiceTest {
             String out = captureReceipt(service);
             assertTrue(out.contains("CAGNOTTE"));
         }
+    }
+
+    /**
+     * {@code printRefund} prints the chosen return reason (LC-05-05-03) when the
+     * store administers it and a reason is present — all three arms of the gate
+     * true: printReturnReason, reason non-null, reason non-blank.
+     */
+    @Test
+    void printRefundPrintsReturnReasonWhenAdministered() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.printReturnReason()).thenReturn(true);
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("THE", "1", "6.00"));
+        refund.returnReason = "Article périmé";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("Motif  : Article périmé"));
+        }
+    }
+
+    /**
+     * {@code printRefund} omits the reason when the store does not administer its
+     * printing (printReturnReason false arm), even though a reason is present.
+     */
+    @Test
+    void printRefundOmitsReturnReasonWhenPrintingDisabled() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.printReturnReason()).thenReturn(false);
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("THE", "1", "6.00"));
+        refund.returnReason = "Article périmé";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("Motif"));
+        }
+    }
+
+    /**
+     * {@code printRefund} omits the reason line when printing is administered but
+     * no reason was chosen (reason-null arm of the gate).
+     */
+    @Test
+    void printRefundOmitsReturnReasonWhenNull() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.printReturnReason()).thenReturn(true);
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("THE", "1", "6.00"));
+        refund.returnReason = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("Motif"));
+        }
+    }
+
+    /**
+     * {@code printRefund} omits the reason line when printing is administered but
+     * the chosen reason is blank (reason-blank arm of the gate).
+     */
+    @Test
+    void printRefundOmitsReturnReasonWhenBlank() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.printReturnReason()).thenReturn(true);
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("THE", "1", "6.00"));
+        refund.returnReason = "   ";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("Motif"));
+        }
+    }
+
+    /**
+     * {@code refundDocumentData} carries the return reason in the {@code document}
+     * map (LC-05-05-03) so an administered layout can print it too.
+     */
+    @Test
+    void refundDocumentDataCarriesReturnReason() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("THE", "1", "6.00"));
+        refund.returnReason = "Erreur de caisse";
+        @SuppressWarnings("unchecked")
+        Map<String, Object> document =
+                (Map<String, Object>) service.refundDocumentData(refund, null).get("document");
+        assertEquals("Erreur de caisse", document.get("returnReason"));
     }
 
     // --------------------------------------------------
@@ -1575,12 +1757,16 @@ class TicketPrinterServiceTest {
         refund.id = 12L;
         refund.creationDate = NOW;
         refund.totalAmount = new BigDecimal("9.99");
-        service.printRefundVoucher(refund, "297000000000077");
+        service.printRefundVoucher(refund, "297000000000077", NOW.plusDays(365));
         String out = captureReceipt(service);
         assertTrue(out.contains("AVOIR"));
         assertTrue(out.contains("9,99 E"));
         assertTrue(out.contains("N° 297000000000077"));
         assertTrue(out.contains("(scannable en caisse - solde au registre)"));
+        // LC-05-06-07: a Code-128 of the registry number and a validity end
+        // date are printed (validUntil non-null arm).
+        assertTrue(out.contains("[[BARCODE 297000000000077]]"));
+        assertTrue(out.contains("Valable jusqu'au :"));
     }
 
     /**
@@ -1595,11 +1781,15 @@ class TicketPrinterServiceTest {
         refund.id = 12L;
         refund.creationDate = NOW;
         refund.totalAmount = new BigDecimal("150.00");
-        service.printRefundVoucher(refund, "297000000000078");
+        service.printRefundVoucher(refund, "297000000000078", null);
         String out = captureReceipt(service);
         assertTrue(out.contains("AVOIR"));
         assertTrue(out.contains("150,00 E"));
         assertTrue(out.contains("N° 297000000000078"));
+        // A null validity prints no validity line (validUntil null arm), but the
+        // Code-128 is always present.
+        assertTrue(out.contains("[[BARCODE 297000000000078]]"));
+        assertFalse(out.contains("Valable jusqu'au"));
     }
 
     // --------------------------------------------------
@@ -2177,6 +2367,48 @@ class TicketPrinterServiceTest {
                     "MARIE", "C04");
             assertEquals("TRANSFERT REGLEMENT CASH>CHEQUE 120,00", captureReceipt(transfer));
         }
+    }
+
+    /**
+     * The change-order slip (LC-12-05-08) builds the built-in ticket with the
+     * register number, the operator (number and name), the table header and one
+     * row per denomination; a long label is truncated to the column width and a
+     * short row is padded with blanks (the {@code row.length} guard arms).
+     */
+    @Test
+    void printChangeOrderBuildsTheBuiltInSlip() {
+        TicketPrinterService service = newService();
+        java.util.List<String[]> rows = java.util.List.of(
+                new String[] {"Billet 50 €", "100,00", "2"},
+                new String[] {"Pièce 0,20 €", "", ""},
+                new String[] {"UneDenominationBeaucoupTropLongue", "5,00", "1"},
+                new String[] {});
+        service.printChangeOrder("C04", "17", "Marie", rows);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("COMMANDE DE MONNAIE"));
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("Operateur : 17 Marie"));
+        assertTrue(out.contains("DENOMINATION"));
+        assertTrue(out.contains("Billet 50 €"));
+        assertTrue(out.contains("100,00"));
+        assertTrue(out.contains("Pièce 0,20 €"));
+        assertTrue(out.contains("UneDenominationBea"));
+    }
+
+    /**
+     * The change-order slip tolerates a null register, a null operator and a
+     * null row list ({@code terminalId == null} skip arm, blank-operator skip
+     * arm, {@code rows == null} skip arm): the header still prints, the caisse
+     * and operator lines do not.
+     */
+    @Test
+    void printChangeOrderToleratesNullOperatorAndRows() {
+        TicketPrinterService service = newService();
+        service.printChangeOrder(null, null, null, null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("COMMANDE DE MONNAIE"));
+        assertFalse(out.contains("Caisse :"));
+        assertFalse(out.contains("Operateur :"));
     }
 
     /**

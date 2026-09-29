@@ -190,10 +190,11 @@ public class DemoIT {
         page.getByText("Entrez votre code PIN :").waitFor();
         tapDigits(page, "#keyboardArea", CASHIER_PIN);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
         // The take-over flow lands on the session screen (module I's promise).
-        page.locator("#openingFloat").waitFor();
+        page.locator("#floatDisplay").waitFor();
         closeDrawer();
-        page.locator("#openingFloat").fill("200,00");
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -516,7 +517,7 @@ public class DemoIT {
         // can wipe the modal between its render and a click, and the link
         // is idempotent while the click is a race.
         page.navigate(base.toString() + "action/finish");
-        page.getByText("EN ATTENTE D'ARTICLES...").waitFor();
+        page.getByText("CLIENT SUIVANT").waitFor();
         Ticket closed = lastClosedTicket();
         Assertions.assertNotNull(closed, "module VI: the closing must close the ticket");
         Assertions.assertNotNull(closed.signature,
@@ -623,13 +624,14 @@ public class DemoIT {
             page.getByText("Entrez votre code PIN :").waitFor();
             tapDigits(page, "#keyboardArea", CASHIER_PIN);
             page.locator("#actionBtn").click();
+            clickThroughHardwareGate(page);
             // OPEN THE SESSION when asked: without it every scan is refused
             // (no session = no sale). DemoIT opens it in demo01; the fidelity
             // classes have no such predecessor — dropping this step is what
             // silently detached the card for a whole run.
-            if (page.locator("#openingFloat").isVisible()) {
+            if (page.locator("#floatDisplay").isVisible()) {
                 closeDrawer();
-                page.locator("#openingFloat").fill("200,00");
+                enterOpeningFloat(page, "200,00");
                 page.getByRole(AriaRole.BUTTON,
                         new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
             }
@@ -929,4 +931,37 @@ public class DemoIT {
                 Ticket.find("terminalId = ?1 and status = ?2 order by id desc",
                         "C04", Ticket.TicketStatus.CLOSED).firstResult());
     }
+
+    /**
+     * Clicks through the hardware status gate that every successful unlock lands
+     * on (AuthResource.unlock renders the hardware-unavailable page): Continuer
+     * takes the override that opens the lane and routes on to the session or the
+     * sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a PosInput pad
+     * writing a hidden field, so the amount is tapped digit by digit after a
+     * CLEAR of the prefilled default, as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
 }

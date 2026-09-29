@@ -81,6 +81,9 @@ public class TicketService {
     HardwareService hardwareService;
 
     @Inject
+    com.intermarche.pos.ui.balance.TareService tareService;
+
+    @Inject
     TicketPersistenceService ticketPersistenceService;
 
     @Inject
@@ -812,7 +815,14 @@ public class TicketService {
                 LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
-            double weight = hardwareService.requestWeighing();
+            // LC-14-01-03/04/05/06/07: resolve the software tare (container >
+            // article > default) and SEND it to the scale. The scale nets it
+            // and returns the net weight, which is recorded as-is below — the
+            // register never re-deducts (non-cumulation). The punctual
+            // container tare is consumed straight away: it arms one weighing.
+            BigDecimal tare = tareService.resolve(p, state);
+            double weight = hardwareService.requestWeighing(tare);
+            tareService.consume(state);
             if (weight <= 0) { state.ticket.setError("POIDS INVALIDE"); LOGGER.info("Exiting method addItemByPlu"); return; }
             if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError("ERREUR POIDS IDENTIQUE"); LOGGER.info("Exiting method addItemByPlu"); return; }
 
@@ -831,6 +841,9 @@ public class TicketService {
             // when set, else the commercial name.
             state.ticket.addItem(p.ean, pluCode, p.saleLabel().toUpperCase(), unitPrice, quantityKg, vatRate);
             TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
+            // LC-14-01-07/08: snapshot the article tare so a later MANUAL weight
+            // re-entry can deduct it without a fresh catalog lookup.
+            line.tareKg = ProductAttributes.tare(p);
             if (ProductAttributes.discountForbidden(p)) {
                 line.discountForbidden = true;
             }

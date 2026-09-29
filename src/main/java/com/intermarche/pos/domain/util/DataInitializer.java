@@ -108,7 +108,6 @@ public class DataInitializer {
         Nomenclature.deleteAll();
         CouponType.deleteAll();
         VatRate.deleteAll();
-        com.intermarche.pos.domain.campaign.Campaign.deleteAll();
 
         createStore();
         loadVatRates();
@@ -116,27 +115,6 @@ public class DataInitializer {
         loadProductsAndFamilies();
         loadCouponTypes();
         loadNomenclature();
-        loadCampaigns();
-    }
-
-    /**
-     * Seeds a demonstration campaign with a budget and two rattached offers, so
-     * the back-office screens and the BUDGET_GROUPS projection have data without
-     * a feed injection.
-     */
-    private void loadCampaigns() {
-        com.intermarche.pos.domain.campaign.Campaign campaign =
-                new com.intermarche.pos.domain.campaign.Campaign();
-        campaign.code = "CAMP_ETE";
-        campaign.label = "Campagne été";
-        campaign.validFrom = java.time.LocalDate.of(2026, 6, 1);
-        campaign.validTo = java.time.LocalDate.of(2026, 9, 1);
-        campaign.maxAmount = new java.math.BigDecimal("1000.00");
-        campaign.maxApplications = 500;
-        campaign.perStore = false;
-        campaign.offerCodes = new java.util.ArrayList<>(
-                java.util.List.of("PROMO_BANANES_15", "PROMO_YAOURTS_3PLUS1"));
-        campaign.persist();
     }
 
     /**

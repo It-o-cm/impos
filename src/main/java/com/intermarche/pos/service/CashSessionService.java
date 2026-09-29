@@ -57,6 +57,9 @@ public class CashSessionService {
     @Inject
     SyncOutboxService syncOutboxService;
 
+    @Inject
+    PosSettingsService posSettingsService;
+
     /**
      * Read-only snapshot of a session (X report content), also used as the
      * body of the Z report once the session is closed.
@@ -250,6 +253,59 @@ public class CashSessionService {
         LOGGER.info("Entering method getOpenSession");
         LOGGER.info("Exiting method getOpenSession");
         return CashSession.findOpenByTerminal(ticketNumberService.getTerminalId());
+    }
+
+    /**
+     * The theoretical opening float for the next session (EXP-02): the cash left
+     * in the drawer at the previous close — what was counted minus what was
+     * withdrawn — carried over rather than a fixed parameter. Null when this
+     * register was never closed, so the caller falls back to the administered
+     * default float.
+     *
+     * @return the leftover of the last close (never negative), or null when there
+     *         is no previous close to carry over
+     */
+    public BigDecimal theoreticalOpeningFloat() {
+        LOGGER.info("Entering method theoreticalOpeningFloat");
+        CashSession last = CashSession.findLastClosedByTerminal(ticketNumberService.getTerminalId());
+        if (last == null) {
+            LOGGER.info("Exiting method theoreticalOpeningFloat");
+            return null;
+        }
+        BigDecimal counted = last.countedAmount != null ? last.countedAmount : BigDecimal.ZERO;
+        BigDecimal withdrawn = last.withdrawnAmount != null ? last.withdrawnAmount : BigDecimal.ZERO;
+        BigDecimal leftover = counted.subtract(withdrawn);
+        if (leftover.signum() < 0) {
+            leftover = BigDecimal.ZERO;
+        }
+        LOGGER.info("Exiting method theoreticalOpeningFloat");
+        return leftover.setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /**
+     * The theoretical cash held in the drawer of the open session when it exceeds
+     * the administered cap (EXP-17), else null. Null also when no cap is set or no
+     * session is open — the register warns but never blocks, so this only feeds a
+     * non-blocking indicator.
+     *
+     * @return the drawer cash when it is over the cap, or null
+     */
+    @Transactional
+    public BigDecimal drawerCapExcess() {
+        LOGGER.info("Entering method drawerCapExcess");
+        BigDecimal cap = posSettingsService.drawerCap();
+        if (cap == null || cap.signum() <= 0) {
+            LOGGER.info("Exiting method drawerCapExcess");
+            return null;
+        }
+        CashSession session = getOpenSession();
+        if (session == null) {
+            LOGGER.info("Exiting method drawerCapExcess");
+            return null;
+        }
+        BigDecimal cash = buildReport(session).theoreticalCash;
+        LOGGER.info("Exiting method drawerCapExcess");
+        return cash != null && cash.compareTo(cap) > 0 ? cash : null;
     }
 
     /**
@@ -575,7 +631,32 @@ public class CashSessionService {
     @Transactional
     public SessionReport closeSession(Long cashierId, BigDecimal countedAmount,
                                       BigDecimal withdrawnAmount, String countDetail) {
-        LOGGER.info("Entering method closeSession with cashierId: " + cashierId + ", countedAmount: " + countedAmount + ", withdrawnAmount: " + withdrawnAmount + ", countDetail: " + countDetail);
+        LOGGER.info("Entering method closeSession (delegating, autoDeclaration=false)");
+        LOGGER.info("Exiting method closeSession (delegating)");
+        return closeSession(cashierId, countedAmount, withdrawnAmount, countDetail, false);
+    }
+
+    /**
+     * Closes the open session of this register (Z report), telling whether the
+     * end-of-period declaration is AUTOMATIC (BO-03-10-10): when it is, the
+     * cashier counted nothing, the declared amount is the theoretical, and the
+     * journal records that the declaration was automatic so a zero variance
+     * cannot be mistaken for a correct hand count.
+     *
+     * @param cashierId the id of the cashier closing the session
+     * @param countedAmount the cash amount counted in the drawer (ignored when
+     *        the declaration is automatic)
+     * @param withdrawnAmount the cash withdrawn from the drawer
+     * @param countDetail the denominations detail as entered (JSON), or null
+     * @param autoDeclaration true when the island declares the count
+     *        automatically and the counting screen was skipped
+     * @return the closing report, or null when no session is open
+     */
+    @Transactional
+    public SessionReport closeSession(Long cashierId, BigDecimal countedAmount,
+                                      BigDecimal withdrawnAmount, String countDetail,
+                                      boolean autoDeclaration) {
+        LOGGER.info("Entering method closeSession with cashierId: " + cashierId + ", countedAmount: " + countedAmount + ", withdrawnAmount: " + withdrawnAmount + ", countDetail: " + countDetail + ", autoDeclaration: " + autoDeclaration);
         CashSession session = getOpenSession();
         if (session == null) {
             LOGGER.warn("Clôture refusée : aucune session ouverte sur cette caisse");
@@ -601,10 +682,11 @@ public class CashSessionService {
 
         session.closingDate = LocalDateTime.now();
         session.closingCashier = (cashierId != null) ? Employee.findById(cashierId) : null;
-        // BO-03-02-17: a tender in automatic declaration is declared BY THE
-        // REGISTER — the cashier counts nothing and the drawer is taken at its
-        // theoretical, which is exactly what "déclaration automatique" asks for.
-        session.countedAmount = report.cashDeclaredAutomatically
+        // BO-03-02-17 (per-tender) and BO-03-10-10 (island-level auto
+        // declaration): the cashier counts nothing and the drawer is taken at
+        // its theoretical, which is exactly what "déclaration automatique" asks
+        // for. Either path declares by the theoretical.
+        session.countedAmount = (autoDeclaration || report.cashDeclaredAutomatically)
                 ? report.theoreticalCash
                 : (countedAmount != null ? countedAmount : BigDecimal.ZERO);
         session.theoreticalAmount = report.theoreticalCash;
@@ -619,8 +701,11 @@ public class CashSessionService {
         session.status = CashSession.SessionStatus.CLOSED;
         session.persist();
 
+        // BO-03-10-10: an island auto-declaration is named in the journal, else
+        // its zero variance would be indistinguishable from a correct count.
         technicalEventService.log(TechnicalEvent.EventType.SESSION_CLOSED,
-                session.sessionNumber + " écart " + session.variance.toPlainString());
+                session.sessionNumber + " écart " + session.variance.toPlainString()
+                        + (autoDeclaration ? " - déclaration automatique" : ""));
         syncOutboxService.enqueue(SyncOutbox.EntityType.SESSION, session.id);
         LOGGER.info("Exiting method closeSession");
         return report;

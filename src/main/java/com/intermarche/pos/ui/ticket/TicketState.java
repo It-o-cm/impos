@@ -620,6 +620,15 @@ public class TicketState implements Serializable {
         public boolean discountForbidden = false;
 
         /**
+         * The article software tare in kilograms snapshotted from the product
+         * at add time (LC-14-01-07), or null when the article declares none. It
+         * lets a MANUAL weight re-entry (LC-14-01-08) deduct the article tare
+         * without a fresh catalog lookup, exactly as {@link #mealVoucherEligible}
+         * snapshots the eligible base.
+         */
+        public BigDecimal tareKg = null;
+
+        /**
          * True when the article sold on this line may be settled with a meal
          * voucher (BO-02-03-06). Snapshotted from the product at add time, like
          * {@link #discountForbidden}, so the eligible base is known even when

@@ -3,6 +3,8 @@ package com.intermarche.e2e;
 import com.intermarche.pos.domain.people.Employee;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.CashSession;
+import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
@@ -70,6 +72,15 @@ public class GroupAIT {
     /** The seed cashier PIN. */
     private static final String CASHIER_PIN = "1234";
 
+    /** The seed manager badge (Marie Curie / mcurie, MANAGER role) for A9 forcing. */
+    private static final String MANAGER_BADGE = "11111111";
+
+    /** The seed manager PIN. */
+    private static final String MANAGER_PIN = "1111";
+
+    /** A single-price unit product used to build a cart to park (A9). */
+    private static final String EAN_LAIT = "3300000000002";
+
     /** The Playwright browser context injected by the quarkus-playwright extension. */
     @InjectPlaywright
     BrowserContext context;
@@ -86,6 +97,15 @@ public class GroupAIT {
      */
     @Inject
     PosState posState;
+
+    /**
+     * The referential settings service, injected to toggle the flags A8/A9
+     * depend on ({@code auth.idle-lockout-seconds},
+     * {@code auth.password-required-on-close}, {@code session.print-close-receipt})
+     * and to restore them afterwards so the shared boot stays isolated.
+     */
+    @Inject
+    PosSettingsService posSettings;
 
     /**
      * A0 — Sonde de santé publique ({@code /q/health}).
@@ -150,19 +170,21 @@ public class GroupAIT {
         tapPin(page, CASHIER_PIN);
         // CONNEXION submits login+PIN through the screen (not a raw form post).
         page.locator("#actionBtn").click();
-        // Prise de poste with no open session lands on the SESSION screen.
-        page.locator("#openingFloat").waitFor();
+        // Every unlock stops on the hardware gate; Continuer opens the lane and,
+        // with no session yet, lands on the SESSION screen.
+        clickThroughHardwareGate(page);
+        page.locator("#floatDisplay").waitFor();
         Assertions.assertTrue(page.getByText("Aucune session ouverte").isVisible(),
                 "the take-over flow must reach the empty-session screen");
-        // The unlock pulse really opened the drawer (live embedded simulator):
+        // The lane pulse really opened the drawer (live embedded simulator):
         // the cashier installs the float and pushes the drawer shut before
         // opening the session, else the @DrawerMustBeClosed guard on the sale
         // screen would divert to /drawer-error. Closing is a physical act,
         // simulated on the hardware bus like the badge.
         closeDrawer();
-        // Type the 200 € float at the keypad (the session screen input is a
-        // native numeric field, no PosInput numpad here) and open the session.
-        page.locator("#openingFloat").fill("200,00");
+        // Key the 200 € float on the session touch keypad (the native field was
+        // replaced by a PosInput pad writing a hidden input) and open the session.
+        enterOpeningFloat(page, "200,00");
         page.getByRole(AriaRole.BUTTON,
                 new Page.GetByRoleOptions().setName("OUVRIR LA SESSION").setExact(true)).click();
         // A successful opening flows straight into the SALE screen.
@@ -198,6 +220,7 @@ public class GroupAIT {
         Page page = context.newPage();
         // Mid-day relock, then badge back in.
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
+        clickThroughHardwareGate(page);
         // Session already open: the unlock redirects to "/" (never "/session"),
         // where the drawer guard diverts to /drawer-error until the drawer is
         // pushed shut — the physical close then carries the poll to the sale.
@@ -248,6 +271,7 @@ public class GroupAIT {
         // Now the good PIN is accepted: prise de poste with the session already
         // open lands on the sale (via the drawer-close detour).
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
+        clickThroughHardwareGate(page);
         closeDrawer();
         page.getByText("TOTAL À PAYER").waitFor();
         // The success reset both counters to zero.
@@ -284,6 +308,7 @@ public class GroupAIT {
         // unlock proves the badge prefilled the login field.
         tapPin(page, CASHIER_PIN);
         page.locator("#actionBtn").click();
+        clickThroughHardwareGate(page);
         // Session already open (A1): direct to sale via the drawer-close detour.
         closeDrawer();
         page.getByText("TOTAL À PAYER").waitFor();
@@ -325,20 +350,24 @@ public class GroupAIT {
         APIResponse scan = context.request().post(root + "api/pos/scan",
                 RequestOptions.create().setHeader("Content-Type", "text/plain").setData(CASHIER_BADGE));
         Assertions.assertTrue(scan.ok(), "the scan bus should accept the badge");
-        // Server oracle: no operator switch, no sale line, and the badge fell
-        // through the auth handler down to the unknown-code fallback (proving it
-        // was NOT consumed as a login), which sets the message with no touch.
+        // Server oracle: no operator switch and no sale line. AuthScanHandler is
+        // @Priority(0): it recognizes the badge FIRST (scan.pattern.badge) and
+        // consumes it, so a badge NEVER falls through to the catalog/unknown-code
+        // fallback. The scanned badge here is the operator's OWN, which asks for
+        // the close (LC-01-02-03) — handled by auth, no ticket error is set — so
+        // transientError stays null (was "CODE INCONNU" before auth claimed the
+        // badge range; the handler now owns every scan.pattern.badge code).
         Assertions.assertEquals(operatorBefore, posState.auth.operatorId,
                 "an ignored badge must not switch the operator");
         Assertions.assertTrue(posState.ticket.items.isEmpty(),
                 "an ignored badge must not create a sale line");
-        Assertions.assertEquals("CODE INCONNU: " + CASHIER_BADGE, posState.ticket.transientError,
-                "the ignored badge must fall through auth to the unknown-code fallback");
+        Assertions.assertNull(posState.ticket.transientError,
+                "the badge is consumed by auth (never the unknown-code fallback), setting no ticket error");
         // Screen oracle: the sale is unchanged — same operator, empty cart (the
         // untouched message never reaches the poll, which is the point).
         Assertions.assertTrue(page.locator("#opInfo").textContent().contains("Jean Dupont"),
                 "the sale screen must keep the same operator");
-        Assertions.assertTrue(page.getByText("EN ATTENTE D'ARTICLES...").isVisible(),
+        Assertions.assertTrue(page.getByText("CLIENT SUIVANT").isVisible(),
                 "the sale screen must show no line for an ignored badge");
         page.close();
     }
@@ -372,6 +401,7 @@ public class GroupAIT {
         page.getByText("Code PIN modifié").waitFor();
         // Reconnect with the NEW PIN (session open → sale via the drawer detour).
         scanBadgeAndEnterPin(page, CASHIER_BADGE, "9999");
+        clickThroughHardwareGate(page);
         closeDrawer();
         page.getByText("TOTAL À PAYER").waitFor();
         Assertions.assertTrue(page.locator("#opInfo").textContent().contains("Jean Dupont"),
@@ -426,8 +456,233 @@ public class GroupAIT {
         Assertions.assertEquals(1, lineCountAfter, "the draft line must survive the logout");
         // At the next login the memory cart is gone: the sale screen is empty.
         loginToSaleWithOpenSession(page);
-        Assertions.assertTrue(page.getByText("EN ATTENTE D'ARTICLES...").isVisible(),
+        Assertions.assertTrue(page.getByText("CLIENT SUIVANT").isVisible(),
                 "the in-memory cart must be abandoned at logout (empty sale at next login)");
+        page.close();
+    }
+
+    /**
+     * A8 — Auto-verrouillage par inactivité.
+     * <p>
+     * With {@code auth.idle-lockout-seconds} enabled, every cashier gesture
+     * resets the in-memory idle clock ({@code posState.auth.lastActivityAt}), so
+     * a register kept busy never locks; but once the clock is aged past the
+     * window (aged in memory, never slept), the very next guarded request is
+     * caught by {@code LockCheckFilter}, which journals {@code REGISTER_LOCKED},
+     * logs the operator out and diverts the request to {@code /lock}. The cash
+     * session stays OPEN throughout (only the operator is logged out). The idle
+     * setting is restored to disabled afterwards.
+     */
+    @Test
+    void a8_auto_verrouillage_par_inactivite() {
+        String root = base.toString();
+        Page page = context.newPage();
+        loginToSaleWithOpenSession(page);
+        // Enable the idle lockout window (any positive number of seconds).
+        posSettings.store("auth.idle-lockout-seconds", "300");
+        try {
+            // A fresh gesture resets the idle clock: navigating a guarded, non
+            // allowlisted path (the sale root) refreshes lastActivityAt and does
+            // NOT lock despite the window being enabled.
+            page.navigate(root);
+            page.getByText("TOTAL À PAYER").waitFor();
+            Assertions.assertTrue(posState.auth.lastActivityAt > System.currentTimeMillis() - 5000,
+                    "a gesture must reset the idle clock to now");
+            Assertions.assertFalse(posState.isLocked(),
+                    "a register with a recent gesture must not idle-lock");
+            long lockedBefore = eventCount(TechnicalEvent.EventType.REGISTER_LOCKED);
+            // Age the in-memory idle clock past the 300 s window (no sleep).
+            posState.auth.lastActivityAt = System.currentTimeMillis() - 400_000L;
+            // The next guarded request is caught by the filter: it locks and
+            // diverts to /lock (the closed-lane screen).
+            page.navigate(root);
+            page.getByText("CAISSE FERMÉE").waitFor();
+            Assertions.assertTrue(posState.isLocked(),
+                    "an idle timeout past the window must lock the register");
+            Assertions.assertNull(posState.auth.operatorId,
+                    "the idle lockout must log the operator out");
+            Assertions.assertEquals(lockedBefore + 1, eventCount(TechnicalEvent.EventType.REGISTER_LOCKED),
+                    "the idle lockout must journal exactly one REGISTER_LOCKED");
+            // The cash session survives: only the operator was logged out.
+            Assertions.assertNotNull(openSessionOnC04(),
+                    "the idle lockout must leave the cash session OPEN");
+        } finally {
+            // Restore the disabled default so no other scenario idle-locks.
+            posSettings.store("auth.idle-lockout-seconds", "0");
+        }
+        page.close();
+    }
+
+    /**
+     * A9 — Fermeture / verrouillage du poste ({@code /close}).
+     * <p>
+     * The close screen logs the operator out (the cash session stays OPEN — no Z).
+     * With the password obstacle enabled: the operator-code path refuses a wrong
+     * code ({@code Code opérateur incorrect.}) and closes on the right one, and a
+     * close requested by BADGE neutralizes that password obstacle and closes
+     * immediately (LC-01-02-03). A pending PARKED ticket raises the
+     * {@code Des tickets en attente exigent une autorisation superviseur.}
+     * obstacle (which the badge does NOT neutralize), lifted only by a supervisor
+     * forcing — refused with {@code Autorisation superviseur refusée.} on a wrong
+     * code, granted on the right one, journaling {@code SUPERVISOR_CALLED}. The
+     * close receipt is conditioned by {@code session.print-close-receipt}: OFF
+     * prints no {@code FERMETURE DE CAISSE}, ON prints it, and a forced close adds
+     * the {@code FERMETURE FORCÉE — superviseur en caisse} line.
+     * <p>
+     * The symmetric OPENING receipt ({@code session.print-open-receipt}) is
+     * emitted at session opening, which group A's single shared session opened in
+     * A1 before this scenario can toggle the flag — it is therefore reported as
+     * documented residue rather than replayed here (opening a second session
+     * would require a Z the shared-session group forbids).
+     */
+    @Test
+    void a9_fermeture_verrouillage_du_poste() {
+        String root = base.toString();
+        // The password obstacle needs its referential flag; the close receipt is
+        // off by default.
+        posSettings.store("auth.password-required-on-close", "true");
+        try {
+            // --- Part 1: operator-code path, close receipt OFF ---
+            Page page = context.newPage();
+            loginToSaleWithOpenSession(page);
+            page.navigate(root + "close");
+            // A wrong operator code is refused; the operator stays logged in.
+            APIResponse wrong = postClose("password=0000");
+            Assertions.assertTrue(wrong.text().contains("Code opérateur incorrect."),
+                    "a wrong operator code must be refused with the exact message");
+            Assertions.assertFalse(posState.isLocked(),
+                    "a wrong operator code must not close the register");
+            // The right code closes; with the close receipt OFF nothing prints.
+            posSettings.store("session.print-close-receipt", "false");
+            clearPrinter();
+            postClose("password=" + CASHIER_PIN);
+            Assertions.assertTrue(posState.isLocked(),
+                    "the correct operator code must close (log out) the register");
+            Assertions.assertFalse(printerContent().contains("FERMETURE DE CAISSE"),
+                    "with the close receipt OFF no FERMETURE DE CAISSE must print");
+            page.close();
+            // --- Part 2: a badge close neutralizes the password obstacle ---
+            Page badgePage = context.newPage();
+            loginToSaleWithOpenSession(badgePage);
+            // The operator scans their OWN badge: it asks for the close.
+            context.request().post(root + "api/pos/scan", RequestOptions.create()
+                    .setHeader("Content-Type", "text/plain").setData(CASHIER_BADGE));
+            // GET /close downgrades the PASSWORD obstacle to NONE and closes at
+            // once — no password supplied, yet the register locks.
+            badgePage.navigate(root + "close");
+            Assertions.assertTrue(posState.isLocked(),
+                    "a badge close must neutralize the password obstacle and close immediately");
+            badgePage.close();
+            // --- Part 3: pending-ticket obstacle, supervisor forcing, receipt ON ---
+            Page sup = context.newPage();
+            loginToSaleWithOpenSession(sup);
+            // Build a cart line and park it: a PARKED ticket raises the obstacle.
+            context.request().post(root + "api/pos/scan", RequestOptions.create()
+                    .setHeader("Content-Type", "text/plain").setData(EAN_LAIT));
+            sup.getByText("LAIT UHT 1L").waitFor();
+            context.request().get(root + "action/parked/park");
+            sup.navigate(root + "close");
+            // A close attempt with no supervisor hits the pending obstacle message.
+            APIResponse pending = postClose("password=");
+            Assertions.assertTrue(pending.text().contains("Des tickets en attente exigent une autorisation superviseur."),
+                    "parked tickets must raise the supervisor-required obstacle");
+            Assertions.assertFalse(posState.isLocked(),
+                    "the pending obstacle must block the close until a supervisor forces it");
+            // A wrong supervisor code is refused.
+            APIResponse refused = postClose("supervisor=" + MANAGER_BADGE + "&supervisorPassword=9999");
+            Assertions.assertTrue(refused.text().contains("Autorisation superviseur refusée."),
+                    "a wrong supervisor code must refuse the forced close");
+            Assertions.assertFalse(posState.isLocked(),
+                    "a refused supervisor must not force the close");
+            // The right supervisor code forces the close; with the receipt ON the
+            // FERMETURE DE CAISSE and the FERMETURE FORCÉE line both print.
+            posSettings.store("session.print-close-receipt", "true");
+            clearPrinter();
+            long calledBefore = eventCount(TechnicalEvent.EventType.SUPERVISOR_CALLED);
+            postClose("supervisor=" + MANAGER_BADGE + "&supervisorPassword=" + MANAGER_PIN);
+            Assertions.assertTrue(posState.isLocked(),
+                    "a granted supervisor must force the close");
+            Assertions.assertEquals(calledBefore + 1, eventCount(TechnicalEvent.EventType.SUPERVISOR_CALLED),
+                    "a forced close must journal SUPERVISOR_CALLED");
+            String paper = printerContent();
+            Assertions.assertTrue(paper.contains("FERMETURE DE CAISSE"),
+                    "with the close receipt ON the FERMETURE DE CAISSE must print, paper was:\n" + paper);
+            Assertions.assertTrue(paper.contains("FERMETURE FORCÉE — superviseur en caisse"),
+                    "a forced close must print the FERMETURE FORCÉE line, paper was:\n" + paper);
+            sup.close();
+        } finally {
+            // Restore the referential and drop the PARKED ticket created here.
+            posSettings.store("auth.password-required-on-close", "false");
+            posSettings.store("session.print-close-receipt", "false");
+            deleteParkedTickets();
+        }
+    }
+
+    /**
+     * A11 — Verrouillage / déverrouillage (pause), EXP-10/12/13.
+     * <p>
+     * With a line in the cart, the cashier verrouille the register
+     * ({@code /action/lock}): the lock screen shows {@code CAISSE VERROUILLÉE},
+     * the server state is PAUSED (operator moved aside into
+     * {@code lockedOperatorBadgeId}, the in-memory ticket kept), and the drawer is
+     * never pulsed. The same cashier resumes by keying only their PIN and lands
+     * STRAIGHT on the sale with the line intact — no session detour, no hardware
+     * gate, no drawer-close. Ends unlocked (isolation).
+     */
+    @Test
+    void aA11_verrouillage_pause_garde_le_ticket() {
+        String root = base.toString();
+        Page page = context.newPage();
+        loginToSaleWithOpenSession(page);
+        // A line in progress: the pause must not abandon it.
+        context.request().post(root + "api/pos/scan", RequestOptions.create()
+                .setHeader("Content-Type", "text/plain").setData(EAN_LAIT));
+        page.getByText("LAIT UHT 1L").waitFor();
+        // Verrouiller: the register pauses and lands on the lock screen.
+        page.navigate(root + "action/lock");
+        page.getByText("CAISSE VERROUILLÉE").waitFor();
+        Assertions.assertTrue(posState.auth.isPaused(),
+                "the register must be paused after VERROUILLER");
+        Assertions.assertEquals(CASHIER_BADGE, posState.auth.lockedOperatorBadgeId,
+                "the pause must keep the locker's identity aside");
+        Assertions.assertFalse(posState.ticket.items.isEmpty(),
+                "the pause must keep the in-memory ticket");
+        // Resume with the locker's PIN only: straight back to the sale, no gate.
+        scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
+        page.getByText("TOTAL À PAYER").waitFor();
+        Assertions.assertFalse(posState.auth.isPaused(),
+                "the resume must lift the pause");
+        Assertions.assertFalse(posState.ticket.items.isEmpty(),
+                "the resumed sale must still carry its line");
+        // Clean up the in-memory ticket so the shared session stays isolated.
+        context.request().get(root + "action/parked/park");
+        page.close();
+    }
+
+    /**
+     * A12 — Fermeture impossible pendant une transaction, EXP-11.
+     * <p>
+     * With a line in the cart, reaching {@code /close} raises the
+     * {@code IN_TRANSACTION} obstacle: the page states the sale in progress and
+     * offers neither the password nor the forced-close form. The register stays
+     * open. Clearing the cart lets the close proceed as usual. Ends unlocked.
+     */
+    @Test
+    void aA12_fermeture_refusee_pendant_une_transaction() {
+        String root = base.toString();
+        Page page = context.newPage();
+        loginToSaleWithOpenSession(page);
+        context.request().post(root + "api/pos/scan", RequestOptions.create()
+                .setHeader("Content-Type", "text/plain").setData(EAN_LAIT));
+        page.getByText("LAIT UHT 1L").waitFor();
+        // The close screen refuses: a sale is in progress (EXP-11).
+        String closeHtml = context.request().get(root + "close").text();
+        Assertions.assertTrue(closeHtml.contains("Une vente est en cours"),
+                "a close during a transaction must be refused, html was:\n" + closeHtml);
+        Assertions.assertFalse(posState.isLocked(),
+                "the in-transaction obstacle must leave the register open");
+        // Park the cart so the shared session ends without a lingering line.
+        context.request().get(root + "action/parked/park");
         page.close();
     }
 
@@ -466,6 +721,7 @@ public class GroupAIT {
      */
     private void loginToSaleWithOpenSession(Page page) {
         scanBadgeAndEnterPin(page, CASHIER_BADGE, CASHIER_PIN);
+        clickThroughHardwareGate(page);
         closeDrawer();
         page.getByText("TOTAL À PAYER").waitFor();
     }
@@ -526,6 +782,38 @@ public class GroupAIT {
         context.request().post(base.toString() + "api/hardware/drawer/close", RequestOptions.create());
     }
 
+    /**
+     * Clicks through the hardware status gate that EVERY successful unlock now
+     * lands on ({@code AuthResource.unlock} → hardware-unavailable page):
+     * {@code Continuer} takes the override that opens the lane and routes on to
+     * the session or the sale screen.
+     *
+     * @param page the Playwright page driving the register
+     */
+    private void clickThroughHardwareGate(Page page) {
+        page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName("Continuer").setExact(true)).click();
+    }
+
+    /**
+     * Enters the opening float on the session screen's touch keypad
+     * ({@code #floatKbArea}): the native input was replaced by a pad writing a
+     * hidden field, so the amount is tapped digit by digit after a CLEAR of the
+     * prefilled default, exactly as the cashier would on the borne.
+     *
+     * @param page the Playwright page driving the register
+     * @param amount the float to key in, comma as the decimal separator (e.g. "200,00")
+     */
+    private void enterOpeningFloat(Page page, String amount) {
+        Locator keypad = page.locator("#floatKbArea");
+        keypad.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName("C").setExact(true)).click();
+        for (char key : amount.toCharArray()) {
+            keypad.getByRole(AriaRole.BUTTON,
+                    new Locator.GetByRoleOptions().setName(String.valueOf(key)).setExact(true)).click();
+        }
+    }
+
     // --- Database oracles ---
 
     /**
@@ -566,5 +854,58 @@ public class GroupAIT {
             e.lockedUntil = LocalDateTime.now().minusMinutes(1);
             e.persist();
         });
+    }
+
+    // --- Lot-1 (A8/A9) additions: journal, close endpoint, printer, cleanup ---
+
+    /**
+     * Counts the journal entries of a given event type.
+     *
+     * @param type the technical event type
+     * @return the number of journaled events of that type
+     */
+    private long eventCount(TechnicalEvent.EventType type) {
+        return QuarkusTransaction.requiringNew().call(() -> TechnicalEvent.count("eventType", type));
+    }
+
+    /**
+     * Submits the register-close form ({@code POST /action/close}) with the given
+     * url-encoded body and returns the response (redirects followed).
+     *
+     * @param formBody the url-encoded form body (password / supervisor fields)
+     * @return the endpoint's response
+     */
+    private APIResponse postClose(String formBody) {
+        return context.request().post(base.toString() + "action/close", RequestOptions.create()
+                .setHeader("Content-Type", "application/x-www-form-urlencoded").setData(formBody));
+    }
+
+    /**
+     * Empties the printer simulator buffer so the next print is read in isolation.
+     */
+    private void clearPrinter() {
+        context.request().post(base.toString() + "api/hardware/printer/clear", RequestOptions.create());
+    }
+
+    /**
+     * Reads the accumulated printer simulator buffer (the printed paper).
+     *
+     * @return the printed content captured by the simulator
+     */
+    private String printerContent() {
+        return context.request().get(base.toString() + "api/hardware/printer/content").text();
+    }
+
+    /**
+     * Cancels every PARKED ticket on terminal C04 — the cleanup for the pending
+     * ticket A9 parks to raise the supervisor obstacle. A bulk delete would trip
+     * the {@code ticket_lines} foreign key (it does not cascade), so the parked
+     * tickets are flipped to CANCELLED, which lifts the pending obstacle without
+     * touching the lines.
+     */
+    private void deleteParkedTickets() {
+        QuarkusTransaction.requiringNew().run(() ->
+                Ticket.update("status = ?1 where status = ?2 and terminalId = ?3",
+                        Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.PARKED, "C04"));
     }
 }

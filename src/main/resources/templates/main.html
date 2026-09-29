@@ -135,6 +135,7 @@
      ! monetics for authorization must say so at every instant, not only on the
      ! screen where it was switched on. !}
     {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">*** MODE DÉGRADÉ MONÉTIQUE FORCÉ ***</div>{/if}
+    {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} ***</div>{/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
@@ -188,10 +189,15 @@
                          QUANTITÉ parce que c'est le même besoin — dire « encore un »
                          sans rescanner. -->
                     <a href="/action/repeat" class="btn btn-muted">RÉPÉTER ARTICLE</a>
-                    <!-- Déconnexion en bas À GAUCHE : la colonne de droite de la
-                         dernière rangée est celle d'ENCAISSER, et on ne met pas une
-                         sortie de session sous le doigt qui vise le paiement. -->
-                    <a href="/close" class="btn btn-muted">DÉCONNEXION</a>
+                    <!-- Trois notions distinctes (EXP-10), pas une « déconnexion » :
+                         VERROUILLER met le poste en pause (le ticket survit),
+                         FERMER retire le tiroir (impossible en cours de vente,
+                         EXP-11) ; la clôture Z vit sur l'écran session. Les deux
+                         sont en bas À GAUCHE : la colonne de droite de la dernière
+                         rangée est celle d'ENCAISSER, et on ne met pas une sortie
+                         de poste sous le doigt qui vise le paiement. -->
+                    <a href="/action/lock" class="btn btn-muted">VERROUILLER</a>
+                    <a href="/close" class="btn btn-muted">FERMER</a>
                     {#if state.ticket.totalAmount > 0}
                         <a id="payBtn" href="/pay" class="btn btn-primary">ENCAISSER</a>
                     {#else}
@@ -237,6 +243,8 @@
                     <!-- CAISSE : l'argent du tiroir et la session. -->
                     <a href="/cash-movement" class="btn btn-success">MOUVEMENT</a>
                     <a href="/withdrawal" class="btn btn-success">PRÉLÈVEMENT</a>
+                    <a href="/apport" class="btn btn-success">APPORT MONNAIE</a>
+                    <a href="/cash-calculator" class="btn btn-muted">CALCULATRICE FOND</a>
                     <a href="/transfer" class="btn btn-success">TRANSFERT RÈGLEMENT</a>
                     <a href="/session" class="btn btn-success">SESSION CAISSE</a>
                     <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>

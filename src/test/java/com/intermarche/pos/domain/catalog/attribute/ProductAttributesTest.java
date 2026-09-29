@@ -290,4 +290,51 @@ class ProductAttributesTest {
         Assertions.assertEquals(java.math.BigDecimal.ZERO,
                 ProductAttributes.ecoTax(productWith(ProductAttributeCatalog.ECO_TAX, null)));
     }
+
+    /**
+     * {@code tare} reads the article's own tare, tolerating the French decimal
+     * comma and surrounding spaces (LC-14-01-07, present-value arm).
+     */
+    @Test
+    void tareReadsTheArticlesOwnTare() {
+        Assertions.assertEquals(0, new java.math.BigDecimal("0.020").compareTo(
+                ProductAttributes.tare(productWith(ProductAttributeCatalog.TARE, "0.020"))));
+        Assertions.assertEquals(0, new java.math.BigDecimal("0.035").compareTo(
+                ProductAttributes.tare(productWith(ProductAttributeCatalog.TARE, " 0,035 "))));
+    }
+
+    /**
+     * {@code tare} falls back to zero when the article carries none: an absent
+     * attribute resolves through the catalog default "0", and a null product or
+     * a blank value are zero too (catalog-default, null-product and blank arms).
+     */
+    @Test
+    void tareIsZeroWhenTheArticleCarriesNone() {
+        Assertions.assertEquals(0, java.math.BigDecimal.ZERO.compareTo(
+                ProductAttributes.tare(new Product())));
+        Assertions.assertEquals(0, java.math.BigDecimal.ZERO.compareTo(
+                ProductAttributes.tare(null)));
+        Assertions.assertEquals(0, java.math.BigDecimal.ZERO.compareTo(
+                ProductAttributes.tare(productWith(ProductAttributeCatalog.TARE, "   "))));
+    }
+
+    /**
+     * {@code tare} treats an unreadable value as none rather than raising — one
+     * malformed article must not stop a weighing (catch arm).
+     */
+    @Test
+    void tareTreatsAnUnreadableValueAsNone() {
+        Assertions.assertEquals(0, java.math.BigDecimal.ZERO.compareTo(
+                ProductAttributes.tare(productWith(ProductAttributeCatalog.TARE, "lourd"))));
+    }
+
+    /**
+     * {@code tare} clamps a negative value to zero — a mis-integrated negative
+     * tare must never inflate a weighing (negative arm).
+     */
+    @Test
+    void tareClampsANegativeValueToZero() {
+        Assertions.assertEquals(0, java.math.BigDecimal.ZERO.compareTo(
+                ProductAttributes.tare(productWith(ProductAttributeCatalog.TARE, "-0.010"))));
+    }
 }

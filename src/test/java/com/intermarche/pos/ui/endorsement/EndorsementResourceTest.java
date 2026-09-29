@@ -652,6 +652,32 @@ class EndorsementResourceTest {
     }
 
     /**
+     * {@code selfEndorse} routes a granted {@code FINANCIAL_MOVEMENT} action to
+     * the financial-movement resource (LC-12-06), forwarding the parked form and
+     * the endorsing badge, and lands on the response that gesture returns.
+     */
+    @Test
+    void selfEndorseDispatchesFinancialMovement() {
+        EndorsementResource resource = newResource();
+        resource.financialMovementResource = mock(com.intermarche.pos.ui.cash.FinancialMovementResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.FinancialMovementResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        resource.state.endorsement.pendingForm.put("source", "CASH");
+        Response own = Response.ok().build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.financialMovementResource.performEndorsed(
+                resource.state.endorsement.pendingForm, "MGR9")).thenReturn(own);
+        Response response = resource.selfEndorse();
+        assertSame(own, response);
+        verify(resource.financialMovementResource).performEndorsed(
+                resource.state.endorsement.pendingForm, "MGR9");
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
+
+    /**
      * {@code selfEndorse} routes a granted {@code DRAWER_OPERATION} whose parked
      * form says {@code op=transfer} to the transfer gesture and lands on its
      * response (the DRAWER_OPERATION equals true arm and the
@@ -676,6 +702,33 @@ class EndorsementResourceTest {
         verify(resource.drawerOperationsResource).performEndorsedTransfer(
                 resource.state.endorsement.pendingForm, "MGR9");
         verify(resource.drawerOperationsResource, never()).performEndorsedWithdrawal(any(), any());
+    }
+
+    /**
+     * {@code selfEndorse} routes a granted {@code DRAWER_OPERATION} whose parked
+     * form says {@code op=apport} to the apport gesture (EXP-15), not to the
+     * withdrawal or transfer gesture (the {@code "apport".equals(op)} true arm).
+     */
+    @Test
+    void selfEndorseDispatchesDrawerApport() {
+        EndorsementResource resource = newResource();
+        resource.drawerOperationsResource = mock(com.intermarche.pos.ui.cash.DrawerOperationsResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.DrawerOperationsResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        resource.state.endorsement.pendingForm.put("op", "apport");
+        Response own = Response.ok().build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.drawerOperationsResource.performEndorsedApport(
+                resource.state.endorsement.pendingForm, "MGR9")).thenReturn(own);
+        Response response = resource.selfEndorse();
+        assertSame(own, response);
+        verify(resource.drawerOperationsResource).performEndorsedApport(
+                resource.state.endorsement.pendingForm, "MGR9");
+        verify(resource.drawerOperationsResource, never()).performEndorsedWithdrawal(any(), any());
+        verify(resource.drawerOperationsResource, never()).performEndorsedTransfer(any(), any());
     }
 
     /**

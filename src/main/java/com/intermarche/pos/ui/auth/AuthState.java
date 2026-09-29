@@ -58,6 +58,32 @@ public class AuthState implements Serializable {
     public String scannedBadgeId = null;
 
     /**
+     * The database id of the operator who VERROUILLA (paused) the register, kept
+     * across the pause so the lock screen prefills their code and only they may
+     * resume (EXP-12/13). Null when the register is FREE — logged out or
+     * fermée — which is what {@link #isPaused()} tells apart from a pause.
+     *
+     * <p>A pause and a fermeture are two different exits and the difference is
+     * carried here: a pause keeps the operator (and the in-memory ticket) aside
+     * for a short resume; a fermeture clears everything.
+     */
+    public Long lockedOperatorId = null;
+
+    /** The display name of the operator who paused the register, or empty. */
+    public String lockedOperatorName = "";
+
+    /** The badge of the operator who paused the register, or null. */
+    public String lockedOperatorBadgeId = null;
+
+    /**
+     * True when the next resume must force a PIN change: a supervisor forced the
+     * unlock of a register whose cashier forgot their password (EXP-14), so the
+     * cashier keeps their session and drawer but is made to choose a new code at
+     * the reprise. Cleared by a successful PIN change.
+     */
+    public boolean passwordChangeRequired = false;
+
+    /**
      * The badge PHYSICALLY PRESENTED at this register, kept until the unlock
      * that follows it.
      *
@@ -104,11 +130,16 @@ public class AuthState implements Serializable {
         this.scannedBadgeId = null;
         this.presentedBadgeId = null;
         this.closeRequestedByBadge = false;
+        this.lockedOperatorId = null;
+        this.lockedOperatorName = "";
+        this.lockedOperatorBadgeId = null;
         this.lastActivityAt = System.currentTimeMillis();
     }
 
     /**
-     * Logs the operator out and returns the register to the lock page.
+     * Logs the operator out and returns the register to the lock page — the
+     * FERMETURE and the free lock landing. Unlike {@link #pause()}, it forgets
+     * who was there: the paused-operator identity is cleared too.
      */
     public void logout() {
         this.isLocked = true;
@@ -118,6 +149,42 @@ public class AuthState implements Serializable {
         this.scannedBadgeId = null;
         this.presentedBadgeId = null;
         this.closeRequestedByBadge = false;
+        this.lockedOperatorId = null;
+        this.lockedOperatorName = "";
+        this.lockedOperatorBadgeId = null;
+        this.passwordChangeRequired = false;
+    }
+
+    /**
+     * VERROUILLE (pauses) the register: keeps the operator identity aside so the
+     * lock screen prefills their code and only they may resume (EXP-12/13), and
+     * leaves the in-memory ticket untouched (a pause is a short interruption, not
+     * an abandon). The register becomes locked and nobody is "logged in" while it
+     * is paused — the active operator fields are moved to the {@code
+     * lockedOperator*} ones.
+     */
+    public void pause() {
+        this.lockedOperatorId = this.operatorId;
+        this.lockedOperatorName = this.operatorName;
+        this.lockedOperatorBadgeId = this.operatorBadgeId;
+        this.isLocked = true;
+        this.operatorId = null;
+        this.operatorName = "";
+        this.operatorBadgeId = null;
+        this.scannedBadgeId = null;
+        this.presentedBadgeId = null;
+        this.closeRequestedByBadge = false;
+    }
+
+    /**
+     * Tells a PAUSE (verrouillage) apart from a free lock (fermeture / never
+     * logged in): the register is locked AND an operator is held aside for the
+     * resume.
+     *
+     * @return true when the register is paused rather than free
+     */
+    public boolean isPaused() {
+        return isLocked && lockedOperatorId != null;
     }
 
     /**

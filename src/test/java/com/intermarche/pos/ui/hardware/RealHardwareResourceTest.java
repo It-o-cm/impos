@@ -24,6 +24,16 @@ class RealHardwareResourceTest {
     }
 
     /**
+     * {@code getWeightWithTare()} answers the same "nothing on the plate"
+     * convention on the stub, accepting and ignoring the tare — on a real till
+     * the scale nets the tare itself (LC-14-01-06).
+     */
+    @Test
+    void getWeightWithTareAnswersZero() {
+        assertEquals("0,000", new RealHardwareResource().getWeightWithTare("0.010"));
+    }
+
+    /**
      * {@code getDrawerStatus()} answers CLOSED — the state that never traps
      * the register behind the drawer guard.
      */

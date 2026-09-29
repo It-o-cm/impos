@@ -113,6 +113,12 @@ class TicketServiceTest {
         cashSessionService = mock(CashSessionService.class);
         ticketPrinterService = mock(TicketPrinterService.class);
         service.hardwareService = hardwareService;
+        // LC-14-01: the tare resolver is a stand-in returning no tare by
+        // default, so every weighed-line assertion below is unchanged; the
+        // tare-specific cases stub a positive tare explicitly.
+        service.tareService = mock(com.intermarche.pos.ui.balance.TareService.class);
+        when(service.tareService.resolve(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(BigDecimal.ZERO);
         service.ticketPersistenceService = ticketPersistenceService;
         service.valuationService = valuationService;
         service.cashSessionService = cashSessionService;
@@ -991,7 +997,7 @@ class TicketServiceTest {
     void addItemByPluInvalidWeight() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        when(hardwareService.requestWeighing()).thenReturn(0.0);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(0.0);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
             service.addItemByPlu(state, "1234");
@@ -1008,7 +1014,7 @@ class TicketServiceTest {
         openSession();
         Product p = product("APPLE", "111", "1234");
         state.ticket.lastRecordedWeight = 1.5;
-        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
             service.addItemByPlu(state, "1234");
@@ -1028,7 +1034,7 @@ class TicketServiceTest {
         state.ticket.lastRecordedWeight = 2.0;
         Product p = product("APPLE", "111", "1234");
         Price pr = price("3.00", "0.055");
-        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1046,6 +1052,35 @@ class TicketServiceTest {
     }
 
     /**
+     * LC-14-01-03/06/07: {@code addItemByPlu} resolves the software tare, SENDS
+     * it to the scale and records the NET weight the scale returns AS-IS —
+     * never re-deducting (non-cumulation) — then consumes the punctual
+     * container and snapshots the article tare on the line for a later manual
+     * re-entry.
+     */
+    @Test
+    void addItemByPluSendsTareRecordsNetAndSnapshots() {
+        openSession();
+        Product p = product("APPLE", "111", "1234");
+        p.attributes.put("TARE", "0.010");
+        Price pr = price("3.00", "0.055");
+        when(service.tareService.resolve(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(new BigDecimal("0.010"));
+        when(hardwareService.requestWeighing(new BigDecimal("0.010"))).thenReturn(0.290);
+        try (MockedStatic<Product> productStatic = mockStatic(Product.class);
+             MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
+            productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
+            priceStatic.when(() -> Price.findCurrentPrice(anyLong())).thenReturn(pr);
+            service.addItemByPlu(state, "1234");
+        }
+        TicketState.TicketItem added = state.ticket.items.get(0);
+        assertEquals(0, new BigDecimal("0.290").compareTo(added.quantity));
+        assertEquals(0, new BigDecimal("0.010").compareTo(added.tareKg));
+        verify(hardwareService).requestWeighing(new BigDecimal("0.010"));
+        verify(service.tareService).consume(state);
+    }
+
+    /**
      * {@code addItemByPlu} with the default NaN last weight (NaN short-circuit
      * arm) and no current price falls back to zero price and the default VAT
      * rate (price null arm).
@@ -1054,7 +1089,7 @@ class TicketServiceTest {
     void addItemByPluFirstWeighingWithoutPriceUsesDefaults() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1082,7 +1117,7 @@ class TicketServiceTest {
         }
         assertTrue(state.ticket.items.isEmpty());
         assertEquals("ARTICLE EN RETRAIT/RAPPEL", state.ticket.transientError);
-        verify(hardwareService, never()).requestWeighing();
+        verify(hardwareService, never()).requestWeighing(org.mockito.ArgumentMatchers.any());
     }
 
     /**
@@ -1095,7 +1130,7 @@ class TicketServiceTest {
         openSession();
         Product p = product("APPLE", "111", "1234");
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
-        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1117,7 +1152,7 @@ class TicketServiceTest {
         openSession();
         Product p = product("APPLE", "111", "1234");
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
-        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1621,7 +1656,7 @@ class TicketServiceTest {
         assertEquals("99", state.ageCheck.code);
         assertNull(state.ageCheck.quantity);
         assertTrue(state.ticket.items.isEmpty());
-        verify(hardwareService, never()).requestWeighing();
+        verify(hardwareService, never()).requestWeighing(org.mockito.ArgumentMatchers.any());
     }
 
     // --- money products are never discounted ---
@@ -2544,7 +2579,7 @@ class TicketServiceTest {
     void addItemByPluPriceWithNullVatUsesDefault() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        when(hardwareService.requestWeighing()).thenReturn(1.5);
+        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);

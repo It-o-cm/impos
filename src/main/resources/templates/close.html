@@ -50,7 +50,13 @@
       <div class="close-error">{error}</div>
       {/if}
 
-      {#if obstacle == 'PENDING_TICKETS'}
+      {#if obstacle == 'IN_TRANSACTION'}
+      <div class="close-warn">
+        Une vente est en cours : impossible de fermer la caisse (EXP-11).
+        Terminez, mettez en attente ou abandonnez le ticket — ou verrouillez la
+        caisse si vous vous absentez un instant.
+      </div>
+      {#else if obstacle == 'PENDING_TICKETS'}
       <div class="close-warn">
         {pending} ticket(s) en attente n'ont pas été repris sur cette caisse.
         Une autorisation superviseur est nécessaire pour fermer la session.
@@ -59,6 +65,7 @@
       <div class="close-state">Saisissez votre code opérateur pour fermer la caisse.</div>
       {/if}
 
+      {#if obstacle != 'IN_TRANSACTION'}
       {#if obstacle == 'PASSWORD'}
       <form class="close-form" method="post" action="/action/close">
         <h2>Code opérateur</h2>
@@ -83,6 +90,7 @@
           <button class="btn btn-danger" type="submit">FORCER LA FERMETURE</button>
         </div>
       </form>
+      {/if}
 
       {! UN seul pave pour les trois champs de la page: PosInput est un
        ! singleton, et de toute facon l'operateur ne remplit qu'un champ a la

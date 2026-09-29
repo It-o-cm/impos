@@ -178,6 +178,9 @@ class PaymentServiceTest {
      * @param line the magnetic line the reader reports
      */
     private void chequeReaderAnswers(String line) {
+        // The callback only DEPOSITS the reading, as the follower thread does in
+        // production; the scenarios settle it with settlePendingChequeRead, which
+        // is what the next request carries.
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<String> onRead =
@@ -1026,6 +1029,7 @@ class PaymentServiceTest {
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
         service.processCheque(state, BigDecimal.ZERO);
+        service.settlePendingChequeRead(state);
         assertEquals(0, new BigDecimal("20.00").compareTo(state.payment.paidAmount));
         verify(hardwareService).displayMessage("CHEQUE    20,00 E");
         verify(ticketPersistenceService).addPaymentToTicket(3L, state.payment.payments.get(0));
@@ -1059,6 +1063,7 @@ class PaymentServiceTest {
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
         service.processCheque(state, BigDecimal.ZERO);
+        service.settlePendingChequeRead(state);
         verify(hardwareService).displayMessage("CHEQUE    20,00 E");
         verify(hardwareService, never()).openDrawer();
         assertTrue(state.payment.transactionComplete);
@@ -1092,6 +1097,7 @@ class PaymentServiceTest {
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
         service.processCheque(state, BigDecimal.ZERO);
+        service.settlePendingChequeRead(state);
         assertTrue(state.payment.payments.isEmpty());
         assertNull(state.payment.pendingChequeAmount);
         assertFalse(state.payment.transactionComplete);
@@ -1117,6 +1123,7 @@ class PaymentServiceTest {
         state.ticket.totalAmount = new BigDecimal("20.00");
         state.payment.ticketDbId = 3L;
         service.processCheque(state, BigDecimal.ZERO);
+        service.settlePendingChequeRead(state);
         assertTrue(state.payment.payments.isEmpty());
         assertFalse(state.payment.transactionComplete);
     }
@@ -1137,6 +1144,7 @@ class PaymentServiceTest {
         }).when(chequeReadingService).read(any(), any(), any());
         state.ticket.totalAmount = new BigDecimal("20.00");
         service.processCheque(state, BigDecimal.ZERO);
+        service.settlePendingChequeRead(state);
         assertTrue(state.payment.payments.isEmpty());
         assertNull(state.payment.pendingChequeAmount);
     }
@@ -1537,6 +1545,34 @@ class PaymentServiceTest {
     }
 
     /**
+     * The retained engine offer messages are frozen on the ticket at the fiscal
+     * moment (spec §3): each {@code EngineMessage} on the payment state is mapped
+     * to a {@code TicketMessage} and handed to the persistence service.
+     */
+    @Test
+    void finalizeTransactionFreezesEngineMessagesOnTheTicket() {
+        state.payment.ticketDbId = 9L;
+        state.payment.valuationMessages.add(
+                new com.intermarche.pos.ui.valuation.ValuationService.EngineMessage(
+                        "BELOW_TRIGGER", "Plus que 5 €", "FOOTER"));
+        try (org.mockito.MockedStatic<io.quarkus.hibernate.orm.panache.PanacheEntityBase> panache =
+                     org.mockito.Mockito.mockStatic(
+                             io.quarkus.hibernate.orm.panache.PanacheEntityBase.class)) {
+            stubNoGiftCards(panache, 9L);
+            service.finalizeTransaction(state);
+        }
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.List<com.intermarche.pos.domain.sale.TicketMessage>> captor =
+                org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(ticketPersistenceService).storeEngineMessages(
+                org.mockito.ArgumentMatchers.eq(9L), captor.capture());
+        assertEquals(1, captor.getValue().size());
+        assertEquals("Plus que 5 €", captor.getValue().get(0).text);
+        assertEquals("BELOW_TRIGGER", captor.getValue().get(0).code);
+        assertEquals("FOOTER", captor.getValue().get(0).printMode);
+    }
+
+    /**
      * An engine-valued sale whose ticket cannot be reloaded declares nothing
      * ({@code "ENGINE".equals} true, {@code valued != null} false).
      */
@@ -1626,7 +1662,7 @@ class PaymentServiceTest {
                 frozen = org.mockito.ArgumentCaptor.forClass(java.util.List.class);
         verify(ticketPersistenceService).storeFidelity(eq(9L),
                 eq(new java.math.BigDecimal("1.03")), eq(new java.math.BigDecimal("42.30")),
-                eq(true), frozen.capture());
+                eq(true), frozen.capture(), eq(null), eq(null), eq(false));
         assertEquals(1, frozen.getValue().size());
         assertEquals("SOCLE", frozen.getValue().get(0).ruleCode);
         assertEquals("Cagnotte socle", frozen.getValue().get(0).label);
@@ -1650,7 +1686,7 @@ class PaymentServiceTest {
         org.mockito.ArgumentCaptor<java.util.List<com.intermarche.pos.domain.sale.TicketFidelityLine>>
                 frozen = org.mockito.ArgumentCaptor.forClass(java.util.List.class);
         verify(ticketPersistenceService).storeFidelity(eq(9L), eq(null), eq(null),
-                eq(false), frozen.capture());
+                eq(false), frozen.capture(), eq(null), eq(null), eq(false));
         assertTrue(frozen.getValue().isEmpty());
     }
 
@@ -2938,6 +2974,7 @@ class PaymentServiceTest {
                         com.intermarche.pos.domain.payment.TenderDefinition.ControlLevel.BLOCKING,
                         "PLAFOND CHEQUE"));
         service.processCheque(state, new BigDecimal("20.00"));
+        service.settlePendingChequeRead(state);
         assertTrue(state.payment.payments.isEmpty());
         assertEquals("PLAFOND CHEQUE", state.ticket.transientError);
         verify(hardwareService, never()).openDrawer();

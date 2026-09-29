@@ -22,6 +22,8 @@
     .line .qty { color: #777; margin-right: 8px; white-space: nowrap; }
     .line .lbl { flex: 1; }
     .line .amt { font-weight: bold; white-space: nowrap; }
+    .line.advantage { color: #2E7D32; font-size: 0.85rem; padding-left: 10px; }
+    .line.advantage .amt { font-weight: normal; }
     .total { display: flex; justify-content: space-between; font-size: 1.25rem; font-weight: bold; margin-top: 6px; }
     .vat { font-size: 0.8rem; color: #666; display: flex; justify-content: space-between; }
     .pay { font-size: 0.9rem; color: #333; display: flex; justify-content: space-between; }
@@ -53,9 +55,23 @@
           <span class="lbl">{line.productLabel}</span>
           <span class="amt">{line.getTotalFormatted()} €</span>
         </div>
+        {#let adv=lineAdvantages.get(line.lineUid)}
+          {#if adv}
+          <div class="line advantage">
+            <span class="lbl">{adv.label}</span>
+            <span class="amt">{adv.amount} €</span>
+          </div>
+          {/if}
+        {/let}
         {/if}
       {/for}
       <hr>
+      {#for adv in footerAdvantages}
+        <div class="line advantage">
+          <span class="lbl">{adv.label}</span>
+          <span class="amt">{adv.amount} €</span>
+        </div>
+      {/for}
       <div class="total"><span>TOTAL TTC</span><span>{ticket.getTotalFormatted()} €</span></div>
       {#for bucket in buckets}
         <div class="vat">
@@ -81,6 +97,11 @@
         </div>
       {/if}
 
+      {#for message in ticket.messages}
+        {#if message.text}
+        <div class="foot">{message.text}</div>
+        {/if}
+      {/for}
       <div class="foot">Merci de votre visite, à bientôt !</div>
     {#else}
       <div class="unavailable">

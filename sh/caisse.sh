@@ -47,6 +47,12 @@ TPE_MODE='bridge'
 # 0 if the endorsement comes out upside down. The endorsing printer is not declared
 # here: the daemon reads its logical name from the JavaPOS device file.
 ENDORSE_ROTATION='180'
+# Serial port of the scale. The daemon defaults to /dev/ttyS4, where the
+# Checkout-Dialog-06 of this till used to answer; after its firmware was
+# raised the instrument answers on ttyS0, and a default is not the place for
+# one till's history. A scale-test on each ttyS in turn finds it again the day
+# it moves.
+SCALE_PORT='/dev/ttyS0'
 POS_PORT='8080'
 SSHOPT='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR'
 # Same options WITHOUT the silencing: used by the file copies alone, so their
@@ -127,7 +133,7 @@ start_hw() {
   if [ -n "$WCL_DIR" ] && [ -n "$TPE_STATION" ] && [ -n "$TPE_ILOT" ]; then
     tpe="--wcl-dir $WCL_DIR --station $TPE_STATION --ilot $TPE_ILOT --tpe-timeout $TPE_TIMEOUT"
   fi
-  rsh "fuser -k $HW_PORT/tcp > /dev/null 2>&1; sleep 2; cd $REMOTE_DIR && (setsid nohup $HW_JAVA -jar impos-hw.jar serve --port $HW_PORT --endorse-rotation $ENDORSE_ROTATION $tpe > hw.log 2>&1 < /dev/null &); sleep 3; exit 0"
+  rsh "fuser -k $HW_PORT/tcp > /dev/null 2>&1; sleep 2; cd $REMOTE_DIR && (setsid nohup $HW_JAVA -jar impos-hw.jar serve --port $HW_PORT --scale-port $SCALE_PORT --endorse-rotation $ENDORSE_ROTATION $tpe > hw.log 2>&1 < /dev/null &); sleep 3; exit 0"
   local code
   code=$(rsh "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$HW_PORT/api/hardware/drawer/status")
   echo "pont materiel : HTTP $code"

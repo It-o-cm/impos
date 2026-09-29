@@ -5,7 +5,6 @@ import com.intermarche.pos.domain.catalog.ProductFamily;
 import io.quarkus.hibernate.orm.panache.Panache;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Response;
-import org.jboss.logging.Logger;
 
 import java.io.InputStream;
 import java.util.*;
@@ -46,8 +45,6 @@ import java.util.*;
 @ApplicationScoped
 public class ProductFamilyCsvResource extends ImporterCsvResource {
 
-    private static final Logger LOGGER = Logger.getLogger(ProductFamilyCsvResource.class);
-
     // Keys used to store auxiliary maps in the generic context map
     private static final String CTX_PRODUCTS = "__CTX_PRODUCTS__";
     private static final String CTX_SUB_FAMILIES = "__CTX_SUB_FAMILIES__";
@@ -75,8 +72,6 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
      * @return A Response containing a JSON summary of created/updated counts and errors.
      */
     public Response importProductFamilies(InputStream inputStream) {
-        LOGGER.info("Entering method importProductFamilies with inputStream: " + inputStream);
-        LOGGER.info("Exiting method importProductFamilies");
         return this.importCsvStream(inputStream, COL_CODE, REQUIRED_COLUMNS);
     }
 
@@ -109,7 +104,6 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
      */
     @Override
     protected Map<String, Object> processChunkWithFallback(List<LineData> parsedLines, Set<String> targetCodes, int[] counters, List<String> errors) {
-        System.out.println("Processing chunk with fallback: " + parsedLines.isEmpty());
         if (parsedLines.isEmpty()) return new HashMap<>();
         Set<String> targetProductEans = getTargetProductEans(parsedLines);
         Set<String> targetSubFamilyCodes = getProductSubFamilyCodes(parsedLines);
@@ -117,7 +111,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         Map<String, Object> contextMap = new HashMap<>();
         Map<String, ProductFamily> familyMap = getProductFamilies(targetCodes);
         contextMap.putAll(familyMap);
-        Map<String, Product> productMap = getProductMap(targetProductEans);
+        Map<String, Product> productMap = productsByEan(targetProductEans);
         contextMap.put(CTX_PRODUCTS, productMap);
         Map<String, ProductFamily> subFamilyMap = getProductSubFamilies(targetSubFamilyCodes);
         contextMap.put(CTX_SUB_FAMILIES, subFamilyMap);
@@ -188,15 +182,6 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         return targetProductEans;
     }
 
-    /**
-     * Bulk fetches Products based on a set of EAN codes.
-     *
-     * @param targetProductEans The set of product EANs to fetch.
-     * @return A map of EAN to {@link Product} entity.
-     */
-    private static Map<String, Product> getProductMap(Set<String> targetProductEans) {
-        return productsByEan(targetProductEans);
-    }
 
     /**
      * Largest number of EANs put in one IN clause.
@@ -276,6 +261,15 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
         if (isNew) {
             family = new ProductFamily();
             family.code = data.code;
+        } else {
+            // The staged fallback clears the persistence context between
+            // retries - withTransaction ends with EntityManager.clear() - so
+            // the family pre-fetched for the chunk is DETACHED on every retry
+            // below stage 1000. Re-attach it before mutating: otherwise the
+            // update is applied to a throw-away instance, silently lost, and
+            // still counted as an update. The other importers of this package
+            // already do this.
+            family = ProductFamily.findById(family.id);
         }
         prepareProductFamily(data, family, requestedEans, productMap);
         linkSubFamilies(family, requestedSubCodes, subFamilyMap);
@@ -285,7 +279,7 @@ public class ProductFamilyCsvResource extends ImporterCsvResource {
             counters[0]++;
             Panache.getEntityManager().persist(family);
         } else {
-            if (family.checksum != incomingChecksum) {
+            if (family.changedFrom(incomingChecksum)) {
                 counters[1]++;
             }
         }

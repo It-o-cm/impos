@@ -32,8 +32,23 @@
     {/if}
 {/if}
 
+{!
+ ! GB-01-07-05/06 : les messages d'offre du moteur, affichés au fil du scan
+ ! (le fragment est repolé à chaque évolution du panier, donc le nudge
+ ! « plus que X € » se rafraîchit sans rechargement). Aucun impact monétaire :
+ ! une offre sans messages n'affiche rien. Vidés en mode LOCAL/dégradé.
+!}
+{#for message in state.payment.valuationMessages}
+    <div class="receipt-item notice-line">
+        <div class="item-details">
+            <strong>{message.text}</strong>
+        </div>
+        <span class="price" style="color:var(--success);">ℹ</span>
+    </div>
+{/for}
+
 {#if state.ticket.items.empty}
-    <div class="receipt-empty">EN ATTENTE D'ARTICLES...</div>
+    <div class="receipt-empty">{waitingLabel}</div>
 {#else}
     {#for item in state.visibleItems}
         <a href="/action/select/{item_index}" class="receipt-item-link">

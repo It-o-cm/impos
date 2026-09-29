@@ -703,6 +703,69 @@ class CashSessionServiceTest {
     }
 
     /**
+     * BO-03-10-10: an island automatic declaration closes with the counted
+     * amount FORCED to the theoretical whatever the caller passes (here a 120,00
+     * that must be ignored), a zero variance, and a SESSION_CLOSED journal line
+     * that NAMES the automatic declaration so the zero variance is not mistaken
+     * for a correct hand count.
+     */
+    @Test
+    void closeSessionAutoDeclarationDeclaresTheoreticalAndMarksJournal() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.sessionNumber = "C04-S00012";
+        session.terminalId = TERMINAL;
+        session.openingFloat = new BigDecimal("100.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, session);
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            mocked.when(() -> Ticket.list("terminalId = ?1 and status = ?2",
+                    TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            CashSessionService.SessionReport report = service.closeSession(null,
+                    new BigDecimal("120.00"), null, null, true);
+            assertEquals(0, session.countedAmount.compareTo(report.theoreticalCash));
+            assertEquals(0, new BigDecimal("100.00").compareTo(session.countedAmount));
+            assertEquals(0, BigDecimal.ZERO.compareTo(session.variance));
+            verify(service.technicalEventService).log(
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
+                    org.mockito.ArgumentMatchers.contains("déclaration automatique"));
+        }
+    }
+
+    /**
+     * The 4-argument {@code closeSession} delegates with the automatic flag
+     * FALSE: the counted amount is the caller's (120,00, not the theoretical)
+     * and the SESSION_CLOSED journal carries NO automatic marker — the current
+     * behaviour, unchanged.
+     */
+    @Test
+    void closeSessionManualDelegationKeepsCountedAndPlainJournal() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.sessionNumber = "C04-S00012";
+        session.terminalId = TERMINAL;
+        session.openingFloat = new BigDecimal("100.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, session);
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            mocked.when(() -> Ticket.list("terminalId = ?1 and status = ?2",
+                    TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            service.closeSession(null, new BigDecimal("120.00"), null, "{}");
+            assertEquals(0, new BigDecimal("120.00").compareTo(session.countedAmount));
+            verify(service.technicalEventService).log(
+                    TechnicalEvent.EventType.SESSION_CLOSED, "C04-S00012 écart 20.00");
+        }
+    }
+
+    /**
      * Covers the non-null arm of the {@code money} ternary through every
      * amount formatter of {@link CashSessionService.SessionReport}: a present
      * value is scaled to two decimals with HALF_UP rounding and rendered with a
@@ -1019,6 +1082,152 @@ class CashSessionServiceTest {
             stubAdministeredTender(mocked, cash, cashQuery);
             service.closeSession(null, null, new BigDecimal("7.00"), null);
             assertEquals(0, BigDecimal.ZERO.compareTo(poor.withdrawnAmount));
+        }
+    }
+
+    /**
+     * Stubs the last-closed-session finder of this register on the given static
+     * mock (EXP-02).
+     *
+     * @param mocked the active Panache static mock
+     * @param result the last closed session to return, possibly null
+     */
+    private void stubLastClosed(MockedStatic<PanacheEntityBase> mocked, CashSession result) {
+        PanacheQuery<CashSession> query = queryReturning(result);
+        mocked.when(() -> CashSession.find(
+                "terminalId = ?1 and status = ?2 order by closingDate desc",
+                TERMINAL, CashSession.SessionStatus.CLOSED)).thenReturn(query);
+    }
+
+    /**
+     * {@code theoreticalOpeningFloat} returns null when this register was never
+     * closed (no previous close to carry over) — the null arm.
+     */
+    @Test
+    void theoreticalOpeningFloatNullWhenNeverClosed() {
+        CashSessionService service = newService();
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubLastClosed(mocked, null);
+            assertNull(service.theoreticalOpeningFloat());
+        }
+    }
+
+    /**
+     * {@code theoreticalOpeningFloat} carries over the leftover of the previous
+     * close (counted minus withdrawn) — the non-null arm.
+     */
+    @Test
+    void theoreticalOpeningFloatCarriesOverLeftover() {
+        CashSessionService service = newService();
+        CashSession last = mock(CashSession.class);
+        last.countedAmount = new BigDecimal("200.00");
+        last.withdrawnAmount = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubLastClosed(mocked, last);
+            assertEquals(0, new BigDecimal("150.00").compareTo(service.theoreticalOpeningFloat()));
+        }
+    }
+
+    /**
+     * {@code theoreticalOpeningFloat} treats null counted and withdrawn amounts
+     * as zero — both null-guard arms — yielding a zero leftover.
+     */
+    @Test
+    void theoreticalOpeningFloatTreatsNullAmountsAsZero() {
+        CashSessionService service = newService();
+        CashSession last = mock(CashSession.class);
+        last.countedAmount = null;
+        last.withdrawnAmount = null;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubLastClosed(mocked, last);
+            assertEquals(0, new BigDecimal("0.00").compareTo(service.theoreticalOpeningFloat()));
+        }
+    }
+
+    /**
+     * {@code theoreticalOpeningFloat} clamps a negative leftover (withdrawn more
+     * than counted) to zero — the negative-signum arm.
+     */
+    @Test
+    void theoreticalOpeningFloatClampsNegativeToZero() {
+        CashSessionService service = newService();
+        CashSession last = mock(CashSession.class);
+        last.countedAmount = new BigDecimal("10.00");
+        last.withdrawnAmount = new BigDecimal("40.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubLastClosed(mocked, last);
+            assertEquals(0, new BigDecimal("0.00").compareTo(service.theoreticalOpeningFloat()));
+        }
+    }
+
+    /**
+     * {@code drawerCapExcess} returns null when no cap is administered (the
+     * cap-null / non-positive arm).
+     */
+    @Test
+    void drawerCapExcessNullWhenNoCap() {
+        CashSessionService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.drawerCap()).thenReturn(BigDecimal.ZERO);
+        assertNull(service.drawerCapExcess());
+    }
+
+    /**
+     * {@code drawerCapExcess} returns null when a cap is set but no session is
+     * open (the no-session arm).
+     */
+    @Test
+    void drawerCapExcessNullWhenNoOpenSession() {
+        CashSessionService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.drawerCap()).thenReturn(new BigDecimal("100.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, null);
+            assertNull(service.drawerCapExcess());
+        }
+    }
+
+    /**
+     * {@code drawerCapExcess} returns null when the drawer cash is at or below
+     * the cap (the not-over arm).
+     */
+    @Test
+    void drawerCapExcessNullWhenUnderCap() {
+        CashSessionService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.drawerCap()).thenReturn(new BigDecimal("100.00"));
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, session);
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            assertNull(service.drawerCapExcess());
+        }
+    }
+
+    /**
+     * {@code drawerCapExcess} returns the drawer cash when it exceeds the cap
+     * (the over-cap arm).
+     */
+    @Test
+    void drawerCapExcessReturnsCashWhenOverCap() {
+        CashSessionService service = newService();
+        service.posSettingsService = mock(PosSettingsService.class);
+        when(service.posSettingsService.drawerCap()).thenReturn(new BigDecimal("40.00"));
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, session);
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            assertEquals(0, new BigDecimal("50.00").compareTo(service.drawerCapExcess()));
         }
     }
 }

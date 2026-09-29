@@ -590,6 +590,47 @@ class RefPullServiceTest {
     }
 
     /**
+     * BO-03-09/BO-03-10: a caisse names itself on the request — a non-blank
+     * {@code pos.terminal.id} is sent as the {@code X-Pos-Terminal} header (and
+     * trimmed), so an updated node can resolve the settings by contact point,
+     * island then PDV.
+     */
+    @Test
+    void getSendsTerminalHeaderWhenKnown() throws Throwable {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "BODY")).when(client).send(any(HttpRequest.class), any());
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
+                mock(ObjectMapper.class), client);
+        service.terminalId = " C04 ";
+        callGet(service, "/path");
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(captor.capture(), any());
+        assertEquals("C04", captor.getValue().headers().firstValue("X-Pos-Terminal").orElse(null));
+    }
+
+    /**
+     * Compat: a blank terminal id adds NO {@code X-Pos-Terminal} header, so a
+     * caisse that has not been named — and, symmetrically, an older node that
+     * would ignore the header — keep working exactly as before.
+     */
+    @Test
+    void getOmitsTerminalHeaderWhenBlank() throws Throwable {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "BODY")).when(client).send(any(HttpRequest.class), any());
+        RefPullService service = service(endpoints, mock(RefApplyService.class),
+                mock(ObjectMapper.class), client);
+        service.terminalId = "   ";
+        callGet(service, "/path");
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(captor.capture(), any());
+        assertFalse(captor.getValue().headers().firstValue("X-Pos-Terminal").isPresent());
+    }
+
+    /**
      * Covers the first operand of the status guard in {@code get}: a status
      * below 200 raises an {@link IllegalStateException}.
      */
@@ -816,5 +857,172 @@ class RefPullServiceTest {
         verify(apply).recordApplied("TENDERS", "t2");
         verify(apply).recordApplied("DOCUMENT_TEMPLATES", "t3");
         verify(apply).recordApplied("POSTAL_CODES", "t4");
+    }
+
+    // --------------------------------------------------
+    // Per-domain error map (getLastError / getLastErrors)
+    // --------------------------------------------------
+
+    /**
+     * Builds a mocked HTTP client routing every request the standard way: the
+     * {@code /versions} path yields {@code "VERSIONS"}, the first page yields a
+     * non-empty {@code "PAGE0"} body and any later page an empty {@code "PAGEN"}
+     * body, so one non-empty page then a break drives every domain's snapshot.
+     *
+     * @return the routing HTTP client mock
+     * @throws Exception if the mocked send is set up wrong
+     */
+    private HttpClient versionedClient() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        doAnswer(inv -> {
+            HttpRequest request = inv.getArgument(0);
+            String path = request.uri().getPath();
+            String query = request.uri().getQuery();
+            if (path.endsWith("/versions")) {
+                return resp(200, "VERSIONS");
+            }
+            if (query != null && query.contains("page=0")) {
+                return resp(200, "PAGE0");
+            }
+            return resp(200, "PAGEN");
+        }).when(client).send(any(HttpRequest.class), any());
+        return client;
+    }
+
+    /**
+     * Covers the catch arm of {@code pullOnce} together with both arms of
+     * {@code getLastError}: with EMPLOYEES changed and applied but COUPON_TYPES
+     * changed and throwing, the faulty domain does NOT interrupt the cycle — the
+     * healthy one is still applied — its message is recorded, and
+     * {@code getLastError} returns null for the healthy domain and the message
+     * for the faulty one. The whole cycle then rethrows, which the caller reports.
+     */
+    @Test
+    void getLastErrorDistinguishesHealthyFromFaultyDomain() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = versionedClient();
+        doReturn(Map.of("EMPLOYEES", "e1", "COUPON_TYPES", "c1")).when(mapper)
+                .readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        doThrow(new IllegalStateException("kaboom")).when(apply).applyCouponTypes(any());
+        RefPullService service = service(endpoints, apply, mapper, client);
+        assertThrows(IllegalStateException.class, service::pullOnce);
+        verify(apply).applyEmployees(any());
+        verify(apply).recordApplied("EMPLOYEES", "e1");
+        verify(apply, never()).recordApplied(eq("COUPON_TYPES"), any());
+        assertNull(service.getLastError("EMPLOYEES"));
+        assertEquals("kaboom", service.getLastError("COUPON_TYPES"));
+        assertEquals(1, service.getLastErrors().size());
+        assertEquals("kaboom", service.getLastErrors().get("COUPON_TYPES"));
+    }
+
+    /**
+     * Covers the {@code firstFailure != null} skip arm of {@code pullOnce}: with
+     * two domains throwing, only the FIRST in iteration order (EMPLOYEES, which
+     * precedes COUPON_TYPES in {@code DOMAINS}) is carried in the rethrown cycle
+     * message, while both failures are recorded in the per-domain map.
+     */
+    @Test
+    void pullOnceReportsFirstFailureWhenSeveralDomainsFail() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = versionedClient();
+        doReturn(Map.of("EMPLOYEES", "e1", "COUPON_TYPES", "c1")).when(mapper)
+                .readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        doThrow(new IllegalStateException("e-emp")).when(apply).applyEmployees(any());
+        doThrow(new IllegalStateException("e-coup")).when(apply).applyCouponTypes(any());
+        RefPullService service = service(endpoints, apply, mapper, client);
+        IllegalStateException ex = assertThrows(IllegalStateException.class, service::pullOnce);
+        assertEquals("EMPLOYEES: e-emp", ex.getMessage());
+        assertEquals("e-emp", service.getLastError("EMPLOYEES"));
+        assertEquals("e-coup", service.getLastError("COUPON_TYPES"));
+        assertEquals(2, service.getLastErrors().size());
+    }
+
+    /**
+     * Covers the null-message coalescing arm of {@code pullOnce}: a domain that
+     * throws with no message is recorded under its exception class simple name
+     * rather than a null.
+     */
+    @Test
+    void getLastErrorUsesExceptionClassNameWhenMessageNull() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = versionedClient();
+        doReturn(Map.of("COUPON_TYPES", "c1")).when(mapper)
+                .readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        doThrow(new IllegalStateException()).when(apply).applyCouponTypes(any());
+        RefPullService service = service(endpoints, apply, mapper, client);
+        assertThrows(IllegalStateException.class, service::pullOnce);
+        assertEquals("IllegalStateException", service.getLastError("COUPON_TYPES"));
+    }
+
+    /**
+     * Covers the success-arm {@code lastErrors.remove} of {@code pullOnce}: a
+     * domain that failed one cycle and then applies the next is cleared from the
+     * per-domain map — the map is self-healing, reporting only what is still
+     * broken.
+     */
+    @Test
+    void getLastErrorClearsWhenDomainRecovers() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        RefApplyService apply = mock(RefApplyService.class);
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = versionedClient();
+        doReturn(Map.of("COUPON_TYPES", "c1")).when(mapper)
+                .readValue(eq("VERSIONS"), any(TypeReference.class));
+        doReturn(List.of("row")).when(mapper).readValue(eq("PAGE0"), any(TypeReference.class));
+        doReturn(List.of()).when(mapper).readValue(eq("PAGEN"), any(TypeReference.class));
+        when(apply.lastApplied(any())).thenReturn(null);
+        boolean[] firstCycle = {true};
+        doAnswer(inv -> {
+            if (firstCycle[0]) {
+                firstCycle[0] = false;
+                throw new IllegalStateException("kaboom");
+            }
+            return null;
+        }).when(apply).applyCouponTypes(any());
+        RefPullService service = service(endpoints, apply, mapper, client);
+        assertThrows(IllegalStateException.class, service::pullOnce);
+        assertEquals("kaboom", service.getLastError("COUPON_TYPES"));
+        service.pullOnce();
+        assertNull(service.getLastError("COUPON_TYPES"));
+        assertTrue(service.getLastErrors().isEmpty());
+    }
+
+    /**
+     * {@code getLastErrors} exposes a read-only view: a clean cycle leaves it
+     * empty and the returned map refuses mutation, so the screen cannot corrupt
+     * the service's state.
+     */
+    @Test
+    void getLastErrorsReturnsUnmodifiableEmptyMapOnCleanCycle() throws Exception {
+        SyncEndpoints endpoints = mock(SyncEndpoints.class);
+        when(endpoints.storeUrl()).thenReturn("http://store");
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        HttpClient client = mock(HttpClient.class);
+        doReturn(resp(200, "VERSIONS")).when(client).send(any(HttpRequest.class), any());
+        doReturn(Map.of()).when(mapper).readValue(eq("VERSIONS"), any(TypeReference.class));
+        RefPullService service = service(endpoints, mock(RefApplyService.class), mapper, client);
+        service.pullOnce();
+        Map<String, String> errors = service.getLastErrors();
+        assertTrue(errors.isEmpty());
+        assertThrows(UnsupportedOperationException.class, () -> errors.put("X", "y"));
     }
 }

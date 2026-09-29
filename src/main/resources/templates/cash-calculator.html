@@ -1,0 +1,179 @@
+{!
+ ! Calculatrice de fond (CashCalculatorResource, EXP-04). A scratchpad to count
+ ! the opening float denomination by denomination — banknotes up to 200 €. The
+ ! total is added up entirely in the browser: NOTHING is posted, nothing is
+ ! recorded, no event is emitted. Distinct from the Z-closing count, which
+ ! persists and journals. The three denomination lists are all rendered and the
+ ! tabs toggle them client-side (no fetch), because the calculator's banknotes
+ ! differ from the count fragment's (which stops at 50 €).
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calculatrice de fond</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
+
+    .main-area { display: flex; flex-direction: column; overflow: hidden; min-height: 0; padding: 15px; gap: 12px; }
+    .count-area { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 20rem; gap: 12px; overflow: hidden; }
+    .count-list-area { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-color); border-radius: 6px; }
+    .tabs-container { display: flex; background: #1a1a1a; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+    .tab-btn { flex: 1; padding: 12px; background: none; border: none; color: var(--text-muted); font-size: var(--fs-btn-sm); font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; text-transform: uppercase; }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: var(--bg-dark); }
+    .items-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .denom-list { display: none; flex-direction: column; gap: 6px; }
+    .denom-list.active { display: flex; }
+    .count-item { display: grid; grid-template-columns: 13.75rem 1fr 7.5rem; align-items: center; background: var(--bg-panel); padding: 10px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; }
+    .count-item.selected { background: #10233d; border-color: var(--primary); }
+    .item-label { font-size: var(--fs-row); font-weight: bold; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-qty { text-align: center; font-size: var(--fs-row); color: white; }
+    .item-total { text-align: right; font-size: var(--fs-amount); font-weight: bold; color: var(--primary); }
+
+    .action-area { display: flex; flex-direction: column; background: var(--bg-inset); border-radius: 6px; padding: 12px; gap: 12px; overflow: hidden; }
+    .total-box { background: var(--bg-page); border: 2px solid var(--primary); border-radius: 8px; padding: 12px; text-align: center; flex-shrink: 0; }
+    .total-label { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
+    .total-amount { font-size: var(--fs-total-xl); font-weight: bold; color: var(--primary); }
+    .numpad-container { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .calc-hint { color: var(--text-muted); font-size: var(--fs-body); text-align: center; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>CALCULATRICE DE FOND</span>
+      <span id="clock"></span>
+    </div>
+
+    <div class="main-area">
+      <div class="count-area">
+        <div class="count-list-area">
+          <div class="tabs-container">
+            <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
+            <button type="button" class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
+            <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+          </div>
+          <div class="items-scroll">
+            <div class="denom-list active" id="list-bills">
+              {#for item in bills}
+                <div class="count-item" data-id="{item.id}" data-value="{item.value}">
+                  <span class="item-label">{item.label}</span><span class="item-qty">x 0</span><span class="item-total">0,00 €</span>
+                </div>
+              {/for}
+            </div>
+            <div class="denom-list" id="list-coins">
+              {#for item in coins}
+                <div class="count-item" data-id="{item.id}" data-value="{item.value}">
+                  <span class="item-label">{item.label}</span><span class="item-qty">x 0</span><span class="item-total">0,00 €</span>
+                </div>
+              {/for}
+            </div>
+            <div class="denom-list" id="list-rolls">
+              {#for item in rolls}
+                <div class="count-item" data-id="{item.id}" data-value="{item.value}">
+                  <span class="item-label">{item.label}</span><span class="item-qty">x 0</span><span class="item-total">0,00 €</span>
+                </div>
+              {/for}
+            </div>
+          </div>
+        </div>
+
+        <div class="action-area">
+          <div class="total-box">
+            <div class="total-label">Total compté</div>
+            <div class="total-amount" id="totalDisplay">0,00 €</div>
+          </div>
+          <div class="calc-hint">Aide au comptage — rien n'est enregistré.</div>
+          <div class="numpad-container" id="numpadArea"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-nav">
+      <a class="btn btn-muted" href="/">RETOUR</a>
+      <button type="button" class="btn btn-primary" onclick="resetAll()">REMETTRE À ZÉRO</button>
+    </div>
+  </div>
+
+  {#include keyboard-lib /}
+
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    const countState = {};
+    const countValues = {};
+    let selectedElement = null;
+
+    /* Client-side tab toggle: the three lists are all in the page (the calculator
+       banknotes differ from the count fragment, so no fetch). */
+    function switchTab(type, btnElement) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btnElement.classList.add('active');
+      document.querySelectorAll('.denom-list').forEach(l => l.classList.remove('active'));
+      document.getElementById('list-' + type).classList.add('active');
+    }
+
+    /* Arms the numpad for a denomination, loading its current quantity back so a
+       new entry REPLACES the previous one for that line (EXP-04). */
+    function selectItem(element) {
+      if (selectedElement) selectedElement.classList.remove('selected');
+      selectedElement = element;
+      selectedElement.classList.add('selected');
+      const id = element.getAttribute('data-id');
+      const value = parseFloat(element.getAttribute('data-value'));
+      countValues[id] = value;
+      PosInput.setup({
+        containerId: 'numpadArea', keyboardType: 'numpad', mode: 'integer',
+        maxLength: 4, placeholder: "0",
+        onChange: (val) => {
+          const qty = parseInt(val) || 0;
+          countState[id] = qty;
+          updateItemDisplay(element, qty, value);
+          updateTotal();
+        }
+      });
+      PosInput.buffer = (countState[id] || 0).toString();
+      PosInput.updateDisplay();
+    }
+
+    function updateItemDisplay(element, qty, value) {
+      element.querySelector('.item-qty').innerText = 'x ' + qty;
+      element.querySelector('.item-total').innerText =
+        (qty * value).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
+    }
+
+    function updateTotal() {
+      let total = 0;
+      for (const [id, qty] of Object.entries(countState)) {
+        total += (countValues[id] || 0) * qty;
+      }
+      document.getElementById('totalDisplay').innerText =
+        total.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
+    }
+
+    /* Clears the whole scratchpad — a fresh count. */
+    function resetAll() {
+      for (const id of Object.keys(countState)) delete countState[id];
+      document.querySelectorAll('.count-item').forEach(item => {
+        item.querySelector('.item-qty').innerText = 'x 0';
+        item.querySelector('.item-total').innerText = '0,00 €';
+        item.classList.remove('selected');
+      });
+      selectedElement = null;
+      updateTotal();
+    }
+
+    document.querySelectorAll('.count-item').forEach(item => {
+      item.addEventListener('click', () => selectItem(item));
+    });
+  </script>
+</body>
+</html>
