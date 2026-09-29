@@ -115,6 +115,59 @@ public class CashSessionService {
         public boolean cashWithdrawnAutomatically;
 
         /**
+         * The revenue aggregated per cashier of the session (EXP-79): added
+         * ALONGSIDE the terminal totals above, which stay the poste document. A
+         * session worked by one cashier holds one row.
+         */
+        public List<CashierRow> cashierRows = new java.util.ArrayList<>();
+
+        /**
+         * The paper tenders the cashier declares by count at closing (EXP-83),
+         * each with the theoretical quantity the register expects (the number of
+         * settlements taken in that tender during the session).
+         */
+        public List<PaperTenderRow> paperTenders = new java.util.ArrayList<>();
+
+        /**
+         * One per-cashier revenue line (EXP-79).
+         *
+         * @param cashier the cashier's display name
+         * @param ticketCount the number of closed tickets that cashier signed
+         * @param totalFormatted the tax-included revenue, French format
+         */
+        public record CashierRow(String cashier, int ticketCount, String totalFormatted) {
+        }
+
+        /**
+         * One paper tender to declare at closing (EXP-83).
+         *
+         * @param code the tender code
+         * @param label the tender label
+         * @param theoreticalQty the number of settlements the register counted in
+         *        that tender during the session
+         */
+        public record PaperTenderRow(String code, String label, int theoreticalQty) {
+        }
+
+        /**
+         * Returns the per-cashier revenue rows (EXP-79).
+         *
+         * @return the cashier rows, possibly empty
+         */
+        public List<CashierRow> getCashierRows() {
+            return cashierRows;
+        }
+
+        /**
+         * Returns the paper tenders to declare at closing (EXP-83).
+         *
+         * @return the paper-tender rows, possibly empty
+         */
+        public List<PaperTenderRow> getPaperTenders() {
+            return paperTenders;
+        }
+
+        /**
          * Returns the settlement lines the report details, in the order the
          * methods were first seen (BO-03-02-25).
          *
@@ -363,14 +416,37 @@ public class CashSessionService {
         report.ticketCount = tickets.size();
 
         BigDecimal cashTotal = BigDecimal.ZERO;
+        // EXP-79: per-cashier revenue, added alongside the terminal totals.
+        Map<String, int[]> cashierCount = new LinkedHashMap<>();
+        Map<String, BigDecimal> cashierTotal = new LinkedHashMap<>();
+        // EXP-83: how many settlements each tender took — the theoretical count a
+        // paper tender is declared against.
+        Map<String, Integer> paymentCountByMethod = new LinkedHashMap<>();
         for (Ticket ticket : tickets) {
             report.totalIncludingTax = report.totalIncludingTax.add(ticket.totalIncludingTax);
+            String cashierName = (ticket.cashier != null) ? ticket.cashier.getFullName() : "—";
+            cashierCount.computeIfAbsent(cashierName, k -> new int[1])[0]++;
+            cashierTotal.merge(cashierName, ticket.totalIncludingTax, BigDecimal::add);
             for (TicketPayment payment : ticket.payments) {
                 String key = payment.getMethodKey();
                 report.totalsByMethod.merge(key, payment.amount, BigDecimal::add);
+                paymentCountByMethod.merge(key, 1, Integer::sum);
                 if ("CASH".equals(key)) {
                     cashTotal = cashTotal.add(payment.amount);
                 }
+            }
+        }
+        for (Map.Entry<String, BigDecimal> entry : cashierTotal.entrySet()) {
+            report.cashierRows.add(new SessionReport.CashierRow(entry.getKey(),
+                    cashierCount.get(entry.getKey())[0],
+                    SessionReport.money(entry.getValue())));
+        }
+        // EXP-83: the paper tenders the cashier declares by count (cashierDeclaration),
+        // each with the theoretical settlement count seen this session.
+        for (TenderDefinition tender : TenderDefinition.<TenderDefinition>listAllOrdered()) {
+            if (tender.cashierDeclaration) {
+                report.paperTenders.add(new SessionReport.PaperTenderRow(tender.code,
+                        tender.label, paymentCountByMethod.getOrDefault(tender.code, 0)));
             }
         }
         // Refunds of the session: all methods reported, cash ones lower the drawer
@@ -656,7 +732,52 @@ public class CashSessionService {
     public SessionReport closeSession(Long cashierId, BigDecimal countedAmount,
                                       BigDecimal withdrawnAmount, String countDetail,
                                       boolean autoDeclaration) {
-        LOGGER.info("Entering method closeSession with cashierId: " + cashierId + ", countedAmount: " + countedAmount + ", withdrawnAmount: " + withdrawnAmount + ", countDetail: " + countDetail + ", autoDeclaration: " + autoDeclaration);
+        return closeSession(cashierId, countedAmount, withdrawnAmount, countDetail,
+                autoDeclaration, null, null, false);
+    }
+
+    /**
+     * Whether a date is a FULL-COUNT day of the floating-float mode (EXP-95): the
+     * end of the week (Saturday or Sunday) or the last calendar day of the month.
+     * On any other day a floating register is not fully counted and no variance
+     * is arbitrated (§7: no controlled tolerance on no-count evenings).
+     *
+     * @param date the day to test (passed in, never read from a clock here)
+     * @return true when the register must be fully counted that evening
+     */
+    public boolean isFullCountDay(java.time.LocalDate date) {
+        LOGGER.info("Entering method isFullCountDay with date: " + date);
+        java.time.DayOfWeek dow = date.getDayOfWeek();
+        boolean endOfWeek = dow == java.time.DayOfWeek.SATURDAY || dow == java.time.DayOfWeek.SUNDAY;
+        boolean lastOfMonth = date.getDayOfMonth() == date.lengthOfMonth();
+        LOGGER.info("Exiting method isFullCountDay");
+        return endOfWeek || lastOfMonth;
+    }
+
+    /**
+     * Closes the open session (Z report), carrying the Step-3 opposable-close
+     * data: the supervisor who validated an over-threshold discrepancy
+     * ({@code varianceEndorsedBy}, EXP-82), the paper-tender declaration
+     * ({@code paperDeclaration}, EXP-83), and whether this is a FLOATING no-count
+     * evening ({@code floatingNoCount}, EXP-95) — in which case NO variance is
+     * arbitrated and the withdrawal is the surplus above the initial float.
+     *
+     * @param cashierId the id of the cashier closing the session
+     * @param countedAmount the cash counted (ignored on auto declaration / floating no-count)
+     * @param withdrawnAmount the cash withdrawn (computed on floating no-count)
+     * @param countDetail the denominations detail (JSON), or null
+     * @param autoDeclaration true when the island declares the count automatically
+     * @param varianceEndorsedBy the supervisor badge validating the discrepancy, or null
+     * @param paperDeclaration the paper-tender declaration JSON, or null
+     * @param floatingNoCount true on a floating no-count evening
+     * @return the closing report, or null when no session is open
+     */
+    @Transactional
+    public SessionReport closeSession(Long cashierId, BigDecimal countedAmount,
+                                      BigDecimal withdrawnAmount, String countDetail,
+                                      boolean autoDeclaration, String varianceEndorsedBy,
+                                      String paperDeclaration, boolean floatingNoCount) {
+        LOGGER.info("Entering method closeSession with cashierId: " + cashierId + ", countedAmount: " + countedAmount + ", withdrawnAmount: " + withdrawnAmount + ", countDetail: " + countDetail + ", autoDeclaration: " + autoDeclaration + ", floatingNoCount: " + floatingNoCount);
         CashSession session = getOpenSession();
         if (session == null) {
             LOGGER.warn("Clôture refusée : aucune session ouverte sur cette caisse");
@@ -686,18 +807,32 @@ public class CashSessionService {
         // declaration): the cashier counts nothing and the drawer is taken at
         // its theoretical, which is exactly what "déclaration automatique" asks
         // for. Either path declares by the theoretical.
-        session.countedAmount = (autoDeclaration || report.cashDeclaredAutomatically)
-                ? report.theoreticalCash
-                : (countedAmount != null ? countedAmount : BigDecimal.ZERO);
         session.theoreticalAmount = report.theoreticalCash;
-        session.variance = session.countedAmount.subtract(session.theoreticalAmount);
-        // BO-03-02-18: a tender in automatic withdrawal has its closing
-        // withdrawal COMPUTED — everything above the float leaves the drawer,
-        // and a drawer below its float has nothing to withdraw.
-        session.withdrawnAmount = report.cashWithdrawnAutomatically
-                ? report.theoreticalCash.subtract(session.openingFloat).max(BigDecimal.ZERO)
-                : (withdrawnAmount != null ? withdrawnAmount : BigDecimal.ZERO);
+        if (floatingNoCount) {
+            // EXP-95: FLOATING no-count evening — the bills above the initial float
+            // are withdrawn and NO variance is arbitrated. countedAmount is left at
+            // the theoretical so the drawer books balance, but the floatingNoCount
+            // flag says the zero variance means "not counted", not "counted exact".
+            session.countedAmount = report.theoreticalCash;
+            session.variance = BigDecimal.ZERO;
+            session.floatingNoCount = true;
+            session.withdrawnAmount = report.theoreticalCash
+                    .subtract(session.openingFloat).max(BigDecimal.ZERO);
+        } else {
+            session.countedAmount = (autoDeclaration || report.cashDeclaredAutomatically)
+                    ? report.theoreticalCash
+                    : (countedAmount != null ? countedAmount : BigDecimal.ZERO);
+            session.variance = session.countedAmount.subtract(session.theoreticalAmount);
+            // BO-03-02-18: a tender in automatic withdrawal has its closing
+            // withdrawal COMPUTED — everything above the float leaves the drawer,
+            // and a drawer below its float has nothing to withdraw.
+            session.withdrawnAmount = report.cashWithdrawnAutomatically
+                    ? report.theoreticalCash.subtract(session.openingFloat).max(BigDecimal.ZERO)
+                    : (withdrawnAmount != null ? withdrawnAmount : BigDecimal.ZERO);
+        }
         session.countDetail = countDetail;
+        session.varianceEndorsedBy = varianceEndorsedBy;
+        session.paperDeclaration = paperDeclaration;
         session.status = CashSession.SessionStatus.CLOSED;
         session.persist();
 
@@ -705,7 +840,10 @@ public class CashSessionService {
         // its zero variance would be indistinguishable from a correct count.
         technicalEventService.log(TechnicalEvent.EventType.SESSION_CLOSED,
                 session.sessionNumber + " écart " + session.variance.toPlainString()
-                        + (autoDeclaration ? " - déclaration automatique" : ""));
+                        + (autoDeclaration ? " - déclaration automatique" : "")
+                        + (floatingNoCount ? " - fond flottant sans comptage" : "")
+                        + (varianceEndorsedBy != null ? " - écart validé par " + varianceEndorsedBy : ""),
+                varianceEndorsedBy);
         syncOutboxService.enqueue(SyncOutbox.EntityType.SESSION, session.id);
         LOGGER.info("Exiting method closeSession");
         return report;

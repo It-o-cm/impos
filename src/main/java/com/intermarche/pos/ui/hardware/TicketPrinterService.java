@@ -1767,6 +1767,46 @@ public class TicketPrinterService {
     }
 
     /**
+     * Prints the standalone settlement voucher (EXP-80): a control document
+     * listing the session's settlements per method with the tax-included total,
+     * autonomous from the withdrawal ticket (which lists settlements only as a
+     * by-product of a cash prélèvement). Built-in layout only.
+     *
+     * @param report the session report whose settlements are listed
+     * @param operator the operator's name, blank when unknown
+     */
+    public void printSettlementVoucher(CashSessionService.SessionReport report, String operator) {
+        LOGGER.info("Entering method printSettlementVoucher with operator: " + operator);
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("BORDEREAU DE REGLEMENT", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (report != null && report.session != null) {
+            sb.append(String.format("Session : %s%n", report.session.sessionNumber));
+            sb.append(String.format("Caisse  : %s%n", report.session.terminalId));
+        }
+        sb.append(String.format("Date    : %s%n", java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        if (operator != null && !operator.isBlank()) {
+            sb.append(String.format("Operateur : %s%n", operator));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (report != null) {
+            for (CashSessionService.SessionReport.MethodRow row : report.getMethodRows()) {
+                sb.append(formatLine(row.method(), row.amountFormatted() + " E"));
+            }
+            sb.append("-".repeat(WIDTH)).append("\n");
+            sb.append(formatLine("TOTAL TTC", (report.getTotalIncludingTaxFormatted()) + " E"));
+        }
+        sb.append("\n");
+        sb.append("Signature: ..............................\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printSettlementVoucher");
+    }
+
+    /**
      * Prints the settlement-transfer ticket (LC-12-10-05).
      *
      * <p>Three facts and nothing else: where the amount was taken from, where it was

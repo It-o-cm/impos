@@ -38,6 +38,8 @@ public class CashCountResource {
     @Inject @Location("cash-count") Template cashCount;
     @Inject HardwareService hardwareService;
     @Inject CashCountService cashCountService;
+    /** The session report, read for the paper tenders to declare (EXP-83). */
+    @Inject com.intermarche.pos.service.CashSessionService cashSessionService;
     @Inject
     PosState state;
 
@@ -67,10 +69,16 @@ public class CashCountResource {
     public TemplateInstance cashCountPage() {
         LOGGER.info("Entering method cashCountPage");
         // Affichage complet de la page (Billets par défaut)
+        // EXP-83: the paper tenders the cashier declares by count, with their
+        // theoretical quantities — empty when no session is open.
+        com.intermarche.pos.domain.session.CashSession open = cashSessionService.getOpenSession();
+        java.util.List<com.intermarche.pos.service.CashSessionService.SessionReport.PaperTenderRow> paperTenders =
+                (open != null) ? cashSessionService.buildReport(open).getPaperTenders() : java.util.List.of();
         LOGGER.info("Exiting method cashCountPage");
         return cashCount
             .data("state", state)
             .data("items", cashCountService.getBills())
+            .data("paperTenders", paperTenders)
             .data("fragment", false);
     }
 

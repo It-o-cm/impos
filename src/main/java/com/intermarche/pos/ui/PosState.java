@@ -326,6 +326,60 @@ public class PosState implements Serializable {
      */
     public boolean returnByScanRequested = false;
 
+    /**
+     * The Z close held back because the counted cash strays past the discrepancy
+     * threshold (EXP-82): the counted total, the withdrawal, the denominations
+     * detail, the paper-tender declaration and the variance wait here while the
+     * operator recounts or a supervisor validates. Null when no close is pending
+     * arbitration.
+     */
+    public PendingClose pendingClose = null;
+
+    /**
+     * A Z close awaiting an over-threshold discrepancy arbitration (EXP-82).
+     */
+    public static class PendingClose implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+        /** The counted cash total, as posted. */
+        public java.math.BigDecimal counted;
+        /** The withdrawal, as posted. */
+        public java.math.BigDecimal withdrawn;
+        /** The denominations detail (JSON), as posted. */
+        public String detail;
+        /** The paper-tender declaration (JSON), as posted. */
+        public String paperDeclaration;
+        /** The variance (counted − theoretical) that crossed the threshold. */
+        public java.math.BigDecimal variance;
+
+        /**
+         * Holds a pending close awaiting arbitration.
+         *
+         * @param counted the counted cash total
+         * @param withdrawn the withdrawal
+         * @param detail the denominations detail JSON
+         * @param paperDeclaration the paper-tender declaration JSON
+         * @param variance the over-threshold variance
+         */
+        public PendingClose(java.math.BigDecimal counted, java.math.BigDecimal withdrawn,
+                String detail, String paperDeclaration, java.math.BigDecimal variance) {
+            this.counted = counted;
+            this.withdrawn = withdrawn;
+            this.detail = detail;
+            this.paperDeclaration = paperDeclaration;
+            this.variance = variance;
+        }
+
+        /**
+         * Returns the variance formatted for display (French comma).
+         *
+         * @return the formatted variance
+         */
+        public String getVarianceFormatted() {
+            java.math.BigDecimal v = variance == null ? java.math.BigDecimal.ZERO : variance;
+            return String.format("%.2f", v.setScale(2, RoundingMode.HALF_UP)).replace('.', ',');
+        }
+    }
+
     /** The one answer the register gives when a function needs a closed ticket and there is none. */
     public static final String NO_LAST_TICKET = "AUCUN TICKET";
 

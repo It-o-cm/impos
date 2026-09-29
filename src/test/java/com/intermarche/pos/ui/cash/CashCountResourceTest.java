@@ -38,6 +38,7 @@ class CashCountResourceTest {
         resource.cashCount = mock(Template.class);
         resource.hardwareService = mock(HardwareService.class);
         resource.cashCountService = mock(CashCountService.class);
+        resource.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
         resource.state = mock(PosState.class);
         return resource;
     }
@@ -68,9 +69,12 @@ class CashCountResourceTest {
         TemplateInstance withState = mock(TemplateInstance.class);
         TemplateInstance withItems = mock(TemplateInstance.class);
         TemplateInstance withFragment = mock(TemplateInstance.class);
+        TemplateInstance withPaper = mock(TemplateInstance.class);
         when(resource.cashCount.data("state", resource.state)).thenReturn(withState);
         when(withState.data("items", bills)).thenReturn(withItems);
-        when(withItems.data("fragment", false)).thenReturn(withFragment);
+        // EXP-83: no open session → the paper tenders are the empty list.
+        when(withItems.data("paperTenders", java.util.List.of())).thenReturn(withPaper);
+        when(withPaper.data("fragment", false)).thenReturn(withFragment);
         TemplateInstance result = resource.cashCountPage();
         assertSame(withFragment, result);
     }

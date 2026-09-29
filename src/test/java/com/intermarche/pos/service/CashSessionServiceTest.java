@@ -660,7 +660,9 @@ class CashSessionServiceTest {
             assertEquals(CashSession.SessionStatus.CLOSED, session.status);
             verify(session, times(1)).persist();
             verify(service.technicalEventService).log(
-                    TechnicalEvent.EventType.SESSION_CLOSED, "C04-S00012 écart 20.00");
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
+                    org.mockito.ArgumentMatchers.eq("C04-S00012 écart 20.00"),
+                    org.mockito.ArgumentMatchers.isNull());
             verify(service.syncOutboxService).enqueue(SyncOutbox.EntityType.SESSION, session.id);
         }
     }
@@ -698,7 +700,8 @@ class CashSessionServiceTest {
                     org.mockito.ArgumentMatchers.anyString());
             verify(service.technicalEventService).log(
                     org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
-                    org.mockito.ArgumentMatchers.anyString());
+                    org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.isNull());
         }
     }
 
@@ -732,7 +735,8 @@ class CashSessionServiceTest {
             assertEquals(0, BigDecimal.ZERO.compareTo(session.variance));
             verify(service.technicalEventService).log(
                     org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
-                    org.mockito.ArgumentMatchers.contains("déclaration automatique"));
+                    org.mockito.ArgumentMatchers.contains("déclaration automatique"),
+                    org.mockito.ArgumentMatchers.isNull());
         }
     }
 
@@ -761,7 +765,123 @@ class CashSessionServiceTest {
             service.closeSession(null, new BigDecimal("120.00"), null, "{}");
             assertEquals(0, new BigDecimal("120.00").compareTo(session.countedAmount));
             verify(service.technicalEventService).log(
-                    TechnicalEvent.EventType.SESSION_CLOSED, "C04-S00012 écart 20.00");
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
+                    org.mockito.ArgumentMatchers.eq("C04-S00012 écart 20.00"),
+                    org.mockito.ArgumentMatchers.isNull());
+        }
+    }
+
+    /**
+     * EXP-79/83: buildReport names the per-cashier revenue and lists the paper
+     * tenders (cashierDeclaration) with their theoretical settlement count.
+     */
+    @Test
+    void buildReportCarriesPerCashierAndPaperTenders() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("0.00");
+        com.intermarche.pos.domain.people.Employee jean =
+                mock(com.intermarche.pos.domain.people.Employee.class);
+        when(jean.getFullName()).thenReturn("Jean Dupont");
+        Ticket ticket = new Ticket();
+        ticket.totalIncludingTax = new BigDecimal("30.00");
+        ticket.cashier = jean;
+        ticket.payments = List.of(payment("CHEQUE", "30.00"));
+        com.intermarche.pos.domain.payment.TenderDefinition cheque = tender("CHEQUE");
+        cheque.cashierDeclaration = true;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of(ticket));
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            mocked.when(com.intermarche.pos.domain.payment.TenderDefinition::listAllOrdered)
+                    .thenReturn(List.of(cheque));
+            stubNoAdministeredTenders(mocked);
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(1, report.cashierRows.size());
+            assertEquals("Jean Dupont", report.cashierRows.get(0).cashier());
+            assertEquals(1, report.cashierRows.get(0).ticketCount());
+            assertEquals(1, report.paperTenders.size());
+            assertEquals("CHEQUE", report.paperTenders.get(0).code());
+            assertEquals(1, report.paperTenders.get(0).theoreticalQty());
+        }
+    }
+
+    /**
+     * EXP-95: {@code isFullCountDay} is true on the week-end (Saturday, Sunday)
+     * and on the last day of the month, false on an ordinary weekday. Jan 2024
+     * starts on a Monday, so the 6th/7th are the week-end, the 15th an ordinary
+     * Monday and the 31st the last day (a Wednesday).
+     */
+    @Test
+    void isFullCountDayCoversWeekEndLastDayAndOrdinaryDay() {
+        CashSessionService service = newService();
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 6)));
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 7)));
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 31)));
+        assertFalse(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 15)));
+    }
+
+    /**
+     * EXP-95: a FLOATING no-count close arbitrates NO variance — counted forced to
+     * the theoretical, variance zero, the floatingNoCount flag raised, the
+     * withdrawal the surplus above the initial float (zero here, no tickets).
+     */
+    @Test
+    void closeSessionFloatingNoCountArbitratesNoVariance() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.sessionNumber = "C04-S00012";
+        session.terminalId = TERMINAL;
+        session.openingFloat = new BigDecimal("100.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, session);
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            mocked.when(() -> Ticket.list("terminalId = ?1 and status = ?2",
+                    TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            service.closeSession(null, null, null, null, false, null, null, true);
+            assertTrue(session.floatingNoCount);
+            assertEquals(0, BigDecimal.ZERO.compareTo(session.variance));
+            assertEquals(0, BigDecimal.ZERO.compareTo(session.withdrawnAmount));
+            verify(service.technicalEventService).log(
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
+                    org.mockito.ArgumentMatchers.contains("fond flottant sans comptage"),
+                    org.mockito.ArgumentMatchers.isNull());
+        }
+    }
+
+    /**
+     * EXP-82: a supervisor-validated over-threshold discrepancy stores the
+     * validating badge as the nominative trace and names it in the journal.
+     */
+    @Test
+    void closeSessionStoresVarianceEndorsement() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.sessionNumber = "C04-S00012";
+        session.terminalId = TERMINAL;
+        session.openingFloat = new BigDecimal("100.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            stubOpenSession(mocked, session);
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            mocked.when(() -> Ticket.list("terminalId = ?1 and status = ?2",
+                    TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            service.closeSession(null, new BigDecimal("90.00"), new BigDecimal("0"), "{}",
+                    false, "22222222", null, false);
+            assertEquals("22222222", session.varianceEndorsedBy);
+            assertEquals(0, new BigDecimal("-10.00").compareTo(session.variance));
+            verify(service.technicalEventService).log(
+                    org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SESSION_CLOSED),
+                    org.mockito.ArgumentMatchers.contains("écart validé par 22222222"),
+                    org.mockito.ArgumentMatchers.eq("22222222"));
         }
     }
 

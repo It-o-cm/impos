@@ -107,6 +107,30 @@ public class CashSession extends BaseEntity {
     public String countDetail;
 
     /**
+     * The badge of the supervisor who validated an over-threshold cash
+     * discrepancy at closing (EXP-82), or null when the variance was within the
+     * threshold or the close was a floating no-count. The nominative trace that
+     * makes an accepted discrepancy opposable.
+     */
+    @Column(name = "variance_endorsed_by", length = 20)
+    public String varianceEndorsedBy;
+
+    /**
+     * The per-paper-tender declared vs theoretical quantity comparison entered at
+     * closing (EXP-83), as JSON {tenderCode: {declared, theoretical}}, or null.
+     */
+    @Column(name = "paper_declaration", length = 2000)
+    public String paperDeclaration;
+
+    /**
+     * True when this close was a FLOATING no-count evening (EXP-95): the bills
+     * above the initial float were withdrawn and NO variance was arbitrated. A
+     * variance of zero here means "not counted", not "counted exact".
+     */
+    @Column(name = "floating_no_count")
+    public boolean floatingNoCount = false;
+
+    /**
      * Finds the open session of the given register, if any.
      *
      * @param terminalId the register identifier

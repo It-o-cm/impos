@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,8 +63,13 @@ class CashSessionResourceTest {
         resource.hardwareService = mock(HardwareService.class);
         resource.session = mock(Template.class);
         resource.sessionReportPage = mock(Template.class);
+        resource.varianceAlert = mock(Template.class);
+        resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         resource.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(resource.posSettingsService.defaultOpeningFloat()).thenReturn("150.00");
+        // EXP-82: a wide default threshold so the pre-existing close cases stay on
+        // the within-threshold path; the variance cases override it.
+        when(resource.posSettingsService.varianceThreshold()).thenReturn(new java.math.BigDecimal("1000.00"));
         // The close-drawer gate defaults ON — the pre-existing behavior the
         // start-closing case relies on (BO-10-02-26).
         when(resource.posSettingsService.drawerOpenOnSessionClose()).thenReturn(true);
@@ -363,7 +370,7 @@ class CashSessionResourceTest {
     void closeSessionTrainingModeBlocked() {
         CashSessionResource resource = newResource();
         resource.state.trainingMode = true;
-        assertRedirect(resource.closeSession("10", "0", "{}"),
+        assertRedirect(resource.closeSession("10", "0", "{}", null),
                 "/session?error=INDISPONIBLE+EN+FORMATION");
         verifyNoInteractions(resource.cashSessionService);
     }
@@ -378,10 +385,14 @@ class CashSessionResourceTest {
         CashSessionResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.state.isLocked()).thenReturn(false);
-        when(resource.cashSessionService.closeSession(7L, BigDecimal.ZERO, new BigDecimal("5"), "{}"))
-                .thenReturn(null);
-        assertRedirect(resource.closeSession("   ", "5", "{}"), "/session?error=no-session");
-        verify(resource.cashSessionService).closeSession(7L, BigDecimal.ZERO, new BigDecimal("5"), "{}");
+        // The new flow refuses at the open-session guard, before any close.
+        when(resource.cashSessionService.getOpenSession()).thenReturn(null);
+        assertRedirect(resource.closeSession("   ", "5", "{}", null), "/session?error=no-session");
+        verify(resource.cashSessionService, never()).closeSession(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
         verifyNoInteractions(resource.ticketPrinterService);
         verify(resource.state, never()).touch();
     }
@@ -395,12 +406,156 @@ class CashSessionResourceTest {
         CashSessionResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.state.isLocked()).thenReturn(false);
+        // The close now previews the variance: an open session, a theoretical equal
+        // to the counted (variance 0, within the wide default threshold) reaches the
+        // 8-arg close.
+        CashSession open = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        CashSessionService.SessionReport preview = mock(CashSessionService.SessionReport.class);
+        preview.theoreticalCash = new BigDecimal("100.50");
+        when(resource.cashSessionService.buildReport(open)).thenReturn(preview);
         CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
-        when(resource.cashSessionService.closeSession(7L, new BigDecimal("100.50"), new BigDecimal("20"), "{}"))
-                .thenReturn(report);
-        assertRedirect(resource.closeSession("100,50", "20", "{}"), "/lock");
+        when(resource.cashSessionService.closeSession(7L, new BigDecimal("100.50"),
+                new BigDecimal("20"), "{}", false, null, null, false)).thenReturn(report);
+        assertRedirect(resource.closeSession("100,50", "20", "{}", null), "/lock");
         verify(resource.ticketPrinterService).printSessionReport(report);
         verify(resource.state).touch();
+    }
+
+    /**
+     * EXP-82: an over-threshold variance holds the close back — the pending close
+     * is stored and the operator is routed to the arbitration page instead of
+     * closing.
+     */
+    @Test
+    void closeSessionOverThresholdHoldsForArbitration() {
+        CashSessionResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession open = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        CashSessionService.SessionReport preview = mock(CashSessionService.SessionReport.class);
+        preview.theoreticalCash = new BigDecimal("100.00");
+        when(resource.cashSessionService.buildReport(open)).thenReturn(preview);
+        when(resource.posSettingsService.varianceThreshold()).thenReturn(new BigDecimal("1.00"));
+        assertRedirect(resource.closeSession("110,00", "0", "{}", "{}"), "/session/variance");
+        assertNotNull(resource.state.pendingClose);
+        verify(resource.cashSessionService, never()).closeSession(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    /**
+     * {@code variancePage()} redirects to the session screen when no close is
+     * pending arbitration (guard true arm).
+     */
+    @Test
+    void variancePageRedirectsWhenNothingPending() {
+        CashSessionResource resource = newResource();
+        resource.state.pendingClose = null;
+        assertRedirect((Response) resource.variancePage(null), "/session");
+    }
+
+    /**
+     * {@code variancePage()} renders the arbitration page when a close is pending,
+     * carrying the supervisor-refusal message on the error arm.
+     */
+    @Test
+    void variancePageRendersPendingWithRefusal() {
+        CashSessionResource resource = newResource();
+        resource.state.pendingClose = new PosState.PendingClose(
+                new BigDecimal("110.00"), BigDecimal.ZERO, "{}", "{}", new BigDecimal("10.00"));
+        when(resource.posSettingsService.varianceThreshold()).thenReturn(new BigDecimal("1.00"));
+        TemplateInstance view = mock(TemplateInstance.class);
+        when(resource.varianceAlert.data(anyString(), any())).thenReturn(view);
+        when(view.data(anyString(), any())).thenReturn(view);
+        Response response = (Response) resource.variancePage("supervisor");
+        assertEquals(200, response.getStatus());
+    }
+
+    /**
+     * {@code closeEndorsed()} redirects to the session when nothing is pending
+     * (guard true arm).
+     */
+    @Test
+    void closeEndorsedRedirectsWhenNothingPending() {
+        CashSessionResource resource = newResource();
+        resource.state.pendingClose = null;
+        assertRedirect(resource.closeEndorsed("22222222", "1111"), "/session");
+    }
+
+    /**
+     * EXP-82: a refused supervisor keeps the close held — back to the arbitration
+     * page with the refusal (authorize false arm).
+     */
+    @Test
+    void closeEndorsedRefusesBadSupervisor() {
+        CashSessionResource resource = newResource();
+        resource.state.pendingClose = new PosState.PendingClose(
+                new BigDecimal("110.00"), BigDecimal.ZERO, "{}", "{}", new BigDecimal("10.00"));
+        when(resource.endorsementService.authorize("22222222", "0000", "SESSION_VARIANCE"))
+                .thenReturn(false);
+        assertRedirect(resource.closeEndorsed("22222222", "0000"), "/session/variance?error=supervisor");
+        verifyNoInteractions(resource.ticketPrinterService);
+    }
+
+    /**
+     * EXP-82: a validated supervisor closes with the badge as the nominative trace
+     * (authorize true arm) — the held values are replayed and the pending is cleared.
+     */
+    @Test
+    void closeEndorsedClosesOnValidation() {
+        CashSessionResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        resource.state.pendingClose = new PosState.PendingClose(
+                new BigDecimal("110.00"), BigDecimal.ZERO, "{}", "{}", new BigDecimal("10.00"));
+        when(resource.endorsementService.authorize("22222222", "1111", "SESSION_VARIANCE"))
+                .thenReturn(true);
+        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
+        when(resource.cashSessionService.closeSession(7L, new BigDecimal("110.00"), BigDecimal.ZERO,
+                "{}", false, "22222222", "{}", false)).thenReturn(report);
+        assertRedirect(resource.closeEndorsed("22222222", "1111"), "/lock");
+        verify(resource.ticketPrinterService).printSessionReport(report);
+        assertNull(resource.state.pendingClose);
+    }
+
+    /**
+     * EXP-95: in FLOATING mode on a non-count day, {@code startClosing} closes
+     * directly (no counting screen) and locks.
+     */
+    @Test
+    void startClosingFloatingNoCountClosesDirectly() {
+        CashSessionResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession open = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        when(resource.posSettingsService.islandAutoDeclaration()).thenReturn(false);
+        when(resource.posSettingsService.floatMode()).thenReturn("FLOATING");
+        when(resource.cashSessionService.isFullCountDay(any())).thenReturn(false);
+        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
+        when(resource.cashSessionService.closeSession(7L, null, null, null, false, null, null, true))
+                .thenReturn(report);
+        assertRedirect(resource.startClosing(), "/lock");
+        verify(resource.ticketPrinterService).printSessionReport(report);
+    }
+
+    /**
+     * EXP-80: the standalone settlement voucher refuses without an open session
+     * (guard true arm) and prints on an open one (false arm).
+     */
+    @Test
+    void settlementVoucherRefusesWithoutSessionAndPrintsWithOne() {
+        CashSessionResource resource = newResource();
+        when(resource.cashSessionService.getOpenSession()).thenReturn(null);
+        assertRedirect(resource.printSettlementVoucher(), "/session?error=no-session");
+        CashSession open = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
+        when(resource.cashSessionService.buildReport(open)).thenReturn(report);
+        assertRedirect(resource.printSettlementVoucher(), "/session");
+        verify(resource.ticketPrinterService).printSettlementVoucher(
+                org.mockito.ArgumentMatchers.eq(report), org.mockito.ArgumentMatchers.any());
     }
 
     // --- showXReport ---

@@ -571,6 +571,14 @@ public class PosSettingsService {
                 "Aval superviseur : forçage de prix",
                 "Le forçage du prix d'une ligne exige un aval superviseur. Désactivé : le caissier force seul (EXP-32).",
                 "true", null),
+        new Def("cash.variance-threshold", Type.TEXT, "CLÔTURE",
+                "Seuil d'écart de caisse (€)",
+                "Écart de caisse (valeur absolue) au-delà duquel la clôture alerte et exige un recomptage ou une validation superviseur nominative. Usuellement 1 € (EXP-82).",
+                "1.00", null),
+        new Def("cash.float-mode", Type.TEXT, "CLÔTURE",
+                "Mode de fond de caisse",
+                "FIXED : le fond est compté chaque soir (défaut). FLOATING : le caissier prélève les billets le soir en laissant le fond initial et ne compte réellement qu'en fin de semaine et le dernier jour du mois ; les soirs sans comptage ne calculent aucun écart (EXP-95).",
+                "FIXED", null),
         new Def("gesture.endorsement-scope", Type.TEXT, "GESTES NÉGATIFS",
                 "Portée de l'aval superviseur",
                 "PER_OP : l'aval vaut pour un seul geste (défaut). PER_TICKET : une fois donné, l'aval reste attaché au ticket jusqu'à la touche FIN SUPERVISEUR ou la fin du ticket (EXP-33).",
@@ -953,6 +961,32 @@ public class PosSettingsService {
         LOGGER.info("Entering method drawerCap");
         LOGGER.info("Exiting method drawerCap");
         return bigDecimalValue("cash.drawer-cap");
+    }
+
+    /**
+     * The cash-discrepancy threshold in euros (EXP-82): the absolute variance
+     * above which the Z close alerts and demands a recount or a supervisor
+     * validation. Guarded against a corrupt row.
+     *
+     * @return the administered threshold
+     */
+    public BigDecimal varianceThreshold() {
+        LOGGER.info("Entering method varianceThreshold");
+        LOGGER.info("Exiting method varianceThreshold");
+        return bigDecimalValue("cash.variance-threshold");
+    }
+
+    /**
+     * The float mode (EXP-95): {@code FIXED} (counted every evening, default) or
+     * {@code FLOATING} (bills withdrawn the evening leaving the initial float,
+     * full count only at week-end and the last day of the month).
+     *
+     * @return the administered mode, never null
+     */
+    public String floatMode() {
+        LOGGER.info("Entering method floatMode");
+        LOGGER.info("Exiting method floatMode");
+        return value("cash.float-mode");
     }
 
     /**

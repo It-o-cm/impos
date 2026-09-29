@@ -90,6 +90,19 @@
           <div class="total-amount" id="totalDisplay">0,00 €</div>
         </div>
 
+        {#if paperTenders.size > 0}
+        <div class="paper-box" style="border:1px solid var(--border-color);border-radius:8px;padding:10px;">
+          <div class="paper-title" style="color:var(--text-muted);text-transform:uppercase;font-size:var(--fs-label);margin-bottom:6px;">Moyens papier — quantités (EXP-83)</div>
+          {#for pt in paperTenders}
+          <div class="paper-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:4px 0;">
+            <span style="font-size:var(--fs-row-sub);">{pt.label} <span style="color:var(--text-muted);">(théo. {pt.theoreticalQty})</span></span>
+            <input type="number" class="paper-input" data-code="{pt.code}" data-theo="{pt.theoreticalQty}" min="0" value="{pt.theoreticalQty}"
+                   style="width:4.5rem;padding:6px;text-align:right;background:var(--bg-page);color:var(--text-main);border:1px solid var(--border-color);border-radius:4px;">
+          </div>
+          {/for}
+        </div>
+        {/if}
+
         <div class="numpad-container" id="numpadArea"></div>
       </div>
     </div>
@@ -106,6 +119,7 @@
                style="width:6.875rem; padding:12px; font-size:var(--fs-field); font-weight:bold; text-align:right; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
         <input type="hidden" id="counted" name="counted" value="0">
         <input type="hidden" id="detail" name="detail" value="">
+        <input type="hidden" id="paperDeclaration" name="paperDeclaration" value="">
         <button type="submit" class="btn btn-lg btn-success" style="width: 11.25rem;">CLÔTURER (Z)</button>
       </form>
     </div>
@@ -209,6 +223,15 @@
       }
       document.getElementById('counted').value = grandTotal.toFixed(2);
       document.getElementById('detail').value = JSON.stringify(window.cashState);
+      // EXP-83: collect the declared paper-tender quantities against the theoretical.
+      const paper = {};
+      document.querySelectorAll('.paper-input').forEach(inp => {
+        paper[inp.getAttribute('data-code')] = {
+          declared: parseInt(inp.value) || 0,
+          theoretical: parseInt(inp.getAttribute('data-theo')) || 0
+        };
+      });
+      document.getElementById('paperDeclaration').value = JSON.stringify(paper);
       return true;
     }
 

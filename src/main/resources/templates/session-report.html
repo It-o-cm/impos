@@ -82,6 +82,19 @@
                     <div class="row cash"><span class="label">Espèces théoriques</span><span class="value">{report.theoreticalCashFormatted} €</span></div>
                 </div>
             </div>
+
+            <div class="col">
+                <div class="col-title">CA par caissier</div>
+                <div class="rows">
+                    {#if report.cashierRows.isEmpty()}
+                        <div class="empty">Aucun ticket clos depuis l'ouverture.</div>
+                    {#else}
+                        {#for c in report.cashierRows}
+                        <div class="row"><span class="label">{c.cashier} ({c.ticketCount})</span><span class="value">{c.totalFormatted} €</span></div>
+                        {/for}
+                    {/if}
+                </div>
+            </div>
         </div>
     </div>
 

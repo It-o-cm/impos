@@ -49,6 +49,10 @@ public class CashSessionResource {
     @Inject @Location("session") Template session;
     /** The X report, read on screen before it is asked for on paper. */
     @Inject @Location("session-report") Template sessionReportPage;
+    /** The over-threshold discrepancy arbitration page (EXP-82). */
+    @Inject @Location("variance-alert") Template varianceAlert;
+    /** Checks and journals the supervisor validation of a discrepancy (EXP-82). */
+    @Inject com.intermarche.pos.ui.endorsement.EndorsementService endorsementService;
     @Inject CashSessionService cashSessionService;
     @Inject TicketPrinterService ticketPrinterService;
     @Inject TechnicalEventService technicalEventService;
@@ -204,6 +208,23 @@ public class CashSessionResource {
             LOGGER.info("Exiting method startClosing");
             return Response.seeOther(URI.create("/lock")).build();
         }
+        // EXP-95: in FLOATING mode, only the full-count days (week-end and the
+        // last day of the month) count the drawer. On any other evening the
+        // register withdraws the surplus above the initial float and arbitrates
+        // NO variance — the counting screen is skipped entirely.
+        if ("FLOATING".equals(posSettingsService.floatMode())
+                && !cashSessionService.isFullCountDay(java.time.LocalDate.now())) {
+            CashSessionService.SessionReport report = cashSessionService.closeSession(
+                    state.auth.operatorId, null, null, null, false, null, null, true);
+            if (report == null) {
+                LOGGER.info("Exiting method startClosing");
+                return Response.seeOther(URI.create("/session?error=no-session")).build();
+            }
+            ticketPrinterService.printSessionReport(report);
+            state.touch();
+            LOGGER.info("Exiting method startClosing");
+            return Response.seeOther(URI.create("/lock")).build();
+        }
         // BO-10-02-26: the Z count opens the drawer only when the back office
         // asks for it; disabled, the count is done drawer-closed.
         if (posSettingsService.drawerOpenOnSessionClose()) {
@@ -230,14 +251,35 @@ public class CashSessionResource {
     @DrawerMayBeOpen
     public Response closeSession(@FormParam("counted") String countedStr,
                                  @FormParam("withdrawn") String withdrawnStr,
-                                 @FormParam("detail") String detail) {
+                                 @FormParam("detail") String detail,
+                                 @FormParam("paperDeclaration") String paperDeclaration) {
         LOGGER.info("Entering method closeSession with countedStr: " + countedStr + ", withdrawnStr: " + withdrawnStr + ", detail: " + detail);
         if (state.trainingMode) {
             LOGGER.info("Exiting method closeSession");
             return Response.seeOther(URI.create("/session?error=INDISPONIBLE+EN+FORMATION")).build();
         }
+        CashSession open = cashSessionService.getOpenSession();
+        if (open == null) {
+            LOGGER.info("Exiting method closeSession");
+            return Response.seeOther(URI.create("/session?error=no-session")).build();
+        }
+        BigDecimal counted = parseAmount(countedStr);
+        BigDecimal withdrawn = parseAmount(withdrawnStr);
+        // EXP-82: the discrepancy is arbitrated BEFORE the close commits. Over the
+        // administered threshold in absolute value, the close is held back and the
+        // operator must recount or have a supervisor validate — the close does not
+        // pass on its own.
+        BigDecimal theoretical = cashSessionService.buildReport(open).theoreticalCash;
+        BigDecimal variance = counted.subtract(theoretical);
+        if (variance.abs().compareTo(posSettingsService.varianceThreshold()) > 0) {
+            state.pendingClose = new PosState.PendingClose(counted, withdrawn, detail,
+                    paperDeclaration, variance);
+            state.touch();
+            LOGGER.info("Exiting method closeSession (variance held for arbitration)");
+            return Response.seeOther(URI.create("/session/variance")).build();
+        }
         CashSessionService.SessionReport report = cashSessionService.closeSession(
-                state.auth.operatorId, parseAmount(countedStr), parseAmount(withdrawnStr), detail);
+                state.auth.operatorId, counted, withdrawn, detail, false, null, paperDeclaration, false);
         if (report == null) {
             LOGGER.info("Exiting method closeSession");
             return Response.seeOther(URI.create("/session?error=no-session")).build();
@@ -246,6 +288,94 @@ public class CashSessionResource {
         state.touch();
         LOGGER.info("Exiting method closeSession");
         return Response.seeOther(URI.create("/lock")).build();
+    }
+
+    /**
+     * Shows the discrepancy arbitration page (EXP-82): the écart that crossed the
+     * threshold, and the two exits — recount or supervisor validation.
+     *
+     * @param error an optional refusal from a rejected supervisor validation
+     * @return the arbitration page, or a redirect when nothing is pending
+     */
+    @GET
+    @Path("/session/variance")
+    @Produces(MediaType.TEXT_HTML)
+    public Response variancePage(@QueryParam("error") String error) {
+        LOGGER.info("Entering method variancePage");
+        if (state.pendingClose == null) {
+            LOGGER.info("Exiting method variancePage");
+            return Response.seeOther(URI.create("/session")).build();
+        }
+        String message = "supervisor".equals(error) ? "AUTORISATION SUPERVISEUR REFUSÉE" : null;
+        LOGGER.info("Exiting method variancePage");
+        return Response.ok(varianceAlert
+                .data("state", state)
+                .data("pending", state.pendingClose)
+                .data("threshold", posSettingsService.varianceThreshold().toPlainString())
+                .data("error", message), MediaType.TEXT_HTML).build();
+    }
+
+    /**
+     * Closes the session on a supervisor-validated over-threshold discrepancy
+     * (EXP-82): the validation is checked and journaled, the close carries the
+     * supervisor's badge as the nominative trace.
+     *
+     * @param supervisor the supervisor's identifier
+     * @param supervisorPassword the supervisor's password
+     * @return a redirect to the lock page on success, or back to the arbitration
+     *         page with a refusal
+     */
+    @POST
+    @Path("/action/session/close-endorsed")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @DrawerMayBeOpen
+    public Response closeEndorsed(@FormParam("supervisor") String supervisor,
+                                  @FormParam("supervisorPassword") String supervisorPassword) {
+        LOGGER.info("Entering method closeEndorsed");
+        if (state.pendingClose == null) {
+            LOGGER.info("Exiting method closeEndorsed");
+            return Response.seeOther(URI.create("/session")).build();
+        }
+        if (!endorsementService.authorize(supervisor, supervisorPassword, "SESSION_VARIANCE")) {
+            LOGGER.info("Exiting method closeEndorsed");
+            return Response.seeOther(URI.create("/session/variance?error=supervisor")).build();
+        }
+        PosState.PendingClose pending = state.pendingClose;
+        CashSessionService.SessionReport report = cashSessionService.closeSession(
+                state.auth.operatorId, pending.counted, pending.withdrawn, pending.detail,
+                false, supervisor, pending.paperDeclaration, false);
+        state.pendingClose = null;
+        if (report == null) {
+            LOGGER.info("Exiting method closeEndorsed");
+            return Response.seeOther(URI.create("/session?error=no-session")).build();
+        }
+        ticketPrinterService.printSessionReport(report);
+        state.touch();
+        LOGGER.info("Exiting method closeEndorsed");
+        return Response.seeOther(URI.create("/lock")).build();
+    }
+
+    /**
+     * Prints the standalone settlement voucher (EXP-80): a control document
+     * listing the session's settlements per method, autonomous from the
+     * withdrawal ticket.
+     *
+     * @return a redirect to the session page carrying the outcome
+     */
+    @GET
+    @Path("/action/session/settlement-voucher")
+    public Response printSettlementVoucher() {
+        LOGGER.info("Entering method printSettlementVoucher");
+        CashSession current = cashSessionService.getOpenSession();
+        if (current == null) {
+            LOGGER.info("Exiting method printSettlementVoucher");
+            return Response.seeOther(URI.create("/session?error=no-session")).build();
+        }
+        CashSessionService.SessionReport report = cashSessionService.buildReport(current);
+        ticketPrinterService.printSettlementVoucher(report, state.getOperatorName());
+        state.touch();
+        LOGGER.info("Exiting method printSettlementVoucher");
+        return Response.seeOther(URI.create("/session")).build();
     }
 
     /**

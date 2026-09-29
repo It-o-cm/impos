@@ -469,6 +469,31 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **I3 Effets du Z** : PARKED annulés, vente bloquée (message MENU CAISSE) jusqu'à
   réouverture, flux du matin (A1) au prochain login.
 - **I4 Z en formation** → bloqué.
+- **I5 Écart au-delà du seuil** [S] (EXP-82) : `cash.variance-threshold` administré (usuel
+  1 €) ; un comptage dont l'écart absolu dépasse le seuil ne clôture PAS — la caisse route
+  vers l'écran d'arbitrage `/session/variance` (écart affiché, seuil rappelé), avec deux
+  sorties : RECOMPTER (retour `/cash-count`) ou validation superviseur
+  (`/action/session/close-endorsed`). La validation laisse la trace nominative
+  (`varianceEndorsedBy` en base + journal `SESSION_CLOSED … écart validé par <badge>`) ;
+  un superviseur refusé renvoie `/session/variance?error=supervisor`. Un écart ≤ seuil
+  clôture directement comme aujourd'hui.
+- **I6 Fond flottant** [S] (EXP-95) : `cash.float-mode=FLOATING` ; les soirs qui NE sont PAS
+  un jour de comptage complet (hors week-end et dernier jour du mois — `isFullCountDay`),
+  `close-start` clôture directement sans écran de comptage : prélèvement = surplus au-dessus
+  du fond initial, `floatingNoCount=true`, AUCUN écart arbitré (journal « fond flottant sans
+  comptage »). Les jours de comptage complet et le mode FIXED repassent par le comptage + le
+  seuil d'écart (I5).
+- **I7 Moyens papier comptés** [S] (EXP-83) : l'écran de comptage liste les moyens papier
+  déclarés (tenders `cashierDeclaration` : chèques, bons, avoirs) avec leur quantité
+  théorique (nombre de règlements du jour) et un champ de saisie ; la déclaration
+  (déclaré vs théorique) est postée en JSON (`paperDeclaration`), stockée sur la session et
+  reportée au Z.
+- **I8 CA par caissier** [S] (EXP-79) : le rapport X/Z agrège, EN PLUS du total terminal
+  (document du poste, inchangé), le CA TTC et le nombre de tickets PAR caissier
+  (`Ticket.cashier`), rendu sous les totaux terminal.
+- **I9 Bordereau de règlement autonome** [S] (EXP-80) : touche BORDEREAU DE RÈGLEMENT
+  (`/action/session/settlement-voucher`) → document autonome listant les règlements par
+  moyen + total TTC, indépendant du ticket de prélèvement.
 
 ## J. Mode formation [S]
 

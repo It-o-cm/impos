@@ -1787,6 +1787,45 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code varianceThreshold()} reads the administered value (default 1.00,
+     * stored override, corrupt-row fallback) — EXP-82.
+     */
+    @Test
+    void varianceThresholdReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(0, new java.math.BigDecimal("1.00").compareTo(new PosSettingsService().varianceThreshold()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.variance-threshold", "5.00")));
+            assertEquals(0, new java.math.BigDecimal("5.00").compareTo(new PosSettingsService().varianceThreshold()));
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.variance-threshold", "x")));
+            assertEquals(0, new java.math.BigDecimal("1.00").compareTo(new PosSettingsService().varianceThreshold()));
+        }
+    }
+
+    /**
+     * {@code floatMode()} reads the administered value (default FIXED, stored
+     * override) — EXP-95.
+     */
+    @Test
+    void floatModeReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("FIXED", new PosSettingsService().floatMode());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.float-mode", "FLOATING")));
+            assertEquals("FLOATING", new PosSettingsService().floatMode());
+        }
+    }
+
+    /**
      * {@code gestureEndorsementRequired(key)} (EXP-32) reads the per-gesture flag:
      * cancel-line defaults on, cancel-last defaults off, and a stored override wins
      * — both arms of one gesture plus a distinct default.

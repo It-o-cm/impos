@@ -1,0 +1,57 @@
+{!
+ ! Discrepancy arbitration (CashSessionResource, EXP-82). Shown when the counted
+ ! cash strays past the administered threshold: the Z close is held back and the
+ ! operator must RECOMPTER (back to the count) or have a supervisor validate the
+ ! écart. The validation leaves a nominative trace (the supervisor's badge on the
+ ! session). Neither exit is optional — the close does not pass otherwise.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Écart de caisse</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; }
+    .top-bar .title { color: var(--danger); font-weight: bold; font-size: var(--fs-title); text-transform: uppercase; }
+    .work { display: flex; flex-direction: column; gap: 16px; padding: 24px; align-items: center; justify-content: center; }
+    .variance-box { border: 3px solid var(--danger); border-radius: 10px; padding: 20px 40px; text-align: center; }
+    .variance-label { font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
+    .variance-amount { font-size: var(--fs-total-xl); font-weight: bold; color: var(--danger); }
+    .variance-hint { color: var(--text-muted); font-size: var(--fs-body); text-align: center; max-width: 40rem; }
+    .close-error { border: 2px solid var(--danger); border-radius: 8px; padding: 10px 14px; color: var(--danger); font-weight: bold; }
+    .exits { display: flex; gap: 16px; }
+    .sup-form { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; width: 28rem; }
+    .sup-form h2 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
+    .sup-form input { padding: 10px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar"><span class="title">Écart de caisse</span></div>
+    <div class="work">
+      {#if error}<div class="close-error">{error}</div>{/if}
+      <div class="variance-box">
+        <div class="variance-label">Écart constaté (seuil {threshold} €)</div>
+        <div class="variance-amount">{pending.varianceFormatted} €</div>
+      </div>
+      <div class="variance-hint">
+        L'écart dépasse le seuil autorisé. Recomptez le tiroir, ou faites valider
+        l'écart par un superviseur — la clôture ne passe pas autrement.
+      </div>
+      <div class="exits">
+        <a href="/cash-count" class="btn btn-warning" style="width:14rem;">RECOMPTER</a>
+      </div>
+      <form class="sup-form" method="post" action="/action/session/close-endorsed">
+        <h2>Validation superviseur</h2>
+        <input type="text" name="supervisor" placeholder="Identifiant superviseur" autocomplete="off">
+        <input type="password" name="supervisorPassword" placeholder="Code superviseur" autocomplete="off">
+        <button type="submit" class="btn btn-danger">VALIDER L'ÉCART ET CLÔTURER</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
