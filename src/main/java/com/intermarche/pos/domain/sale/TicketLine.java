@@ -90,7 +90,13 @@ public class TicketLine extends BaseEntity {
     @Enumerated(EnumType.STRING)
     public com.intermarche.pos.ui.PriceModType modifierType;
 
-    /** Structured value of the gesture as typed (line euros, percent, or new line total), or null. */
+    /**
+     * Structured value of the gesture as typed, read by {@link #modifierType}, or
+     * null: REMISE = a UNIT discount in euros (its effect on the line is this value
+     * times the quantity), DISCOUNT = a percentage, FORCE_PRICE = the new UNIT
+     * price. The reliable line total is always {@code unitPrice * quantity}
+     * ({@link #totalPrice}), never derived from this value.
+     */
     @Column(name = "modifier_value", precision = 19, scale = 4)
     public java.math.BigDecimal modifierValue;
 
