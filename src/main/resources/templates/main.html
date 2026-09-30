@@ -138,6 +138,18 @@
     {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} ***</div>{/if}
     {#if state.supervisorSessionBadge??}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">SUPERVISEUR {state.supervisorSessionBadge} — <a href="/action/supervisor-session/end" style="color:#fff;text-decoration:underline;">FIN SUPERVISEUR</a></div>{/if}
     {#if state.returnMode}<div class="overlay-banner overlay-monetics" style="background:var(--danger);color:#fff;">*** MODE RETOUR — LES ARTICLES SONT REPRIS *** — <a href="/action/return-mode" style="color:#fff;text-decoration:underline;">FIN MODE RETOUR</a></div>{/if}
+    {! EXP-20 : message du back-office, non perturbant, écran caissier seul (absent
+     ! de la visu client). EXP-89 : s'il porte une question, c'est un sondage auquel
+     ! le caissier répond par un bouton, la réponse remontant au nœud. !}
+    {#if state.backOfficeMessage && !state.backOfficeMessage.isEmpty()}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">✉ {state.backOfficeMessage}</div>{/if}
+    {#if state.backOfficeSurvey??}
+    <div class="overlay-banner overlay-monetics" style="background:var(--accent,#3a3a6a);color:#fff;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;">
+        <span>❓ {state.backOfficeSurvey.question}</span>
+        {#for opt in state.backOfficeSurvey.options}
+        <form method="post" action="/action/survey-answer" style="display:inline;"><input type="hidden" name="answer" value="{opt}"><button type="submit" class="btn btn-warning" style="color:#000;height:2rem;">{opt}</button></form>
+        {/for}
+    </div>
+    {/if}
     <div class="top-bar">
         <span class="store-name">INTERMARCHÉ</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>

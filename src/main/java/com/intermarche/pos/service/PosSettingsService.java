@@ -584,7 +584,11 @@ public class PosSettingsService {
         new Def("gesture.endorsement-scope", Type.TEXT, "GESTES NÉGATIFS",
                 "Portée de l'aval superviseur",
                 "PER_OP : l'aval vaut pour un seul geste (défaut). PER_TICKET : une fois donné, l'aval reste attaché au ticket jusqu'à la touche FIN SUPERVISEUR ou la fin du ticket (EXP-33).",
-                "PER_OP", null));
+                "PER_OP", null),
+        new Def("supervisor.service-reasons", Type.TEXT, "SUPERVISION",
+                "Motifs de demande de service",
+                "Motifs proposés à l'écran d'appel superviseur, séparés par des points-virgules — liste administrée au lieu des quatre boutons figés (EXP-84).",
+                "Annulation;Prix / étiquette;Retour client;Autre", null));
 
     /** The cached local override rows, or null when a reload is due. */
     private volatile Map<String, String> cache = null;
@@ -875,6 +879,18 @@ public class PosSettingsService {
         LOGGER.info("Entering method drawerCap");
         LOGGER.info("Exiting method drawerCap");
         return bigDecimalValue("cash.drawer-cap");
+    }
+
+    /**
+     * The administered service-request reasons shown on the supervisor-call
+     * screen (EXP-84), as a raw semicolon-separated string.
+     *
+     * @return the administered reasons string, never null
+     */
+    public String supervisorServiceReasons() {
+        LOGGER.info("Entering method supervisorServiceReasons");
+        LOGGER.info("Exiting method supervisorServiceReasons");
+        return value("supervisor.service-reasons");
     }
 
     /**

@@ -655,8 +655,23 @@ public class HomeService {
     }
 
     public void callSupervisor(String reason) {
-        LOGGER.info("Entering method callSupervisor with reason: " + reason);
-        technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED, reason);
+        callSupervisor(reason, null);
+    }
+
+    /**
+     * Calls the back office with a reason AND an optional FREE-TEXT message
+     * (EXP-19): the message rides the same real-time push and journal as the
+     * reason, so a cashier can say more than the administered list allows. A
+     * blank message degrades to the plain reason call.
+     *
+     * @param reason the reason chosen (administered list, EXP-84), possibly blank
+     * @param message the free-text message, or null/blank when none
+     */
+    public void callSupervisor(String reason, String message) {
+        LOGGER.info("Entering method callSupervisor with reason: " + reason + ", message: ***");
+        String journalled = (message == null || message.isBlank())
+                ? reason : reason + " — " + message;
+        technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED, journalled);
         if (!syncOutboxService.isEnabled()) {
             state.ticket.setError("SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE");
             state.touch();
@@ -668,6 +683,9 @@ public class HomeService {
             payload.put("terminalId", ticketNumberService.getTerminalId());
             payload.put("operator", state.getOperatorName());
             payload.put("reason", reason);
+            if (message != null && !message.isBlank()) {
+                payload.put("message", message);
+            }
             java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder()
                     .uri(java.net.URI.create(syncOutboxService.getStoreUrl() + "/api/supervisor/call"))
                     .timeout(java.time.Duration.ofSeconds(3))
@@ -695,6 +713,64 @@ public class HomeService {
         }
         state.touch();
         LOGGER.info("Exiting method callSupervisor");
+    }
+
+    /**
+     * Answers the back-office survey the register was shown (EXP-89): the answer
+     * travels back up the same channel as a supervisor call (reason SONDAGE), and
+     * the survey is cleared so it stops showing. A no-op when no survey is
+     * pending or the answer is blank.
+     *
+     * @param answer the option the cashier chose
+     */
+    /**
+     * The administered service-request reasons for the supervisor screen (EXP-84),
+     * split from the semicolon-separated Def; blank entries dropped.
+     *
+     * @return the reasons list, possibly empty
+     */
+    public java.util.List<String> supervisorServiceReasons() {
+        LOGGER.info("Entering method supervisorServiceReasons");
+        java.util.List<String> reasons = new ArrayList<>();
+        for (String raw : posSettingsService.supervisorServiceReasons().split(";")) {
+            if (!raw.isBlank()) {
+                reasons.add(raw.trim());
+            }
+        }
+        LOGGER.info("Exiting method supervisorServiceReasons");
+        return reasons;
+    }
+
+    public void answerSurvey(String answer) {
+        LOGGER.info("Entering method answerSurvey");
+        if (state.backOfficeSurvey == null || answer == null || answer.isBlank()) {
+            LOGGER.info("Exiting method answerSurvey");
+            return;
+        }
+        String question = state.backOfficeSurvey.question;
+        callSupervisor("SONDAGE", question + " : " + answer);
+        state.backOfficeSurvey = null;
+        state.backOfficeMessage = "";
+        state.touch();
+        LOGGER.info("Exiting method answerSurvey");
+    }
+
+    /**
+     * Sets the current back-office message pushed DOWN to this register (EXP-20)
+     * — the caisse-side consumption of the store node's message channel. A survey
+     * (question + options, EXP-89) may accompany it; a blank text with no survey
+     * clears the message. The store node (imedge) is the producer; this is the
+     * register end only.
+     *
+     * @param text the message text, or blank to clear
+     * @param survey the accompanying survey, or null for a plain notice
+     */
+    public void receiveBackOfficeMessage(String text, PosState.BackOfficeSurvey survey) {
+        LOGGER.info("Entering method receiveBackOfficeMessage");
+        state.backOfficeMessage = text == null ? "" : text;
+        state.backOfficeSurvey = survey;
+        state.touch();
+        LOGGER.info("Exiting method receiveBackOfficeMessage");
     }
 
     /**

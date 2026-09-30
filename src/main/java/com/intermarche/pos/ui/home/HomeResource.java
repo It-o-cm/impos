@@ -232,8 +232,46 @@ public class HomeResource {
         LOGGER.info("Exiting method supervisorPage");
         return supervisor.data("state", state)
                 .data("health", exchangeHealthService.build())
+                .data("serviceReasons", homeService.supervisorServiceReasons())
                 .data("notice", notice)
                 .data("noticeOk", noticeOk);
+    }
+
+    /**
+     * Sends a supervisor call carrying the chosen reason AND a free-text message
+     * (EXP-19/84): the reason comes from the administered dropdown, the message
+     * is optional.
+     *
+     * @param reason the chosen reason, possibly blank
+     * @param message the free-text message, or null
+     * @return a redirect to the home page (outcome in the message zone)
+     */
+    @POST
+    @Path("/action/supervisor-message")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response supervisorMessage(@FormParam("reason") String reason,
+                                      @FormParam("message") String message) {
+        LOGGER.info("Entering method supervisorMessage");
+        homeService.callSupervisor(reason == null ? "" : reason, message);
+        LOGGER.info("Exiting method supervisorMessage");
+        return Response.seeOther(URI.create("/")).build();
+    }
+
+    /**
+     * Answers the back-office survey shown on the sale screen (EXP-89): the answer
+     * travels back up, and the survey is cleared.
+     *
+     * @param answer the option the cashier chose
+     * @return a redirect to the home page
+     */
+    @POST
+    @Path("/action/survey-answer")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response surveyAnswer(@FormParam("answer") String answer) {
+        LOGGER.info("Entering method surveyAnswer");
+        homeService.answerSurvey(answer);
+        LOGGER.info("Exiting method surveyAnswer");
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

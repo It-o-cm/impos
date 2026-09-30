@@ -438,6 +438,33 @@ public class PosState implements Serializable {
     /** Global error message, or null. */
     public String globalError = null;
 
+    /**
+     * The current back-office message pushed DOWN to this register (EXP-20),
+     * shown non-disruptively on the cashier's sale screen (never the customer
+     * display); empty when there is none. Pushed by the store node, not tied to
+     * a sale, so it deliberately survives {@link #clearTicket()}.
+     */
+    public volatile String backOfficeMessage = "";
+
+    /**
+     * The current back-office SURVEY (EXP-89), or null when the down message is a
+     * plain notice: a question the cashier answers, the answer travelling back up
+     * to the node. Node-pushed, survives {@link #clearTicket()} like the message.
+     */
+    public volatile BackOfficeSurvey backOfficeSurvey = null;
+
+    /**
+     * A back-office survey pushed to the register (EXP-89): a question and the
+     * answer options offered to the cashier.
+     */
+    public static class BackOfficeSurvey implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+        /** The survey question shown to the cashier. */
+        public String question;
+        /** The answer options offered. */
+        public java.util.List<String> options = new java.util.ArrayList<>();
+    }
+
     /** The button menu currently shown; the sale gestures when the screen opens. */
     public PosMenu menu = PosMenu.VENTE;
 

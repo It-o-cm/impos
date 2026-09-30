@@ -766,6 +766,118 @@ class HomeServiceTest {
     }
 
     /**
+     * EXP-19: a free message is appended to the journalled detail (reason — message)
+     * when it is non-blank; the outbox-disabled path is used to avoid a real push.
+     */
+    @Test
+    void callSupervisorWithMessageJournalsBoth() {
+        when(service.syncOutboxService.isEnabled()).thenReturn(false);
+        service.callSupervisor("Prix", "étiquette manquante rayon 4");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
+                "Prix — étiquette manquante rayon 4");
+    }
+
+    /**
+     * EXP-19: a blank free message degrades to the plain reason in the journal.
+     */
+    @Test
+    void callSupervisorWithBlankMessageJournalsReasonOnly() {
+        when(service.syncOutboxService.isEnabled()).thenReturn(false);
+        service.callSupervisor("Autre", "   ");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED, "Autre");
+    }
+
+    /**
+     * EXP-84: the administered service reasons are split on the semicolon and
+     * blank entries dropped.
+     */
+    @Test
+    void supervisorServiceReasonsSplitsAndDropsBlanks() {
+        when(service.posSettingsService.supervisorServiceReasons()).thenReturn("Annulation; ;Prix / étiquette;");
+        java.util.List<String> reasons = service.supervisorServiceReasons();
+        assertEquals(java.util.List.of("Annulation", "Prix / étiquette"), reasons);
+    }
+
+    /**
+     * EXP-84: an empty administered list yields no reasons.
+     */
+    @Test
+    void supervisorServiceReasonsEmptyWhenBlank() {
+        when(service.posSettingsService.supervisorServiceReasons()).thenReturn("");
+        assertTrue(service.supervisorServiceReasons().isEmpty());
+    }
+
+    /**
+     * EXP-89: answering a pending survey pushes the answer up (journalled) and
+     * clears the survey and the message.
+     */
+    @Test
+    void answerSurveyPushesAndClears() {
+        when(service.syncOutboxService.isEnabled()).thenReturn(false);
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = "Rayon propre ?";
+        service.state.backOfficeSurvey = survey;
+        service.state.backOfficeMessage = "Rayon propre ?";
+        service.answerSurvey("Oui");
+        verify(service.technicalEventService).log(TechnicalEvent.EventType.SUPERVISOR_CALLED,
+                "SONDAGE — Rayon propre ? : Oui");
+        assertNull(service.state.backOfficeSurvey);
+        assertEquals("", service.state.backOfficeMessage);
+    }
+
+    /**
+     * EXP-89: answering with no survey pending is a no-op (nothing journalled).
+     */
+    @Test
+    void answerSurveyNoOpWhenNoSurvey() {
+        service.state.backOfficeSurvey = null;
+        service.answerSurvey("Oui");
+        verify(service.technicalEventService, org.mockito.Mockito.never())
+                .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
+                        org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * EXP-89: a blank answer to a pending survey is a no-op.
+     */
+    @Test
+    void answerSurveyNoOpWhenBlankAnswer() {
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = "Q";
+        service.state.backOfficeSurvey = survey;
+        service.answerSurvey("  ");
+        verify(service.technicalEventService, org.mockito.Mockito.never())
+                .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
+                        org.mockito.ArgumentMatchers.anyString());
+        assertNotNull(service.state.backOfficeSurvey);
+    }
+
+    /**
+     * EXP-20: receiving a plain back-office message stores it with no survey and
+     * touches the state.
+     */
+    @Test
+    void receiveBackOfficeMessagePlain() {
+        service.receiveBackOfficeMessage("Réunion à 14h", null);
+        assertEquals("Réunion à 14h", service.state.backOfficeMessage);
+        assertNull(service.state.backOfficeSurvey);
+        verify(service.state).touch();
+    }
+
+    /**
+     * EXP-89: receiving a message with a survey stores both; a null text is
+     * normalised to empty.
+     */
+    @Test
+    void receiveBackOfficeMessageWithSurveyNormalisesNullText() {
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = "Q";
+        service.receiveBackOfficeMessage(null, survey);
+        assertEquals("", service.state.backOfficeMessage);
+        assertSame(survey, service.state.backOfficeSurvey);
+    }
+
+    /**
      * {@code callSupervisor()} reports success on a 2xx response with a
      * non-blank shared token (token added, status both arms true).
      *
