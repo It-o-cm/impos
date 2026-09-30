@@ -1,9 +1,17 @@
 package com.intermarche.pos.ui.recall;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -13,13 +21,17 @@ import java.util.Optional;
  * back office gave the customer.
  *
  * <p>The real store lives behind {@code pos.recall.document-url}, reached over
- * HTTP like {@link com.intermarche.pos.ui.fidelity.ImfidClient}. When no URL is
- * configured this client answers a LOCAL stub verdict — it knows no document,
- * so every code resolves to {@code null} (not found) — which keeps a standalone
- * lane deterministic: the register cannot invent a document imedge never sent.
- * Tests inject a mock of this client to return a document and exercise the load.
- * The connected fetch of a real document is therefore [N] e2e residue (it needs
- * imedge running).
+ * HTTP like {@link com.intermarche.pos.ui.fidelity.ImfidClient}: when a URL is
+ * configured the register issues {@code GET <url>/api/orders/{code}} carrying the
+ * shared {@code X-Sync-Token}, and parses the answer into a {@link RecalledDocument}.
+ * When no URL is configured this client answers a LOCAL stub verdict — it knows no
+ * document, so every code resolves to {@code null} (not found) — which keeps a
+ * standalone lane deterministic: the register cannot invent a document imedge never
+ * sent. The call is TOLERANT by construction: a node down, unreachable, a non-2xx
+ * answer or an empty body all resolve to {@code null} rather than an exception, so a
+ * network hiccup never disturbs a sale. The endpoint is guarded node-side by
+ * {@code pos.role=store} + the token; the connected fetch is [N] e2e residue (it
+ * needs imedge running).
  */
 @ApplicationScoped
 public class BackOfficeDocumentClient {
@@ -31,12 +43,26 @@ public class BackOfficeDocumentClient {
     @ConfigProperty(name = "pos.recall.document-url")
     Optional<String> documentUrl;
 
+    /** Shared ingestion token presented to the store node; absent = none. */
+    @ConfigProperty(name = "pos.sync.token")
+    Optional<String> token;
+
+    /** The JSON reader for the node's answer. */
+    @jakarta.inject.Inject
+    ObjectMapper objectMapper;
+
+    /** Shared HTTP client toward the node (connection reuse, connect timeout). */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
+
     /**
      * Fetches the document a recall code names (EXP-90/91/92).
      *
      * @param code the recall code the customer presented
      * @return the recalled document, or null when the code is blank, no store is
-     *         configured, or the store knows no such document
+     *         configured, the store knows no such document, or the node could not
+     *         be reached
      */
     public RecalledDocument fetch(String code) {
         LOGGER.info("Entering method fetch");
@@ -50,9 +76,30 @@ public class BackOfficeDocumentClient {
             LOGGER.info("Exiting method fetch with local stub (no document)");
             return null;
         }
-        // A configured store would be queried over HTTP here (imedge). Left to
-        // the connected deployment; unit tests inject a mock returning a document.
-        LOGGER.info("Exiting method fetch (configured store not reached in this build)");
-        return null;
+        try {
+            String encoded = URLEncoder.encode(code.trim(), StandardCharsets.UTF_8);
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(documentUrl.get().trim() + "/api/orders/" + encoded))
+                    .timeout(Duration.ofSeconds(3))
+                    .GET();
+            token.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
+            HttpResponse<String> response = httpClient.send(builder.build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300
+                    || response.body() == null || response.body().isBlank()) {
+                LOGGER.info("Exiting method fetch (node answered no document)");
+                return null;
+            }
+            RecalledDocument document =
+                    objectMapper.readValue(response.body(), RecalledDocument.class);
+            LOGGER.info("Exiting method fetch (document recalled from node)");
+            return document;
+        } catch (Exception e) {
+            // Tolerant: a node down or a malformed answer is "no document",
+            // never a thrown error that could disturb the lane.
+            LOGGER.warnf("Nœud magasin injoignable pour le document %s : %s", code, e.getMessage());
+            LOGGER.info("Exiting method fetch (node unreachable, no document)");
+            return null;
+        }
     }
 }
