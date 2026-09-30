@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.customer;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.TechnicalEventService;
@@ -8,6 +9,12 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -20,9 +27,15 @@ import java.util.Optional;
  * this register, recorded as {@code DIGITAL_TICKET_SENT} whether or not a message
  * actually left. WITHOUT A GATEWAY nothing is sent and nothing fails — a register on
  * a demo bench, or one whose store has no SMS provider, keeps working; only the
- * message does not leave. The provider itself is out of this repo: the gateway URL is
- * a deployment secret and the actual HTTP call is left to the integration, so this
- * class models the caisse-side send + the journal, config-gated.
+ * message does not leave.
+ *
+ * <p>With a gateway configured the register issues {@code POST <url>/api/sms/send}
+ * carrying the shared {@code X-Sync-Token} and a {@code {phone, ticketNumber}} body,
+ * and reads {@code {sent}}. The send never lets the sale path fall over: a gateway
+ * down, unreachable, a non-2xx answer or an empty body all resolve to "journalled
+ * only" (not sent) rather than an exception. The journal is written FIRST, so it
+ * records the customer's request whatever happens to the message. The connected send
+ * is [N] e2e residue (it needs the gateway running).
  */
 @ApplicationScoped
 public class TicketSmsService {
@@ -33,9 +46,29 @@ public class TicketSmsService {
     @ConfigProperty(name = "pos.sms.gateway-url")
     Optional<String> gatewayUrl;
 
+    /** Shared ingestion token presented to the gateway; absent = none. */
+    @ConfigProperty(name = "pos.sync.token")
+    Optional<String> syncToken;
+
     /** Journals the send, whether or not a message actually left. */
     @Inject
     TechnicalEventService technicalEventService;
+
+    /** The JSON reader/writer for the gateway exchange. */
+    @Inject
+    ObjectMapper objectMapper;
+
+    /** Shared HTTP client toward the gateway (connection reuse, connect timeout). */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
+
+    /** The gateway's answer body (tolerant subset). */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    static class SendAnswer {
+        /** Whether the gateway sent the message. */
+        public boolean sent;
+    }
 
     /**
      * Whether an SMS gateway is configured; without one the send is journalled only.
@@ -70,8 +103,36 @@ public class TicketSmsService {
             LOGGER.info("Exiting method send");
             return false;
         }
-        LOGGER.infof("Ticket %s envoyé par SMS à %s via %s", ticket.ticketNumber, phone, gatewayUrl.get());
-        LOGGER.info("Exiting method send");
-        return true;
+        try {
+            String body = objectMapper.writeValueAsString(
+                    Map.of("phone", phone, "ticketNumber", ticket.ticketNumber));
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(gatewayUrl.get().trim() + "/api/sms/send"))
+                    .timeout(Duration.ofSeconds(3))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body));
+            syncToken.filter(t -> !t.isBlank()).ifPresent(t -> builder.header("X-Sync-Token", t));
+            HttpResponse<String> response = httpClient.send(builder.build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300
+                    || response.body() == null || response.body().isBlank()) {
+                LOGGER.infof("Ticket %s : passerelle SMS a refusé l'envoi (journalisé seulement)",
+                        ticket.ticketNumber);
+                LOGGER.info("Exiting method send");
+                return false;
+            }
+            SendAnswer answer = objectMapper.readValue(response.body(), SendAnswer.class);
+            LOGGER.infof("Ticket %s envoyé par SMS à %s via %s (envoyé=%b)",
+                    ticket.ticketNumber, phone, gatewayUrl.get(), answer.sent);
+            LOGGER.info("Exiting method send");
+            return answer.sent;
+        } catch (Exception e) {
+            // Tolerant: an unreachable gateway is "journalled only", never a thrown
+            // error that could disturb the sale — the journal already recorded it.
+            LOGGER.warnf("Passerelle SMS injoignable pour le ticket %s : %s",
+                    ticket.ticketNumber, e.getMessage());
+            LOGGER.info("Exiting method send");
+            return false;
+        }
     }
 }
