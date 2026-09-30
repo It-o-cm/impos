@@ -329,6 +329,11 @@ public class SyncOutboxService {
         dto.reason = movement.reason;
         dto.movementDate = iso(movement.movementDate);
         dto.endorsedBy = movement.endorsedBy;
+        // EXP-87/85: carry the safe-deposit flag and the acompte's order reference
+        // over the wire so the store node can account the coffre and impute the
+        // down-payment to its order.
+        dto.safeDeposit = movement.safeDeposit;
+        dto.orderReference = movement.orderReference;
         return dto;
     }
 
@@ -425,6 +430,9 @@ public class SyncOutboxService {
             if (payment instanceof com.intermarche.pos.domain.payment.CardPayment card) {
                 paymentDto.authorizationNumber = card.authorizationNumber;
                 paymentDto.degradedMode = card.degradedMode;
+                // EXP-54: the real CB entry mode (SANS_CONTACT / CODE) rides the
+                // wire so the store node can surface it in the BO card states.
+                paymentDto.cardEntryMode = card.cardEntryMode;
             }
             if (payment instanceof com.intermarche.pos.domain.payment.ChequePayment cheque) {
                 paymentDto.magneticLine = cheque.magneticLine;

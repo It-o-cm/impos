@@ -251,6 +251,8 @@ public final class SyncPayloads {
         public String authorizationNumber;
         /** True when the card payment was accepted in degraded mode (BO-04-01-47/49). */
         public boolean degradedMode;
+        /** The real CB entry mode read off the terminal (SANS_CONTACT / CODE), or null (EXP-54). */
+        public String cardEntryMode;
         /** The CMC7 magnetic line read off the cheque, or null. */
         public String magneticLine;
         /** The account charged by a customer-credit settlement (LC-07-09), or null. */
@@ -342,6 +344,19 @@ public final class SyncPayloads {
         public String movementDate;
         /** The badge of the endorsing manager, or null. */
         public String endorsedBy;
+        /**
+         * True when the movement is a cash withdrawal destined for the SAFE
+         * (EXP-87): the store node accounts it into the coffre balance. False for
+         * every other movement.
+         */
+        public boolean safeDeposit;
+        /**
+         * The order this movement is attached to, or null (EXP-85): a customer
+         * down-payment (acompte) carries the order reference so the node imputes
+         * it to that order and returns it as the already-paid down-payment when
+         * the order is recalled by code.
+         */
+        public String orderReference;
     }
 
     /**
