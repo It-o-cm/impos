@@ -164,6 +164,20 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **B29 Refus de répétition après quantité** [S] (EXP-29) : RÉPÉTER ARTICLE sur une ligne dont
   la quantité a été saisie → RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE ; quantité 1 → répète.
 
+- **B30 L'affichage du ticket suit la saisie** [S] (2e passe, P1) : sur un ticket long (plus
+  d'une page de lignes), l'ajout d'une ligne fait sauter l'affichage sur LA page qui porte
+  cette ligne (`showLinePage`), au lieu de rester sur la page courante ; un uid inconnu ou
+  null ne provoque aucun saut (page inchangée).
+- **B31 Sélection de ligne par uid** [S] (2e passe, P2) : sur un ticket multi-pages,
+  sélectionner la DEUXIÈME ligne de la TROISIÈME page (`/action/select/<uid>`) retient bien
+  cette ligne (index global 13), jamais la deuxième du ticket ; uid absent → aucune sélection
+  changée. C'est le test qui aurait attrapé le défaut « sélection hors page 1 ».
+- **B32 Ligne de détail unique qté × PU** [S] (2e passe, P3-5) : chaque ligne montre son
+  libellé seul, puis — seulement si nécessaire (qté > 1, pesée, ou poids/prix embarqué) — une
+  SEULE ligne de détail « q x PU € » (« q kg x PU €/kg » pour une pesée), identique sur la
+  visu caisse, la visu client ET le ticket imprimé ; une qté 1 non pesée n'a pas de ligne de
+  détail.
+
 ## C. Gestes de prix sous avenant [S]
 
 - **C1 REMISE €** : demande → modale avenant → PIN manager → appliquée (label + delta) ;
@@ -201,6 +215,18 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **C12 Annulation par scan** [S] (EXP-36) : touche ANNULER PAR SCAN (`/action/cancel-by-scan`) arme le
   mode ; le prochain code scanné désigne la ligne à annuler (via la même décision aval/dernier-article) ;
   code absent du ticket → `ARTICLE ABSENT DU TICKET` ; désarmé après usage et à la fin du ticket.
+
+- **C13 Remise € = remise unitaire × quantité** [S] (2e passe, P8) : une REMISE de 2,00 € sur
+  une ligne de 10 articles à 10,00 € abaisse la ligne à 80,00 € (2 € × 10), jamais 98 € ; un
+  article identique scanné ensuite repart au prix plein (10,00 €, la remise ne colle pas au
+  produit) ; passer de 10 à 11 unités remise aussi la onzième ; le plafond euro administré
+  (`discount.line-max-amount`) écrête la remise de LIGNE — 2 € × 10 = 20 € refusé sous un
+  plafond de 10 €, tandis que la même valeur sur une seule unité passerait.
+- **C14 Le superviseur connecté ne se demande pas son propre aval** [S] (2e passe, P6) : un
+  opérateur superviseur, ou une session superviseur ouverte (`supervisorSessionBadge`),
+  autorise DIRECTEMENT les gestes sans drapeau propre — impression du badge opérateur,
+  bascule du mode formation — via un point de décision unique (`selfAuthorized`), sans modale
+  d'aval ; un caissier simple, lui, voit la modale d'autorisation.
 
 ## D. Fidélité [S]
 
@@ -1118,7 +1144,7 @@ déjà en vol, apply de geste refusé) — les tester par ABSENCE d'effet, pas p
 ---
 ## Couverture — scénarios catalogués contre tests écrits
 
-Relevé sur `src/test/java/com/intermarche/e2e` : **152 scénarios catalogués, 118 portés
+Relevé sur `src/test/java/com/intermarche/e2e` : **157 scénarios catalogués, 118 portés
 par un test**. Une classe `Group<X>IT` par groupe, un `@Test` par scénario, l'identifiant
 dans le nom de la méthode. Le catalogue a été RÉ-AUDITÉ contre `src/main` (ressources UI,
 filtres, services de paiement, imports, sync).
@@ -1136,8 +1162,8 @@ ANNULER TICKET) — prouvés en échec à HEAD (avant le Lot 2), hors périmètr
 | Groupe | Catalogués | Testés | Reste |
 |---|---|---|---|
 | A. Prise de poste | 11 | 10 | A10 ([N]) |
-| B. Vente | 24 | 24 | — (b02/b14 rouges pré-existants, hors périmètre) |
-| C. Gestes de prix | 8 | 8 | — |
+| B. Vente | 27 | 24 | B30–B32 (2e passe, catalogués non portés) · b02/b14 rouges pré-existants |
+| C. Gestes de prix | 10 | 8 | C13,C14 (2e passe, catalogués non portés) |
 | D. Fidélité | 8 | 8 | — (D4/D6 partiels, résidu imfid) |
 | E. Valorisation continue | 14 | 0 | E1–E14 |
 | F. Paiement & clôture | 19 | 18 | F7 ([V]) |
@@ -1153,7 +1179,7 @@ ANNULER TICKET) — prouvés en échec à HEAD (avant le Lot 2), hors périmètr
 | Q. Mouvements de caisse | 3 | 3 | — (Q2 succès cash-count = résidu dénominations) |
 | R. Consommation & budgets | 7 | 3 | R1,R2,R4,R6 ([V]/[N]) |
 | S. Supervision locale | 1 | 1 | — (relance tirage succès = résidu [N]) |
-| **Total** | **152** | **118** | **34** |
+| **Total** | **157** | **118** | **39** |
 
 L'`a0_` de `GroupAIT` a désormais son entrée au catalogue (A0, sonde de santé publique).
 
