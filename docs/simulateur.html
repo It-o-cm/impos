@@ -416,7 +416,18 @@
        register. Opened straight off the disk as a file:// page there is no
        origin to inherit, and the local register is the only sensible guess,
        which is exactly what the demo stack does. */
-    const POS = (location.protocol === 'file:') ? 'http://localhost:8080' : location.origin;
+    const POS = servedByRegister() ? location.origin : 'http://localhost:8080';
+
+    /* Whether this page is being served BY the register, the only case where the
+       origin is the right base. Qualification publishes it under /simulateur, with
+       no extension. A path that still ends in .html is a raw file -- opened off the
+       disk, or handed over by an IDE preview server on a port of its own -- and the
+       local register is then the only sensible guess. Testing the protocol alone
+       missed that second case and left the panel mute against an origin that serves
+       no API. */
+    function servedByRegister() {
+        return location.protocol !== 'file:' && !location.pathname.endsWith('.html');
+    }
 
     /*
      * Draws a print body the way the hardware bridge does.

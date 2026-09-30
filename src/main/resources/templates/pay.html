@@ -172,7 +172,10 @@
     </div>
 
     <div class="main-area"></div>
-    <div class="bottom-nav"></div>
+    <div class="bottom-nav">
+        <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
+        <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
+    </div>
 
     <!-- Overlay Principal Paiement -->
     <div class="overlay active" id="payScreen">
@@ -340,6 +343,35 @@
                                 <input type="hidden" name="amount" id="fidValue" value="0">
                                 <button type="submit" class="btn btn-warning" style="width:100%;margin-top:8px;color:black;">UTILISER</button>
                             </form>
+
+                            <form action="/action/pay-trd" method="POST" class="sub-input-area" id="trdForm">
+                                <div class="pay-mode-label">CARTE TRD</div>
+                                <div class="sub-info">Montant imputé sur l'assiette titres-restaurant :</div>
+                                <input type="text" id="trdDisplay" class="sub-display" value="0,00" readonly>
+                                <input type="hidden" name="amount" id="trdValue" value="0">
+                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">VALIDER</button>
+                            </form>
+                            <form action="/action/pay-restoflash" method="POST" class="sub-input-area" id="restoflashForm">
+                                <div class="pay-mode-label">RESTO FLASH</div>
+                                <div class="sub-info">Jeton, scanné ou saisi :</div>
+                                <input type="text" id="restoflashDisplay" class="sub-display" value="" readonly>
+                                <input type="hidden" name="token" id="restoflashValue" value="">
+                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">VALIDER LE JETON</button>
+                            </form>
+                            <form action="/action/pay-giftcard" method="POST" class="sub-input-area" id="giftcardForm">
+                                <div class="pay-mode-label">CARTE CADEAU</div>
+                                <div class="sub-info">Numéro de carte, scanné ou saisi :</div>
+                                <input type="text" id="giftcardDisplay" class="sub-display" value="" readonly>
+                                <input type="hidden" name="cardNumber" id="giftcardValue" value="">
+                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">VALIDER LA CARTE</button>
+                            </form>
+                            <form action="/action/pay-sogec" method="POST" class="sub-input-area" id="sogecForm">
+                                <div class="pay-mode-label">BON SOGEC</div>
+                                <div class="sub-info">Code du bon, scanné ou saisi :</div>
+                                <input type="text" id="sogecDisplay" class="sub-display" value="" readonly>
+                                <input type="hidden" name="couponCode" id="sogecValue" value="">
+                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">VALIDER LE BON</button>
+                            </form>
                         </div>
 
                         <!-- Zone Numpad -->
@@ -382,28 +414,18 @@
                     {#if offeredTenders.contains('FIDELITY')}
                     <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
                     {/if}
-                    {! EXP-60/67/66/58 : nouveaux moyens. Le montant vide retombe sur
-                     ! le reste dû côté serveur ; les moyens à code portent un champ
-                     ! (scannable/saisi). TRD et Resto Flash sont bornés à l'assiette
-                     ! titres-restaurant, la carte cadeau au solde émetteur. !}
-                    <form action="/action/pay-trd" method="POST" style="display:contents;">
-                        <button type="submit" class="btn" style="background-color:#EF6C00;">CARTE TRD</button>
-                    </form>
-                    <form action="/action/pay-restoflash" method="POST" style="display:contents;">
-                        <input type="text" name="token" class="sub-display" placeholder="Jeton Resto Flash" style="width:100%;">
-                        <button type="submit" class="btn" style="background-color:#EF6C00;">RESTO FLASH</button>
-                    </form>
-                    <form action="/action/pay-giftcard" method="POST" style="display:contents;">
-                        <input type="text" name="cardNumber" class="sub-display" placeholder="N° carte cadeau" style="width:100%;">
-                        <button type="submit" class="btn" style="background-color:#6D4C41;">CARTE CADEAU</button>
-                    </form>
-                    <form action="/action/pay-sogec" method="POST" style="display:contents;">
-                        <input type="text" name="couponCode" class="sub-display" placeholder="Bon SOGEC" style="width:100%;">
-                        <button type="submit" class="btn" style="background-color:#6D4C41;">BON SOGEC</button>
-                    </form>
+                    {! EXP-60/67/66/58 : nouveaux moyens. Chacun est une TOUCHE qui
+                     ! ouvre sa zone de saisie et son pavé tactile, comme les moyens
+                     ! d'origine : la caisse n'a pas de clavier physique, et un champ
+                     ! texte posé dans la grille y est inerte. TRD se saisit au
+                     ! montant ; les trois autres se saisissent au code, scanné ou
+                     ! tapé, et le montant laissé vide retombe sur le reste dû côté
+                     ! serveur. !}
+                    <button class="btn" style="background-color:#EF6C00;" onclick="openInput('trd')">CARTE TRD</button>
+                    <button class="btn" style="background-color:#EF6C00;" onclick="openInput('restoflash')">RESTO FLASH</button>
+                    <button class="btn" style="background-color:#6D4C41;" onclick="openInput('giftcard')">CARTE CADEAU</button>
+                    <button class="btn" style="background-color:#6D4C41;" onclick="openInput('sogec')">BON SOGEC</button>
                     <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
-                    <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
-                    <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
                 </div>
             </div>
         </div>
@@ -800,6 +822,11 @@
     const TENDER_KEY_OF_MODE = { card: 'CARD', cash: 'CASH', cheque: 'CHEQUE', fid: 'FIDELITY', tr: 'TR' };
     const TENDER_DEFAULTS = { {#for entry in tenderDefaults}'{entry.key}': {entry.value}{#if entry_hasNext}, {/if}{/for} };
 
+    /* Les moyens qui se saisissent au CODE et non au montant. Leur pavé est
+       numérique entier, il n'ouvre sur aucune valeur, et le code part seul :
+       le montant vide retombe sur le reste dû côté serveur. */
+    const CODE_MODES = ['restoflash', 'giftcard', 'sogec'];
+
     function openInput(mode) {
         const noSelectionDiv = document.getElementById('payNoSelection');
         noSelectionDiv.style.display = 'none';
@@ -816,16 +843,23 @@
         const form = document.getElementById(mode + 'Form');
         form.classList.add('active');
 
+        const codeMode = CODE_MODES.includes(mode);
+
         PosInput.setup({
             displayId: mode + 'Display',
             hiddenId: mode + 'Value',
             containerId: 'payNumpadZone',
-            keyboardType: 'payment',
-            mode: 'payment',
-            placeholder: "0,00",
-            maxLength: 10,
+            keyboardType: codeMode ? 'numpad' : 'payment',
+            mode: codeMode ? 'integer' : 'payment',
+            placeholder: codeMode ? "" : "0,00",
+            maxLength: codeMode ? 30 : 10,
             onEnter: () => { form.submit(); }
         });
+
+        if (codeMode) {
+            PosInput.clear();
+            return;
+        }
 
         // BO-03-02-23: an ADMINISTERED tender says itself whether the pad opens
         // on the remaining due. A tender the back office never touched keeps the

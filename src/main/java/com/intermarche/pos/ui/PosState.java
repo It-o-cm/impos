@@ -754,6 +754,27 @@ public class PosState implements Serializable {
     }
 
     /**
+     * Positions the ticket display on the page holding the line with the given
+     * uid (P1): every article entry brings the view onto the line it just created
+     * — so a cashier scanning many articles always sees the last one, instead of
+     * staying frozen on the first page. Manual paging stays possible; the next
+     * scan brings the view back to that line's page. No-op for a null or unknown
+     * uid, so an annulment (which leaves the display on a still-existing page via
+     * the clamp) is untouched.
+     *
+     * @param uid the uid of the line to reveal
+     */
+    public void showLinePage(String uid) {
+        if (uid == null) return;
+        for (int i = 0; i < ticket.items.size(); i++) {
+            if (uid.equals(ticket.items.get(i).uid)) {
+                ticketCurrentPage = i / PAGE_SIZE;
+                return;
+            }
+        }
+    }
+
+    /**
      * Moves to the next ticket page if one exists.
      */
     public void nextPage() { if (isHasNextPage()) { ticketCurrentPage++; touch(); } }

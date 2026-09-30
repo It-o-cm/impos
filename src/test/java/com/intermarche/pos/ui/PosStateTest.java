@@ -622,6 +622,61 @@ class PosStateTest {
     }
 
     /**
+     * {@code showLinePage} brings the view onto the page holding the line with the
+     * given uid — a line on a later page moves the display there (P1, multi-page arm).
+     */
+    @Test
+    void showLinePageJumpsToTheLinePage() {
+        PosState state = newState();
+        List<TicketState.TicketItem> list = items(13);
+        list.get(12).uid = "L13";
+        state.ticket.items = list;
+        state.ticketCurrentPage = 0;
+        state.showLinePage("L13");
+        assertEquals(2, state.ticketCurrentPage);
+    }
+
+    /**
+     * {@code showLinePage} on a line of the first page leaves the display on page 0
+     * (P1, single-page arm).
+     */
+    @Test
+    void showLinePageStaysOnFirstPageForAFirstPageLine() {
+        PosState state = newState();
+        List<TicketState.TicketItem> list = items(13);
+        list.get(2).uid = "L3";
+        state.ticket.items = list;
+        state.ticketCurrentPage = 2;
+        state.showLinePage("L3");
+        assertEquals(0, state.ticketCurrentPage);
+    }
+
+    /**
+     * {@code showLinePage} is a no-op for an unknown uid: the display stays put
+     * (P1, uid-absent arm).
+     */
+    @Test
+    void showLinePageIgnoresUnknownUid() {
+        PosState state = newState();
+        state.ticket.items = items(13);
+        state.ticketCurrentPage = 1;
+        state.showLinePage("NOPE");
+        assertEquals(1, state.ticketCurrentPage);
+    }
+
+    /**
+     * {@code showLinePage} is a no-op for a null uid (P1, null arm).
+     */
+    @Test
+    void showLinePageIgnoresNullUid() {
+        PosState state = newState();
+        state.ticket.items = items(13);
+        state.ticketCurrentPage = 1;
+        state.showLinePage(null);
+        assertEquals(1, state.ticketCurrentPage);
+    }
+
+    /**
      * {@code isHasPreviousPage()} is false on the first page.
      */
     @Test

@@ -213,6 +213,8 @@ public class TicketState implements Serializable {
                         parent.lastEnteredItemId = item.uid;
                         parent.collectArmed = false;
                         parent.lineJustEntered = true;
+                        // P1: bring the view onto the line just fed.
+                        parent.showLinePage(item.uid);
                     }
                     onChange();
                     return;
@@ -234,6 +236,8 @@ public class TicketState implements Serializable {
             parent.lastEnteredItemId = newItem.uid;
             parent.collectArmed = false;
             parent.lineJustEntered = true;
+            // P1: a new line is on the last page — bring the view onto it.
+            parent.showLinePage(newItem.uid);
         }
 
         onChange();
