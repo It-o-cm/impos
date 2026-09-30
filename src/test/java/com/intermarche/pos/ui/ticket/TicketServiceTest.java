@@ -374,6 +374,90 @@ class TicketServiceTest {
         verify(ticketPersistenceService, never()).syncDraft(state);
     }
 
+    // --- loadRecalledDocument (EXP-90/91/92/85) ---
+
+    /**
+     * {@code loadRecalledDocument} loads a recalled document's lines into the sale
+     * through the add funnel (EXP-90): each line becomes a ticket item.
+     */
+    @Test
+    void loadRecalledDocumentLoadsLines() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.COMMANDE, "CMD1",
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055"))),
+                        BigDecimal.ZERO);
+        service.loadRecalledDocument(state, doc);
+        assertEquals(1, state.ticket.items.size());
+        assertEquals("PAIN", state.ticket.items.get(0).label);
+        assertEquals(0, state.payment.paidAmount.compareTo(BigDecimal.ZERO));
+    }
+
+    /**
+     * {@code loadRecalledDocument} deducts the order's already-paid down-payment
+     * by registering it as a payment (EXP-85, "repris sur commande").
+     */
+    @Test
+    void loadRecalledDocumentDeductsAcompteOnOrder() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.COMMANDE, "CMD2",
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "300", "PAIN", BigDecimal.ONE, new BigDecimal("10.00"), new BigDecimal("0.055"))),
+                        new BigDecimal("3.00"));
+        service.loadRecalledDocument(state, doc);
+        assertEquals(0, state.payment.paidAmount.compareTo(new BigDecimal("3.00")));
+    }
+
+    /**
+     * {@code loadRecalledDocument} refuses a null document (unknown code) with
+     * DOCUMENT INTROUVABLE and loads nothing.
+     */
+    @Test
+    void loadRecalledDocumentNullRefuses() {
+        openSession();
+        service.loadRecalledDocument(state, null);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("DOCUMENT INTROUVABLE", state.ticket.transientError);
+    }
+
+    /**
+     * {@code loadRecalledDocument} refuses a document with no line with DOCUMENT
+     * VIDE and loads nothing.
+     */
+    @Test
+    void loadRecalledDocumentEmptyRefuses() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.DEVIS, "D1",
+                        java.util.List.of(), BigDecimal.ZERO);
+        service.loadRecalledDocument(state, doc);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("DOCUMENT VIDE", state.ticket.transientError);
+    }
+
+    /**
+     * {@code loadRecalledDocument} refuses when no session is open (guard arm):
+     * nothing is loaded.
+     */
+    @Test
+    void loadRecalledDocumentWithoutSessionRefuses() {
+        state.trainingMode = false;
+        when(cashSessionService.getOpenSession()).thenReturn(null);
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.BON_VENTE, "B1",
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055"))),
+                        BigDecimal.ZERO);
+        service.loadRecalledDocument(state, doc);
+        assertTrue(state.ticket.items.isEmpty());
+    }
+
     // --- applyRemise ---
 
     /**

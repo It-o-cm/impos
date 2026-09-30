@@ -160,6 +160,64 @@ class CashMovementServiceTest {
         verifyNoInteractions(outbox);
     }
 
+    // --------------------------------------------------
+    // recordAcompte (EXP-85)
+    // --------------------------------------------------
+
+    /**
+     * A down-payment records a CUSTOMER_DEPOSIT movement carrying the order
+     * reference (EXP-85): fully stamped, persisted, enqueued.
+     */
+    @Test
+    void recordAcompteAttachesTheOrderReference() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            CashMovement result = service.recordAcompte(session, cashier, new BigDecimal("20.00"), " CMD9 ");
+            CashMovement movement = created.constructed().get(0);
+            assertSame(movement, result);
+            assertEquals(CashMovement.MovementType.CUSTOMER_DEPOSIT, movement.type);
+            assertEquals(new BigDecimal("20.00"), movement.amount);
+            assertEquals("CMD9", movement.orderReference);
+            assertEquals("Acompte commande CMD9", movement.reason);
+            assertEquals("C04", movement.terminalId);
+            assertNotNull(movement.movementUid);
+            assertNotNull(movement.movementDate);
+            verify(movement, times(1)).persist();
+            verify(outbox, times(1)).enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        }
+    }
+
+    /**
+     * A non-positive amount is refused: nothing is constructed or enqueued.
+     */
+    @Test
+    void recordAcompteRefusesNonPositiveAmount() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            assertNull(service.recordAcompte(mock(CashSession.class), null, BigDecimal.ZERO, "CMD9"));
+            assertTrue(created.constructed().isEmpty());
+        }
+        verifyNoInteractions(outbox);
+    }
+
+    /**
+     * A blank order reference is refused: nothing is constructed or enqueued.
+     */
+    @Test
+    void recordAcompteRefusesBlankReference() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            assertNull(service.recordAcompte(mock(CashSession.class), null, new BigDecimal("5.00"), "  "));
+            assertTrue(created.constructed().isEmpty());
+        }
+        verifyNoInteractions(outbox);
+    }
+
     /**
      * The short call names no tender, and the movement it writes says so: a
      * movement recorded by a caller that knows nothing of tenders must not claim

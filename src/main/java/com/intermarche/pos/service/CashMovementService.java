@@ -133,4 +133,41 @@ public class CashMovementService {
         LOGGER.info("Exiting method record");
         return movement;
     }
+
+    /**
+     * Records a down-payment (acompte) ATTACHED to an order (EXP-85): a
+     * {@code CUSTOMER_DEPOSIT} movement carrying the order reference, so a later
+     * recall of the order can deduct what was already collected. Refused on a
+     * non-positive amount or a blank order reference.
+     *
+     * @param session the open session the movement belongs to
+     * @param cashier the operator recording the acompte, or null
+     * @param amount the down-payment amount
+     * @param orderReference the code of the order the acompte is attached to
+     * @return the recorded movement, or null when the amount or the reference is invalid
+     */
+    @Transactional
+    public CashMovement recordAcompte(CashSession session, Employee cashier,
+                                      BigDecimal amount, String orderReference) {
+        LOGGER.info("Entering method recordAcompte with amount: " + amount + ", orderReference: " + orderReference);
+        if (amount == null || amount.signum() <= 0
+                || orderReference == null || orderReference.isBlank()) {
+            LOGGER.info("Exiting method recordAcompte with invalid input");
+            return null;
+        }
+        CashMovement movement = new CashMovement();
+        movement.movementUid = UUID.randomUUID().toString();
+        movement.terminalId = ticketNumberService.getTerminalId();
+        movement.session = session;
+        movement.cashier = cashier;
+        movement.type = CashMovement.MovementType.CUSTOMER_DEPOSIT;
+        movement.amount = amount;
+        movement.reason = "Acompte commande " + orderReference.trim();
+        movement.orderReference = orderReference.trim();
+        movement.movementDate = LocalDateTime.now();
+        movement.persist();
+        syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        LOGGER.info("Exiting method recordAcompte");
+        return movement;
+    }
 }

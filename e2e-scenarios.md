@@ -449,6 +449,15 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   stocké localement) ; formation → `RÉIMPRESSION INDISPONIBLE EN FORMATION` ; numéro vide →
   `NUMÉRO DE TICKET VIDE` ; pas de nœud configuré → `AUCUN NŒUD MAGASIN CONFIGURÉ` ; absent au
   magasin / nœud injoignable → `TICKET INTROUVABLE AU MAGASIN : <n>`.
+- **G20 Rappel par code — devis / commande / bon de vente / click&collect** [N] (EXP-90/91/92) :
+  écran RAPPEL CODE (`/recall`), saisie du code remis par le back-office → chargement des lignes
+  du document dans la vente (via le même entonnoir `addItem`). Le document vit sur imedge :
+  caisse autonome → `DOCUMENT INTROUVABLE` (sur l'écran de vente) ; document vide → `DOCUMENT VIDE`.
+  Le fetch d'un document réel exige imedge → résidu **[N]**.
+- **G21 Acompte rattaché / repris sur commande** [N] (EXP-85) : formulaire acompte de `/recall`
+  → mouvement `CUSTOMER_DEPOSIT` portant `orderReference` (rattachement) ; au rappel d'une
+  COMMANDE portant un acompte déjà versé, celui-ci est crédité comme règlement et déduit du
+  reste dû. La reprise réelle depuis le nœud est **[N]**.
 
 ## H. Retours [S]
 

@@ -39,22 +39,35 @@ class CashMovementTest {
         movement.endorsedBy = "11111111";
         movement.paymentMethod = "CHEQUE";
         movement.transferTo = "CASH";
+        movement.orderReference = "CMD1";
         return movement;
     }
 
     /**
      * The checksum is the exact {@link Objects#hash} of the identifying and
-     * financial fields — uid, terminal, type, amount, date and the two tenders a
-     * drawer movement names — and nothing else (the reason and the endorser are
-     * excluded on purpose).
+     * financial fields — uid, terminal, type, amount, date, the two tenders a
+     * drawer movement names and the order reference an acompte carries (EXP-85) —
+     * and nothing else (the reason and the endorser are excluded on purpose).
      */
     @Test
     void checksumHashesTheSalientFields() {
         CashMovement movement = movement();
         int expected = Objects.hash("M-1", "C04", CashMovement.MovementType.WITHDRAWAL,
                 new BigDecimal("30.00"), LocalDateTime.of(2026, 9, 1, 15, 42, 0),
-                "CHEQUE", "CASH");
+                "CHEQUE", "CASH", "CMD1");
         assertEquals(expected, movement.getChecksum());
+    }
+
+    /**
+     * A change to the order reference changes the checksum (EXP-85): an acompte
+     * on one order is not the same movement as an acompte on another.
+     */
+    @Test
+    void checksumChangesWithOrderReference() {
+        CashMovement movement = movement();
+        int before = movement.getChecksum();
+        movement.orderReference = "CMD2";
+        assertNotEquals(before, movement.getChecksum());
     }
 
     /**
@@ -112,7 +125,7 @@ class CashMovementTest {
     @Test
     void checksumToleratesNulls() {
         CashMovement bare = new CashMovement();
-        assertEquals(Objects.hash(null, null, null, null, null, null, null), bare.getChecksum());
+        assertEquals(Objects.hash(null, null, null, null, null, null, null, null), bare.getChecksum());
     }
 
     /**
@@ -139,4 +152,15 @@ class CashMovementTest {
     void cashIsTheSharedTenderKey() {
         assertEquals("CASH", CashMovement.CASH);
     }
+
+    /**
+     * {@code acompteTotalForOrder} answers ZERO without a query for a null or a
+     * blank order reference (both guard arms).
+     */
+    @Test
+    void acompteTotalForOrderZeroWhenReferenceBlank() {
+        assertEquals(0, CashMovement.acompteTotalForOrder(null).compareTo(BigDecimal.ZERO));
+        assertEquals(0, CashMovement.acompteTotalForOrder("   ").compareTo(BigDecimal.ZERO));
+    }
+
 }

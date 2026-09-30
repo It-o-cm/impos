@@ -7,6 +7,7 @@ import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.service.TicketPersistenceService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.recall.RecalledDocument;
 import com.intermarche.pos.ui.PriceModType;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
@@ -962,6 +963,53 @@ public class TicketService {
         displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
         syncAndRevalue(state);
         LOGGER.info("Exiting method addDeposit");
+    }
+
+    /**
+     * Loads a recalled back-office document (EXP-90/91/92) into the current sale:
+     * a quote, an order, a sale voucher or a click-and-collect basket, whose lines
+     * are added through the SAME {@code addItem} funnel as a scan so the valuation,
+     * the subtotal marker and the persisted draft all behave. For an order that
+     * carries a down-payment already collected (EXP-85), that acompte is registered
+     * as a payment so it is DEDUCTED from the amount due — "repris sur commande".
+     *
+     * <p>Guards, out loud: no open session refuses as any sale scan does; a null
+     * document (unknown code) sets "DOCUMENT INTROUVABLE"; a document with no line
+     * sets "DOCUMENT VIDE" and loads nothing.
+     *
+     * @param state the current POS state
+     * @param doc the recalled document, or null when the code resolved to nothing
+     */
+    public void loadRecalledDocument(PosState state, RecalledDocument doc) {
+        LOGGER.info("Entering method loadRecalledDocument");
+        if (!requireOpenSession(state)) { LOGGER.info("Exiting method loadRecalledDocument"); return; }
+        if (doc == null) {
+            state.ticket.setError("DOCUMENT INTROUVABLE");
+            state.touch();
+            LOGGER.info("Exiting method loadRecalledDocument");
+            return;
+        }
+        if (doc.lines == null || doc.lines.isEmpty()) {
+            state.ticket.setError("DOCUMENT VIDE");
+            state.touch();
+            LOGGER.info("Exiting method loadRecalledDocument");
+            return;
+        }
+        state.selectedTicketIndex = -1;
+        for (RecalledDocument.Line line : doc.lines) {
+            state.ticket.addItem(line.ean(), null, line.label(),
+                    line.unitPrice(), line.quantity(), line.vatRate());
+        }
+        if (doc.hasAcompte()) {
+            // EXP-85: the down-payment already collected on the order is credited
+            // as a payment, so the remaining due is the balance to settle now.
+            state.payment.addPayment("ACOMPTE", doc.acompteAlreadyPaid);
+        }
+        recalculateTotal(state);
+        displayLastItemOrWelcome(state);
+        state.ticket.setNotice(doc.getKindLabel() + " " + (doc.code == null ? "" : doc.code) + " CHARGÉ");
+        syncAndRevalue(state);
+        LOGGER.info("Exiting method loadRecalledDocument");
     }
 
     /**

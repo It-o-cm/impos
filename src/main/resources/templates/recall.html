@@ -1,0 +1,73 @@
+{!
+ ! RAPPEL PAR CODE (RecallResource, EXP-90/91/92 + acompte EXP-85). The cashier
+ ! keys the code the back office gave the customer; the register fetches the
+ ! document (devis / commande / bon de vente / click&collect) from the store node
+ ! and loads its lines into the sale. A second form records a down-payment
+ ! attached to an order. The documents live on imedge — a standalone lane resolves
+ ! nothing and shows DOCUMENT INTROUVABLE on the sale screen.
+!}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rappel par code</title>
+  <style>
+    {#include theme /}
+    body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+    .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+    .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .main-area { display: flex; justify-content: center; align-items: center; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 32px; width: 34rem; display: flex; flex-direction: column; gap: 18px; }
+    .panel h2 { text-transform: uppercase; text-align: center; letter-spacing: 1px; margin: 0; }
+    .card { border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .card h3 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row input { flex: 1; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; padding: 10px 12px; }
+    .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+    .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
+  </style>
+</head>
+<body data-theme="{posTheme}">
+  <div class="pos-terminal">
+    <div class="top-bar">
+      <span class="store-name">INTERMARCHÉ</span>
+      <span>RAPPEL PAR CODE</span>
+      <span id="clock"></span>
+    </div>
+    <div class="main-area">
+      <div class="panel">
+        {#if error??}<div class="error-box">{error}</div>{/if}
+        {#if saved}<div class="ok-box">ACOMPTE ENREGISTRÉ</div>{/if}
+
+        <div class="card">
+          <h3>Devis, commande, bon de vente, click &amp; collect</h3>
+          <form class="row" method="post" action="/action/recall">
+            <input type="text" name="code" placeholder="Code du document" autofocus>
+            <button type="submit" class="btn btn-primary">RAPPELER</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Acompte sur commande</h3>
+          <form method="post" action="/action/recall/acompte">
+            <div class="row"><input type="text" name="orderReference" placeholder="N° commande"></div>
+            <div class="row">
+              <input type="text" name="amount" placeholder="Montant €">
+              <button type="submit" class="btn btn-success">ENREGISTRER L'ACOMPTE</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="bottom-nav">
+      <a class="btn btn-muted" href="/" style="width: 11.25rem;">RETOUR</a>
+    </div>
+  </div>
+  <script>
+    setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+  </script>
+</body>
+</html>
