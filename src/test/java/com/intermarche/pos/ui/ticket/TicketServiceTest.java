@@ -522,7 +522,8 @@ class TicketServiceTest {
     /**
      * {@code applyRemise} with a zero original price (first orig operand),
      * a non-negative resulting total and a non-zero quantity divides the new
-     * total back to a unit price.
+     * total back to a unit price. P8: the 5 € amount is a UNIT remise, so the
+     * line loses 5 € × 2 = 10 € (20 € → 10 €) and each unit falls to 5 €.
      */
     @Test
     void applyRemiseZeroOriginalPositiveTotalDivides() {
@@ -530,11 +531,54 @@ class TicketServiceTest {
         item.originalUnitPrice = BigDecimal.ZERO;
         service.applyRemise(item, new BigDecimal("5"));
         assertEquals(0, new BigDecimal("10").compareTo(item.originalUnitPrice));
-        assertEquals(0, new BigDecimal("7.5").compareTo(item.unitPrice));
+        assertEquals(0, new BigDecimal("5").compareTo(item.unitPrice));
         assertEquals(PriceModType.REMISE, item.modifierType);
         assertEquals(0, new BigDecimal("5").compareTo(item.modifierValue));
         assertEquals("Remise -5,00€", item.modifierLabel);
         verify(hardwareService).displayMessage(anyString());
+    }
+
+    /**
+     * P8, the expert's own case: 10 articles at 10 € (line 100 €) with a 2 €
+     * remise is a UNIT remise, so the line loses 2 € × 10 = 20 € and settles at
+     * 80 €, not 98 €. The unit price falls to 8 € and the recorded modifier value
+     * stays the 2 € the operator entered.
+     */
+    @Test
+    void applyRemiseTreatsTheAmountAsAUnitRemiseTimesQuantity() {
+        TicketState.TicketItem item = line("X", new BigDecimal("10"), new BigDecimal("10"));
+        service.applyRemise(item, new BigDecimal("2"));
+        assertEquals(0, new BigDecimal("8").compareTo(item.unitPrice));
+        assertEquals(0, new BigDecimal("2").compareTo(item.modifierValue));
+        assertEquals(PriceModType.REMISE, item.modifierType);
+    }
+
+    /**
+     * P8: the administered EURO ceiling caps the LINE discount, which is the
+     * unit remise times the quantity. A 6 € unit remise on 2 articles is a 12 €
+     * line discount and is refused by a 10 € ceiling, even though 6 € alone is
+     * under it.
+     */
+    @Test
+    void applyRemiseCapsTheUnitAmountTimesQuantity() {
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("10.00"));
+        TicketState.TicketItem item = line("X", new BigDecimal("20.00"), new BigDecimal("2"));
+        service.applyRemise(item, new BigDecimal("6.00"));
+        assertEquals(0, new BigDecimal("20.00").compareTo(item.unitPrice));
+        assertNull(item.modifierType);
+    }
+
+    /**
+     * P8, cap boundary: a 5 € unit remise on 2 articles is exactly the 10 €
+     * ceiling and passes — the line drops from 40 € to 30 €.
+     */
+    @Test
+    void applyRemiseAcceptsAUnitAmountTimesQuantityAtTheCap() {
+        when(service.posSettingsService.lineMaxDiscountAmount()).thenReturn(new BigDecimal("10.00"));
+        TicketState.TicketItem item = line("X", new BigDecimal("20.00"), new BigDecimal("2"));
+        service.applyRemise(item, new BigDecimal("5.00"));
+        assertEquals(0, new BigDecimal("15.00").compareTo(item.unitPrice));
+        assertEquals(PriceModType.REMISE, item.modifierType);
     }
 
     /**

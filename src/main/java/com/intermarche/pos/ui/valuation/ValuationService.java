@@ -526,7 +526,9 @@ public class ValuationService {
     private void applyGesture(ValuationPayloads.ItemDto dto, TicketState.TicketItem item) {
         if (item.modifierType == null || item.modifierValue == null) return;
         switch (item.modifierType) {
-            case REMISE -> dto.manualDiscountAmount = item.modifierValue;
+            // P8: modifierValue is a UNIT remise; the engine expects the euros
+            // removed from the LINE total, i.e. the unit remise times the quantity.
+            case REMISE -> dto.manualDiscountAmount = item.modifierValue.multiply(item.quantity);
             case DISCOUNT -> dto.manualDiscountPercent = item.modifierValue;
             case FORCE_PRICE -> dto.manualForcedPrice =
                     item.quantity.signum() != 0

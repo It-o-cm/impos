@@ -854,7 +854,7 @@ class ValuationServiceTest {
         ValuationService service = newService();
         when(valuationClient.isEnabled()).thenReturn(true);
         when(valuationClient.valuate(any())).thenReturn(response("42.00"));
-        TicketState.TicketItem remise = item("R", "10", "10", "1");
+        TicketState.TicketItem remise = item("R", "10", "10", "3");
         remise.modifierType = PriceModType.REMISE;
         remise.modifierValue = new BigDecimal("1.00");
         TicketState.TicketItem discount = item("D", "11", "10", "1");
@@ -888,7 +888,7 @@ class ValuationServiceTest {
         assertNull(basket.customerCode);
         assertEquals("0034", basket.storeCode);
         assertEquals(6, basket.items.size());
-        assertEquals(new BigDecimal("1.00"), basket.items.get(0).manualDiscountAmount);
+        assertEquals(new BigDecimal("3.00"), basket.items.get(0).manualDiscountAmount);
         assertEquals(new BigDecimal("5"), basket.items.get(1).manualDiscountPercent);
         assertEquals(new BigDecimal("4.50"), basket.items.get(2).manualForcedPrice);
         assertNull(basket.items.get(3).manualDiscountAmount);

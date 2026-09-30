@@ -611,10 +611,15 @@ public class TicketService {
         if (item == null || amount == null || amount.signum() <= 0) { LOGGER.info("Exiting method applyRemise"); return; }
         if (item.moneyProduct) { LOGGER.info("Exiting method applyRemise"); return; } // money products are never discounted
         if (item.discountForbidden) { LOGGER.info("Exiting method applyRemise"); return; } // BO-02-03-09: article bans discounts
+        // P8: the entered amount is a UNIT remise; its effect on the line is that
+        // amount times the quantity (10 articles à 10 €, remise 2 € → 80 €, not 98 €),
+        // and a same article scanned afterwards rings at full price. The line
+        // discount is therefore amount × quantity throughout.
+        BigDecimal lineDiscount = amount.multiply(item.quantity);
         // The euro ceiling of a LINE remise is administered (BO-03-07-04);
-        // zero disables it. The amount AT the ceiling passes, beyond it is refused.
+        // zero disables it. The ceiling caps the LINE discount, at it passes.
         BigDecimal amountCap = posSettingsService.lineMaxDiscountAmount();
-        if (amountCap.signum() > 0 && amount.compareTo(amountCap) > 0) {
+        if (amountCap.signum() > 0 && lineDiscount.compareTo(amountCap) > 0) {
             LOGGER.info("Exiting method applyRemise");
             return;
         }
@@ -622,7 +627,7 @@ public class TicketService {
             item.originalUnitPrice = item.unitPrice;
         }
         BigDecimal currentTotal = item.unitPrice.multiply(item.quantity);
-        BigDecimal newTotal = currentTotal.subtract(amount);
+        BigDecimal newTotal = currentTotal.subtract(lineDiscount);
         if (newTotal.signum() < 0) newTotal = BigDecimal.ZERO;
         if (item.quantity.signum() != 0) {
             item.unitPrice = newTotal.divide(item.quantity, PRICE_SCALE, RoundingMode.HALF_UP);
