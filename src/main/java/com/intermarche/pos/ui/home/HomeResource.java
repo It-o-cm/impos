@@ -386,14 +386,14 @@ public class HomeResource {
     /**
      * Toggles the selection of a ticket line.
      *
-     * @param index the index of the line in the full ticket
+     * @param uid the uid of the line to select (P2: identity, not page offset)
      * @return the home page
      */
     @GET
-    @Path("/action/select/{index}")
-    public TemplateInstance selectLine(@PathParam("index") int index) {
-        LOGGER.info("Entering method selectLine with index: " + index);
-        homeService.selectLine(index);
+    @Path("/action/select/{uid}")
+    public TemplateInstance selectLine(@PathParam("uid") String uid) {
+        LOGGER.info("Entering method selectLine with uid: " + uid);
+        homeService.selectLine(uid);
         LOGGER.info("Exiting method selectLine");
         return home();
     }

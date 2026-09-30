@@ -175,26 +175,74 @@ class HomeServiceTest {
     }
 
     /**
-     * {@code selectLine()} clears the selection when the tapped index is already
-     * selected (first arm true).
+     * Adds {@code count} lines to the ticket, giving the one at {@code markIndex}
+     * the uid {@code markUid} so a test can select it by identity.
+     *
+     * @param count how many lines to add
+     * @param markIndex the index to tag
+     * @param markUid the uid to set at that index
+     */
+    private void fillTicket(int count, int markIndex, String markUid) {
+        for (int i = 0; i < count; i++) {
+            TicketState.TicketItem it = new TicketState.TicketItem(
+                    "E" + i, null, "L" + i, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO);
+            if (i == markIndex) {
+                it.uid = markUid;
+            }
+            service.state.ticket.items.add(it);
+        }
+    }
+
+    /**
+     * {@code selectLine()} clears the selection when the tapped line is already
+     * selected (same-line arm true).
      */
     @Test
     void selectLineDeselectsWhenAlreadySelected() {
+        fillTicket(3, 2, "U2");
         service.state.selectedTicketIndex = 2;
-        service.selectLine(2);
+        service.selectLine("U2");
         assertEquals(-1, service.state.selectedTicketIndex);
         verify(service.state).touch();
     }
 
     /**
-     * {@code selectLine()} selects the tapped index when a different line was
-     * selected (first arm false).
+     * {@code selectLine()} selects the tapped line when a different line was
+     * selected (same-line arm false).
      */
     @Test
     void selectLineSelectsWhenDifferent() {
+        fillTicket(3, 2, "U2");
         service.state.selectedTicketIndex = 0;
-        service.selectLine(2);
+        service.selectLine("U2");
         assertEquals(2, service.state.selectedTicketIndex);
+        verify(service.state).touch();
+    }
+
+    /**
+     * P2 regression — selecting the SECOND line of the THIRD page retains that
+     * whole-ticket line (index 13), never the second line of the ticket: the uid
+     * resolves to the right global index whatever the page (the offset bug).
+     */
+    @Test
+    void selectLinePicksTheRightGlobalLineFromALaterPage() {
+        fillTicket(18, 13, "P3L2");
+        service.state.selectedTicketIndex = -1;
+        service.selectLine("P3L2");
+        assertEquals(13, service.state.selectedTicketIndex);
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code selectLine()} is a no-op selection for an unknown uid: nothing is
+     * selected, but the state is still touched (uid-absent arm).
+     */
+    @Test
+    void selectLineIgnoresUnknownUid() {
+        fillTicket(3, 0, "U0");
+        service.state.selectedTicketIndex = -1;
+        service.selectLine("NOPE");
+        assertEquals(-1, service.state.selectedTicketIndex);
         verify(service.state).touch();
     }
 

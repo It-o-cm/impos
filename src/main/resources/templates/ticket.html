@@ -61,7 +61,7 @@
     <div class="receipt-empty">{waitingLabel}</div>
 {#else}
     {#for item in state.visibleItems}
-        <a href="/action/select/{item_index}" class="receipt-item-link">
+        <a href="/action/select/{item.uid}" class="receipt-item-link">
             <div class="receipt-item {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
                 <div class="item-details">
                     {item.html.raw}

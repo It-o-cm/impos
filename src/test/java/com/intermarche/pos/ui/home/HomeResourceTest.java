@@ -487,8 +487,8 @@ class HomeResourceTest {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.selectLine(2));
-        verify(resource.homeService).selectLine(2);
+        assertSame(mainView, resource.selectLine("U2"));
+        verify(resource.homeService).selectLine("U2");
     }
 
     /**

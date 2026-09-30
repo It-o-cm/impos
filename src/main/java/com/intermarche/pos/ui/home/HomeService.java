@@ -111,8 +111,25 @@ public class HomeService {
      *
      * @param index the index of the line in the full ticket
      */
-    public void selectLine(int index) {
-        LOGGER.info("Entering method selectLine with index: " + index);
+    public void selectLine(String uid) {
+        LOGGER.info("Entering method selectLine with uid: " + uid);
+        // P2: select by the line's IDENTITY, not by a page-local offset. The
+        // template passes the visible-page rank, which coincides with the ticket
+        // rank only on page 1 — on any other page an offset would select the wrong
+        // line. Resolving the uid to its whole-ticket index is exact whatever the
+        // page, and stays correct even if a line moved between render and click.
+        int index = -1;
+        for (int i = 0; i < state.ticket.items.size(); i++) {
+            if (state.ticket.items.get(i).uid.equals(uid)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            state.touch();
+            LOGGER.info("Exiting method selectLine");
+            return;
+        }
         if (state.selectedTicketIndex == index) {
             state.selectedTicketIndex = -1;
         } else {
