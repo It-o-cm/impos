@@ -157,6 +157,11 @@
     <div class="bottom-nav">
       {#if selected??}
         <a href="/withdrawal" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+        {#if isCash}
+        <!-- EXP-87 : le même comptage part vers le coffre (le coffre est une entité
+             du nœud magasin ; la caisse n'enregistre que le mouvement qui l'alimente). -->
+        <button type="submit" form="withdrawForm" formaction="/action/safe-deposit/record" class="btn btn-lg btn-warning" style="width: 11.25rem; color:#000;">VERS LE COFFRE</button>
+        {/if}
         <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE PRÉLÈVEMENT</button>
       {#else}
         <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>

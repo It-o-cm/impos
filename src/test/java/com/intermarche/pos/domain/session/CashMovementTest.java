@@ -54,7 +54,7 @@ class CashMovementTest {
         CashMovement movement = movement();
         int expected = Objects.hash("M-1", "C04", CashMovement.MovementType.WITHDRAWAL,
                 new BigDecimal("30.00"), LocalDateTime.of(2026, 9, 1, 15, 42, 0),
-                "CHEQUE", "CASH", "CMD1");
+                "CHEQUE", "CASH", "CMD1", false);
         assertEquals(expected, movement.getChecksum());
     }
 
@@ -108,6 +108,29 @@ class CashMovementTest {
     }
 
     /**
+     * A change to the safe-deposit flag changes the checksum (EXP-87): a plain
+     * drawer prélèvement and a prélèvement coffre are not the same movement.
+     */
+    @Test
+    void checksumChangesWithSafeDeposit() {
+        CashMovement movement = movement();
+        int before = movement.getChecksum();
+        movement.safeDeposit = true;
+        assertNotEquals(before, movement.getChecksum());
+    }
+
+    /**
+     * The safe-deposit flag is false by default and read/write (EXP-87).
+     */
+    @Test
+    void safeDepositFieldDefaultsFalseAndIsReadWrite() {
+        CashMovement bare = new CashMovement();
+        assertEquals(false, bare.safeDeposit);
+        bare.safeDeposit = true;
+        assertEquals(true, bare.safeDeposit);
+    }
+
+    /**
      * A change to a NON-hashed field (the reason) leaves the checksum
      * unchanged: the checksum tracks business identity, not free text.
      */
@@ -125,7 +148,7 @@ class CashMovementTest {
     @Test
     void checksumToleratesNulls() {
         CashMovement bare = new CashMovement();
-        assertEquals(Objects.hash(null, null, null, null, null, null, null, null), bare.getChecksum());
+        assertEquals(Objects.hash(null, null, null, null, null, null, null, null, false), bare.getChecksum());
     }
 
     /**

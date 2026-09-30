@@ -458,6 +458,15 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   → mouvement `CUSTOMER_DEPOSIT` portant `orderReference` (rattachement) ; au rappel d'une
   COMMANDE portant un acompte déjà versé, celui-ci est crédité comme règlement et déduit du
   reste dû. La reprise réelle depuis le nœud est **[N]**.
+- **G22 Reprise inter-caisses** (EXP-46) : hors ligne, un ticket en attente ne se reprend que
+  sur SA caisse (filtre `terminalId` — règle dégradée assumée) [S] ; en mode connecté, le scan
+  du numéro d'un ticket mis en attente sur UNE AUTRE caisse le fait rappeler via le nœud
+  (`InterTillResumeClient`), re-domicilié sur cette caisse et rouvert. Le fetch réel depuis le
+  nœud exige imedge → résidu **[N]**.
+- **G23 Prélèvement vers le coffre** [S] (EXP-87) : sur l'écran PRÉLÈVEMENT (espèces), le bouton
+  VERS LE COFFRE enregistre un mouvement `WITHDRAWAL` marqué `safeDeposit` (motif « Prélèvement
+  coffre »), enfilé pour le nœud. Le coffre lui-même est une entité du nœud magasin (imedge) : la
+  caisse n'enregistre que le mouvement qui l'alimente ; le solde du coffre reste **[N]**.
 
 ## H. Retours [S]
 

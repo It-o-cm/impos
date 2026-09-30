@@ -58,6 +58,10 @@ public class TicketParkingService {
     @Inject
     PosSettingsService posSettingsService;
 
+    /** The store-node seam for inter-till resume (EXP-46); offline = no node. */
+    @Inject
+    InterTillResumeClient interTillResumeClient;
+
     /**
      * Parks the current cart: synchronizes the draft one last time, flips it
      * to PARKED and clears the in-memory state.
@@ -166,11 +170,47 @@ public class TicketParkingService {
                 "ticketNumber = ?1 and terminalId = ?2 and status = ?3",
                 ticketNumber, ticketNumberService.getTerminalId(),
                 Ticket.TicketStatus.PARKED).firstResult();
-        if (draft == null) {
+        if (draft != null) {
+            LOGGER.info("Exiting method resumeByNumber (local)");
+            return resume(draft.id);
+        }
+        // EXP-46: not parked on THIS till. Offline, that is the end — the
+        // degraded rule resumes only its own tickets. Connected, the store node
+        // may hand over a ticket parked on ANOTHER till; the client reaches no
+        // node offline (returns null) so the standalone lane is unchanged.
+        Ticket foreign = interTillResumeClient.fetchParkedTicket(ticketNumber);
+        if (foreign == null || foreign.status != Ticket.TicketStatus.PARKED) {
             LOGGER.info("Exiting method resumeByNumber");
             return "TICKET EN ATTENTE INTROUVABLE";
         }
-        LOGGER.info("Exiting method resumeByNumber");
-        return resume(draft.id);
+        LOGGER.info("Exiting method resumeByNumber (inter-caisses)");
+        return resumeForeign(foreign);
+    }
+
+    /**
+     * Resumes a ticket the store node handed over from another till (EXP-46,
+     * connected mode): unlike {@link #resume(Long)} it does not check the
+     * originating terminal — the node authorized the hand-over — and it re-homes
+     * the ticket to this register. Refused while a cart is already in progress,
+     * like every resume.
+     *
+     * @param foreign the parked ticket the node returned
+     * @return null on success, or an error message shown to the cashier
+     */
+    @Transactional
+    String resumeForeign(Ticket foreign) {
+        LOGGER.info("Entering method resumeForeign");
+        if (!state.ticket.items.isEmpty()) {
+            LOGGER.info("Exiting method resumeForeign");
+            return "TICKET EN COURS - METTEZ-LE EN ATTENTE D'ABORD";
+        }
+        foreign.status = Ticket.TicketStatus.OPEN;
+        foreign.terminalId = ticketNumberService.getTerminalId();
+        foreign.persist();
+        ticketRecoveryService.restoreDraft(foreign);
+        technicalEventService.log(TechnicalEvent.EventType.TICKET_RESUMED, foreign.ticketNumber);
+        LOGGER.infof("Ticket repris inter-caisses ID: %d (%s)", foreign.id, foreign.ticketNumber);
+        LOGGER.info("Exiting method resumeForeign");
+        return null;
     }
 }

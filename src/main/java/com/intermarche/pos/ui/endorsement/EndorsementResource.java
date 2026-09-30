@@ -204,6 +204,9 @@ public class EndorsementResource {
                 if ("apport".equals(form.get("op"))) {
                     return drawerOperationsResource.performEndorsedApport(form, endorserBadge);
                 }
+                if ("safe-deposit".equals(form.get("op"))) {
+                    return drawerOperationsResource.performEndorsedSafeDeposit(form, endorserBadge);
+                }
                 return drawerOperationsResource.performEndorsedWithdrawal(form, endorserBadge);
             }
             else if (actionToExecute.equals(

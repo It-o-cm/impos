@@ -231,6 +231,28 @@ class DrawerOperationsResourceTest {
             recorded = movement;
             return movement;
         }
+
+        /** {@inheritDoc} */
+        @Override
+        public CashMovement recordSafeDeposit(CashSession session, Employee cashier,
+                                              BigDecimal amount, String denominationDetail,
+                                              String endorsedBy) {
+            this.endorsedBy = endorsedBy;
+            if (refuse) {
+                recorded = null;
+                return null;
+            }
+            CashMovement movement = new CashMovement();
+            movement.type = CashMovement.MovementType.WITHDRAWAL;
+            movement.amount = amount;
+            movement.reason = "Prélèvement coffre";
+            movement.paymentMethod = CashMovement.CASH;
+            movement.denominationDetail = denominationDetail;
+            movement.endorsedBy = endorsedBy;
+            movement.safeDeposit = true;
+            recorded = movement;
+            return movement;
+        }
     }
 
     /** An endorsement service whose two answers each test sets directly. */
@@ -495,6 +517,82 @@ class DrawerOperationsResourceTest {
         assertNull(movements.recorded.transferTo);
         assertEquals("{\"b50\":1}", movements.recorded.denominationDetail);
         assertEquals("Prélèvement Espèces", movements.recorded.reason);
+    }
+
+    /**
+     * A safe deposit (EXP-87) records a cash WITHDRAWAL flagged {@code safeDeposit}
+     * toward the store safe, with its counted total and per-denomination detail.
+     */
+    @Test
+    void aSafeDepositRecordsAFlaggedWithdrawal() {
+        Response response = resource.recordSafeDeposit("50,50", "{\"b50\":1}");
+        assertEquals("/withdrawal?ok=1", target(response));
+        assertNotNull(movements.recorded);
+        assertEquals(CashMovement.MovementType.WITHDRAWAL, movements.recorded.type);
+        assertEquals(new BigDecimal("50.50"), movements.recorded.amount);
+        assertTrue(movements.recorded.safeDeposit);
+        assertEquals("Prélèvement coffre", movements.recorded.reason);
+    }
+
+    /**
+     * A safe deposit is refused in training mode.
+     */
+    @Test
+    void aSafeDepositIsRefusedInTrainingMode() {
+        state.trainingMode = true;
+        Response response = resource.recordSafeDeposit("50", "{}");
+        assertEquals("/withdrawal?error=training", target(response));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * A safe deposit is refused without an open session.
+     */
+    @Test
+    void aSafeDepositIsRefusedWithoutAnOpenSession() {
+        sessions.open = null;
+        Response response = resource.recordSafeDeposit("50", "{}");
+        assertEquals("/withdrawal?error=no-session", target(response));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * A safe deposit of nothing is refused rather than written.
+     */
+    @Test
+    void aSafeDepositOfNothingIsRefused() {
+        Response response = resource.recordSafeDeposit("0", "{}");
+        assertEquals("/withdrawal?error=amount&method=CASH", target(response));
+        assertNull(movements.recorded);
+    }
+
+    /**
+     * Above the threshold with no supervisor logged, the safe deposit is PARKED
+     * and the shared modal is asked for (op = safe-deposit).
+     */
+    @Test
+    void anAboveThresholdSafeDepositWithoutAManagerIsParked() {
+        Response response = resource.recordSafeDeposit("150", "{}");
+        assertEquals("/withdrawal?method=CASH", target(response));
+        assertNull(movements.recorded);
+        assertEquals("safe-deposit", endorsements.parkedForm.get("op"));
+    }
+
+    /**
+     * The endorsed replay of a parked safe deposit writes it with the endorsing
+     * badge once the modal validated a manager.
+     */
+    @Test
+    void aParkedSafeDepositIsReplayedWithTheEndorsingBadge() {
+        java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+        form.put("op", "safe-deposit");
+        form.put("amount", "150");
+        form.put("detail", "{\"b50\":3}");
+        Response response = resource.performEndorsedSafeDeposit(form, "MGR1");
+        assertEquals("/withdrawal?ok=1", target(response));
+        assertNotNull(movements.recorded);
+        assertTrue(movements.recorded.safeDeposit);
+        assertEquals("MGR1", movements.recorded.endorsedBy);
     }
 
     /**

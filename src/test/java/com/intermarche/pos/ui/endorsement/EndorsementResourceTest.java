@@ -747,6 +747,33 @@ class EndorsementResourceTest {
 
     /**
      * {@code selfEndorse} routes a granted {@code DRAWER_OPERATION} whose parked
+     * form says {@code op=safe-deposit} to the safe-deposit gesture (EXP-87),
+     * not to the withdrawal or transfer gesture (the {@code "safe-deposit".equals(op)}
+     * true arm).
+     */
+    @Test
+    void selfEndorseDispatchesDrawerSafeDeposit() {
+        EndorsementResource resource = newResource();
+        resource.drawerOperationsResource = mock(com.intermarche.pos.ui.cash.DrawerOperationsResource.class);
+        resource.state.auth = new com.intermarche.pos.ui.auth.AuthState();
+        resource.state.auth.operatorBadgeId = "MGR9";
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.cash.DrawerOperationsResource.ENDORSEMENT_ACTION;
+        resource.state.endorsement.pendingForm = new java.util.LinkedHashMap<>();
+        resource.state.endorsement.pendingForm.put("op", "safe-deposit");
+        Response own = Response.ok().build();
+        when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
+        when(resource.drawerOperationsResource.performEndorsedSafeDeposit(
+                resource.state.endorsement.pendingForm, "MGR9")).thenReturn(own);
+        Response response = resource.selfEndorse();
+        assertSame(own, response);
+        verify(resource.drawerOperationsResource).performEndorsedSafeDeposit(
+                resource.state.endorsement.pendingForm, "MGR9");
+        verify(resource.drawerOperationsResource, never()).performEndorsedWithdrawal(any(), any());
+    }
+
+    /**
+     * {@code selfEndorse} routes a granted {@code DRAWER_OPERATION} whose parked
      * form is not a transfer to the withdrawal gesture (the
      * {@code "transfer".equals(op)} false arm, here with a null {@code op}).
      */

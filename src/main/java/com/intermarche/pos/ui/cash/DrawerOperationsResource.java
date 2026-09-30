@@ -351,6 +351,83 @@ public class DrawerOperationsResource {
     }
 
     /**
+     * Records a cash withdrawal destined to the SAFE (EXP-87): the "prélèvement
+     * coffre" — cash counted by denomination and taken out toward the store safe.
+     * The safe is an entity of the store node (imedge); the caisse only records
+     * and pushes up the feeding movement, flagged {@code safeDeposit}. Above the
+     * administered threshold it parks for a manager endorsement like a withdrawal.
+     * Prints the withdrawal bordereau when the shop asks for one.
+     *
+     * @param amountStr the amount taken out (French comma tolerated)
+     * @param detail the per-denomination JSON
+     * @return a redirect back to the withdrawal screen carrying the outcome
+     */
+    @POST
+    @Path("/action/safe-deposit/record")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    public Response recordSafeDeposit(@FormParam("amount") String amountStr,
+                                      @FormParam("detail") String detail) {
+        LOGGER.info("Entering method recordSafeDeposit with amountStr: " + amountStr);
+        if (state.trainingMode) {
+            LOGGER.info("Exiting method recordSafeDeposit");
+            return redirect("/withdrawal?error=training");
+        }
+        CashSession session = cashSessionService.getOpenSession();
+        if (session == null) {
+            LOGGER.info("Exiting method recordSafeDeposit");
+            return redirect("/withdrawal?error=no-session");
+        }
+        BigDecimal amount = parseAmount(amountStr);
+        if (amount.signum() <= 0) {
+            LOGGER.info("Exiting method recordSafeDeposit");
+            return redirect("/withdrawal?error=amount&method=" + CashMovement.CASH);
+        }
+        String endorsedBy = supervisorBadge();
+        if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
+            java.util.Map<String, String> form = new java.util.LinkedHashMap<>();
+            form.put("op", "safe-deposit");
+            form.put("amount", amountStr == null ? "" : amountStr);
+            form.put("detail", detail == null ? "" : detail);
+            endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form,
+                    "/withdrawal?method=" + CashMovement.CASH);
+            LOGGER.info("Exiting method recordSafeDeposit: aval demande");
+            return redirect("/withdrawal?method=" + CashMovement.CASH);
+        }
+        CashMovement recorded = cashMovementService.recordSafeDeposit(
+                session, cashierOf(), amount, detail, endorsedBy);
+        state.touch();
+        if (recorded == null) {
+            LOGGER.info("Exiting method recordSafeDeposit");
+            return redirect("/withdrawal?error=endorsement&method=" + CashMovement.CASH);
+        }
+        if (posSettingsService.drawerWithdrawalPrint()) {
+            ticketPrinterService.printWithdrawalTicket("Prélèvement coffre", amount,
+                    denominationLines(detail), state.getOperatorName(),
+                    ticketNumberService.getTerminalId());
+        }
+        LOGGER.info("Exiting method recordSafeDeposit");
+        return redirect("/withdrawal?ok=1");
+    }
+
+    /**
+     * Replays a parked safe deposit once the shared modal validated a manager.
+     *
+     * @param form the parked form fields
+     * @param endorsedBy the endorsing manager's badge or login
+     * @return a redirect back to the withdrawal screen carrying the outcome
+     */
+    public Response performEndorsedSafeDeposit(java.util.Map<String, String> form, String endorsedBy) {
+        LOGGER.info("Entering method performEndorsedSafeDeposit with endorsedBy: " + endorsedBy);
+        endorsedByOverride = endorsedBy;
+        try {
+            LOGGER.info("Exiting method performEndorsedSafeDeposit");
+            return recordSafeDeposit(form.get("amount"), form.get("detail"));
+        } finally {
+            endorsedByOverride = null;
+        }
+    }
+
+    /**
      * Records a settlement transfer between two tenders and prints its ticket when the
      * shop asks for one.
      *

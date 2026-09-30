@@ -57,6 +57,9 @@ class TicketParkingServiceTest {
         service.ticketPrinterService = mock(TicketPrinterService.class);
         service.posSettingsService = mock(PosSettingsService.class);
         when(service.posSettingsService.parkingPrintReceipt()).thenReturn(true);
+        // EXP-46: the inter-till seam defaults to the OFFLINE stub (no node) — it
+        // reaches nothing, so a number not parked locally stays "introuvable".
+        service.interTillResumeClient = mock(InterTillResumeClient.class);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
         return service;
     }
@@ -417,5 +420,63 @@ class TicketParkingServiceTest {
             verify(service.technicalEventService).log(
                     TechnicalEvent.EventType.TICKET_RESUMED, "C04-000001");
         }
+    }
+
+    /**
+     * Covers the CONNECTED inter-till arm of {@code resumeByNumber} (EXP-46): the
+     * number is not parked on this till, so the store-node client hands over a
+     * ticket parked on ANOTHER till; it is re-homed to this register, flipped
+     * OPEN, restored and journaled.
+     */
+    @Test
+    void resumeByNumberResumesForeignTicketWhenNotLocal() {
+        TicketParkingService service = newService();
+        Ticket foreign = draft(Ticket.TicketStatus.PARKED, "C09-000009", "C09");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> none = query(null);
+            when(service.interTillResumeClient.fetchParkedTicket("C09-000009")).thenReturn(foreign);
+            mocked.when(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C09-000009", TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(none);
+            assertNull(service.resumeByNumber("C09-000009"));
+            assertEquals(Ticket.TicketStatus.OPEN, foreign.status);
+            assertEquals(TERMINAL, foreign.terminalId);
+            verify(foreign, times(1)).persist();
+            verify(service.ticketRecoveryService).restoreDraft(foreign);
+            verify(service.technicalEventService).log(
+                    TechnicalEvent.EventType.TICKET_RESUMED, "C09-000009");
+        }
+    }
+
+    /**
+     * Covers the non-PARKED foreign arm: the node returns a ticket that is not
+     * PARKED, so the inter-till resume answers the not-found message and touches
+     * nothing.
+     */
+    @Test
+    void resumeByNumberIgnoresNonParkedForeignTicket() {
+        TicketParkingService service = newService();
+        Ticket foreign = draft(Ticket.TicketStatus.CLOSED, "C09-000009", "C09");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            PanacheQuery<Ticket> none = query(null);
+            when(service.interTillResumeClient.fetchParkedTicket("C09-000009")).thenReturn(foreign);
+            mocked.when(() -> Ticket.find("ticketNumber = ?1 and terminalId = ?2 and status = ?3",
+                    "C09-000009", TERMINAL, Ticket.TicketStatus.PARKED)).thenReturn(none);
+            assertEquals("TICKET EN ATTENTE INTROUVABLE", service.resumeByNumber("C09-000009"));
+            verifyNoInteractions(service.ticketRecoveryService);
+        }
+    }
+
+    /**
+     * Covers the in-progress guard of {@code resumeForeign}: an inter-till resume
+     * is refused while a cart is already in progress, like every resume.
+     */
+    @Test
+    void resumeForeignRefusedWhenCartInProgress() {
+        TicketParkingService service = newService();
+        addOneItem(service);
+        Ticket foreign = draft(Ticket.TicketStatus.PARKED, "C09-000009", "C09");
+        assertEquals("TICKET EN COURS - METTEZ-LE EN ATTENTE D'ABORD",
+                service.resumeForeign(foreign));
+        verifyNoInteractions(service.ticketRecoveryService);
     }
 }

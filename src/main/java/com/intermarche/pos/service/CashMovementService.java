@@ -170,4 +170,52 @@ public class CashMovementService {
         LOGGER.info("Exiting method recordAcompte");
         return movement;
     }
+
+    /**
+     * Records a cash withdrawal destined to the SAFE (EXP-87): a {@code WITHDRAWAL}
+     * flagged {@code safeDeposit}, so the store node (imedge, which owns the safe
+     * entity) accounts it against the safe rather than as a plain drawer
+     * prélèvement. The caisse only feeds the safe; it never holds its balance.
+     * Above the administered threshold a manager endorsement is required, like any
+     * movement. Refused on a non-positive amount.
+     *
+     * @param session the open session the movement belongs to
+     * @param cashier the operator recording the withdrawal, or null
+     * @param amount the amount taken out toward the safe
+     * @param denominationDetail the per-denomination detail, or null
+     * @param endorsedBy the endorsing manager badge, or null when none was needed
+     * @return the recorded movement, or null on a non-positive amount or a missing
+     *         required endorsement
+     */
+    @Transactional
+    public CashMovement recordSafeDeposit(CashSession session, Employee cashier,
+                                          BigDecimal amount, String denominationDetail,
+                                          String endorsedBy) {
+        LOGGER.info("Entering method recordSafeDeposit with amount: " + amount);
+        if (amount == null || amount.signum() <= 0) {
+            LOGGER.info("Exiting method recordSafeDeposit with invalid amount");
+            return null;
+        }
+        if (requiresEndorsement(amount) && endorsedBy == null) {
+            LOGGER.info("Exiting method recordSafeDeposit (endorsement required)");
+            return null;
+        }
+        CashMovement movement = new CashMovement();
+        movement.movementUid = UUID.randomUUID().toString();
+        movement.terminalId = ticketNumberService.getTerminalId();
+        movement.session = session;
+        movement.cashier = cashier;
+        movement.type = CashMovement.MovementType.WITHDRAWAL;
+        movement.amount = amount;
+        movement.reason = "Prélèvement coffre";
+        movement.paymentMethod = CashMovement.CASH;
+        movement.denominationDetail = denominationDetail;
+        movement.safeDeposit = true;
+        movement.endorsedBy = endorsedBy;
+        movement.movementDate = LocalDateTime.now();
+        movement.persist();
+        syncOutboxService.enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        LOGGER.info("Exiting method recordSafeDeposit");
+        return movement;
+    }
 }

@@ -218,6 +218,65 @@ class CashMovementServiceTest {
         verifyNoInteractions(outbox);
     }
 
+    // --------------------------------------------------
+    // recordSafeDeposit (EXP-87)
+    // --------------------------------------------------
+
+    /**
+     * A safe deposit records a cash WITHDRAWAL flagged {@code safeDeposit} toward
+     * the store safe (EXP-87): stamped, persisted, enqueued for the node.
+     */
+    @Test
+    void recordSafeDepositFlagsAndEnqueues() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            CashMovement result = service.recordSafeDeposit(mock(CashSession.class),
+                    mock(Employee.class), new BigDecimal("40.00"), "{\"b50\":1}", null);
+            CashMovement movement = created.constructed().get(0);
+            assertSame(movement, result);
+            assertEquals(CashMovement.MovementType.WITHDRAWAL, movement.type);
+            assertEquals(new BigDecimal("40.00"), movement.amount);
+            assertTrue(movement.safeDeposit);
+            assertEquals("Prélèvement coffre", movement.reason);
+            assertEquals(CashMovement.CASH, movement.paymentMethod);
+            assertEquals("{\"b50\":1}", movement.denominationDetail);
+            assertEquals("C04", movement.terminalId);
+            verify(movement, times(1)).persist();
+            verify(outbox, times(1)).enqueue(SyncOutbox.EntityType.MOVEMENT, movement.id);
+        }
+    }
+
+    /**
+     * A non-positive safe deposit is refused: nothing is constructed or enqueued.
+     */
+    @Test
+    void recordSafeDepositRefusesNonPositiveAmount() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            assertNull(service.recordSafeDeposit(mock(CashSession.class), null, BigDecimal.ZERO, null, null));
+            assertTrue(created.constructed().isEmpty());
+        }
+        verifyNoInteractions(outbox);
+    }
+
+    /**
+     * A safe deposit above the endorsement threshold with no endorsing manager is
+     * refused: nothing is constructed or enqueued (EXP-87 + BO-04-01-44).
+     */
+    @Test
+    void recordSafeDepositAboveThresholdWithoutEndorsementIsRefused() {
+        SyncOutboxService outbox = mock(SyncOutboxService.class);
+        CashMovementService service = serviceWith(outbox);
+        try (MockedConstruction<CashMovement> created = mockConstruction(CashMovement.class)) {
+            assertNull(service.recordSafeDeposit(mock(CashSession.class), null,
+                    new BigDecimal("100.01"), null, null));
+            assertTrue(created.constructed().isEmpty());
+        }
+        verifyNoInteractions(outbox);
+    }
+
     /**
      * The short call names no tender, and the movement it writes says so: a
      * movement recorded by a caller that knows nothing of tenders must not claim

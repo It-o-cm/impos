@@ -145,6 +145,16 @@ public class CashMovement extends BaseEntity {
     public String orderReference;
 
     /**
+     * True when this cash withdrawal is destined to the SAFE (EXP-87): the
+     * "prélèvement coffre". The safe itself is an entity of the store node
+     * (imedge), not of the register — the caisse only records and pushes up the
+     * movements that FEED it, and this flag is what lets the node account the
+     * withdrawal against the safe rather than as a plain drawer prélèvement.
+     */
+    @Column(name = "safe_deposit", nullable = false)
+    public boolean safeDeposit = false;
+
+    /**
      * Sums the down-payments already recorded for an order (EXP-85).
      *
      * @param orderReference the order code
@@ -173,6 +183,6 @@ public class CashMovement extends BaseEntity {
     @Override
     public int getChecksum() {
         return Objects.hash(movementUid, terminalId, type, amount, movementDate,
-                paymentMethod, transferTo, orderReference);
+                paymentMethod, transferTo, orderReference, safeDeposit);
     }
 }
