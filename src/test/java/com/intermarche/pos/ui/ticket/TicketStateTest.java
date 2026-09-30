@@ -1099,9 +1099,10 @@ class TicketStateTest {
     }
 
     /**
-     * The unit of measure travels with the line and is shown beside the quantity
-     * ({@code LC-02-03-02}, {@code LC-02-13-18}); a line without one keeps the plain
-     * wording.
+     * The unit of measure travels with the line: the label badge shows the
+     * quantity and its unit ("2,36 m"), and the price-per-unit decomposition lives
+     * once in the detail line (P4) — no longer inlined in the badge. A line without
+     * a unit keeps the plain wording and has no unit in its detail.
      */
     @Test
     void theLineShowsItsUnitOfMeasureWhenItHasOne() {
@@ -1109,11 +1110,52 @@ class TicketStateTest {
         ts.addItem("123", null, "CABLE", new BigDecimal("4.99"), new BigDecimal("2.36"), null);
         TicketState.TicketItem line = ts.items.get(0);
         line.unitName = "m";
-        assertTrue(line.getHtml().contains("m x 4,99"));
+        assertTrue(line.getHtml().contains("2,36 m"));
+        assertFalse(line.getHtml().contains("m x 4,99"));
+        assertEquals("2,36 m x 4,99 €/m", line.getDetailLine());
         line.unitName = "";
-        assertFalse(line.getHtml().contains("m x 4,99"));
+        assertFalse(line.getHtml().contains("2,36 m"));
         line.unitName = null;
-        assertFalse(line.getHtml().contains("m x 4,99"));
+        assertFalse(line.getHtml().contains("2,36 m"));
+    }
+
+    /**
+     * P3-5: the shared decomposition line covers its four cases — a multi-unit
+     * piece, a measure unit (referential unit), a weighed line, and a
+     * price-embedded line whose weight is deduced.
+     */
+    @Test
+    void detailLineCoversTheFourCases() {
+        assertEquals("5 x 2,50 €", TicketState.detailLineOf(new BigDecimal("5"),
+                new BigDecimal("2.50"), null, false, null, null, "€"));
+        assertEquals("1,25 m x 12,00 €/m", TicketState.detailLineOf(new BigDecimal("1.25"),
+                new BigDecimal("12.00"), "m", false, null, null, "€"));
+        assertEquals("0,188 kg x 17,99 €/kg", TicketState.detailLineOf(new BigDecimal("0.188"),
+                new BigDecimal("17.99"), null, true, null, null, "€"));
+        assertEquals("0,188 kg x 17,99 €/kg", TicketState.detailLineOf(new BigDecimal("1"),
+                new BigDecimal("0"), null, false, new BigDecimal("0.188"), new BigDecimal("17.99"), "€"));
+    }
+
+    /**
+     * P3-5: a single unit sold by the piece teaches nothing, so the detail line is
+     * empty (the qty-not-above-one arm).
+     */
+    @Test
+    void detailLineIsEmptyForASingleUnitPiece() {
+        assertEquals("", TicketState.detailLineOf(new BigDecimal("1"),
+                new BigDecimal("2.50"), null, false, null, null, "€"));
+        assertEquals("", TicketState.detailLineOf(new BigDecimal("1"),
+                new BigDecimal("2.50"), "", false, null, null, "€"));
+    }
+
+    /**
+     * P3-5: the euro glyph is the caller's — "€" on screen, "E" on the ESC/POS
+     * receipt.
+     */
+    @Test
+    void detailLineUsesTheGivenEuroGlyph() {
+        assertEquals("5 x 2,50 E", TicketState.detailLineOf(new BigDecimal("5"),
+                new BigDecimal("2.50"), null, false, null, null, "E"));
     }
 
     // --- Remise globale et articles sans remise (BO-02-03-09) ---

@@ -222,18 +222,19 @@ public class TicketPrinterService {
             }
             // Product label (possibly truncated)
             String label = line.productLabel.length() > 20 ? line.productLabel.substring(0, 20) : line.productLabel;
-            // Quantity and unit price
-            String qtyStr = DF.format(line.quantity);
-            String unitPriceStr = DF.format(line.unitPrice);
-            // LC-02-03-02 and LC-02-13-18: quantity, unit price and line total on the
-            // receipt as on the two screens. An article sold by a unit of measure
-            // states that unit — "2,360 m x 4,99" — because the figure alone does not
-            // say what was bought.
-            String unit = line.unitName == null || line.unitName.isBlank()
-                    ? "" : line.unitName.trim();
-            sb.append(unit.isEmpty()
-                    ? String.format("%-20s %5s x %6s%n", label, qtyStr, unitPriceStr)
-                    : String.format("%-20s %5s %s x %6s%n", label, qtyStr, unit, unitPriceStr));
+            // P3-5 / LC-02-05-04 / LC-02-13-18: the label, then ONE decomposition
+            // sub-line "quantité × prix unitaire" beneath it — the very line the two
+            // screens show, built by the shared formatter (euro glyph "E" on paper).
+            // Covers the four cases (piece, measure unit, weighed, price-embedded
+            // deduced weight); empty — so absent — for a single unit sold by the piece.
+            sb.append(String.format("%-20s%n", label));
+            String detail = com.intermarche.pos.ui.ticket.TicketState.detailLineOf(
+                    line.quantity, line.unitPrice, line.unitName,
+                    line.plu != null && !line.plu.isEmpty(),
+                    line.embeddedWeight, line.embeddedUnitPrice, "E");
+            if (!detail.isBlank()) {
+                sb.append("  ").append(detail).append("\n");
+            }
             if (posSettingsService.showEan() && line.ean != null && !line.ean.isEmpty()) {
                 // LC-02-04-04: the EAN printed under the label when configured.
                 sb.append("  ").append(line.ean).append("\n");
@@ -241,15 +242,6 @@ public class TicketPrinterService {
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
-            // EXP-26/LC-02-05-04: on a price-embedded weighed line, the WEIGHT
-            // deduced from the sticker price and the referential price per kilo,
-            // printed under the line as on the two screens. Absent on any other line.
-            if (line.embeddedWeight != null && line.embeddedUnitPrice != null) {
-                sb.append(String.format("  %s kg x %s /kg%n",
-                        line.embeddedWeight.setScale(3, java.math.RoundingMode.HALF_UP)
-                                .toPlainString().replace('.', ','),
-                        DF.format(line.embeddedUnitPrice)));
-            }
             // Engine advantage on this line: printed as a signed delta, and
             // the CORRECTION on its own line. The two are separated because
             // they go opposite ways: printing a ticket that went up under an

@@ -74,9 +74,11 @@
                     {#if showEan && item.ean}
                     <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
                     {/if}
-                    {#if item.hasEmbeddedWeight}
-                    <!-- LC-02-05-01/04 : poids déduit du prix embarqué et du prix au kilo. -->
-                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.embeddedWeightLabel}</div>
+                    {#if item.detailLine}
+                    <!-- P3-5 / LC-02-05-04 : la décomposition qté × PU sous le libellé,
+                         une seule ligne pour les quatre cas (pièces, unité de mesure,
+                         pesée, poids déduit d'un prix embarqué). -->
+                    <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.detailLine}</div>
                     {/if}
                 </div>
                 <span class="price">

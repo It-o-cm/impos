@@ -125,6 +125,9 @@ public class CustomerDisplayResource {
             }
             row.put("qty", quantityDisplay(item));
             row.put("amount", item.getPriceFormatted());
+            // P3-5 / LC-02-05-04: the decomposition line (qty × unit price) the
+            // customer reads under the label, empty for a single-unit piece.
+            row.put("detail", item.getDetailLine());
             items.add(row);
         }
         result.put("items", items);

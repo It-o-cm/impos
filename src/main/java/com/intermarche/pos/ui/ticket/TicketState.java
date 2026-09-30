@@ -529,6 +529,46 @@ public class TicketState implements Serializable {
         return String.format("%.2f", rounded).replace(".", ",");
     }
 
+    /**
+     * The ONE decomposition line "quantité × prix unitaire" shared by the three
+     * surfaces (P3-5, LC-02-05-04) — the in-memory line, the customer display and
+     * the printed receipt build it here so they can never disagree. Four cases,
+     * one form: a price-embedded line (weight deduced), a weighed line (quantity
+     * is the weight in kg), a measure-unit line (the referential unit, never
+     * hardcoded), and a multi-unit piece; empty for a single unit sold by the
+     * piece, which teaches nothing. The euro glyph is a parameter because the
+     * screens use "€" and the ESC/POS receipt uses "E".
+     *
+     * @param quantity the line quantity (a weight in kg for a weighed line)
+     * @param unitPrice the unit price (per kg for a weighed line)
+     * @param unitName the referential unit of measure, or null/blank when none
+     * @param weighed true when the line is a weighed (PLU) sale
+     * @param embeddedWeight the deduced weight of a price-embedded line, or null
+     * @param embeddedUnitPrice the referential price per kilo, or null
+     * @param euro the euro glyph to print ("€" on screen, "E" on paper)
+     * @return the decomposition line, or an empty string when none applies
+     */
+    public static String detailLineOf(BigDecimal quantity, BigDecimal unitPrice, String unitName,
+            boolean weighed, BigDecimal embeddedWeight, BigDecimal embeddedUnitPrice, String euro) {
+        if (embeddedWeight != null && embeddedUnitPrice != null) {
+            return String.format("%.3f kg x %.2f " + euro + "/kg", embeddedWeight, embeddedUnitPrice)
+                    .replace('.', ',');
+        }
+        if (weighed) {
+            return String.format("%.3f kg x %.2f " + euro + "/kg", quantity, unitPrice).replace('.', ',');
+        }
+        if (unitName != null && !unitName.isBlank()) {
+            return String.format("%s %s x %.2f " + euro + "/%s",
+                    quantity.stripTrailingZeros().toPlainString(), unitName, unitPrice, unitName)
+                    .replace('.', ',');
+        }
+        if (quantity.compareTo(BigDecimal.ONE) > 0) {
+            return String.format("%s x %.2f " + euro,
+                    quantity.stripTrailingZeros().toPlainString(), unitPrice).replace('.', ',');
+        }
+        return "";
+    }
+
     // --- INNER CLASS: TICKET ITEM ---
 
     /**
@@ -690,6 +730,23 @@ public class TicketState implements Serializable {
             }
             return String.format("%.3f kg à %.2f €/kg", embeddedWeight, embeddedUnitPrice)
                     .replace('.', ',');
+        }
+
+        /**
+         * The ONE decomposition line shown under the label — quantity and unit
+         * price — on the three surfaces (P3-5, LC-02-05-04): "5 x 2,50 €" for a
+         * multi-unit piece, "1,25 m x 12,00 €/m" for a measure unit (the unit is
+         * the referential one, never hardcoded), "0,188 kg x 17,99 €/kg" for a
+         * weighed line, and the same form for a price-embedded line where the
+         * WEIGHT is DEDUCED from the read price and the referential price per kilo
+         * (LC-02-05-01). Empty when it would teach nothing — a single unit sold by
+         * the piece.
+         *
+         * @return the decomposition line, or an empty string when none applies
+         */
+        public String getDetailLine() {
+            return detailLineOf(quantity, unitPrice, unitName,
+                    plu != null && !plu.isEmpty(), embeddedWeight, embeddedUnitPrice, "€");
         }
 
         /**
@@ -860,13 +917,12 @@ public class TicketState implements Serializable {
                 String qtyDisplay = isWhole
                         ? quantity.stripTrailingZeros().toPlainString()
                         : String.format("%.2f", quantity).replace(".", ",");
-                // LC-02-03-02: an article sold by a unit of measure states the unit
-                // and the price per unit beside its quantity — "2,36 m x 4,99 €" —
-                // because a bare "x2,36" beside a hose tells the customer nothing.
+                // LC-02-03-02: a measure line carries its quantity and unit as the
+                // badge ("2,36 m"); the price-per-unit decomposition lives once in
+                // getDetailLine, shown as the sub-line under the label (P4).
                 if (unitName != null && !unitName.isBlank()) {
-                    return String.format("<span class='%s'>%s %s x %s €</span> %s",
-                            qtyClass, qtyDisplay, unitName,
-                            String.format("%.2f", unitPrice).replace(".", ","), label);
+                    return String.format("<span class='%s'>%s %s</span> %s",
+                            qtyClass, qtyDisplay, unitName, label);
                 }
                 return String.format("<span class='%s'>x%s</span> %s", qtyClass, qtyDisplay, label);
             }
