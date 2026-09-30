@@ -179,42 +179,40 @@
 
             <div class="grid-buttons">
 
-                {#if state.menu.key == 'vente'}
-                    <!-- VENTE : les gestes d'une vente en cours, et l'encaissement. -->
+                {#if state.menu.key == 'articles'}
+                    <!-- ARTICLES : la saisie des articles (nomenclature expert, étape 8). -->
                     <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
                     <a href="/action/cancel-by-scan"
                        class="btn {#if state.cancelByScanArmed}btn-warning{#else}btn-muted{/if}"
                        {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}ANNULER : SCANNEZ{#else}ANNULER PAR SCAN{/if}</a>
                     <a href="/action/price-mod/quantity" class="btn btn-muted">QUANTITÉ</a>
-                    <!-- LC-02-08-01 : une seule touche pour les deux gestes. Une ligne
-                         sélectionnée, elle marque cette ligne ; rien de sélectionné,
-                         elle arme l'article suivant — et elle le dit, sinon
-                         l'opérateur ne saurait pas dans quel état il vient de mettre
-                         la caisse. -->
+                    <!-- LC-02-08-01 : une seule touche pour les deux gestes. -->
                     <a href="/action/collect"
                        class="btn {#if state.collectArmed}btn-warning{#else}btn-muted{/if}"
                        {#if state.collectArmed}style="color:black;"{/if}>{#if state.collectArmed}À ENLEVER : ARMÉ{#else}À ENLEVER{/if}</a>
+                    <a href="/action/repeat" class="btn btn-muted">RÉPÉTER ARTICLE</a>
                     <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS &amp; LÉGUMES</a>
                     <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
                     <a href="/search" class="btn btn-muted">RECHERCHE</a>
-                    <!-- Une seule touche pour les trois façons de changer le prix
-                         d'une ligne : elles occupaient trois des dix emplacements du
-                         menu pour un seul geste. Elle ouvre la modale sur la remise,
-                         et les trois modes s'y échangent. -->
-                    <a href="/action/price-mod/remise" class="btn btn-muted">REMISE / PRIX</a>
-                    <!-- LC-02-13-12 : répéter le dernier article. Elle vit à côté de
-                         QUANTITÉ parce que c'est le même besoin — dire « encore un »
-                         sans rescanner. -->
-                    <a href="/action/repeat" class="btn btn-muted">RÉPÉTER ARTICLE</a>
-                    <!-- Trois notions distinctes (EXP-10), pas une « déconnexion » :
-                         VERROUILLER met le poste en pause (le ticket survit),
-                         FERMER retire le tiroir (impossible en cours de vente,
-                         EXP-11) ; la clôture Z vit sur l'écran session. Les deux
-                         sont en bas À GAUCHE : la colonne de droite de la dernière
-                         rangée est celle d'ENCAISSER, et on ne met pas une sortie
-                         de poste sous le doigt qui vise le paiement. -->
+                    <!-- EXP-43 : le sous-total sépare la part de chacun ; il s'imprime. -->
+                    <a href="/action/subtotal" class="btn btn-muted">SOUS-TOTAL</a>
+                    <!-- EXP-93 : consultation article en lecture seule, aucun ajout. -->
+                    <a href="/article-info" class="btn btn-muted">INFO ARTICLE</a>
+
+                {#else if state.menu.key == 'caisse'}
+                    <!-- CAISSE : la tenue du poste (EXP-10) et la session. -->
                     <a href="/action/lock" class="btn btn-muted">VERROUILLER</a>
                     <a href="/close" class="btn btn-muted">FERMER</a>
+                    <a href="/session" class="btn btn-success">SESSION CAISSE</a>
+                    <a href="/cash-calculator" class="btn btn-muted">CALCULATRICE FOND</a>
+                    <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
+
+                {#else if state.menu.key == 'reglement'}
+                    <!-- RÈGLEMENT : l'encaissement et les gestes qui touchent au dû. -->
+                    <!-- Une seule touche pour les trois façons de changer le prix d'une
+                         ligne : elle ouvre la modale sur la remise, les trois modes s'y échangent. -->
+                    <a href="/action/price-mod/remise" class="btn btn-muted">REMISE / PRIX</a>
+                    <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
                     {#if state.ticket.totalAmount > 0}
                         <a id="payBtn" href="/pay" class="btn btn-primary">ENCAISSER</a>
                     {#else}
@@ -223,62 +221,45 @@
 
                 {#else if state.menu.key == 'ticket'}
                     <!-- TICKET : la vie du ticket et les documents qu'il produit. -->
-                    <!-- Les deux actions du cycle de vie sont mutuellement exclusives
-                         par construction (le service refuse de parquer un panier vide
-                         et de reprendre sur un panier plein) — n'afficher que celle
-                         qui peut agir. -->
                     {#if state.ticket.items.isEmpty()}
                         <a href="/parked" class="btn btn-warning" style="color:black;">REPRENDRE TICKET</a>
                     {#else}
                         <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
                     {/if}
                     <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
-                    <!-- EXP-43 : le sous-total sépare la part de chaque personne dans
-                         un panier commun ; il s'imprime sur le ticket. -->
-                    <a href="/action/subtotal" class="btn btn-muted">SOUS-TOTAL</a>
                     <a href="/action/return-mode" class="btn {#if state.returnMode}btn-danger{#else}btn-muted{/if}">{#if state.returnMode}FIN MODE RETOUR{#else}MODE RETOUR{/if}</a>
-                    <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
-                    <!-- Les quatre touches DERNIER agissent sur le meme objet — la
-                         derniere vente cloturee — et obeissent donc a la meme regle
-                         (PosState.requireLastClosedTicket) : meme refus, meme message,
-                         meme retour a l'ecran de vente. Le prefixe le dit a l'oeil.
-                         RECHERCHE TICKET, elle, demande de quel ticket il s'agit :
-                         c'est la seule de la colonne a ouvrir un ecran de recherche,
-                         et elle s'appelait "IMPRIMER TICKET" juste au-dessus de
-                         "REIMPRIMER". -->
+                    <a href="/return" class="btn btn-primary">RETOUR</a>
+                    <a href="/invoice" class="btn btn-primary">FACTURE</a>
+                    <a href="/reprint" class="btn btn-primary">RECHERCHE TICKET</a>
+                    <!-- Les quatre touches DERNIER agissent sur la dernière vente clôturée
+                         (PosState.requireLastClosedTicket) : même refus, même message. -->
                     <a href="/action/print-last" class="btn btn-muted">DERNIER : TICKET</a>
                     <a href="/action/print-last-barcode" class="btn btn-muted">DERNIER : CODE-BARRES</a>
                     <a href="/action/print-last-card" class="btn btn-muted">DERNIER : DUPLICATA CB</a>
                     <a href="/ticket-email" class="btn btn-muted">DERNIER : PAR EMAIL</a>
-                    <a href="/reprint" class="btn btn-primary">RECHERCHE TICKET</a>
-                    <a href="/invoice" class="btn btn-primary">FACTURE</a>
 
-                {#else if state.menu.key == 'client'}
-                    <!-- CLIENT : ce que le client apporte au comptoir. -->
+                {#else if state.menu.key == 'generosite'}
+                    <!-- GÉNÉROSITÉ : fidélité et solde des avantages. -->
                     <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
                     <a href="/voucher-balance" class="btn btn-muted">SOLDE BON / CARTE</a>
-                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
-                    <!-- EXP-90/91/92 : rappel par code d'un devis, d'une commande, d'un
-                         bon de vente ou d'un panier click&collect remis par le back-office. -->
-                    <a href="/recall" class="btn btn-muted">RAPPEL CODE</a>
-                    <a href="/return" class="btn btn-primary">RETOUR</a>
 
-                {#else if state.menu.key == 'caisse'}
-                    <!-- CAISSE : l'argent du tiroir et la session. -->
+                {#else if state.menu.key == 'tiroir'}
+                    <!-- TIROIR : l'argent du tiroir. -->
                     <a href="/cash-movement" class="btn btn-success">MOUVEMENT</a>
                     <a href="/withdrawal" class="btn btn-success">PRÉLÈVEMENT</a>
                     <a href="/apport" class="btn btn-success">APPORT MONNAIE</a>
-                    <a href="/cash-calculator" class="btn btn-muted">CALCULATRICE FOND</a>
                     <a href="/transfer" class="btn btn-success">TRANSFERT RÈGLEMENT</a>
-                    <a href="/session" class="btn btn-success">SESSION CAISSE</a>
+                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
+
+                {#else}
+                    <!-- AUTRE : le reste — supervision, mode dégradé, réglages opérateur, rappel. -->
                     <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
-                    <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
                     <form action="/action/monetics-degraded" method="POST" style="display:contents;">
                         <button type="submit" class="btn btn-warning" style="color:#000;">{state.moneticsDegradedForced ? 'LEVER DÉGRADÉ MONÉTIQUE' : 'FORCER DÉGRADÉ MONÉTIQUE'}</button>
                     </form>
-
-                {#else}
-                    <!-- POSTE : les réglages de l'opérateur. -->
+                    <!-- EXP-90/91/92 : rappel par code d'un devis, commande, bon de vente
+                         ou panier click&collect remis par le back-office. -->
+                    <a href="/recall" class="btn btn-muted">RAPPEL CODE</a>
                     <a href="/badge-print" class="btn btn-muted">BADGE OPÉRATEUR</a>
                     <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
                     <a href="/theme-select" class="btn btn-muted">THÈME D'AFFICHAGE</a>

@@ -419,12 +419,12 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.showMenu("client"));
-        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.CLIENT);
+        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.GENEROSITE);
     }
 
     /**
-     * {@code showMenu()} lands on the sale menu when the key is unreadable: a stale
-     * link must never leave the cashier in front of a blank grid.
+     * {@code showMenu()} lands on the ARTICLES menu when the key is unreadable: a
+     * stale link must never leave the cashier in front of a blank grid.
      */
     @Test
     void showMenuFallsBackToTheSaleMenu() {
@@ -432,7 +432,7 @@ class HomeResourceTest {
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
         assertSame(mainView, resource.showMenu("rayon"));
-        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.VENTE);
+        verify(resource.homeService).selectMenu(com.intermarche.pos.ui.PosMenu.ARTICLES);
     }
 
     // --- Ticket navigation ---

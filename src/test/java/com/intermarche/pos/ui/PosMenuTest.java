@@ -5,22 +5,25 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests of {@link PosMenu}: the five menus of the bottom bar and the tolerant
- * parsing of the key their links carry.
+ * Unit tests of {@link PosMenu}: the seven menus of the bottom bar (the expert's
+ * nomenclature, campaign step 8) and the tolerant parsing of the key their links
+ * carry, including the historical aliases.
  */
 class PosMenuTest {
 
     /**
-     * The bar carries exactly five keys, in the order the day follows.
+     * The bar carries exactly seven keys, in the expert's tab order.
      */
     @Test
-    void fiveMenusInTabOrder() {
-        assertEquals(5, PosMenu.ALL.size());
-        assertSame(PosMenu.VENTE, PosMenu.ALL.get(0));
-        assertSame(PosMenu.TICKET, PosMenu.ALL.get(1));
-        assertSame(PosMenu.CLIENT, PosMenu.ALL.get(2));
-        assertSame(PosMenu.CAISSE, PosMenu.ALL.get(3));
-        assertSame(PosMenu.POSTE, PosMenu.ALL.get(4));
+    void sevenMenusInTabOrder() {
+        assertEquals(7, PosMenu.ALL.size());
+        assertSame(PosMenu.ARTICLES, PosMenu.ALL.get(0));
+        assertSame(PosMenu.CAISSE, PosMenu.ALL.get(1));
+        assertSame(PosMenu.REGLEMENT, PosMenu.ALL.get(2));
+        assertSame(PosMenu.TICKET, PosMenu.ALL.get(3));
+        assertSame(PosMenu.GENEROSITE, PosMenu.ALL.get(4));
+        assertSame(PosMenu.TIROIR, PosMenu.ALL.get(5));
+        assertSame(PosMenu.AUTRE, PosMenu.ALL.get(6));
     }
 
     /**
@@ -64,16 +67,18 @@ class PosMenuTest {
     }
 
     /**
-     * The historical {@code main} key lands on the sale gestures it used to name.
+     * The historical {@code main} and {@code vente} keys land on ARTICLES, the
+     * article gestures they used to name.
      */
     @Test
     void ofUnderstandsTheHistoricalMainKey() {
-        assertSame(PosMenu.VENTE, PosMenu.of("main"));
+        assertSame(PosMenu.ARTICLES, PosMenu.of("main"));
+        assertSame(PosMenu.ARTICLES, PosMenu.of("vente"));
     }
 
     /**
-     * The historical {@code secondary} key lands on the menu that inherited its
-     * contents.
+     * The historical {@code secondary} key lands on the ticket menu that inherited
+     * its contents.
      */
     @Test
     void ofUnderstandsTheHistoricalSecondaryKey() {
@@ -81,26 +86,36 @@ class PosMenuTest {
     }
 
     /**
-     * A missing key lands on the sale menu (null arm).
+     * The historical {@code client} key lands on GÉNÉROSITÉ and {@code poste} on
+     * AUTRE, where their contents were re-slotted.
      */
     @Test
-    void ofNullFallsBackToTheSaleMenu() {
-        assertSame(PosMenu.VENTE, PosMenu.of(null));
+    void ofUnderstandsTheHistoricalClientAndPosteKeys() {
+        assertSame(PosMenu.GENEROSITE, PosMenu.of("client"));
+        assertSame(PosMenu.AUTRE, PosMenu.of("poste"));
     }
 
     /**
-     * An unknown key lands on the sale menu rather than on a blank grid.
+     * A missing key lands on the ARTICLES menu (null arm).
      */
     @Test
-    void ofUnknownFallsBackToTheSaleMenu() {
-        assertSame(PosMenu.VENTE, PosMenu.of("rayon"));
+    void ofNullFallsBackToArticles() {
+        assertSame(PosMenu.ARTICLES, PosMenu.of(null));
+    }
+
+    /**
+     * An unknown key lands on the ARTICLES menu rather than on a blank grid.
+     */
+    @Test
+    void ofUnknownFallsBackToArticles() {
+        assertSame(PosMenu.ARTICLES, PosMenu.of("rayon"));
     }
 
     /**
      * A blank key lands there too.
      */
     @Test
-    void ofBlankFallsBackToTheSaleMenu() {
-        assertSame(PosMenu.VENTE, PosMenu.of("   "));
+    void ofBlankFallsBackToArticles() {
+        assertSame(PosMenu.ARTICLES, PosMenu.of("   "));
     }
 }

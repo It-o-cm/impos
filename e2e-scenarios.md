@@ -648,6 +648,14 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 
 ## M. Thèmes [S]
 
+- **M0 Barre à sept onglets** [S] (étape 8) : la barre du bas porte désormais les sept
+  onglets de la nomenclature expert — Articles, Caisse, Règlement, Ticket, Générosité,
+  Tiroir, Autre. Chaque touche est joignable sous son onglet (Articles : saisie/quantité/
+  sous-total/info article ; Caisse : verrouiller/fermer/session/calculatrice/formation ;
+  Règlement : encaisser/remises ; Ticket : attente/annuler/retour/facture/duplicata ;
+  Générosité : fidélité/solde ; Tiroir : mouvement/prélèvement/apport/transfert/déconsignation ;
+  Autre : superviseur/dégradé/badge/PIN/thème/rappel code). Aucune touche perdue au reslotting.
+
 - **M1 Cascade** : Marie (préf clair) → écrans clairs partout dès l'unlock ; Jean →
   sombre magasin ; Store.theme=clair + Jean → clair.
 - **M2 Sélecteur** : AUTRES → THÈME → CLAIR → rendu immédiat ; DÉFAUT MAGASIN →

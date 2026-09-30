@@ -21,22 +21,28 @@ import java.util.List;
  */
 public enum PosMenu {
 
-    /** The gestures of a sale in progress, and the payment itself. */
-    VENTE("vente", "VENTE"),
+    /** Article entry: scan, quantity, weighing, direct entry, search, subtotal, info. */
+    ARTICLES("articles", "ARTICLES"),
 
-    /** The ticket's own life: parking, cancelling, printing, billing. */
-    TICKET("ticket", "TICKET"),
-
-    /** What the customer brings to the till: card, voucher, deposit, return. */
-    CLIENT("client", "CLIENT"),
-
-    /** The register's money and its session. */
+    /** The post itself: lock, close, session, float calculator, training. */
     CAISSE("caisse", "CAISSE"),
 
-    /** The operator's own post: badge, code, display, session end. */
-    POSTE("poste", "POSTE");
+    /** Settlement: pay, and the price/discount gestures that move the amount due. */
+    REGLEMENT("reglement", "RÈGLEMENT"),
 
-    /** The five menus in tab order — what the bottom bar renders. */
+    /** The ticket's own life: parking, cancelling, printing, billing, return, recall. */
+    TICKET("ticket", "TICKET"),
+
+    /** Generosity: fidelity, loyalty balance. */
+    GENEROSITE("generosite", "GÉNÉROSITÉ"),
+
+    /** The drawer's money: movements, withdrawal, coin supply, transfer, deposit-return. */
+    TIROIR("tiroir", "TIROIR"),
+
+    /** Everything else: supervisor, degraded mode, badge, PIN, theme, recall. */
+    AUTRE("autre", "AUTRE");
+
+    /** The seven menus in tab order (the expert's nomenclature) — what the bottom bar renders. */
     public static final List<PosMenu> ALL = List.of(values());
 
     /** The key carried by the menu's URL. */
@@ -77,33 +83,41 @@ public enum PosMenu {
     /**
      * Parses a menu key coming from a URL.
      *
-     * <p>The two historical keys are still understood: {@code main} was the sale
-     * gestures and {@code secondary} everything else, so they resolve to the menus
-     * that inherited those contents. A link kept in a bookmark, a script or a test
-     * therefore still lands somewhere sensible instead of on a 404.
+     * <p>Historical keys are still understood so a link kept in a bookmark, a
+     * script or a test lands somewhere sensible instead of on a 404: {@code main}
+     * and the old {@code vente} resolve to {@link #ARTICLES}, {@code secondary} to
+     * {@link #TICKET}, the old {@code client} to {@link #GENEROSITE} and the old
+     * {@code poste} to {@link #AUTRE}. {@code ticket} and {@code caisse} kept their
+     * keys.
      *
-     * <p>Anything else falls back to {@link #VENTE}: an unreadable key must leave the
-     * cashier on the menu they use all day, never on a blank grid.
+     * <p>Anything else falls back to {@link #ARTICLES}: an unreadable key must
+     * leave the cashier on the menu they use all day, never on a blank grid.
      *
      * @param key the raw key, possibly null
      * @return the menu, never null
      */
     public static PosMenu of(String key) {
         if (key == null) {
-            return VENTE;
+            return ARTICLES;
         }
         String value = key.trim().toLowerCase();
-        if (value.equals("main")) {
-            return VENTE;
+        if (value.equals("main") || value.equals("vente")) {
+            return ARTICLES;
         }
         if (value.equals("secondary")) {
             return TICKET;
+        }
+        if (value.equals("client")) {
+            return GENEROSITE;
+        }
+        if (value.equals("poste")) {
+            return AUTRE;
         }
         for (PosMenu menu : ALL) {
             if (menu.key.equals(value)) {
                 return menu;
             }
         }
-        return VENTE;
+        return ARTICLES;
     }
 }

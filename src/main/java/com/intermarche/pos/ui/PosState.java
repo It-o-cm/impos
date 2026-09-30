@@ -466,7 +466,7 @@ public class PosState implements Serializable {
     }
 
     /** The button menu currently shown; the sale gestures when the screen opens. */
-    public PosMenu menu = PosMenu.VENTE;
+    public PosMenu menu = PosMenu.ARTICLES;
 
     /**
      * Returns the five menus in tab order — what the bottom bar renders.
