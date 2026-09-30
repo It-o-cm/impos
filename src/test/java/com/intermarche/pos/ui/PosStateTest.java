@@ -808,4 +808,34 @@ class PosStateTest {
         assertFalse(state.trainingMode);
         verifyNoInteractions(state.payment);
     }
+
+    /**
+     * The back-office message channel (EXP-20/89) starts empty: no down message
+     * and no pending survey, and a fresh {@link PosState.BackOfficeSurvey} carries
+     * a null question and an empty option list.
+     */
+    @Test
+    void backOfficeMessageChannelStartsEmpty() {
+        PosState state = newState();
+        assertEquals("", state.backOfficeMessage);
+        assertNull(state.backOfficeSurvey);
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        assertNull(survey.question);
+        assertTrue(survey.options.isEmpty());
+    }
+
+    /**
+     * The back-office message and survey SURVIVE {@code clearTicket()} (EXP-20):
+     * a message from the store node is not a per-sale field and must not be wiped
+     * between two customers.
+     */
+    @Test
+    void clearTicketKeepsTheBackOfficeMessage() {
+        PosState state = newState();
+        state.backOfficeMessage = "Info magasin";
+        state.backOfficeSurvey = new PosState.BackOfficeSurvey();
+        state.clearTicket();
+        assertEquals("Info magasin", state.backOfficeMessage);
+        assertNotNull(state.backOfficeSurvey);
+    }
 }

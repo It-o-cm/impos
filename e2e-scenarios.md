@@ -834,6 +834,19 @@ flux `BUDGET_GROUPS` du nœud pour le livrer au moteur en pile démo.
   rejeu idempotent) et `Relancer le tirage` → `Tirage des référentiels relancé.` / échec
   `Tirage des référentiels en échec : <err>` (croiser L9). Feeds vides → `Aucun flux reçu sur
   cette caisse.` ; pulls vides → `Aucun référentiel appliqué (caisse fraîchement démarrée).`.
+- **S2 Demande de service — liste administrée** [S] (EXP-84) : l'écran `/supervisor` propose les
+  motifs de `supervisor.service-reasons` (liste administrée, points-virgules) au lieu des quatre
+  boutons figés ; motif vide → liste vide.
+- **S3 Message libre caisse → back-office** [S] (EXP-19) : `POST /action/supervisor-message`
+  (reason + message libre) → `callSupervisor` journalise `SUPERVISOR_CALLED` (« reason — message »)
+  et pousse vers le nœud ; message vide → motif seul. Round-trip réel = résidu [N] (nécessite imedge).
+- **S4 Message back-office → caisse (non perturbant)** [N] (EXP-20) : `POST /api/bo-message`
+  (text) déposé par le nœud → bandeau non bloquant sur l'écran caissier seul
+  (`state.backOfficeMessage`, survit à la vente). Producteur = imedge → résidu [N] ; la
+  consommation caisse est testée unitairement (BackOfficeMessageResourceTest).
+- **S5 Sondage back-office** [N] (EXP-89) : `POST /api/bo-message` avec `question`+`options` →
+  sondage affiché ; `POST /action/survey-answer` renvoie la réponse en amont (reason `SONDAGE`)
+  et efface le sondage. Round-trip = résidu [N].
 
 ## O. Inventaire exhaustif — messages d'erreur & modales
 

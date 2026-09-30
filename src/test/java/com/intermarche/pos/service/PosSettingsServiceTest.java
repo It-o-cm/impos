@@ -1514,6 +1514,25 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code supervisorServiceReasons} reads its administered semicolon list
+     * (EXP-84): the catalog default when nothing overrides, the stored row when
+     * it does.
+     */
+    @Test
+    void supervisorServiceReasonsReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("Annulation;Prix / étiquette;Retour client;Autre",
+                    new PosSettingsService().supervisorServiceReasons());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("supervisor.service-reasons", "Coffre;Autre")));
+            assertEquals("Coffre;Autre", new PosSettingsService().supervisorServiceReasons());
+        }
+    }
+
+    /**
      * {@code drawerCap} (EXP-17) defaults to zero (no cap) when no row is
      * posted, returns a stored amount, and falls back to the catalog default
      * when the stored row is corrupt (bigDecimalValue guard) — all three arms.

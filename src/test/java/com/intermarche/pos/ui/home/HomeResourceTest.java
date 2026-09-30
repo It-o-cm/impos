@@ -1083,4 +1083,41 @@ class HomeResourceTest {
         assertEquals(false, resource.state.returnByScanRequested);
     }
 
+    /**
+     * {@code supervisorMessage} delegates the chosen reason and the free-text
+     * message to the service and redirects home (EXP-19/84).
+     */
+    @Test
+    void supervisorMessageDelegatesReasonAndMessageThenRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.supervisorMessage("CAISSE", "besoin de monnaie");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).callSupervisor("CAISSE", "besoin de monnaie");
+    }
+
+    /**
+     * {@code supervisorMessage} passes an empty reason when none is chosen (the
+     * null-reason arm of the ternary), so a free message alone still goes up.
+     */
+    @Test
+    void supervisorMessageNullReasonBecomesEmpty() {
+        HomeResource resource = newResource();
+        resource.supervisorMessage(null, "message libre");
+        verify(resource.homeService).callSupervisor("", "message libre");
+    }
+
+    /**
+     * {@code surveyAnswer} delegates the chosen answer to the service and
+     * redirects home (EXP-89).
+     */
+    @Test
+    void surveyAnswerDelegatesAndRedirects() {
+        HomeResource resource = newResource();
+        Response response = resource.surveyAnswer("Oui");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).answerSurvey("Oui");
+    }
+
 }
