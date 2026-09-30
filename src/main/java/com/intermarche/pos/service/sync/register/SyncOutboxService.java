@@ -308,6 +308,12 @@ public class SyncOutboxService {
         dto.variance = session.variance;
         dto.withdrawnAmount = session.withdrawnAmount;
         dto.countDetail = session.countDetail;
+        // EXP-82/83/95: the opposable-close facts ride the wire so the store node's
+        // consolidated Z is faithful — who arbitrated the écart, the paper-tender
+        // declaration, and whether it was a floating no-count evening.
+        dto.varianceEndorsedBy = session.varianceEndorsedBy;
+        dto.paperDeclaration = session.paperDeclaration;
+        dto.floatingNoCount = session.floatingNoCount;
         return dto;
     }
 

@@ -89,6 +89,23 @@ public final class SyncPayloads {
         public BigDecimal withdrawnAmount;
         /** The denominations detail, or null. */
         public String countDetail;
+        /**
+         * The supervisor who validated an over-threshold discrepancy, or null
+         * (EXP-82): the nominative trace of an opposable close, carried so the
+         * store node's Z shows who arbitrated the écart.
+         */
+        public String varianceEndorsedBy;
+        /**
+         * The paper-tender declaration counted at closing, JSON, or null
+         * (EXP-83): the per-tender declared quantities the node compares to the
+         * theoretical.
+         */
+        public String paperDeclaration;
+        /**
+         * True when this was a floating-float evening WITHOUT a full count
+         * (EXP-95): the node knows no variance was arbitrated that night.
+         */
+        public boolean floatingNoCount;
     }
 
     /**
