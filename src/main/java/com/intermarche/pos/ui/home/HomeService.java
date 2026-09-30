@@ -647,7 +647,12 @@ public class HomeService {
             LOGGER.info("Exiting method requestTrainingToggle");
             return;
         }
-        endorsementService.requestAuthorization(state, "TRAINING_TOGGLE");
+        // P6: a connected supervisor toggles training without asking themselves.
+        if (endorsementService.selfAuthorized(state)) {
+            performTrainingToggle();
+        } else {
+            endorsementService.requestAuthorization(state, "TRAINING_TOGGLE");
+        }
         state.touch();
         LOGGER.info("Exiting method requestTrainingToggle");
     }

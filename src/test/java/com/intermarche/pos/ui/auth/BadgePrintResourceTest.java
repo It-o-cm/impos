@@ -36,6 +36,7 @@ class BadgePrintResourceTest {
         BadgePrintResource resource = new BadgePrintResource();
         resource.badgePrint = mock(Template.class);
         resource.endorsementService = mock(EndorsementService.class);
+        resource.homeService = mock(com.intermarche.pos.ui.home.HomeService.class);
         resource.state = mock(PosState.class);
         return resource;
     }
@@ -64,6 +65,22 @@ class BadgePrintResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
         verify(resource.endorsementService).requestAuthorization(resource.state, "PRINT_BADGE_7");
+    }
+
+    /**
+     * P6: a connected supervisor prints the badge DIRECTLY — no modal parked
+     * (selfAuthorized arm).
+     */
+    @Test
+    void requestBadgePrintDirectWhenSelfAuthorized() {
+        BadgePrintResource resource = newResource();
+        when(resource.endorsementService.selfAuthorized(resource.state)).thenReturn(true);
+        Response response = resource.requestBadgePrint("  7  ");
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).printOperatorBadge("7");
+        verify(resource.endorsementService, org.mockito.Mockito.never())
+                .requestAuthorization(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyString());
     }
 
     /**

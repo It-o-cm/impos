@@ -64,6 +64,23 @@ public class EndorsementService {
     }
 
     /**
+     * The single decision point for a gesture that ALWAYS needs an endorsement —
+     * one carrying no administered on/off flag (training toggle, operator-badge
+     * print): a modal is needed UNLESS the logged operator is themselves a
+     * supervisor (P6, LC-01-05-07) or a supervisor session is open (EXP-33). A
+     * connected supervisor never gets asked for their own aval.
+     *
+     * @param state the current POS state
+     * @return true when the gesture is already authorized and needs no modal
+     */
+    public boolean selfAuthorized(PosState state) {
+        LOGGER.info("Entering method selfAuthorized");
+        boolean authorized = operatorIsSupervisor(state) || state.supervisorSessionBadge != null;
+        LOGGER.info("Exiting method selfAuthorized");
+        return authorized;
+    }
+
+    /**
      * Opens a supervisor session on the ticket when the administered scope is
      * PER_TICKET (EXP-33): the endorsing manager's badge stays attached to the sale
      * so the following guarded gestures proceed without re-asking, until FIN

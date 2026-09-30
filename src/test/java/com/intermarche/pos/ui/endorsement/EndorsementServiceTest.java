@@ -222,6 +222,47 @@ class EndorsementServiceTest {
     }
 
     /**
+     * P6: {@code selfAuthorized} is true when an open supervisor session stands,
+     * with no operator lookup (session arm).
+     */
+    @Test
+    void selfAuthorizedTrueWhenSupervisorSessionOpen() {
+        EndorsementService service = new EndorsementService();
+        PosState state = stateWithOperator(null);
+        state.supervisorSessionBadge = "11111111";
+        assertTrue(service.selfAuthorized(state));
+    }
+
+    /**
+     * P6: {@code selfAuthorized} is false when the operator is not a supervisor and
+     * no session is open (both-arms-false).
+     */
+    @Test
+    void selfAuthorizedFalseWhenNeither() {
+        EndorsementService service = new EndorsementService();
+        PosState state = stateWithOperator(null);
+        state.supervisorSessionBadge = null;
+        assertFalse(service.selfAuthorized(state));
+    }
+
+    /**
+     * P6: {@code selfAuthorized} is true when the logged operator is themselves an
+     * active supervisor (operatorIsSupervisor arm).
+     */
+    @Test
+    void selfAuthorizedTrueWhenOperatorIsSupervisor() {
+        EndorsementService service = new EndorsementService();
+        PosState state = stateWithOperator(7L);
+        state.supervisorSessionBadge = null;
+        Employee manager = employee(Employee.EmployeeRole.MANAGER);
+        manager.active = true;
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(manager);
+            assertTrue(service.selfAuthorized(state));
+        }
+    }
+
+    /**
      * Builds an employee with the given activity and role.
      *
      * @param active whether the employee is active

@@ -36,6 +36,10 @@ public class BadgePrintResource {
     @Inject
     EndorsementService endorsementService;
 
+    /** Executes the badge print directly when the operator self-authorizes (P6). */
+    @Inject
+    com.intermarche.pos.ui.home.HomeService homeService;
+
     /** The register's composition root. */
     @Inject
     PosState state;
@@ -66,7 +70,12 @@ public class BadgePrintResource {
     public Response requestBadgePrint(@FormParam("operator") String operator) {
         LOGGER.info("Entering method requestBadgePrint with operator: " + operator);
         if (operator != null && !operator.isBlank()) {
-            endorsementService.requestAuthorization(state, "PRINT_BADGE_" + operator.trim());
+            // P6: a connected supervisor prints the badge without asking themselves.
+            if (endorsementService.selfAuthorized(state)) {
+                homeService.printOperatorBadge(operator.trim());
+            } else {
+                endorsementService.requestAuthorization(state, "PRINT_BADGE_" + operator.trim());
+            }
         }
         LOGGER.info("Exiting method requestBadgePrint");
         return Response.seeOther(URI.create("/")).build();

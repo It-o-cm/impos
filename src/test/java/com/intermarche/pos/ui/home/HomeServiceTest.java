@@ -738,6 +738,15 @@ class HomeServiceTest {
      * with no payment (both arms false).
      */
     @Test
+    void requestTrainingToggleTogglesDirectlyWhenSelfAuthorized() {
+        service.state.payment.paymentInProgress = false;
+        when(service.endorsementService.selfAuthorized(service.state)).thenReturn(true);
+        service.requestTrainingToggle();
+        assertTrue(service.state.trainingMode);
+        verify(service.endorsementService, never()).requestAuthorization(any(), anyString());
+    }
+
+    @Test
     void requestTrainingToggleRequestsEndorsementWhenIdle() {
         service.state.payment.paymentInProgress = false;
         service.requestTrainingToggle();
