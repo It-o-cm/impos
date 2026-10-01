@@ -657,6 +657,68 @@ public class RefApplyService {
     }
 
     /**
+     * Applies a CHECKOUT-POINT snapshot: upsert by terminal identifier, absents
+     * deactivated (BO-03-09, BO-03-10).
+     *
+     * <p>Deactivated and never deleted, exactly like an island: a point that
+     * disappears from the node's snapshot is a point the back office took out of
+     * service, and a register that erased it would lose the only record of which
+     * island a ticket was taken on. A point that comes back is reactivated by the
+     * upsert.
+     *
+     * <p>Both enumerations are resolved by NAME and fall back to null rather than
+     * to a guessed value when the node sends something this register does not
+     * know: a column left null says "the node did not describe this", which is
+     * the truth, where a default would quietly assert a type nobody administered.
+     *
+     * @param dtos the snapshot rows
+     */
+    @Transactional
+    public void applyCheckoutPoints(List<RefPayloads.CheckoutPointDto> dtos) {
+        LOGGER.info("Entering method applyCheckoutPoints with dtos: " + dtos);
+        Set<String> seen = new HashSet<>();
+        for (RefPayloads.CheckoutPointDto dto : dtos) {
+            if (dto.terminalId == null || dto.terminalId.isBlank()) {
+                continue;
+            }
+            com.intermarche.pos.domain.store.CheckoutPoint point =
+                    com.intermarche.pos.domain.store.CheckoutPoint.findByTerminal(dto.terminalId);
+            if (point == null) {
+                point = new com.intermarche.pos.domain.store.CheckoutPoint();
+                point.terminalId = dto.terminalId.trim();
+            }
+            point.pdvNumber = dto.pdvNumber;
+            point.islandCode = dto.islandCode;
+            point.label = dto.label;
+            point.active = dto.active;
+            point.tpvType = com.intermarche.pos.domain.store.TpvType.fromName(dto.tpvType);
+            point.technicalHostessBadge = dto.technicalHostessBadge;
+            point.cashierDisplayType =
+                    com.intermarche.pos.domain.store.DisplayType.fromName(dto.cashierDisplayType);
+            point.cashierDisplayResolution = dto.cashierDisplayResolution;
+            point.customerDisplayType =
+                    com.intermarche.pos.domain.store.DisplayType.fromName(dto.customerDisplayType);
+            point.customerDisplayResolution = dto.customerDisplayResolution;
+            point.menuTemplateCode = dto.menuTemplateCode;
+            point.persist();
+            seen.add(point.terminalId);
+        }
+        long deactivated = 0;
+        for (com.intermarche.pos.domain.store.CheckoutPoint point
+                : com.intermarche.pos.domain.store.CheckoutPoint
+                        .<com.intermarche.pos.domain.store.CheckoutPoint>listAll()) {
+            if (!seen.contains(point.terminalId) && point.active) {
+                point.active = false;
+                point.persist();
+                deactivated++;
+            }
+        }
+        LOGGER.infof("Référentiel points de contact appliqué: %d ligne(s), %d désactivé(s)",
+                dtos.size(), deactivated);
+        LOGGER.info("Exiting method applyCheckoutPoints");
+    }
+
+    /**
      * Derives the effective attached terminals of an island from whichever
      * payload form the node sent (BO-03-09/BO-03-10), without preference or
      * warning: when the contact-point list is present and non-empty the

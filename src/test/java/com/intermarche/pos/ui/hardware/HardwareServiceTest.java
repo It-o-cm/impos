@@ -31,6 +31,13 @@ class HardwareServiceTest {
         HardwareService service = new HardwareService();
         service.hardwareClient = client;
         service.state = new com.intermarche.pos.ui.PosState();
+        // A register whose checkout point EXPECTS a customer display: the state
+        // every pre-existing case runs under, since that is what a lane without
+        // an administered point does (BO-03-09-13). The one case that declares
+        // none overrides it.
+        service.checkoutPointService =
+                mock(com.intermarche.pos.service.CheckoutPointService.class);
+        when(service.checkoutPointService.expectsCustomerDisplay()).thenReturn(true);
         return service;
     }
 
@@ -712,5 +719,23 @@ class HardwareServiceTest {
         verify(client).getDrawerStatus();
         verify(client).setDisplay("BONJOUR");
         verifyNoMoreInteractions(client);
+    }
+
+    /**
+     * BO-03-09-13: a checkout point administered WITHOUT a customer display
+     * reports that display ABSENT without probing it at all — a peripheral
+     * nobody installed is not a peripheral that broke, and the unlock gate must
+     * not name it at every prise de poste.
+     */
+    @Test
+    void probeDevicesReportsNoDisplayWhenThePointDeclaresNone() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeight()).thenReturn("0,000");
+        when(client.getDrawerStatus()).thenReturn("CLOSED");
+        HardwareService service = serviceWith(client);
+        when(service.checkoutPointService.expectsCustomerDisplay()).thenReturn(false);
+        java.util.List<HardwareService.DeviceStatus> devices = service.probeDevices();
+        assertTrue(devices.get(2).absent());
+        verify(client, never()).setDisplay(anyString());
     }
 }

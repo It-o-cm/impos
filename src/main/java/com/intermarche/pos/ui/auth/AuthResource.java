@@ -59,6 +59,9 @@ public class AuthResource {
     /** The closing page, shown only when something stands in the way. */
     @Inject @io.quarkus.qute.Location("close") Template close;
     @Inject HardwareService hardwareService;
+
+    /** Says whether the back office has taken this checkout point out of service. */
+    @Inject com.intermarche.pos.service.CheckoutPointService checkoutPointService;
     @Inject com.intermarche.pos.service.CashSessionService cashSessionService;
 
     /** The back-office parameters (drawer-open-on-login rule — BO-10-02-25). */
@@ -93,6 +96,12 @@ public class AuthResource {
             message = "COMPTE VERROUILLÉ - RÉESSAYEZ PLUS TARD";
         } else if ("supervisor".equals(error)) {
             message = "AUTORISATION SUPERVISEUR REFUSÉE";
+        } else if ("deactivated".equals(error)) {
+            // BO-03-09-01: the back office took this checkout point out of
+            // service. Naming the cause is the whole point — a lane that just
+            // refuses every code reads as a broken lane, and someone spends the
+            // morning on the credentials.
+            message = "CAISSE HORS SERVICE - POINT DE CONTACT DÉSACTIVÉ AU BACK OFFICE";
         } else if (error != null) {
             message = "IDENTIFIANTS INCORRECTS";
         }
@@ -140,6 +149,18 @@ public class AuthResource {
         @FormParam("password") String password
     ) {
         LOGGER.info("Entering method unlock with login: " + login + ", password: ***");
+        // BO-03-09-01: a checkout point DEACTIVATED in the back office does not
+        // open, whoever presents themselves. Checked before the credentials on
+        // purpose — the refusal has nothing to do with who is at the lane, and
+        // telling an operator their code is wrong when the register is out of
+        // service sends them looking in the wrong place. A register with no
+        // administered point is NOT deactivated: it opens as it always did.
+        if (checkoutPointService.isDeactivated()) {
+            LOGGER.warn("Prise de poste refusée: le point de contact de cette caisse"
+                    + " est désactivé au back office.");
+            LOGGER.info("Exiting method unlock");
+            return Response.seeOther(URI.create("/lock?error=deactivated")).build();
+        }
         // Captured BEFORE the login, which clears the paused state on success: a
         // RESUME (déverrouillage) is not a prise de poste — no opening receipt, no
         // hardware gate, no drawer pulse, no session detour — the cashier drops

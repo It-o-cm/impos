@@ -61,6 +61,12 @@ class AuthResourceTest {
         resource.sessionCloseService = mock(SessionCloseService.class);
         resource.endorsementService = mock(com.intermarche.pos.ui.endorsement.EndorsementService.class);
         resource.close = mock(Template.class);
+        // A checkout point IN SERVICE, or none administered at all: the state the
+        // pre-existing cases run under, since an absent point never closes a lane
+        // (BO-03-09-01). The deactivation case overrides it.
+        resource.checkoutPointService =
+                mock(com.intermarche.pos.service.CheckoutPointService.class);
+        when(resource.checkoutPointService.isDeactivated()).thenReturn(false);
         when(resource.posSettingsService.drawerOpenOnLogin()).thenReturn(true);
         // The hardware gate defaults to ALL UP, the state every pre-existing
         // success case runs under; the gate tests override it device by device.
@@ -713,5 +719,37 @@ class AuthResourceTest {
         TemplateInstance view = stubLock(resource, "AUTORISATION SUPERVISEUR REFUSÉE");
         assertSame(view, resource.lockPage("supervisor"));
         verify(resource.authService).logout(resource.state);
+    }
+
+    /**
+     * BO-03-09-01: a checkout point DEACTIVATED in the back office refuses the
+     * prise de poste whoever presents themselves, and refuses it BEFORE the
+     * credentials are even looked at — telling an operator their code is wrong
+     * when the register is out of service sends them looking in the wrong place.
+     * No drawer pulse, no opening receipt, no login attempt.
+     */
+    @Test
+    void unlockIsRefusedWhenTheCheckoutPointIsDeactivated() {
+        AuthResource resource = newResource();
+        when(resource.checkoutPointService.isDeactivated()).thenReturn(true);
+        Response response = resource.unlock("alice", "1234");
+        assertEquals("/lock?error=deactivated", response.getLocation().toString());
+        verify(resource.authService, never()).login(any(), anyString(), anyString());
+        verify(resource.hardwareService, never()).openDrawer();
+        verify(resource.sessionCloseService, never()).printOpening(any());
+    }
+
+    /**
+     * The lock page names the cause of that refusal rather than showing the
+     * generic credential error: a lane that only answers "identifiants
+     * incorrects" reads as a broken lane, and someone spends the morning on the
+     * credentials.
+     */
+    @Test
+    void theLockPageNamesADeactivatedCheckoutPoint() {
+        AuthResource resource = newResource();
+        TemplateInstance view = stubLock(resource,
+                "CAISSE HORS SERVICE - POINT DE CONTACT DÉSACTIVÉ AU BACK OFFICE");
+        assertSame(view, resource.lockPage("deactivated"));
     }
 }

@@ -54,6 +54,17 @@ class CouponCheckServiceTest {
     /** The service under test. */
     private final CouponCheckService service = new CouponCheckService();
 
+    /**
+     * A register with NO administered checkout point: the island is then found
+     * the old way, by scanning the islands' terminal lists, which is what every
+     * island case below exercises. The point-based path is covered on
+     * {@link CheckoutPointService} itself.
+     */
+    {
+        service.checkoutPointService = mock(CheckoutPointService.class);
+        when(service.checkoutPointService.ownIslandCode()).thenReturn(null);
+    }
+
     /** The day the register is pinned to for every test. */
     private static final LocalDateTime TODAY = LocalDateTime.of(2026, 9, 14, 10, 30);
 

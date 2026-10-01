@@ -365,6 +365,8 @@ public class RefPullService {
                     this.pages(domain, new TypeReference<List<RefPayloads.CouponTypeDto>>() {}));
             case "ISLANDS" -> refApplyService.applyCheckoutIslands(
                     this.pages(domain, new TypeReference<List<RefPayloads.CheckoutIslandDto>>() {}));
+            case "CHECKOUT_POINTS" -> refApplyService.applyCheckoutPoints(
+                    this.pages(domain, new TypeReference<List<RefPayloads.CheckoutPointDto>>() {}));
             case "TENDERS" -> refApplyService.applyTenders(
                     this.pages(domain, new TypeReference<List<RefPayloads.TenderDefinitionDto>>() {}));
             case "DOCUMENT_TEMPLATES" -> refApplyService.applyDocumentTemplates(

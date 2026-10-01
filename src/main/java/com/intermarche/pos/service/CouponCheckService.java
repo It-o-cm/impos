@@ -46,6 +46,10 @@ public class CouponCheckService {
             name = "pos.terminal.id", defaultValue = "POS01")
     String terminalId;
 
+    /** Reads this register's administered checkout point, its island included. */
+    @jakarta.inject.Inject
+    CheckoutPointService checkoutPointService;
+
     /**
      * Runs every control the range administers against a scanned code.
      *
@@ -112,9 +116,18 @@ public class CouponCheckService {
         if (!level.speaks()) {
             return;
         }
-        com.intermarche.pos.domain.store.CheckoutIsland island =
-                com.intermarche.pos.domain.store.CheckoutIsland.findByTerminal(terminalId);
-        if (!type.acceptedOnIsland(island == null ? null : island.code)) {
+        // The island of this register, read FIRST on its administered checkout
+        // point (BO-03-09-05): that is where the attachment now lives. The
+        // reverse scan of every island's semicolon list of terminals stays as a
+        // FALLBACK, for a node that does not serve the checkout points yet — it
+        // is the fallback, not the truth.
+        String islandCode = checkoutPointService.ownIslandCode();
+        if (islandCode == null) {
+            com.intermarche.pos.domain.store.CheckoutIsland island =
+                    com.intermarche.pos.domain.store.CheckoutIsland.findByTerminal(terminalId);
+            islandCode = island == null ? null : island.code;
+        }
+        if (!type.acceptedOnIsland(islandCode)) {
             findings.add(new Finding(CouponControl.Kind.OTHER_ISLAND, level,
                     messageOf(type, CouponControl.Kind.OTHER_ISLAND)));
         }

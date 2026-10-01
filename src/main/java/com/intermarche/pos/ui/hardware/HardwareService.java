@@ -46,6 +46,10 @@ public class HardwareService {
     @Inject
     com.intermarche.pos.ui.PosState state;
 
+    /** Says whether this register is ADMINISTERED with a customer display. */
+    @Inject
+    com.intermarche.pos.service.CheckoutPointService checkoutPointService;
+
     /**
      * How recently the customer screen must have polled its page to count as present.
      * <p>
@@ -147,9 +151,18 @@ public class HardwareService {
         LOGGER.info("Entering method probeDevices");
         Availability scale = probe(() -> hardwareClient.getWeight());
         Availability drawer = probe(() -> hardwareClient.getDrawerStatus());
-        Availability display = customerScreenPresent()
-                ? Availability.AVAILABLE
-                : probe(() -> hardwareClient.setDisplay("BONJOUR"));
+        // BO-03-09-13: a point administered WITHOUT a customer display is not a
+        // point whose display is missing. Probing it would answer FAILED or
+        // ABSENT for a peripheral nobody installed, and the unlock gate would
+        // name it at every prise de poste.
+        Availability display;
+        if (!checkoutPointService.expectsCustomerDisplay()) {
+            display = Availability.ABSENT;
+        } else if (customerScreenPresent()) {
+            display = Availability.AVAILABLE;
+        } else {
+            display = probe(() -> hardwareClient.setDisplay("BONJOUR"));
+        }
         boolean bridgeAnswered = scale != Availability.FAILED
                 || drawer != Availability.FAILED
                 || display != Availability.FAILED;

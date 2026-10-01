@@ -671,6 +671,28 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   que `terminalIds` (ancienne forme) s'applique comme avant ; un snapshot ne portant que
   le rattachement par points de contact (nouvelle forme) attache les mêmes terminaux ; une
   caisse ne perd jamais ses îlots parce que le champ a changé de nom.
+- **L12 Réception du point de contact** (BO-03-09, BO-03-10) : le domaine
+  `CHECKOUT_POINTS` est tiré juste après `ISLANDS` et appliqué par upsert sur
+  l'identifiant du terminal. Un point absent du snapshot est **désactivé et jamais
+  supprimé** ; il se réactive s'il revient. Une ligne sans identifiant, ou à
+  identifiant vide, est ignorée avant toute recherche. Un type de TPV ou d'afficheur
+  que cette caisse ne connaît pas retombe à `null` et non sur une valeur devinée : la
+  colonne dit « le nœud ne l'a pas décrit », ce qui est la vérité.
+- **L13 Ce que le point change à la caisse** (BO-03-09-01/05/13) : point **désactivé**
+  → la prise de poste est refusée avec « CAISSE HORS SERVICE — POINT DE CONTACT
+  DÉSACTIVÉ AU BACK OFFICE », avant même la vérification des identifiants, parce que
+  le refus n'a rien à voir avec qui se présente. Point **absent** (nœud non à jour, ou
+  premier tirage jamais abouti) → la caisse ouvre comme avant : un référentiel qu'on
+  n'a pas reçu n'interdit rien. **Île** lue sur le point pour le contrôle des bons,
+  le balayage inverse de `terminalIds` restant un repli. **Afficheur client déclaré
+  `NONE`** → plus signalé en défaut à la porte, l'afficheur absent n'étant plus un
+  afficheur en panne ; point absent ou type non décrit → afficheur attendu comme
+  avant.
+- **L14 Réglages résolus jusqu'au poste** (BO-03-09, BO-03-10) : une clé posée sur le
+  point de contact d'une seule caisse ne descend que sur elle ; posée sur l'îlot, elle
+  descend sur toutes ses caisses sauf celles qui la surchargent ; deux caisses du même
+  magasin reçoivent des valeurs différentes dans le même cycle — c'est la vérification
+  qui attrape une empreinte SETTINGS partagée entre terminaux.
 
 ## M. Thèmes [S]
 

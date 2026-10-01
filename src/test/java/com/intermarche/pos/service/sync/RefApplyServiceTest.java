@@ -2003,4 +2003,110 @@ class RefApplyServiceTest {
             assertEquals("POS05", created.constructed().get(1).terminalIds);
         }
     }
+
+    /**
+     * {@code applyCheckoutPoints} covers every leg of the apply: the insert arm,
+     * the update arm, the blank-identifier skip, both enumerations resolved by
+     * name and both falling back to null on a value this register does not know,
+     * and the deactivation sweep on an absent point that was active — an absent
+     * point that was already inactive being left alone.
+     */
+    @Test
+    void applyCheckoutPointsInsertsUpdatesSkipsBlankAndDeactivates() {
+        RefApplyService service = new RefApplyService();
+
+        RefPayloads.CheckoutPointDto insert = new RefPayloads.CheckoutPointDto();
+        insert.terminalId = "  POS01  ";
+        insert.pdvNumber = "01234";
+        insert.islandCode = "AVANT";
+        insert.label = "Caisse 1";
+        insert.active = true;
+        insert.tpvType = "SELF_CHECKOUT_TGCS";
+        insert.technicalHostessBadge = "11111111";
+        insert.cashierDisplayType = "TOUCH";
+        insert.cashierDisplayResolution = "1024x768";
+        insert.customerDisplayType = "NONE";
+        insert.menuTemplateCode = "MENU_LS";
+
+        RefPayloads.CheckoutPointDto update = new RefPayloads.CheckoutPointDto();
+        update.terminalId = "POS08";
+        update.active = false;
+        update.tpvType = "UN_TYPE_INCONNU";
+        update.cashierDisplayType = "UN_AFFICHEUR_INCONNU";
+        update.customerDisplayType = null;
+
+        RefPayloads.CheckoutPointDto blank = new RefPayloads.CheckoutPointDto();
+        blank.terminalId = "   ";
+
+        RefPayloads.CheckoutPointDto nullIdentifier = new RefPayloads.CheckoutPointDto();
+        nullIdentifier.terminalId = null;
+
+        com.intermarche.pos.domain.store.CheckoutPoint existing =
+                mock(com.intermarche.pos.domain.store.CheckoutPoint.class);
+        com.intermarche.pos.domain.store.CheckoutPoint seen =
+                mock(com.intermarche.pos.domain.store.CheckoutPoint.class);
+        seen.terminalId = "POS01";
+        seen.active = true;
+        com.intermarche.pos.domain.store.CheckoutPoint absentActive =
+                mock(com.intermarche.pos.domain.store.CheckoutPoint.class);
+        absentActive.terminalId = "POS99";
+        absentActive.active = true;
+        com.intermarche.pos.domain.store.CheckoutPoint absentInactive =
+                mock(com.intermarche.pos.domain.store.CheckoutPoint.class);
+        absentInactive.terminalId = "POS98";
+        absentInactive.active = false;
+
+        PanacheQuery<com.intermarche.pos.domain.store.CheckoutPoint> absentQuery =
+                queryReturning(null);
+        PanacheQuery<com.intermarche.pos.domain.store.CheckoutPoint> existingQuery =
+                queryReturning(existing);
+
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class);
+                MockedConstruction<com.intermarche.pos.domain.store.CheckoutPoint> created =
+                        mockConstruction(com.intermarche.pos.domain.store.CheckoutPoint.class)) {
+            mocked.when(() -> com.intermarche.pos.domain.store.CheckoutPoint
+                    .find("terminalId", "POS01")).thenReturn(absentQuery);
+            mocked.when(() -> com.intermarche.pos.domain.store.CheckoutPoint
+                    .find("terminalId", "POS08")).thenReturn(existingQuery);
+            mocked.when(com.intermarche.pos.domain.store.CheckoutPoint::listAll)
+                    .thenReturn(List.of(seen, absentActive, absentInactive));
+
+            service.applyCheckoutPoints(List.of(insert, update, blank, nullIdentifier));
+
+            // ONE row was created: the blank and the null identifiers were skipped
+            // before the finder was ever consulted.
+            assertEquals(1, created.constructed().size());
+            com.intermarche.pos.domain.store.CheckoutPoint inserted = created.constructed().get(0);
+            assertEquals("POS01", inserted.terminalId);
+            assertEquals("01234", inserted.pdvNumber);
+            assertEquals("AVANT", inserted.islandCode);
+            assertEquals("Caisse 1", inserted.label);
+            assertTrue(inserted.active);
+            assertEquals(com.intermarche.pos.domain.store.TpvType.SELF_CHECKOUT_TGCS,
+                    inserted.tpvType);
+            assertEquals("11111111", inserted.technicalHostessBadge);
+            assertEquals(com.intermarche.pos.domain.store.DisplayType.TOUCH,
+                    inserted.cashierDisplayType);
+            assertEquals("1024x768", inserted.cashierDisplayResolution);
+            assertEquals(com.intermarche.pos.domain.store.DisplayType.NONE,
+                    inserted.customerDisplayType);
+            assertEquals("MENU_LS", inserted.menuTemplateCode);
+            verify(inserted, times(1)).persist();
+
+            // The existing row was updated in place, and the two values this
+            // register does not know fell back to null rather than to a guess.
+            assertFalse(existing.active);
+            assertNull(existing.tpvType);
+            assertNull(existing.cashierDisplayType);
+            assertNull(existing.customerDisplayType);
+            verify(existing, times(1)).persist();
+
+            // The sweep deactivated the absent ACTIVE point and left the absent
+            // inactive one untouched.
+            assertFalse(absentActive.active);
+            verify(absentActive, times(1)).persist();
+            assertFalse(absentInactive.active);
+            verify(absentInactive, never()).persist();
+        }
+    }
 }

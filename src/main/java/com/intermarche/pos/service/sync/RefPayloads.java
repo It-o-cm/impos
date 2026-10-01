@@ -39,7 +39,8 @@ public final class RefPayloads {
      */
     public static final List<String> DOMAINS =
             List.of("ENGINE_FEEDS", "PRODUCTS", "FAMILIES", "TOUCH_GROUPS", "VAT_RATES", "PRICES",
-                    "EMPLOYEES", "COUPON_TYPES", "ARTICLE_RANGES", "ISLANDS", "TENDERS",
+                    "EMPLOYEES", "COUPON_TYPES", "ARTICLE_RANGES", "ISLANDS", "CHECKOUT_POINTS",
+                    "TENDERS",
                     "DOCUMENT_TEMPLATES", "SETTINGS", "CUSTOMERS", "CURRENCIES", "POSTAL_CODES");
 
     /**
@@ -264,6 +265,47 @@ public final class RefPayloads {
         public String code;
         /** The identifier of the register bound to this contact point. */
         public String terminalId;
+    }
+
+    /**
+     * One CHECKOUT POINT of the store (BO-03-09, BO-03-10) — a register as the
+     * back office describes it, with everything a lane cannot know about itself:
+     * its island, its kind, its technical hostess, its two displays, its
+     * cash-menu model, and whether it is in service at all.
+     *
+     * <p>Distinct from {@link ContactPointDto}, which carries nothing but the
+     * attachment of a register to an island inside the ISLANDS payload. This one
+     * is the point itself, pulled as its own domain.
+     *
+     * <p>The enumerations travel by NAME and a null stays null: the register's
+     * own column carries its default, and inventing one here would hide a point
+     * the back office has not finished describing.
+     */
+    public static class CheckoutPointDto {
+        /** The register identifier ({@code pos.terminal.id}), the upsert key. */
+        public String terminalId;
+        /** The point-of-vente number the register belongs to, or null. */
+        public String pdvNumber;
+        /** The code of the island the register belongs to, or null. */
+        public String islandCode;
+        /** The human-readable label given in the back office. */
+        public String label;
+        /** Whether the register is in service (BO-03-09-01). */
+        public boolean active;
+        /** The kind of checkout point (BO-03-09-07), by name. */
+        public String tpvType;
+        /** The badge of the technical hostess (BO-03-09-08), or null. */
+        public String technicalHostessBadge;
+        /** The type of the cashier display (BO-03-09-12), by name. */
+        public String cashierDisplayType;
+        /** The resolution of the cashier display, free text, or null. */
+        public String cashierDisplayResolution;
+        /** The type of the customer display (BO-03-09-13), by name. */
+        public String customerDisplayType;
+        /** The resolution of the customer display, free text, or null. */
+        public String customerDisplayResolution;
+        /** The code of the cash-menu model assigned (BO-03-10-16), or null. */
+        public String menuTemplateCode;
     }
 
     /**
