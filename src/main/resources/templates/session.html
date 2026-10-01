@@ -79,7 +79,11 @@
             <div class="keyboard pos-kb-compact" id="floatKbArea"></div>
             <div class="actions">
               <button type="submit" class="btn btn-success">OUVRIR LA SESSION</button>
-              <a href="/cash-calculator" class="btn btn-muted">CALCULATRICE DE FOND</a>
+              {! Grisee tant qu'aucune session n'est ouverte: la calculatrice de
+               ! fond est derriere le garde de session (SessionCheckFilter ne la
+               ! laisse pas passer), donc l'offrir cliquable ici reviendrait a
+               ! proposer un choix pour le refuser aussitot. !}
+              <button type="button" class="btn btn-muted" disabled>CALCULATRICE DE FOND</button>
             </div>
           </form>
         {/if}

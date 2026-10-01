@@ -1,0 +1,90 @@
+@echo off
+setlocal enabledelayedexpansion
+
+rem ---------------------------------------------------------------------------
+rem  impos - demarrage de la caisse et chargement du catalogue 07039 (Windows).
+rem
+rem  A poser a cote du jar et des donnees :
+rem      caisse.bat
+rem      quarkus-app\          (tout le repertoire, pas seulement quarkus-run.jar)
+rem      demo\feeds\           (les .csv)
+rem
+rem  Usage :
+rem      caisse.bat              demarre, charge le socle puis le catalogue 07039
+rem      caisse.bat -c           demarre et ne recharge que le catalogue 07039
+rem      caisse.bat -n           demarre seulement, sans rien importer
+rem ---------------------------------------------------------------------------
+
+set "POS_HOME=%~dp0"
+set "POS_PORT=8080"
+set "BASE=http://localhost:%POS_PORT%"
+set "FEEDS=%POS_HOME%demo\feeds"
+set "JAR=%POS_HOME%quarkus-app\quarkus-run.jar"
+set "LOG=%POS_HOME%impos.log"
+
+if not exist "%JAR%" echo [ERREUR] Jar introuvable : %JAR% & exit /b 1
+if not exist "%FEEDS%" echo [ERREUR] Donnees introuvables : %FEEDS% & exit /b 1
+where java >nul 2>&1
+if errorlevel 1 echo [ERREUR] Java n'est pas dans le PATH. & exit /b 1
+where curl >nul 2>&1
+if errorlevel 1 echo [ERREUR] curl.exe est absent (Windows 10 1803 ou plus recent). & exit /b 1
+
+rem Le mot de passe cree le premier administrateur sur une base vide, et c'est
+rem lui qui autorise les imports. Le poser dans l'environnement avant d'appeler
+rem ce script evite la saisie.
+if not defined POS_ADMIN_PASSWORD (
+  for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "$s=Read-Host -AsSecureString 'Mot de passe administrateur'; [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))"`) do set "POS_ADMIN_PASSWORD=%%p"
+)
+if not defined POS_ADMIN_PASSWORD echo [ERREUR] Mot de passe vide : personne ne pourra se connecter. & exit /b 1
+
+echo.
+echo Demarrage de la caisse...
+start "impos" /min cmd /c "java -Dpos.scanner.enabled=false -jar ""%JAR%"" > ""%LOG%"" 2>&1"
+
+set /a tries=0
+:wait
+set /a tries+=1
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" --max-time 3 "%BASE%/lock"') do set "code=%%c"
+if "%code%"=="000" (
+  if %tries% geq 30 echo [ERREUR] La caisse ne repond pas apres 60s. Voir %LOG% & exit /b 1
+  timeout /t 2 /nobreak >nul
+  goto wait
+)
+echo La caisse repond ^(HTTP %code%^) sur %BASE%
+echo.
+
+if /i "%~1"=="-n" goto fin
+if /i "%~1"=="-c" goto catalogue
+
+echo Socle...
+call :push employees.csv        EMPLOYEES
+call :push stores.csv           STORES
+call :push store-groups.csv     STORE_GROUPS
+call :push vat-rates.csv        VAT_RATES
+call :push hierarchies.csv      "NOMENCLATURE?scheme=ITM_FR&label=Nomenclature+ITM+France&enseigne=ITM"
+echo.
+
+:catalogue
+echo Catalogue 07039 ^(products-07039.csv fait 7,4 Mo : comptez plusieurs minutes^)...
+call :push egalim-regimes.csv                EGALIM_REGIMES
+call :push products-07039.csv                PRODUCTS
+call :push product-families-07039.csv        FAMILIES
+call :push product-category-storages-07039.csv CATEGORY_STORAGES
+call :push prices-07039.csv                  PRICES
+call :push budget-groups.csv                 BUDGET_GROUPS
+call :push offers-07039.csv                  OFFERS
+
+:fin
+echo.
+echo Caisse : %BASE%
+echo Journal : %LOG%
+endlocal
+exit /b 0
+
+rem --- Pousse un fichier sur /feeds/import/{CODE} et affiche la reponse. ------
+:push
+set "start=%time%"
+<nul set /p "=%~1 "
+curl -s -w " [HTTP %%{http_code}]" -u "admin:%POS_ADMIN_PASSWORD%" -H "Content-Type: text/plain" --data-binary "@%FEEDS%\%~1" "%BASE%/feeds/import/%~2"
+echo.
+goto :eof

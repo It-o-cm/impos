@@ -20,7 +20,8 @@
     .main-area { display: flex; justify-content: center; align-items: center; }
     .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px 40px; width: 34rem; }
     .panel h2 { text-transform: uppercase; margin-bottom: 20px; text-align: center; letter-spacing: 1px; }
-    .lookup { display: flex; gap: 10px; margin-bottom: 20px; }
+    .lookup { display: flex; gap: 10px; margin-bottom: 12px; }
+    .lookup-kb { max-width: 18rem; margin: 0 auto 20px; }
     .lookup input { flex: 1; padding: 12px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
     .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-row); }
     .info-row .label { color: var(--text-muted); }
@@ -40,10 +41,16 @@
     <div class="main-area">
       <div class="panel">
         <h2>Info article (lecture seule)</h2>
+        {! Pave tactile: la borne n'a pas de clavier physique, un <input> libre
+         ! n'y est pas remplissable. L'afficheur est en lecture seule et c'est
+         ! le champ cache qui part dans la requete, comme sur l'ecran de
+         ! recherche produit. !}
         <form class="lookup" method="get" action="/article-info">
-          <input type="text" name="code" value="{code}" placeholder="Scannez ou saisissez un code" autofocus>
+          <input type="text" id="codeDisplay" value="{code}" readonly>
+          <input type="hidden" name="code" id="codeHidden" value="{code}">
           <button type="submit" class="btn btn-primary">CHERCHER</button>
         </form>
+        <div class="lookup-kb pos-kb-compact" id="codeKbArea"></div>
 
         {#if notFound}
           <div class="not-found">ARTICLE INCONNU</div>
@@ -65,8 +72,22 @@
     </div>
   </div>
 
+  {#include keyboard-lib /}
+
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* Un EAN, un PLU ou un code article: des chiffres, donc le pave numerique.
+       La touche CHERCHER du formulaire valide, le pave n'a pas de OK. */
+    PosInput.setup({
+        displayId: 'codeDisplay',
+        hiddenId: 'codeHidden',
+        containerId: 'codeKbArea',
+        keyboardType: 'numpad',
+        mode: 'text',
+        maxLength: 14,
+        initialValue: document.getElementById('codeHidden').value || ''
+    });
   </script>
 </body>
 </html>

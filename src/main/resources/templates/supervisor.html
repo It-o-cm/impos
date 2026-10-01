@@ -92,8 +92,14 @@
              ! accompagne le motif ; chaque bouton motif soumet le formulaire avec le
              ! message éventuellement saisi. !}
             <form method="post" action="/action/supervisor-message" style="display:flex; flex-direction:column; gap:14px; align-items:center;">
-                <input type="text" name="message" id="supMessage" placeholder="Message libre (facultatif)"
+                {! EXP-19: le message etait un <input> libre, donc vide a jamais sur
+                 ! une borne sans clavier. Afficheur en lecture seule, clavier
+                 ! alphabetique compact, et c'est le champ cache qui part avec le
+                 ! motif choisi. !}
+                <input type="text" id="supMessage" placeholder="Message libre (facultatif)" readonly
                        style="width:39rem; padding:12px; font-size:var(--fs-body); background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
+                <input type="hidden" name="message" id="supMessageValue" value="">
+                <div id="supMessageKbArea" class="pos-kb-compact" style="width:39rem;"></div>
                 <div style="display:grid; grid-template-columns:repeat(2, 18.75rem); gap:14px;">
                     {#for reason in serviceReasons}
                     <button type="submit" name="reason" value="{reason}" class="btn btn-warning" style="color:black; height: 5rem; line-height: 3.125rem;">{reason}</button>
@@ -204,8 +210,23 @@
     </div>
 </div>
 
+{#include keyboard-lib /}
+
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* Le message qui accompagne le motif: du texte libre, donc le clavier
+       alphabetique. Il reste facultatif — le motif seul suffit. */
+    PosInput.setup({
+        displayId: 'supMessage',
+        hiddenId: 'supMessageValue',
+        containerId: 'supMessageKbArea',
+        keyboardType: 'searchAlpha',
+        mode: 'text',
+        uppercase: false,
+        maxLength: 120,
+        initialValue: ''
+    });
 </script>
 <script src="/supervisor/health-refresh.js"></script>
 

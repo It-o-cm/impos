@@ -28,6 +28,9 @@
     th { color: var(--text-muted); text-transform: uppercase; font-size: var(--fs-body); }
     .denom-form { display: inline-flex; gap: 6px; align-items: center; }
     .denom-form input { width: 6rem; padding: 6px; font-size: var(--fs-body); background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; text-align: right; }
+    /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
+    .denom-form input.pad-active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
+    .change-kb { max-width: 18rem; margin: 20px auto 0; }
     .val { font-weight: bold; }
     .actions { display: flex; gap: 15px; margin-top: 25px; justify-content: center; }
     .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); margin-bottom: 15px; padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
@@ -64,7 +67,9 @@
                 <form class="denom-form" method="post" action="/action/change-order/entry">
                   <input type="hidden" name="id" value="{denom.id}">
                   <input type="hidden" name="type" value="AMOUNT">
-                  <input type="text" name="value" value="{denom.amount}" inputmode="decimal">
+                  <input type="text" id="dispAmount-{denom.id}" value="{denom.amount}" readonly
+                         onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'decimal')">
+                  <input type="hidden" name="value" id="valAmount-{denom.id}" value="{denom.amount}">
                   <button type="submit" class="btn btn-sm btn-muted">€</button>
                 </form>
               </td>
@@ -73,7 +78,9 @@
                 <form class="denom-form" method="post" action="/action/change-order/entry">
                   <input type="hidden" name="id" value="{denom.id}">
                   <input type="hidden" name="type" value="ROLLS">
-                  <input type="text" name="value" value="{denom.rolls}" inputmode="numeric">
+                  <input type="text" id="dispRolls-{denom.id}" value="{denom.rolls}" readonly
+                         onclick="bindDenom('dispRolls-{denom.id}', 'valRolls-{denom.id}', 'numpad', 'integer')">
+                  <input type="hidden" name="value" id="valRolls-{denom.id}" value="{denom.rolls}">
                   <button type="submit" class="btn btn-sm btn-muted">rl</button>
                 </form>
                 {#else}
@@ -84,6 +91,12 @@
             {/for}
           </tbody>
         </table>
+
+        {! UN seul pave pour toutes les lignes du bordereau: PosInput est un
+         ! singleton, et l'operateur ne dialogue qu'avec une denomination a la
+         ! fois. Un clic sur une case rebranche le pave dessus, la touche € ou
+         ! rl de la ligne poste sa saisie. !}
+        <div class="change-kb pos-kb-compact" id="changeKbArea"></div>
 
         <div class="actions">
           <form method="post" action="/action/change-order/print-empty">
@@ -104,8 +117,30 @@
     </div>
   </div>
 
+  {#include keyboard-lib /}
+
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* Rebranche l'unique pave sur la case touchee: un montant prend le pave
+       decimal, un nombre de rouleaux le pave entier. Ce qui avait deja ete
+       saisi dans la case est restaure dans le tampon. */
+    function bindDenom(displayId, hiddenId, keyboardType, mode) {
+        const hidden = document.getElementById(hiddenId);
+        if (!hidden) { return; }
+        document.querySelectorAll('.denom-form input.pad-active')
+                .forEach(el => el.classList.remove('pad-active'));
+        document.getElementById(displayId).classList.add('pad-active');
+        PosInput.setup({
+            displayId: displayId,
+            hiddenId: hiddenId,
+            containerId: 'changeKbArea',
+            keyboardType: keyboardType,
+            mode: mode,
+            maxLength: 9,
+            initialValue: (hidden.value || '0').replace(',', '.')
+        });
+    }
   </script>
 </body>
 </html>

@@ -41,9 +41,11 @@
 
       .count-item { display: grid; grid-template-columns: 13.75rem 1fr 7.5rem; align-items: center; background: var(--bg-panel); padding: 12px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; transition: 0.1s; }
       .count-item.selected { background: #0d2818; border-color: var(--success); }
+      /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
+      .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
 
       .item-label { font-size: var(--fs-row); font-weight: bold; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .item-qty { text-align: center; font-size: var(--fs-row); color: white; }
+      .item-qty { text-align: center; font-size: var(--fs-row); color: var(--text-main); }
       .item-total { text-align: right; font-size: var(--fs-amount); font-weight: bold; color: var(--success); }
 
       .action-area { display: flex; flex-direction: column; background: var(--bg-inset); padding: 15px; gap: 15px; }
@@ -96,7 +98,10 @@
           {#for pt in paperTenders}
           <div class="paper-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:4px 0;">
             <span style="font-size:var(--fs-row-sub);">{pt.label} <span style="color:var(--text-muted);">(théo. {pt.theoreticalQty})</span></span>
-            <input type="number" class="paper-input" data-code="{pt.code}" data-theo="{pt.theoreticalQty}" min="0" value="{pt.theoreticalQty}"
+            {! Lecture seule et alimente par le pave de l'ecran: un champ nombre
+             ! libre demandait un clavier que la borne n'a pas. !}
+            <input type="text" class="paper-input" id="paper-{pt.code}" data-code="{pt.code}" data-theo="{pt.theoreticalQty}" value="{pt.theoreticalQty}"
+                   readonly onclick="selectPaper(this)"
                    style="width:4.5rem;padding:6px;text-align:right;background:var(--bg-page);color:var(--text-main);border:1px solid var(--border-color);border-radius:4px;">
           </div>
           {/for}
@@ -114,9 +119,10 @@
            the one that goes back read as a refusal of the count. -->
       <a href="/session" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
       <form id="closeForm" method="post" action="/action/session/close" onsubmit="return prepareClose();" style="display:flex; gap:15px; align-items:center;">
-        <label for="withdrawn" style="color: var(--text-muted); font-weight: bold;">PRÉLÈVEMENT €</label>
-        <input type="text" id="withdrawn" name="withdrawn" value="0" inputmode="decimal" autocomplete="off"
+        <label for="withdrawnDisplay" style="color: var(--text-muted); font-weight: bold;">PRÉLÈVEMENT €</label>
+        <input type="text" id="withdrawnDisplay" value="0" readonly onclick="selectWithdrawn()"
                style="width:6.875rem; padding:12px; font-size:var(--fs-field); font-weight:bold; text-align:right; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
+        <input type="hidden" id="withdrawn" name="withdrawn" value="0">
         <input type="hidden" id="counted" name="counted" value="0">
         <input type="hidden" id="detail" name="detail" value="">
         <input type="hidden" id="paperDeclaration" name="paperDeclaration" value="">
@@ -155,6 +161,7 @@
     });
 
     function selectItem(element) {
+      document.querySelectorAll('.pad-active').forEach(el => el.classList.remove('pad-active'));
       if (selectedElement) selectedElement.classList.remove('selected');
       selectedElement = element;
       selectedElement.classList.add('selected');
@@ -212,6 +219,50 @@
         }
       });
       updateGrandTotal();
+    }
+
+    /* Retire la selection de la denomination en cours: le pave passe a un
+       autre champ, et deux cadres actifs a la fois mentent sur ce que les
+       touches vont remplir. */
+    function releaseDenomination() {
+      if (selectedElement) { selectedElement.classList.remove('selected'); }
+      selectedElement = null;
+      document.querySelectorAll('.pad-active').forEach(el => el.classList.remove('pad-active'));
+    }
+
+    /* EXP-83: une quantite de moyen papier se saisit au pave comme une
+       quantite de billets — la borne n'a pas de clavier, et le champ etait
+       jusqu'ici un <input type="number"> libre. */
+    function selectPaper(input) {
+      releaseDenomination();
+      input.classList.add('pad-active');
+      PosInput.setup({
+        containerId: 'numpadArea',
+        displayId: input.id,
+        keyboardType: 'numpad',
+        mode: 'integer',
+        maxLength: 4,
+        placeholder: "0",
+        initialValue: input.value || '0'
+      });
+    }
+
+    /* Le prelevement de cloture: un montant, donc le pave decimal. La valeur
+       postee vient du champ cache, l'afficheur ne fait que la montrer. */
+    function selectWithdrawn() {
+      releaseDenomination();
+      const display = document.getElementById('withdrawnDisplay');
+      display.classList.add('pad-active');
+      PosInput.setup({
+        containerId: 'numpadArea',
+        displayId: 'withdrawnDisplay',
+        hiddenId: 'withdrawn',
+        keyboardType: 'price',
+        mode: 'decimal',
+        maxLength: 9,
+        placeholder: "0,00",
+        initialValue: (document.getElementById('withdrawn').value || '0').replace(',', '.')
+      });
     }
 
     /* Fills the hidden fields (counted total, denominations detail) before

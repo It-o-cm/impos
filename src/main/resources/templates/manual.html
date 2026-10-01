@@ -62,7 +62,7 @@
         }
 
         .grid-btn {
-            background: var(--bg-row); border: 2px solid var(--border-color); color: #ddd; font-size: var(--fs-btn-sm);
+            background: var(--bg-row); border: 2px solid var(--border-color); color: var(--text-main); font-size: var(--fs-btn-sm);
             font-weight: bold; border-radius: 8px; cursor: pointer; text-align: center;
             text-transform: uppercase; transition: 0.2s; display: flex;
             align-items: center; justify-content: center; padding: 6px 5px;
@@ -88,6 +88,12 @@
             font-weight: bold; background: var(--bg-page); border: 2px solid var(--success);
             border-radius: 4px; padding: 8px; flex-shrink: 0;
         }
+
+        /* Les deux cases de la vente au code famille (EXP-24): elles n'avaient
+           aucun style, etant nees en <input> libres. */
+        #formFamily input[type="text"] { font-size: var(--fs-body); text-align: right; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; }
+        /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
+        .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
 
         .numpad-dynamic-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
@@ -148,10 +154,18 @@
                      enregistre « Epicerie 2,35 € » — la famille porte le libellé. -->
                 <form action="/action/manual-add-family" method="POST" id="formFamily"
                       style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+                    {! Les deux cases etaient libres: sur une borne sans clavier, la
+                     ! vente au code famille etait inaccessible. Elles empruntent le
+                     ! pave de l'ecran — un clic le rebranche, un clic sur un produit
+                     ! le rend a la quantite ou au prix. !}
                     <label style="color:var(--text-muted);">FAMILLE</label>
-                    <input type="text" name="familyCode" inputmode="numeric" placeholder="code" style="width:6rem;">
+                    <input type="text" id="dispFamily" placeholder="code" readonly
+                           onclick="bindFamilyField('family')" style="width:6rem;">
+                    <input type="hidden" name="familyCode" id="valFamily" value="">
                     <label style="color:var(--text-muted);">PRIX €</label>
-                    <input type="text" name="price" inputmode="decimal" placeholder="0,00" style="width:7rem;">
+                    <input type="text" id="dispFamilyPrice" placeholder="0,00" readonly
+                           onclick="bindFamilyField('price')" style="width:7rem;">
+                    <input type="hidden" name="price" id="valFamilyPrice" value="">
                     <button type="submit" class="btn btn-success">VALIDER FAMILLE</button>
                 </form>
 
@@ -170,7 +184,39 @@
 <script>
     let isUnknownMode = false;
 
+    /* EXP-24: le code famille puis le prix, chacun avec le pave qui lui va.
+       PosInput ne cable qu'un champ a la fois, donc un clic rebranche. */
+    const FAMILY_FIELDS = {
+        family: { display: 'dispFamily',      hidden: 'valFamily',      type: 'numpad', mode: 'text',    max: 6 },
+        price:  { display: 'dispFamilyPrice', hidden: 'valFamilyPrice', type: 'price',  mode: 'decimal', max: 9 }
+    };
+
+    /* Rebranche le pave sur l'une des deux cases de la vente au code famille,
+       en restaurant ce qui y avait deja ete saisi. */
+    function bindFamilyField(name) {
+        const field = FAMILY_FIELDS[name];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        Object.values(FAMILY_FIELDS).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('pad-active'); }
+        });
+        document.getElementById(field.display).classList.add('pad-active');
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'keyboardArea',
+            keyboardType: field.type,
+            mode: field.mode,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    }
+
     function selectProduct(btn, label, ean) {
+        Object.values(FAMILY_FIELDS).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('pad-active'); }
+        });
         document.querySelectorAll('.grid-btn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
         document.getElementById('flashLabel').classList.remove('show');

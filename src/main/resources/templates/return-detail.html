@@ -75,6 +75,8 @@
     .total-zone { text-align: center; margin-bottom: 10px; }
     .sub-display { font-size: var(--fs-field-num); text-align: center; color: var(--success); font-weight: bold; background: var(--bg-page); border: 2px solid var(--success); border-radius: 6px; padding: 6px; margin-bottom: 5px; width: 100%; outline: none; cursor: pointer; text-decoration: none; display: block;}
     .sub-display.manual { border-color: var(--warning); color: var(--warning); }
+    /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
+    .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
 
     #numpadContainer { width: 100%; margin-bottom: 8px; flex-shrink: 0; min-height: 0; }
 
@@ -87,7 +89,7 @@
     .btn { height: 2.625rem; display: flex; align-items: center; justify-content: center; padding: 0 12px; }
 
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 5rem; }
-    .btn-back { background: var(--bg-row); color: white; padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
+    .btn-back { background: var(--bg-row); color: var(--text-main); padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
 
   </style>
 </head>
@@ -147,7 +149,7 @@
 
               <div class="qty-controls">
                 <a href="/return/line/{line.id}/sub" class="btn-qty {returnQty <= 0 ? 'disabled' : ''}">-</a>
-                <input type="text" class="qty-input-display" id="lineInput-{line.id}" value="{returnQty.stripTrailingZeros().toPlainString()}" readonly>
+                <input type="text" class="qty-input-display" id="lineInput-{line.id}" value="{returnQty.stripTrailingZeros().toPlainString()}" readonly onclick="bindAmountPad()">
                 <a href="/return/line/{line.id}/add" class="btn-qty {returnQty >= maxQty ? 'disabled' : ''}">+</a>
                 <a href="/return/select-line/{line.id}" class="btn-validate-line">✓</a>
               </div>
@@ -192,7 +194,7 @@
           {#else}
           <form action="/return/submit-amount" method="POST" id="activeForm">
             <input type="hidden" name="rawValue" id="hiddenValue" value="0">
-            <input type="text" class="sub-display {state.refund.isEditingAmount ? 'manual' : ''}" id="mainInput" value="{state.refund.totalRefundFormatted}" readonly>
+            <input type="text" class="sub-display {state.refund.isEditingAmount ? 'manual' : ''}" id="mainInput" value="{state.refund.totalRefundFormatted}" readonly onclick="bindAmountPad()">
           </form>
           {/if}
 
@@ -229,16 +231,23 @@
            ! above lets one return be split across several of these means
            ! (LC-05-06-01), leg by leg. !}
           <a href="/return/pay/credit" class="btn btn-info" style="grid-column: 1 / -1;" onclick="return submitAction(this);">CRÉDIT CLIENT{#if state.refund.creditAccountName??} — {state.refund.creditAccountName}{/if}</a>
+          {! Les trois champs de ce panneau etaient libres — numero de compte,
+           ! identifiant et code superviseur — et la borne n'a pas de clavier. Ils
+           ! empruntent desormais le pave du montant: un clic le rebranche sur le
+           ! champ touche, un clic sur le montant le rend au montant. !}
           <form action="/return/credit-account" method="GET" style="grid-column: 1 / -1; display:flex; gap:6px;">
-            <input type="text" name="number" placeholder="N° compte client" value="{state.refund.creditAccountNumber ?: ''}" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;">
+            <input type="text" id="creditNumberDisplay" placeholder="N° compte client" value="{state.refund.creditAccountNumber ?: ''}" readonly onclick="bindTextField('number')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;">
+            <input type="hidden" name="number" id="creditNumberValue" value="{state.refund.creditAccountNumber ?: ''}">
             <button type="submit" class="btn btn-muted">CLIENT</button>
           </form>
           {! EXP-49 : annulation d'un ticket PAYÉ — geste fiscal sous aval
            ! superviseur, laissant deux documents (l'original intact + le reversal).
            ! Distinct d'un retour client : reprend TOUTES les lignes en espèces. !}
           <form action="/return/cancel-paid" method="POST" style="grid-column: 1 / -1; display:flex; gap:6px; border-top:1px solid var(--danger); padding-top:8px; margin-top:4px;">
-            <input type="text" name="supervisor" placeholder="Superviseur" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
-            <input type="password" name="supervisorPassword" placeholder="Code" style="width:6rem; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <input type="text" id="cancelSupervisorDisplay" placeholder="Superviseur" readonly onclick="bindTextField('supervisor')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <input type="hidden" name="supervisor" id="cancelSupervisorValue" value="">
+            <input type="text" id="cancelPasswordDisplay" placeholder="Code" readonly onclick="bindTextField('supervisorPassword')" style="width:6rem; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <input type="hidden" name="supervisorPassword" id="cancelPasswordValue" value="">
             <button type="submit" class="btn btn-danger">ANNULER CE TICKET PAYÉ</button>
           </form>
         </div>
@@ -266,7 +275,10 @@
     return true;
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
+  /* Le pavé de l'écran sert le MONTANT du retour — ou la quantité de la ligne
+     sélectionnée quand il y en a une. C'est la liaison par défaut, et celle que
+     l'on retrouve en touchant le montant. */
+  function bindAmountPad() {
     var selectedId = '{state.refund.selectedLineId}';
 
     var displayId = 'mainInput';
@@ -289,6 +301,7 @@
       }
     }
 
+    clearPadMarks();
     PosInput.setup({
       containerId: 'numpadContainer',
       displayId: displayId,
@@ -298,7 +311,44 @@
       placeholder: '',
       initialValue: initialValue.replace(',', '.')
     });
-  });
+  }
+
+  /* Les trois champs texte du panneau de droite: numéro de compte client,
+     identifiant et code du superviseur qui annule un ticket payé. */
+  var RETURN_TEXT_FIELDS = {
+    number:             { display: 'creditNumberDisplay',     hidden: 'creditNumberValue',     type: 'numpad', mode: 'text', max: 20 },
+    supervisor:         { display: 'cancelSupervisorDisplay', hidden: 'cancelSupervisorValue', type: 'alpha',  mode: 'text', max: 32 },
+    supervisorPassword: { display: 'cancelPasswordDisplay',   hidden: 'cancelPasswordValue',   type: 'numpad', mode: 'pin',  max: 8 }
+  };
+
+  /* Retire le liseré du champ qui tenait le pavé — un seul le porte à la fois. */
+  function clearPadMarks() {
+    Object.keys(RETURN_TEXT_FIELDS).forEach(function (name) {
+      var el = document.getElementById(RETURN_TEXT_FIELDS[name].display);
+      if (el) { el.classList.remove('pad-active'); }
+    });
+  }
+
+  /* Rebranche le pavé sur l'un des trois champs texte, en restaurant ce qui y
+     avait déjà été saisi. */
+  function bindTextField(name) {
+    var field = RETURN_TEXT_FIELDS[name];
+    if (!field || !document.getElementById(field.hidden)) { return; }
+    clearPadMarks();
+    document.getElementById(field.display).classList.add('pad-active');
+    PosInput.setup({
+      containerId: 'numpadContainer',
+      displayId: field.display,
+      hiddenId: field.hidden,
+      keyboardType: field.type,
+      mode: field.mode,
+      uppercase: false,
+      maxLength: field.max,
+      initialValue: document.getElementById(field.hidden).value || ''
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', bindAmountPad);
 </script>
 
 </body>

@@ -32,6 +32,13 @@
                    border: 2px solid var(--border-strong); background: var(--bg-panel);
                    color: var(--text-main); text-align: left; flex-shrink: 0; }
         .keyboard { min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+        /* Le pave a quitte le bloc de l'adresse pour servir les deux champs de
+           la page: ce sont donc les deux formulaires qui cessent de prendre la
+           hauteur, et lui qui la prend. */
+        .main-area > .work { flex: 0 0 auto; }
+        #kbArea { flex: 1; }
+        /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
+        .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
         .actions { display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
         .centered { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 16px; text-align: center; }
 
@@ -70,9 +77,8 @@
             {#if editable}
             <div class="entry">
                 <div class="entry-title">Adresse email</div>
-                <input type="text" id="kbDisplay" class="display" readonly value="{address}">
+                <input type="text" id="kbDisplay" class="display" readonly value="{address}" onclick="activateField('email')">
                 <input type="hidden" id="kbHidden" name="email" value="{address}">
-                <div class="keyboard pos-kb-compact" id="kbArea"></div>
                 <div class="actions">
                     <button class="btn btn-success" type="submit">ENVOYER</button>
                 </div>
@@ -90,13 +96,20 @@
         <form class="work" method="post" action="/ticket-email/sms">
             <div class="entry">
                 <div class="entry-title">Numéro de téléphone (SMS)</div>
-                <input type="text" name="phone" class="display" value="{phone}" placeholder="06 12 34 56 78">
+                <input type="text" id="phoneDisplay" class="display" value="{phone}" placeholder="06 12 34 56 78" readonly onclick="activateField('phone')">
+                <input type="hidden" name="phone" id="phoneHidden" value="{phone}">
                 <div class="actions">
                     <button class="btn btn-primary" type="submit">ENVOYER PAR SMS</button>
                 </div>
                 {#if !smsRelayConfigured}<div class="note">Aucune passerelle SMS configurée : la demande est journalisée, le message ne part pas.</div>{/if}
             </div>
         </form>
+
+        {! UN seul pave pour l'adresse et le numero: PosInput est un singleton,
+         ! et deux paves rendus en meme temps enverraient tous deux leurs
+         ! touches au dernier champ cable. Un clic sur un champ rebranche le
+         ! pave dessus, avec le clavier que ce champ demande. !}
+        <div class="keyboard pos-kb-compact" id="kbArea"></div>
 
     </div>
 
@@ -110,20 +123,37 @@
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
 
-    (function () {
-        const hidden = document.getElementById('kbHidden');
-        if (!hidden) return;
-        PosInput.setup({
-            displayId: 'kbDisplay',
-            hiddenId: 'kbHidden',
-            containerId: 'kbArea',
-            keyboardType: 'email',
-            mode: 'text',
-            uppercase: false,
-            maxLength: 120,
-            initialValue: hidden.value || ''
+    /* Une adresse demande les lettres et l'arobase, un numero de telephone
+       des chiffres: deux claviers, un seul pave. */
+    const MAIL_FIELDS = {
+        email: { display: 'kbDisplay',    hidden: 'kbHidden',    type: 'email',  mode: 'text', max: 120 },
+        phone: { display: 'phoneDisplay', hidden: 'phoneHidden', type: 'numpad', mode: 'text', max: 20 }
+    };
+
+    /* Rebranche le pave sur l'un des deux champs, en restaurant ce qui y avait
+       deja ete saisi. Sans effet sur un champ que la page n'affiche pas: quand
+       l'adresse fidelite n'est pas modifiable, seul le telephone est la. */
+    function activateField(name) {
+        const field = MAIL_FIELDS[name];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        Object.values(MAIL_FIELDS).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('pad-active'); }
         });
-    })();
+        document.getElementById(field.display).classList.add('pad-active');
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'kbArea',
+            keyboardType: field.type,
+            mode: field.mode,
+            uppercase: false,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    }
+
+    activateField(document.getElementById('kbHidden') ? 'email' : 'phone');
 </script>
 </body>
 </html>

@@ -27,7 +27,7 @@
             z-index: 50; border-radius: 10px; gap: 20px;
         }
         .lane-closed-text { font-size: var(--fs-total-xl); color: var(--danger); font-weight: bold; }
-        .lane-closed-sub { color: #ccc; font-size: var(--fs-section); margin-bottom: 20px; }
+        .lane-closed-sub { color: var(--text-muted); font-size: var(--fs-section); margin-bottom: 20px; }
         .lane-closed-btn { padding: 18px 40px; font-size: var(--fs-btn-lg); border-radius: 8px; }
         .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
         /* The popup's opaque half: the glass shows the register behind, this
@@ -118,8 +118,15 @@
                 sa session et son tiroir et changera son code à la reprise (EXP-14).
                 Poste abandonné : le superviseur force la fin de journée (EXP-96).
             </div>
-            <input type="text" id="supLogin" class="resume-display" placeholder="Identifiant superviseur">
-            <input type="password" id="supPass" class="resume-display" placeholder="Code superviseur">
+            {! Les deux champs etaient libres: sur une borne sans clavier, le
+             ! volet superviseur etait decoratif. Ils sont desormais en lecture
+             ! seule et alimentes par le pave ci-dessous, qui se rebranche sur
+             ! le champ touche — PosInput ne cable qu'un champ a la fois. !}
+            <input type="text" id="supLogin" class="resume-display" placeholder="Identifiant superviseur" readonly onclick="activateSup('login')">
+            <input type="hidden" id="supLoginValue" value="">
+            <input type="text" id="supPass" class="resume-display" placeholder="Code superviseur" readonly onclick="activateSup('password')">
+            <input type="hidden" id="supPassValue" value="">
+            <div id="supKeyboardArea" class="pos-kb-compact"></div>
             <form method="POST" action="/action/force-unlock" onsubmit="return fillSup(this)">
                 <input type="hidden" name="supervisor">
                 <input type="hidden" name="supervisorPassword">
@@ -207,11 +214,38 @@
         const s = document.getElementById('supervisorScreen');
         s.style.zIndex = '60';
         s.classList.add('active');
+        activateSup('login');
     }
+    // Chaque champ du volet superviseur dit quel pavé il veut : l'identifiant
+    // se tape en lettres, le code en chiffres et masqué.
+    const SUP_FIELDS = {
+        login:    { display: 'supLogin', hidden: 'supLoginValue', type: 'alpha',  mode: 'text', max: 32 },
+        password: { display: 'supPass',  hidden: 'supPassValue',  type: 'numpad', mode: 'pin',  max: 8 }
+    };
+
+    // Rebranche le pavé du volet superviseur sur l'un de ses deux champs, en
+    // restaurant ce qui y avait déjà été saisi.
+    function activateSup(name) {
+        const field = SUP_FIELDS[name];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'supKeyboardArea',
+            keyboardType: field.type,
+            mode: field.mode,
+            uppercase: false,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    }
+
     // Recopie identifiant et code dans les champs cachés du formulaire soumis.
+    // Les valeurs viennent des champs cachés du pavé et non des afficheurs : le
+    // code y est masqué par des étoiles.
     function fillSup(form) {
-        form.querySelector('input[name=supervisor]').value = document.getElementById('supLogin').value;
-        form.querySelector('input[name=supervisorPassword]').value = document.getElementById('supPass').value;
+        form.querySelector('input[name=supervisor]').value = document.getElementById('supLoginValue').value;
+        form.querySelector('input[name=supervisorPassword]').value = document.getElementById('supPassValue').value;
         return true;
     }
     {/if}

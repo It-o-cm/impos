@@ -227,7 +227,12 @@ public class TicketPrinterService {
             // screens show, built by the shared formatter (euro glyph "E" on paper).
             // Covers the four cases (piece, measure unit, weighed, price-embedded
             // deduced weight); empty — so absent — for a single unit sold by the piece.
-            sb.append(String.format("%-20s%n", label));
+            // The label stands ALONE on its line, so it is NOT padded: the
+            // %-20s it inherited from the old "label + quantity x price" format
+            // left the old column width behind as trailing blanks on a printed
+            // line, and a receipt line that ends in spaces is a receipt line
+            // that differs from itself once trimmed.
+            sb.append(label).append("\n");
             String detail = com.intermarche.pos.ui.ticket.TicketState.detailLineOf(
                     line.quantity, line.unitPrice, line.unitName,
                     line.plu != null && !line.plu.isEmpty(),

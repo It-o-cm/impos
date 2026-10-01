@@ -15,6 +15,13 @@
             --text-muted: #AAAAAA; --primary: #0055FF; --success: #00C853;
             --danger: #D32F2F; --warning: #FF9800; --border-color: #333333;
             --accent: #FFC400; --muted: #555555;
+            /* A GREYED KEY. Tokenized because it is the one button state whose
+               colors cannot be shared by the two themes: a recessed key reads
+               as recessed by being DARKER than its screen in the dark theme and
+               LIGHTER in the light one. Hardcoded dark values put white-ish
+               text on a pale box in the light theme, where nothing could be
+               read. */
+            --btn-disabled-bg: #333333; --btn-disabled-text: #666666;
             /* Structural tokens (historical hardcoded values, tokenized for
                theming): page letterbox, inset wells/rows, strong borders. */
             --bg-page: #000000; --bg-inset: #181818; --bg-row: #222222;
@@ -67,6 +74,10 @@
             --text-muted: #666666; --primary: #0044CC; --success: #00933F;
             --danger: #C62828; --warning: #E65100; --border-color: #CCCCCC;
             --accent: #F9A825; --muted: #DDDDDD;
+            /* Black on light grey: in the light theme a greyed key is a key
+               one can still READ, set back by its flat relief and its cursor,
+               never by an unreadable label. */
+            --btn-disabled-bg: #CFCFCF; --btn-disabled-text: #333333;
             --bg-page: #E4E4E4; --bg-inset: #F7F7F7; --bg-row: #ECECEC;
             --border-strong: #BBBBBB;
             --scrim: rgba(0, 0, 0, 0.35);
@@ -175,7 +186,7 @@
         .btn-lg { padding: 18px 15px; font-size: var(--fs-btn-lg); }
         .btn-sm { padding: 8px 14px; font-size: var(--fs-btn-sm); box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
         .btn-sm:active { transform: translateY(3px); box-shadow: none; }
-        .btn:disabled { background-color: #333 !important; color: #666 !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+        .btn:disabled { background-color: var(--btn-disabled-bg) !important; color: var(--btn-disabled-text) !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
         /* Button colors: SEMANTIC and central. The strong variants keep
            their meaning across themes (a danger button is red everywhere —

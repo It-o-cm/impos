@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.people.Employee;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -126,8 +127,16 @@ public class CashSession extends BaseEntity {
      * True when this close was a FLOATING no-count evening (EXP-95): the bills
      * above the initial float were withdrawn and NO variance was arbitrated. A
      * variance of zero here means "not counted", not "counted exact".
+     *
+     * <p>NOT NULL with a DDL default, and both halves are needed: the field is
+     * a primitive, so Hibernate throws a PropertyAccessException the moment it
+     * reads a null out of this column, and adding a plain nullable column to a
+     * FILE database leaves exactly that null on every row written before the
+     * column existed. The default makes the {@code ALTER TABLE ADD COLUMN} of
+     * an incremental schema update fill those rows with false instead.
      */
-    @Column(name = "floating_no_count")
+    @Column(name = "floating_no_count", nullable = false)
+    @ColumnDefault("false")
     public boolean floatingNoCount = false;
 
     /**

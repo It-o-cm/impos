@@ -27,6 +27,8 @@
     .sup-form { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; width: 28rem; }
     .sup-form h2 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
     .sup-form input { padding: 10px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
+    .sup-form input.active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
+    .sup-kb { max-width: 26rem; margin: 0 auto; }
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -45,13 +47,51 @@
       <div class="exits">
         <a href="/cash-count" class="btn btn-warning" style="width:14rem;">RECOMPTER</a>
       </div>
+      {! Les deux champs etaient libres et la borne n'a pas de clavier: l'aval
+       ! superviseur, seule autre issue que le recomptage, etait inatteignable.
+       ! Un seul pave, rebranche sur le champ touche. !}
       <form class="sup-form" method="post" action="/action/session/close-endorsed">
         <h2>Validation superviseur</h2>
-        <input type="text" name="supervisor" placeholder="Identifiant superviseur" autocomplete="off">
-        <input type="password" name="supervisorPassword" placeholder="Code superviseur" autocomplete="off">
+        <input type="text" id="dispSupervisor" placeholder="Identifiant superviseur" readonly onclick="activateField('supervisor')">
+        <input type="hidden" name="supervisor" id="valSupervisor" value="">
+        <input type="text" id="dispSupervisorPin" placeholder="Code superviseur" readonly onclick="activateField('supervisorPin')">
+        <input type="hidden" name="supervisorPassword" id="valSupervisorPin" value="">
+        <div class="sup-kb pos-kb-compact" id="varianceKbArea"></div>
         <button type="submit" class="btn btn-danger">VALIDER L'ÉCART ET CLÔTURER</button>
       </form>
     </div>
   </div>
+
+  {#include keyboard-lib /}
+
+  <script>
+    /* L'identifiant se tape en lettres, le code en chiffres et masque. */
+    const VARIANCE_FIELDS = {
+        supervisor:    { display: 'dispSupervisor',    hidden: 'valSupervisor',    type: 'alpha',  mode: 'text', max: 32 },
+        supervisorPin: { display: 'dispSupervisorPin', hidden: 'valSupervisorPin', type: 'numpad', mode: 'pin',  max: 8 }
+    };
+
+    function activateField(name) {
+        const field = VARIANCE_FIELDS[name];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        Object.values(VARIANCE_FIELDS).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('active'); }
+        });
+        document.getElementById(field.display).classList.add('active');
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'varianceKbArea',
+            keyboardType: field.type,
+            mode: field.mode,
+            uppercase: false,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    }
+
+    activateField('supervisor');
+  </script>
 </body>
 </html>

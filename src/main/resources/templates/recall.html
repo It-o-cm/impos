@@ -26,6 +26,8 @@
     .card h3 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
     .row { display: flex; gap: 10px; align-items: center; }
     .row input { flex: 1; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; padding: 10px 12px; }
+    .row input.active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
+    .recall-kb { max-width: 30rem; margin: 0 auto; }
     .error-box { background: rgba(211, 47, 47, 0.15); border: 1px solid var(--danger); color: var(--danger); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
     .ok-box { background: rgba(56, 142, 60, 0.15); border: 1px solid var(--success); color: var(--success); padding: 10px; font-weight: bold; text-align: center; border-radius: 6px; }
   </style>
@@ -45,7 +47,8 @@
         <div class="card">
           <h3>Devis, commande, bon de vente, click &amp; collect</h3>
           <form class="row" method="post" action="/action/recall">
-            <input type="text" name="code" placeholder="Code du document" autofocus>
+            <input type="text" id="dispCode" placeholder="Code du document" readonly onclick="activateField('code')">
+            <input type="hidden" name="code" id="valCode" value="">
             <button type="submit" class="btn btn-primary">RAPPELER</button>
           </form>
         </div>
@@ -53,21 +56,63 @@
         <div class="card">
           <h3>Acompte sur commande</h3>
           <form method="post" action="/action/recall/acompte">
-            <div class="row"><input type="text" name="orderReference" placeholder="N° commande"></div>
             <div class="row">
-              <input type="text" name="amount" placeholder="Montant €">
+              <input type="text" id="dispOrder" placeholder="N° commande" readonly onclick="activateField('order')">
+              <input type="hidden" name="orderReference" id="valOrder" value="">
+            </div>
+            <div class="row">
+              <input type="text" id="dispAmount" placeholder="Montant €" readonly onclick="activateField('amount')">
+              <input type="hidden" name="amount" id="valAmount" value="">
               <button type="submit" class="btn btn-success">ENREGISTRER L'ACOMPTE</button>
             </div>
           </form>
         </div>
+        {! UN seul pave pour les trois champs: PosInput est un singleton et
+         ! l'operateur n'en remplit qu'un a la fois. Un clic sur un champ
+         ! rebranche le pave dessus en restaurant ce qui y avait ete saisi —
+         ! meme geste que l'ecran de fermeture de caisse. !}
+        <div class="recall-kb pos-kb-compact" id="recallKbArea"></div>
       </div>
     </div>
     <div class="bottom-nav">
       <a class="btn btn-muted" href="/" style="width: 11.25rem;">RETOUR</a>
     </div>
   </div>
+
+  {#include keyboard-lib /}
+
   <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* Les codes de document et les references de commande sont alphanumeriques
+       — ils viennent du back office —, l'acompte est un montant. */
+    const RECALL_FIELDS = {
+        code:   { display: 'dispCode',   hidden: 'valCode',   type: 'searchAlpha', mode: 'text',    max: 30 },
+        order:  { display: 'dispOrder',  hidden: 'valOrder',  type: 'searchAlpha', mode: 'text',    max: 30 },
+        amount: { display: 'dispAmount', hidden: 'valAmount', type: 'price',       mode: 'decimal', max: 10 }
+    };
+
+    function activateField(name) {
+        const field = RECALL_FIELDS[name];
+        if (!field || !document.getElementById(field.hidden)) { return; }
+        Object.values(RECALL_FIELDS).forEach(f => {
+            const el = document.getElementById(f.display);
+            if (el) { el.classList.remove('active'); }
+        });
+        document.getElementById(field.display).classList.add('active');
+        PosInput.setup({
+            displayId: field.display,
+            hiddenId: field.hidden,
+            containerId: 'recallKbArea',
+            keyboardType: field.type,
+            mode: field.mode,
+            uppercase: false,
+            maxLength: field.max,
+            initialValue: document.getElementById(field.hidden).value || ''
+        });
+    }
+
+    activateField('code');
   </script>
 </body>
 </html>

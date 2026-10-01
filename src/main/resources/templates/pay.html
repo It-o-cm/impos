@@ -13,7 +13,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paiement</title>
+    <title>Règlement</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -29,7 +29,13 @@
         .main-area { display: grid; grid-template-columns: 1.5fr 1fr; background-color: var(--bg-dark); }
 
         /* Overlay Paiement */
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
+        /* Arrete a 5rem du bas, la hauteur exacte de la troisieme rangee
+           de .pos-terminal: la bande du bas porte ANNULER et ANNULER
+           TICKET, et un overlay descendant a 0 les recouvrait. Les
+           attentes cheque et carte, elles, couvrent bien toute la page
+           (.pos-glass, z-index 80): on n'abandonne pas un ticket pendant
+           que le TPE parle. */
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 5rem; background: var(--scrim); -webkit-backdrop-filter: blur(var(--scrim-blur)); backdrop-filter: blur(var(--scrim-blur)); display: none; flex-direction: column; z-index: 10; border-radius: 10px; padding: 10px; overflow-y: auto; }
         /* The popup's opaque half: the glass shows the register behind, this
            carries what is being asked. HEIGHT-NEUTRAL on purpose — glass ring
            10 + border 2 + padding 8 restores exactly the 20 px the overlay used
@@ -183,7 +189,7 @@
         <div class="pay-content">
 
             <div class="pay-top-row">
-                <div class="overlay-title">Mode de paiement</div>
+                <div class="overlay-title">Règlement</div>
                 <div class="total-display">
                     <div class="total-label">RESTANT DU</div>
                     <div class="total-amount">{state.remainingFormatted} €</div>
@@ -559,7 +565,13 @@
                 {#else}
                 <form action="/action/backup-scan" method="POST" style="display:flex; flex-direction:column; gap:8px;">
                     <div class="pos-label">Code de retour du terminal mobile</div>
-                    <input type="text" name="payload" class="sub-display" placeholder="Scannez le code de retour" autocomplete="off" autofocus>
+                    {! Le code se lit a la douchette, mais il doit aussi pouvoir se
+                     ! taper quand elle ne le lit pas — c'est le cas meme que ce
+                     ! panneau existe pour traiter. Un <input> libre ne le permettait
+                     ! pas sur une borne sans clavier. !}
+                    <input type="text" id="backupScanDisplay" class="sub-display" placeholder="Scannez ou saisissez le code" readonly onclick="payBindPad('backupScan', 'payload')">
+                    <input type="hidden" name="payload" id="backupScanValue" value="">
+                    <div id="backupScanKeypad" class="pos-kb-compact"></div>
                     <button type="submit" class="btn btn-success">VALIDER LE RETOUR</button>
                 </form>
                 <form action="/action/backup-manual" method="POST">
@@ -987,6 +999,12 @@
                 password: { display: 'creditPasswordDisplay', hidden: 'creditPasswordValue', type: 'numpad', mode: 'pin',  max: 8 }
             }
         },
+        backupScan: {
+            container: 'backupScanKeypad',
+            fields: {
+                payload: { display: 'backupScanDisplay', hidden: 'backupScanValue', type: 'searchAlpha', mode: 'text', max: 64 }
+            }
+        },
         creditLookup: {
             container: 'creditLookupKeypad',
             fields: {
@@ -1042,6 +1060,7 @@
         if (document.getElementById('tenderKeypad')) { payBindPad('tender', 'login'); }
         if (document.getElementById('creditAuthKeypad')) { payBindPad('creditAuth', 'login'); }
         if (document.getElementById('creditLookupKeypad')) { payBindPad('creditLookup', 'number'); }
+        if (document.getElementById('backupScanKeypad')) { payBindPad('backupScan', 'payload'); }
     })();
 
     /*

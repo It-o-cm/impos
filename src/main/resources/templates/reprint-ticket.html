@@ -54,6 +54,17 @@
             display: flex; justify-content: center; align-items: center; padding: 0 20px;
         }
 
+        /* LE PAVE DE RECHERCHE, en panneau flottant et non dans le flux.
+           L'ecran montre six tickets et sa liste est en overflow hidden: un
+           pave pose au-dessus d'elle mangeait les deux dernieres lignes sur une
+           dalle 800x600. Il s'ouvre au doigt sur le champ, se referme sur
+           FERMER, et ne coute rien quand il est ferme. */
+        .search-pad { display: none; position: absolute; top: 10.5rem; right: 12px; z-index: 30; width: 15rem; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 10px; padding: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.55); }
+        .search-pad.open { display: block; }
+        .search-pad .btn { width: 100%; margin-top: 8px; }
+        .search-display { flex: 1; padding: 10px; font-size: var(--fs-body); background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
+        .search-display.pad-active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
+
     </style>
 </head>
 <body data-theme="{posTheme}">
@@ -72,8 +83,9 @@
         <!-- EXP-47 : recherche par numéro, date (jj/mm/aaaa) ou montant (0,00) —
              le moteur de recherche partagé avec le retour. -->
         <form method="post" action="/reprint/search" style="display:flex; gap:8px; padding:8px 12px;">
-            <input type="text" name="pattern" placeholder="N° ticket, date jj/mm/aaaa ou montant"
-                   style="flex:1; padding:10px; font-size:var(--fs-body); background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;">
+            <input type="text" id="patternDisplay" class="search-display" placeholder="N° ticket, date jj/mm/aaaa ou montant"
+                   readonly onclick="openSearchPad()">
+            <input type="hidden" name="pattern" id="patternHidden" value="">
             <button type="submit" class="btn btn-primary">RECHERCHER</button>
         </form>
 
@@ -116,10 +128,39 @@
         <a href="/" class="btn btn-muted">RETOUR</a>
         <a href="/reprint/foreign" class="btn btn-muted">TICKET D'UNE AUTRE CAISSE</a>
     </div>
+
+    <div class="search-pad" id="searchPad">
+        <div id="searchPadArea" class="pos-kb-compact"></div>
+        <button type="button" class="btn btn-sm btn-muted" onclick="closeSearchPad()">FERMER</button>
+    </div>
 </div>
+
+{#include keyboard-lib /}
 
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* EXP-47: le meme motif sert un numero, une date jj/mm/aaaa et un montant,
+       d'ou le pave qui porte la barre et la virgule — sans elles, deux des
+       trois formes de recherche etaient intapables sur une borne. */
+    function openSearchPad() {
+        document.getElementById('searchPad').classList.add('open');
+        document.getElementById('patternDisplay').classList.add('pad-active');
+        PosInput.setup({
+            displayId: 'patternDisplay',
+            hiddenId: 'patternHidden',
+            containerId: 'searchPadArea',
+            keyboardType: 'ticketSearch',
+            mode: 'text',
+            maxLength: 20,
+            initialValue: document.getElementById('patternHidden').value || ''
+        });
+    }
+
+    function closeSearchPad() {
+        document.getElementById('searchPad').classList.remove('open');
+        document.getElementById('patternDisplay').classList.remove('pad-active');
+    }
 </script>
 </body>
 </html>
