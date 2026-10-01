@@ -178,6 +178,45 @@ class EndorsementServiceTest {
     }
 
     /**
+     * The FOUR-ARGUMENT {@code requestAuthorization()} parks the gesture's whole
+     * form and the path to land on, then touches the POS state.
+     *
+     * <p>A different method from the two-argument one, and tested on its own: it
+     * is what lets the drawer screens use the shared modal instead of their own
+     * badge and PIN boxes, and the form it parks is what the dispatch replays
+     * once a manager credential passes. A test on the short overload proves
+     * nothing about the fields this one carries.
+     */
+    @Test
+    void requestAuthorizationWithAFormParksTheGestureAndTouches() {
+        EndorsementService service = newService();
+        PosState state = mock(PosState.class);
+        state.endorsement = mock(EndorsementState.class);
+        java.util.Map<String, String> form = new java.util.HashMap<>();
+        form.put("amount", "25.00");
+        form.put("reason", "FOND DE CAISSE");
+        service.requestAuthorization(state, "CASH_WITHDRAWAL", form, "/withdrawal");
+        verify(state.endorsement).request("CASH_WITHDRAWAL", form, "/withdrawal");
+        verify(state).touch();
+    }
+
+    /**
+     * An EMPTY form and a null return path are handed on as they stand: it is the
+     * endorsement state, not this service, that decides what an empty parked
+     * gesture replays to.
+     */
+    @Test
+    void requestAuthorizationWithAnEmptyFormPassesItThrough() {
+        EndorsementService service = newService();
+        PosState state = mock(PosState.class);
+        state.endorsement = mock(EndorsementState.class);
+        java.util.Map<String, String> empty = new java.util.HashMap<>();
+        service.requestAuthorization(state, "DRAWER_OPEN", empty, null);
+        verify(state.endorsement).request("DRAWER_OPEN", empty, null);
+        verify(state).touch();
+    }
+
+    /**
      * {@code requestPriceModification()} opens the price-modification request on
      * the endorsement state and touches the POS state.
      */

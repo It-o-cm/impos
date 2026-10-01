@@ -229,4 +229,24 @@ class PostalCodeCsvResourceTest {
             assertEquals("FR", managed.country);
         }
     }
+
+    /**
+     * The public entry point delegates to the base import with the CODE key and
+     * the PLACE required column: an empty stream carries no header and no row, so
+     * it imports nothing and answers a 200 with zero counts.
+     *
+     * <p>Thin as it is, the method is the ONLY door the feed goes through, and
+     * what it hands the base import — which column is the key, which ones are
+     * required — is a contract: swapping the two arguments compiles and breaks
+     * every import of this referential.
+     */
+    @Test
+    void importPostalCodesDelegatesToTheBaseImport() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            java.io.InputStream stream = new java.io.ByteArrayInputStream(new byte[0]);
+            jakarta.ws.rs.core.Response response = resource.importPostalCodes(stream);
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+        }
+    }
 }

@@ -893,4 +893,31 @@ class PosStateTest {
         assertEquals("Info magasin", state.backOfficeMessage);
         assertNotNull(state.backOfficeSurvey);
     }
+
+    // --- PendingClose.getVarianceFormatted ---
+
+    /**
+     * {@code PendingClose.getVarianceFormatted()} (EXP-82) renders the variance
+     * the French way: two decimals, a comma, HALF_UP rounding — and ZERO for an
+     * absent variance rather than a crash on the arbitration screen.
+     *
+     * <p>Four behaviours in one line, which is why "it is only a getter" is not a
+     * reason: null folding, scale, rounding and the decimal separator.
+     */
+    @Test
+    void pendingCloseFormatsTheVarianceTheFrenchWay() {
+        assertEquals("0,00", new PosState.PendingClose(
+                null, null, null, null, null).getVarianceFormatted());
+        assertEquals("12,34", new PosState.PendingClose(
+                null, null, null, null, new java.math.BigDecimal("12.34")).getVarianceFormatted());
+        // Scale: a bare integer is still printed with its two decimals.
+        assertEquals("5,00", new PosState.PendingClose(
+                null, null, null, null, new java.math.BigDecimal("5")).getVarianceFormatted());
+        // HALF_UP, and not the banker's rounding of a plain format.
+        assertEquals("2,35", new PosState.PendingClose(
+                null, null, null, null, new java.math.BigDecimal("2.345")).getVarianceFormatted());
+        // A negative variance keeps its sign: a drawer short is not a drawer over.
+        assertEquals("-3,20", new PosState.PendingClose(
+                null, null, null, null, new java.math.BigDecimal("-3.20")).getVarianceFormatted());
+    }
 }

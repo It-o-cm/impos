@@ -1652,4 +1652,81 @@ class PosSettingsServiceTest {
             assertEquals("PER_TICKET", new PosSettingsService().endorsementScope());
         }
     }
+
+    /**
+     * {@code saleLineWarningThreshold} (BO-10) returns the catalog default and a
+     * stored override — both arms.
+     *
+     * <p>Tested on a REAL instance and not through a stub: eleven test lines
+     * elsewhere stub this accessor to drive their own subject, which covers those
+     * callers and never this method. A wrong catalog key compiles, returns the
+     * wrong value and warns the cashier about the wrong price.
+     */
+    @Test
+    void saleLineWarningThresholdReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(new java.math.BigDecimal("10.00"),
+                    new PosSettingsService().saleLineWarningThreshold());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("sale.line-warning-threshold", "25.50")));
+            assertEquals(new java.math.BigDecimal("25.50"),
+                    new PosSettingsService().saleLineWarningThreshold());
+        }
+    }
+
+    /**
+     * {@code fidelityProjectedLabel} (BO-03-03-31) returns the catalog default
+     * and a stored override — both arms.
+     */
+    @Test
+    void fidelityProjectedLabelReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("CAGNOTTE PREVISIONNELLE",
+                    new PosSettingsService().fidelityProjectedLabel());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("fidelity.projected-label", "VOTRE CAGNOTTE")));
+            assertEquals("VOTRE CAGNOTTE", new PosSettingsService().fidelityProjectedLabel());
+        }
+    }
+
+    /**
+     * {@code fidelityAnonymousProjection} (BO-03-03-28) is OFF by default and
+     * reads a stored activation — both arms.
+     */
+    @Test
+    void fidelityAnonymousProjectionReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(new PosSettingsService().fidelityAnonymousProjection());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("fidelity.anonymous-projection", "true")));
+            assertTrue(new PosSettingsService().fidelityAnonymousProjection());
+        }
+    }
+
+    /**
+     * {@code sogecBonPrefixes} (EXP-58) is EMPTY by default — no SOGEC voucher is
+     * recognised until the shop administers a prefix — and returns the stored
+     * list otherwise. Both arms.
+     */
+    @Test
+    void sogecBonPrefixesReadsAdministeredValue() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("", new PosSettingsService().sogecBonPrefixes());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("sogec.bon-prefixes", "0300;0301")));
+            assertEquals("0300;0301", new PosSettingsService().sogecBonPrefixes());
+        }
+    }
 }

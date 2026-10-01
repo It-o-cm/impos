@@ -362,4 +362,24 @@ class VatRateCsvResourceTest {
     void importerNamesTheVatEngineFeed() {
         assertEquals("VAT_RATES", resource.feedCode());
     }
+
+    /**
+     * The public entry point delegates to the base import with the VAT-NUMBER key
+     * and the required columns: an empty stream carries no header and no row, so
+     * it imports nothing and answers a 200 with zero counts.
+     *
+     * <p>One line, and still the only door the VAT feed goes through. What it
+     * hands the base import — which column is the key, which ones are required —
+     * is a contract: swapping the two arguments compiles and breaks every import
+     * of the rates the whole ticket is computed with.
+     */
+    @Test
+    void importVatRatesDelegatesToTheBaseImport() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            java.io.InputStream stream = new java.io.ByteArrayInputStream(new byte[0]);
+            jakarta.ws.rs.core.Response response = resource.importVatRates(stream);
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+        }
+    }
 }

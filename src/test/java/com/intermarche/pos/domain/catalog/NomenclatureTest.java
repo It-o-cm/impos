@@ -259,4 +259,25 @@ class NomenclatureTest {
             assertNull(itm.parentCodeOf("10203040"));
         }
     }
+
+    /**
+     * {@code listAllOrdered()} lists every scheme IN CODE ORDER, the inactive
+     * ones included — the back-office screen must show a scheme it can reactivate,
+     * and a finder that hid them would make it unreachable.
+     */
+    @Test
+    void listAllOrderedListsEverySchemeInCodeOrder() {
+        Nomenclature itm = new Nomenclature();
+        itm.code = "ITM_FR";
+        Nomenclature brico = new Nomenclature();
+        brico.code = "BRICO_FR";
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> PanacheEntityBase.list("order by code"))
+                    .thenReturn(List.of(brico, itm));
+            List<Nomenclature> all = Nomenclature.listAllOrdered();
+            assertEquals(2, all.size());
+            assertSame(brico, all.get(0));
+            assertSame(itm, all.get(1));
+        }
+    }
 }

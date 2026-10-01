@@ -440,4 +440,19 @@ class EgalimRegimeCsvResourceTest {
         assertEquals("EGAlim regime code is mandatory.", thrown.getMessage());
         assertInstanceOf(IllegalArgumentException.class, thrown);
     }
+
+    /**
+     * The public entry point delegates to the base import with the CODE key and
+     * the required columns: an empty stream carries no header and no row, so it
+     * imports nothing and answers a 200 with zero counts.
+     */
+    @Test
+    void importEgalimRegimesDelegatesToTheBaseImport() {
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            java.io.InputStream stream = new java.io.ByteArrayInputStream(new byte[0]);
+            jakarta.ws.rs.core.Response response = resource.importEgalimRegimes(stream);
+            assertEquals(200, response.getStatus());
+            assertEquals("{\"createdCount\":0, \"updatedCount\":0}", response.getEntity());
+        }
+    }
 }

@@ -564,4 +564,32 @@ class ReprintResourceTest {
         assertSame(foreignView, resource.printForeign("C03-000042"));
         verify(resource.reprintService).printForeign("C03-000042");
     }
+
+    // --- searchReprint ---
+
+    /**
+     * {@code searchReprint(pattern)} (EXP-47) hands the pattern to the search
+     * engine and renders the list page — the ONLY path by which a number, a date
+     * or an amount reaches that engine.
+     */
+    @Test
+    void searchReprintDelegatesAndRendersTheList() {
+        ReprintResource resource = newResource();
+        TemplateInstance listView = stubList(resource);
+        assertSame(listView, resource.searchReprint("17/03/2026"));
+        verify(resource.reprintService).search("17/03/2026");
+    }
+
+    /**
+     * A null pattern — an empty field posted by the form — is handed on as it
+     * stands: it is the engine, and not the screen, that decides a pattern too
+     * short to search returns nothing.
+     */
+    @Test
+    void searchReprintPassesANullPatternThrough() {
+        ReprintResource resource = newResource();
+        TemplateInstance listView = stubList(resource);
+        assertSame(listView, resource.searchReprint(null));
+        verify(resource.reprintService).search(null);
+    }
 }
