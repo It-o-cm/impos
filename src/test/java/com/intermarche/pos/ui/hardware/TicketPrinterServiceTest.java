@@ -3938,4 +3938,433 @@ class TicketPrinterServiceTest {
         }
     }
 
+    // --------------------------------------------------
+    // Campaign 2 — branches the retours/langue lots added
+    // --------------------------------------------------
+
+    /**
+     * Covers both PLU legs of the decomposition sub-line argument (line 238):
+     * a line whose {@code plu} is non-null and non-empty reaches the true leg of
+     * {@code plu != null} and the false leg of {@code isEmpty()}, a line whose
+     * {@code plu} is the empty string reaches the true leg of {@code isEmpty()},
+     * and a line whose {@code plu} is null reaches the false leg of
+     * {@code plu != null} — the three outcomes that drive the price-embedded flag
+     * handed to {@code detailLineOf}.
+     */
+    @Test
+    void printTicketEvaluatesEveryPluLegOfTheDecompositionLine() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        TicketLine withPlu = line("U1", "POMMES", "1.250", "2.00", "2.50");
+        withPlu.plu = "0471";
+        withPlu.unitName = "kg";
+        TicketLine emptyPlu = line("U2", "PAIN", "1", "1.00", "1.00");
+        emptyPlu.plu = "";
+        TicketLine nullPlu = line("U3", "LAIT", "1", "1.00", "1.00");
+        nullPlu.plu = null;
+        ticket.lines.add(withPlu);
+        ticket.lines.add(emptyPlu);
+        ticket.lines.add(nullPlu);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("POMMES"));
+            assertTrue(out.contains("PAIN"));
+            assertTrue(out.contains("LAIT"));
+        }
+    }
+
+    /**
+     * Covers the true arm of the SOUS-TOTAL marker guard (line 282): a line that
+     * carries a {@code subtotalBoundary} prints the running sub-total since the
+     * previous marker, the EXP-43 boundary the unmarked tickets never reach.
+     */
+    @Test
+    void printTicketPrintsTheSubtotalMarker() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        TicketLine first = line("U1", "PAIN", "1", "2.00", "2.00");
+        first.subtotalBoundary = true;
+        ticket.lines.add(first);
+        ticket.lines.add(line("U2", "LAIT", "1", "1.00", "1.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("SOUS-TOTAL"));
+            assertTrue(out.contains("2,00 E"));
+        }
+    }
+
+    /**
+     * Covers the two true legs of the footer-message guard (line 419): an engine
+     * message whose text is null and one whose text is blank are both skipped by
+     * the {@code text == null || text.isBlank()} continue, so neither reaches the
+     * wrapping below — the arms the retained message (text present) leaves
+     * uncovered. The courtesy line still prints, proving the loop ran through.
+     */
+    @Test
+    void printTicketSkipsNullAndBlankFooterMessages() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.messages = new ArrayList<>(List.of(
+                new com.intermarche.pos.domain.sale.TicketMessage("A", null, "FOOTER"),
+                new com.intermarche.pos.domain.sale.TicketMessage("B", "   ", "FOOTER")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("MERCI DE VOTRE VISITE"));
+        }
+    }
+
+    /**
+     * Covers the null arm of the fidelity-lines guard in
+     * {@code appendFidelityAdvantages} (line 738): a sale whose projection prints
+     * but whose {@code fidelityLines} collection is null resolves the
+     * {@code fidelityLines == null ? List.of() : fidelityLines} ternary to the
+     * empty-list leg, so the advantage block renders its header and nothing more.
+     */
+    @Test
+    void printTicketRendersTheProjectionWithNullFidelityLines() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityCard = "2990000000019";
+        ticket.fidelityEarnTotal = new BigDecimal("1.00");
+        ticket.fidelityLines = null;
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("CAGNOTTE DU JOUR"));
+            assertTrue(out.contains("+1,00 E"));
+        }
+    }
+
+    /**
+     * Covers the typed-advantage grouping of {@code appendFidelityAdvantages}
+     * (lines 758, 769, 789 and the untyped append): a sale carrying a typed group
+     * with a label and an order (header non-null, order non-null), a typed group
+     * with neither (header null falls back to the key, order null falls to
+     * {@code Integer.MAX_VALUE}) and an untyped line (the {@code advantageType ==
+     * null} true leg, appended flat after the groups). The labelled group,
+     * ordered first, and the keyed group, ordered last, prove both legs of each
+     * ternary.
+     */
+    @Test
+    void printTicketGroupsTypedFidelityAdvantagesAndAppendsUntypedOnes() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityCard = "2990000000019";
+        ticket.fidelityEarnTotal = new BigDecimal("1.00");
+        ticket.fidelityLines = new ArrayList<>();
+        TicketFidelityLine socle = new TicketFidelityLine("R1", "Cagnotte socle", new BigDecimal("0.20"));
+        socle.advantageType = "SOCLE";
+        socle.advantageTypeLabel = "AVANTAGES SOCLE";
+        socle.advantageTypeOrder = 1;
+        TicketFidelityLine bonus = new TicketFidelityLine("R2", "Bonus fruits", new BigDecimal("0.30"));
+        bonus.advantageType = "BONUS";
+        bonus.advantageTypeLabel = null;
+        bonus.advantageTypeOrder = null;
+        TicketFidelityLine plain = new TicketFidelityLine("R3", "Remise directe", new BigDecimal("0.10"));
+        plain.advantageType = null;
+        ticket.fidelityLines.add(socle);
+        ticket.fidelityLines.add(bonus);
+        ticket.fidelityLines.add(plain);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("AVANTAGES SOCLE"));
+            assertTrue(out.contains("BONUS"));
+            assertTrue(out.contains("Cagnotte socle"));
+            assertTrue(out.contains("Bonus fruits"));
+            assertTrue(out.contains("Remise directe"));
+            assertTrue(out.indexOf("AVANTAGES SOCLE") < out.indexOf("BONUS"));
+        }
+    }
+
+    /**
+     * Covers the non-null arm of the administered balance-after figure in
+     * {@code fidelityData} (line 826): a sale whose {@code fidelityBalanceAfter}
+     * is set resolves the {@code balanceAfter == null ? "" : format} ternary to
+     * the formatted leg, the arm the balance-less sales leave uncovered. The data
+     * builder is read directly, the way the store-layout render reaches it.
+     */
+    @Test
+    void saleDocumentDataFormatsThePresentBalanceAfter() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.fidelityCard = "2990000000019";
+        ticket.fidelityBalanceAfter = new BigDecimal("12.34");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fidelity =
+                (Map<String, Object>) service.saleDocumentData(ticket, false, 0).get("fidelity");
+        assertEquals("12,34", fidelity.get("balanceAfter"));
+    }
+
+    /**
+     * Covers the empty-logo arm of {@code brandBanner} (line 1299): a till whose
+     * {@link ReceiptLogo#directive()} yields no printable logo falls back to the
+     * centred INTERMARCHE text banner, the arm a till carrying a logo leaves
+     * uncovered. Driven through {@code printLoyaltyCredit}, which opens with the
+     * banner. Reachable in operation on a deployment with no logo file, so the
+     * static is stubbed rather than reported.
+     */
+    @Test
+    void brandBannerFallsBackToTextWhenNoLogo() {
+        TicketPrinterService service = newService();
+        try (MockedStatic<ReceiptLogo> logo = mockStatic(ReceiptLogo.class)) {
+            logo.when(ReceiptLogo::directive).thenReturn("");
+            service.printLoyaltyCredit(new BigDecimal("5.00"));
+            String out = captureReceipt(service);
+            assertTrue(out.contains("INTERMARCHE"));
+            assertTrue(out.contains("REMBOURSEMENT EN CAGNOTTE"));
+        }
+    }
+
+    /**
+     * Covers the true arm of the balance-after guard of {@code printLoyaltyReceipt}
+     * on the built-in path (line 1723): a settlement whose ticket carries a
+     * {@code fidelityBalanceAfter} prints the SOLDE APRES line, the arm the seed
+     * ticket (no post-burn balance) leaves uncovered.
+     */
+    @Test
+    void printLoyaltyReceiptPrintsTheBalanceAfter() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.terminalId = "C04";
+        freeze(ticket, new BigDecimal("1.03"));
+        ticket.fidelityAvailableBalance = new BigDecimal("20.00");
+        ticket.fidelityBalanceAfter = new BigDecimal("17.00");
+        ticket.payments.add(new FidelityPayment(new BigDecimal("3.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printLoyaltyReceipt(1L));
+        }
+        String out = captureReceipt(service);
+        assertTrue(out.contains("SOLDE APRES"));
+        assertTrue(out.contains("17,00 E"));
+    }
+
+    /**
+     * Covers the remaining legs of the movement justificatif guards (lines 1898,
+     * 1902, 1903, 1906): a movement with a null type label (the empty-string leg),
+     * a null operator (the {@code operator != null} false leg), a blank reason
+     * (the {@code !reason.isBlank()} false leg) and a null tender (the
+     * {@code tenderLabel != null} false leg) prints the header and the amount and
+     * none of the optional rows — the legs the fully-populated justificatif and
+     * the all-absent one together leave uncovered.
+     */
+    @Test
+    void printMovementTicketCoversTheRemainingFieldLegs() {
+        TicketPrinterService service = newService();
+        service.printMovementTicket(null, new BigDecimal("15.00"), "   ", null, null, null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("MOUVEMENT DE CAISSE"));
+        assertTrue(out.contains("TYPE"));
+        assertTrue(out.contains("15,00 E"));
+        assertFalse(out.contains("Caisse :"));
+        assertFalse(out.contains("Operateur :"));
+        assertFalse(out.contains("MOTIF"));
+        assertFalse(out.contains("MOYEN"));
+    }
+
+    /**
+     * Covers the fully-populated arm of {@code printFloatCountTicket}: a count
+     * with a register, a named operator and a non-empty denomination list reaches
+     * the true leg of {@code terminalId != null}, both true legs of the operator
+     * guard, the true leg of {@code lines != null}, the loop body and the true leg
+     * of {@code !lines.isEmpty()}.
+     */
+    @Test
+    void printFloatCountTicketPrintsTheFullCount() {
+        TicketPrinterService service = newService();
+        service.printFloatCountTicket(new BigDecimal("250.00"),
+                List.<String[]>of(new String[] {"Billets 50", "200,00"}), "MARIE", "C04");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("COMPTAGE DE CONTROLE"));
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("Operateur : MARIE"));
+        assertTrue(out.contains("Billets 50"));
+        assertTrue(out.contains("TOTAL COMPTE"));
+        assertTrue(out.contains("250,00 E"));
+    }
+
+    /**
+     * Covers the all-absent arm of {@code printFloatCountTicket}: a null register
+     * (the {@code terminalId != null} false leg), a null operator (the
+     * {@code operator != null} false leg) and a null denomination list (the
+     * {@code lines != null} false leg) keep the title and the total and print no
+     * register or operator row.
+     */
+    @Test
+    void printFloatCountTicketOmitsTheAbsentFields() {
+        TicketPrinterService service = newService();
+        service.printFloatCountTicket(new BigDecimal("0.00"), null, null, null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("COMPTAGE DE CONTROLE"));
+        assertTrue(out.contains("TOTAL COMPTE"));
+        assertTrue(out.contains("0,00 E"));
+        assertFalse(out.contains("Caisse :"));
+        assertFalse(out.contains("Operateur :"));
+    }
+
+    /**
+     * Covers the blank-operator and empty-list arms of
+     * {@code printFloatCountTicket}: a blank operator reaches the
+     * {@code !operator.isBlank()} false leg and an empty (non-null) denomination
+     * list reaches the loop's zero-iteration leg and the {@code !lines.isEmpty()}
+     * false leg — no operator row and no extra separator after the (absent) lines.
+     */
+    @Test
+    void printFloatCountTicketTakesTheBlankOperatorAndEmptyListLegs() {
+        TicketPrinterService service = newService();
+        service.printFloatCountTicket(new BigDecimal("10.00"),
+                new ArrayList<String[]>(), "   ", "C04");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("TOTAL COMPTE"));
+        assertTrue(out.contains("10,00 E"));
+        assertFalse(out.contains("Operateur :"));
+    }
+
+    /**
+     * Covers the fully-populated arm of {@code printDepositTicket}: an apport with
+     * a register, a named operator and a non-empty denomination list reaches the
+     * true legs of every guard, the loop body and the non-empty separator.
+     */
+    @Test
+    void printDepositTicketPrintsTheFullDeposit() {
+        TicketPrinterService service = newService();
+        service.printDepositTicket(new BigDecimal("500.00"),
+                List.<String[]>of(new String[] {"Pieces 2", "100,00"}), "MARIE", "C04");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("APPORT DE MONNAIE"));
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("Operateur : MARIE"));
+        assertTrue(out.contains("Pieces 2"));
+        assertTrue(out.contains("TOTAL APPORTE"));
+        assertTrue(out.contains("500,00 E"));
+        assertTrue(out.contains("Signature:"));
+    }
+
+    /**
+     * Covers the all-absent arm of {@code printDepositTicket}: a null register, a
+     * null operator and a null denomination list take the false legs of the three
+     * guards while keeping the title, the total and the signature line.
+     */
+    @Test
+    void printDepositTicketOmitsTheAbsentFields() {
+        TicketPrinterService service = newService();
+        service.printDepositTicket(new BigDecimal("0.00"), null, null, null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("APPORT DE MONNAIE"));
+        assertTrue(out.contains("TOTAL APPORTE"));
+        assertTrue(out.contains("0,00 E"));
+        assertFalse(out.contains("Caisse :"));
+        assertFalse(out.contains("Operateur :"));
+    }
+
+    /**
+     * Covers the blank-operator and empty-list arms of {@code printDepositTicket}:
+     * a blank operator reaches the {@code !operator.isBlank()} false leg and an
+     * empty (non-null) list reaches the loop's zero-iteration leg and the
+     * {@code !lines.isEmpty()} false leg.
+     */
+    @Test
+    void printDepositTicketTakesTheBlankOperatorAndEmptyListLegs() {
+        TicketPrinterService service = newService();
+        service.printDepositTicket(new BigDecimal("5.00"),
+                new ArrayList<String[]>(), "   ", "C04");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("TOTAL APPORTE"));
+        assertTrue(out.contains("5,00 E"));
+        assertFalse(out.contains("Operateur :"));
+    }
+
+    /**
+     * Covers the fully-populated arm of {@code printSettlementVoucher}: a report
+     * with a session (both true legs of {@code report != null && session != null}),
+     * a named operator (both true legs of the operator guard), and a non-empty
+     * method list (the {@code report != null} true leg and the loop body) prints
+     * the session, the register, the operator, the one settlement row and the
+     * tax-included total.
+     */
+    @Test
+    void printSettlementVoucherPrintsTheFullVoucher() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(NOW);
+        report.totalsByMethod.put("CB", new BigDecimal("120.00"));
+        report.totalIncludingTax = new BigDecimal("120.00");
+        service.printSettlementVoucher(report, "MARIE");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("BORDEREAU DE REGLEMENT"));
+        assertTrue(out.contains("Session : S-001"));
+        assertTrue(out.contains("Caisse  : C04"));
+        assertTrue(out.contains("Operateur : MARIE"));
+        assertTrue(out.contains("CB"));
+        assertTrue(out.contains("TOTAL TTC"));
+        assertTrue(out.contains("120,00 E"));
+        assertTrue(out.contains("Signature:"));
+    }
+
+    /**
+     * Covers the null-report arm of {@code printSettlementVoucher}: a null report
+     * takes the false leg of {@code report != null} in both guards (the session
+     * block and the rows block are skipped), and a null operator takes the false
+     * leg of {@code operator != null} — only the title and the signature line
+     * remain.
+     */
+    @Test
+    void printSettlementVoucherToleratesANullReportAndOperator() {
+        TicketPrinterService service = newService();
+        service.printSettlementVoucher(null, null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("BORDEREAU DE REGLEMENT"));
+        assertTrue(out.contains("Signature:"));
+        assertFalse(out.contains("Session :"));
+        assertFalse(out.contains("Operateur :"));
+        assertFalse(out.contains("TOTAL TTC"));
+    }
+
+    /**
+     * Covers the session-less and empty-rows arms of
+     * {@code printSettlementVoucher}: a non-null report whose session is null
+     * takes the {@code report != null} true / {@code session != null} false legs
+     * (no session block), a blank operator takes the {@code !operator.isBlank()}
+     * false leg, and an empty method map takes the loop's zero-iteration leg while
+     * still printing the tax-included total under the {@code report != null} true
+     * leg.
+     */
+    @Test
+    void printSettlementVoucherHandlesANullSessionAndEmptyRows() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = null;
+        report.totalIncludingTax = new BigDecimal("0.00");
+        service.printSettlementVoucher(report, "   ");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("BORDEREAU DE REGLEMENT"));
+        assertTrue(out.contains("TOTAL TTC"));
+        assertTrue(out.contains("0,00 E"));
+        assertFalse(out.contains("Session :"));
+        assertFalse(out.contains("Operateur :"));
+    }
+
 }
