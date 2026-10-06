@@ -2590,4 +2590,234 @@ class RefundServiceTest {
             assertTrue(note.validUntil.isAfter(note.issuedAt));
         }
     }
+
+    // --------------------------------------------------
+    // Campaign 2 — retours added branches
+    // --------------------------------------------------
+
+    /**
+     * {@code selectTicket} tolerates an origin ticket whose line list is null
+     * (the {@code t.lines != null} false leg of the fully-returned marking): the
+     * ticket is selected and no line is marked.
+     */
+    @Test
+    void selectTicketToleratesANullLineList() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket t = new Ticket();
+        t.id = 10L;
+        t.ticketNumber = "T-1";
+        t.totalIncludingTax = new BigDecimal("30.00");
+        t.lines = null;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(t);
+            s.selectTicket(state, 10L);
+        }
+        assertSame(t, state.refund.selectedTicket);
+        assertTrue(state.refund.fullyReturnedLineIds.isEmpty());
+    }
+
+    /**
+     * {@code selectTicket} does not mark a CANCELLED origin line as fully returned
+     * (the {@code !line.cancelled} false leg): a cancelled line was never sold, so
+     * the fully-returned test is short-circuited and never consults past refunds.
+     */
+    @Test
+    void selectTicketSkipsACancelledLineWhenMarking() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine sold = line(1L, "2", "10.00", "0.20", "MILK");
+        TicketLine cancelled = line(3L, "1", "5.00", "0.20", "VOID");
+        cancelled.cancelled = true;
+        Ticket t = ticket(10L, "T-1", "25.00", sold, cancelled);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(t);
+            panache.when(() -> RefundLine.list("originalLineId", 1L))
+                    .thenReturn(List.of(refundLineQty("2")));
+            s.selectTicket(state, 10L);
+        }
+        assertTrue(state.refund.isFullyReturned(1L));
+        assertFalse(state.refund.isFullyReturned(3L));
+    }
+
+    /**
+     * {@code selectCreditAccount} treats a null account number as empty (the
+     * {@code accountNumber == null} true arm of the trim ternary): the selection
+     * is cleared and CLIENT INTROUVABLE is set.
+     */
+    @Test
+    void selectCreditAccountClearsOnNullNumber() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        s.selectCreditAccount(state, null);
+        assertNull(state.refund.creditAccountNumber);
+        assertNull(state.refund.creditAccountName);
+        assertEquals("CLIENT INTROUVABLE", state.refund.errorMessage);
+    }
+
+    /**
+     * {@code performRefund} journals no MOTIF suffix when the return reason is
+     * blank (the {@code !returnReason.isBlank()} false leg of the suffix guard):
+     * a reason present in name only must not pollute the REFUND_CREATED event.
+     */
+    @Test
+    void performRefundJournalsNoSuffixForABlankReason() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.returnReason = "   ";
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            org.mockito.ArgumentCaptor<String> cap = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(s.technicalEventService).log(eq(TechnicalEvent.EventType.REFUND_CREATED), cap.capture());
+            assertFalse(cap.getValue().contains("MOTIF"));
+        }
+    }
+
+    /**
+     * {@code cancelPaidTicket} skips a line with nothing left to reverse (the
+     * {@code refundable.signum() > 0} false leg) and, with no endorser badge,
+     * journals the cancellation under "?" (the {@code endorserBadge != null}
+     * false arm). One live line still carries the reversal.
+     */
+    @Test
+    void cancelPaidTicketSkipsExhaustedLinesAndJournalsWithoutBadge() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine live = line(1L, "1", "10.00", "0.20", "MILK");
+        TicketLine exhausted = line(2L, "2", "10.00", "0.20", "EGG");
+        state.refund.selectedTicket = ticket(10L, "T-9", "30.00", live, exhausted);
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            stubTender(panache, "CASH", tender("CASH", true));
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> RefundLine.list("originalLineId", 2L))
+                    .thenReturn(List.of(refundLineQty("2")));
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.cancelPaidTicket(state, Refund.RefundMethod.CASH, null);
+            assertFalse(mc.constructed().isEmpty());
+        }
+        verify(s.technicalEventService).log(
+                eq(TechnicalEvent.EventType.PAID_TICKET_CANCELLED), contains("par ?"), isNull());
+    }
+
+    /**
+     * {@code performRefund} for a credit refund whose account is not found (the
+     * {@code account != null} false leg) still writes the refund but credits no
+     * balance — the account row is owned by the nightly pull.
+     */
+    @Test
+    void performRefundCreditWithUnknownAccountCreditsNothing() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.creditAccountNumber = "CC1";
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> aq = accountQuery(null);
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
+                    .find("accountNumber", "CC1")).thenReturn(aq);
+            s.performRefund(state, Refund.RefundMethod.CREDIT);
+            Refund refund = mc.constructed().get(0);
+            assertEquals("CC1", refund.creditAccountNumber);
+        }
+    }
+
+    /**
+     * {@code performRefund} for a credit refund treats a null account balance as
+     * zero (the {@code creditBalance == null} true arm) before subtracting the
+     * refund, so the account falls into an advance in the customer's favour.
+     */
+    @Test
+    void performRefundCreditTreatsANullBalanceAsZero() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        state.refund.creditAccountNumber = "CC1";
+        com.intermarche.pos.domain.payment.AccountCustomer account =
+                mock(com.intermarche.pos.domain.payment.AccountCustomer.class);
+        account.creditBalance = null;
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            PanacheQuery<com.intermarche.pos.domain.payment.AccountCustomer> aq = accountQuery(account);
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            panache.when(() -> com.intermarche.pos.domain.payment.AccountCustomer
+                    .find("accountNumber", "CC1")).thenReturn(aq);
+            s.performRefund(state, Refund.RefundMethod.CREDIT);
+        }
+        assertEquals(0, new BigDecimal("-20.00").compareTo(account.creditBalance));
+        verify(account).persist();
+    }
+
+    /**
+     * {@code performRefund} leaves an origin line with no database id out of the
+     * kept map (the {@code line.id == null} true arm of the kept-quantities
+     * guard), the way the cancelled line is left out, so the engine is asked only
+     * about the persistent lines.
+     */
+    @Test
+    void performRefundLeavesANullIdLineOutOfTheKeptMap() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine idless = new TicketLine();
+        idless.quantity = new BigDecimal("1");
+        idless.unitPrice = new BigDecimal("5.00");
+        idless.vatRate = new BigDecimal("0.20");
+        idless.productLabel = "NOID";
+        Ticket original = ticket(10L, "T-1", "100.00",
+                line(1L, "3", "10.00", "0.20", "MILK"), idless);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            org.mockito.ArgumentCaptor<java.util.Map<Long, BigDecimal>> captor =
+                    org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+            verify(s.returnValuationService).recompute(same(original), captor.capture());
+            assertTrue(captor.getValue().containsKey(1L));
+            assertEquals(1, captor.getValue().size());
+        }
+    }
 }
