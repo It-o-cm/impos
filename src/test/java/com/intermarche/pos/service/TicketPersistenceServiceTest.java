@@ -665,6 +665,52 @@ class TicketPersistenceServiceTest {
     }
 
     /**
+     * {@code markLineCancelled} flags {@code cancelledLast} when the cancelled
+     * line carries the ticket's greatest line number at the moment of the
+     * gesture (R10): a last-line cancellation, the mis-scan corrected on the
+     * spot, not the fraud indicator.
+     */
+    @Test
+    void markLineCancelledFlagsTheLastLine() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine a = line("U1");
+        a.lineNumber = 2;
+        TicketLine b = line("U2");
+        b.lineNumber = 1;
+        ticket.lines.add(a);
+        ticket.lines.add(b);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234");
+            assertTrue(a.cancelledLast);
+        }
+    }
+
+    /**
+     * {@code markLineCancelled} leaves {@code cancelledLast} false when the
+     * cancelled line is NOT the ticket's last (R10): the endorsed cancellation
+     * of a mid-ticket line, which the financial state counts as the fraud
+     * indicator.
+     */
+    @Test
+    void markLineCancelledClearsTheLastFlagForAMidLine() {
+        TicketPersistenceService service = newService();
+        Ticket ticket = draft(Ticket.TicketStatus.OPEN);
+        TicketLine a = line("U1");
+        a.lineNumber = 1;
+        TicketLine b = line("U2");
+        b.lineNumber = 2;
+        ticket.lines.add(a);
+        ticket.lines.add(b);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(5L)).thenReturn(ticket);
+            service.markLineCancelled(5L, "U1", "12341234");
+            assertFalse(a.cancelledLast);
+        }
+    }
+
+    /**
      * {@code markLineCancelled} is a no-op when the draft is not found (the
      * cancellation still empties the cart in memory; the witness is
      * best-effort).

@@ -363,6 +363,8 @@ class SyncOutboxServiceTest {
         line.cancelled = true;
         line.cancellationDate = java.time.LocalDateTime.of(2026, 9, 1, 15, 42);
         line.cancelledBy = "12341234";
+        line.moneyProduct = true;
+        line.cancelledLast = true;
         ticket.lines.add(line);
         CashPayment cash = mock(CashPayment.class);
         when(cash.getMethodKey()).thenReturn("CASH");
@@ -407,6 +409,10 @@ class SyncOutboxServiceTest {
             assertTrue(out.lines.get(0).cancelled);
             assertEquals("2026-09-01T15:42:00", out.lines.get(0).cancellationDate);
             assertEquals("12341234", out.lines.get(0).cancelledBy);
+            // Money-instrument (R12) and last-line-cancellation (R10) flags survive
+            // the JSON round-trip, feeding the store node's financial states.
+            assertTrue(out.lines.get(0).moneyProduct);
+            assertTrue(out.lines.get(0).cancelledLast);
             assertEquals(2, out.payments.size());
             assertEquals("CASH", out.payments.get(0).methodKey);
             assertEquals(new BigDecimal("10.00"), out.payments.get(0).tenderedAmount);

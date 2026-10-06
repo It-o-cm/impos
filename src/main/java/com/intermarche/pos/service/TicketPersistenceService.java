@@ -403,11 +403,20 @@ public class TicketPersistenceService {
         if (ticketId == null || lineUid == null) { LOGGER.info("Exiting method markLineCancelled"); return; }
         Ticket ticket = Ticket.findById(ticketId);
         if (ticket == null) { LOGGER.info("Exiting method markLineCancelled"); return; }
+        int lastLineNumber = 0;
+        for (TicketLine line : ticket.lines) {
+            if (line.lineNumber > lastLineNumber) { lastLineNumber = line.lineNumber; }
+        }
         for (TicketLine line : ticket.lines) {
             if (lineUid.equals(line.lineUid) && !line.cancelled) {
                 line.cancelled = true;
                 line.cancellationDate = LocalDateTime.now();
                 line.cancelledBy = operatorBadgeId;
+                // Last-line vs. mid-ticket cancellation (R10): the fraud indicator
+                // rests on whether the cancelled line was the ticket's last at the
+                // moment of the gesture, so compare its position to the greatest
+                // line number carried then.
+                line.cancelledLast = line.lineNumber == lastLineNumber;
                 ticket.persist();
                 LOGGER.info("Exiting method markLineCancelled");
                 return;

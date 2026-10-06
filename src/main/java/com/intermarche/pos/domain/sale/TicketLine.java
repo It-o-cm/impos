@@ -293,6 +293,21 @@ public class TicketLine extends BaseEntity {
     public String cancelledBy;
 
     /**
+     * Whether this line was the LAST of the ticket when it was cancelled.
+     *
+     * <p>The distinction is the whole point of the fraud indicator. A cashier may
+     * cancel the last line alone — a mis-scan corrected on the spot. Cancelling any
+     * other line needs a supervisor's endorsement, and it is that cancellation the
+     * financial state counts apart: a line pulled out of the middle of a ticket is
+     * the gesture a fraud hides behind.
+     *
+     * <p>False on a line that was never cancelled, where it means nothing: read it
+     * only together with {@link #cancelled}.
+     */
+    @Column(name = "cancelled_last", nullable = false)
+    public boolean cancelledLast;
+
+    /**
      * Returns the unit price the customer ACTUALLY PAID on this line, tax
      * included (LC-05-02-12): the line total shared out over the quantity, so
      * the advantages the line carries are part of it — a valuation-engine

@@ -252,6 +252,21 @@ public final class SyncPayloads {
         public String cancellationDate;
         /** The badge of the operator who cancelled the line (BO-04-01-16), or null. */
         public String cancelledBy;
+        /**
+         * True when the line sold a money instrument (gift card) rather than goods
+         * (R12): the store node keeps such a line out of the turnover and shows it
+         * as an emission instead. Without it the net turnover is overstated by
+         * everything the shop sells in gift cards.
+         */
+        public boolean moneyProduct;
+        /**
+         * True when the cancelled line was the LAST of the ticket at the moment of
+         * the gesture (R10): the financial state counts a last-line cancellation —
+         * a mis-scan corrected on the spot — apart from the endorsed cancellation
+         * of any other line, which is the fraud indicator. Meaningless unless
+         * {@link #cancelled} is true.
+         */
+        public boolean cancelledLast;
     }
 
     /**

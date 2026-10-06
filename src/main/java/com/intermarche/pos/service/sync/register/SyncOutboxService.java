@@ -419,6 +419,12 @@ public class SyncOutboxService {
             lineDto.cancelled = line.cancelled;
             lineDto.cancellationDate = iso(line.cancellationDate);
             lineDto.cancelledBy = line.cancelledBy;
+            // Money-instrument flag (R12) and last-line-cancellation flag (R10):
+            // both are needed by the store node's financial states — the first to
+            // keep gift cards out of the turnover, the second to tell a corrected
+            // mis-scan from the endorsed cancellation that is the fraud indicator.
+            lineDto.moneyProduct = line.moneyProduct;
+            lineDto.cancelledLast = line.cancelledLast;
             dto.lines.add(lineDto);
         }
         for (TicketPayment payment : ticket.payments) {
