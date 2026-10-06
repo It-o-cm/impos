@@ -833,4 +833,23 @@ class EndorsementResourceTest {
         assertEquals("/", response.getLocation().toString());
         verify(resource.homeService).performTrainingToggle();
     }
+
+    /**
+     * {@code validateEndorsement()} enters MODE RETOUR when the granted action is
+     * {@code RETURN_MODE_TOGGLE} (LC-05-01-01), the arm the other granted actions
+     * leave uncovered.
+     */
+    @Test
+    void validateEndorsementGrantedReturnModeToggle() {
+        EndorsementResource resource = newResource();
+        resource.state.endorsement.requestedAction =
+                com.intermarche.pos.ui.home.HomeService.RETURN_MODE_ACTION;
+        when(resource.endorsementService.authorize("m", "1234",
+                com.intermarche.pos.ui.home.HomeService.RETURN_MODE_ACTION)).thenReturn(true);
+        Response response = resource.validateEndorsement("m", "1234");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.homeService).performReturnModeToggle();
+        verify(resource.endorsementService).clearRequest(resource.state);
+    }
 }
