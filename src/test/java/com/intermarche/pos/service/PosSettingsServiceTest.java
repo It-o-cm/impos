@@ -986,11 +986,8 @@ class PosSettingsServiceTest {
 
     /**
      * {@code customerCreditTender} falls back to {@code CREDIT} when the stored
-     * value is blank (BO-10-04-09): the first guard leg {@code key == null} is
-     * false, the second leg {@code key.isBlank()} is true, and the ternary takes
-     * its true arm. The {@code key == null} true leg is UNREACHABLE through this
-     * accessor because {@code value("customer.credit-tender")} never yields null
-     * for a catalog key carrying the default {@code CREDIT}.
+     * value is blank (BO-10-04-09): the guard {@code key.isBlank()} is true and
+     * the ternary takes its true arm.
      */
     @Test
     void customerCreditTenderFallsBackToCreditWhenBlank() {
@@ -1951,6 +1948,96 @@ class PosSettingsServiceTest {
             ms.when(PanacheEntityBase::listAll)
                     .thenReturn(List.of(row("sogec.bon-prefixes", "0300;0301")));
             assertEquals("0300;0301", new PosSettingsService().sogecBonPrefixes());
+        }
+    }
+
+    // --------------------------------------------------
+    // Campaign 2 — language accessors and a tare empty-row leg
+    // --------------------------------------------------
+
+    /**
+     * {@code systemLanguage} returns the administered system-language tag
+     * (LC-13-06-01), read from the stored override.
+     */
+    @Test
+    void systemLanguageReadsAdministeredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("language.system", "nl")));
+            assertEquals("nl", service.systemLanguage());
+        }
+    }
+
+    /**
+     * {@code availableLanguages} parses the semicolon-separated list, trims each
+     * entry and drops the blank ones (LC-13-06-03/04): "fr;;nl" keeps "fr" and
+     * "nl" (the non-blank true legs of the loop) and skips the empty middle entry
+     * (the {@code !trimmed.isEmpty()} false leg), the setting being non-blank (the
+     * {@code raw.isBlank()} false leg).
+     */
+    @Test
+    void availableLanguagesParsesAndDropsBlankEntries() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("language.available", "fr;;nl")));
+            assertEquals(List.of("fr", "nl"), service.availableLanguages());
+        }
+    }
+
+    /**
+     * {@code availableLanguages} returns an empty list for a blank setting (the
+     * {@code raw.isBlank()} true leg) — the caller then offers French only.
+     */
+    @Test
+    void availableLanguagesEmptyForBlankSetting() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("language.available", "   ")));
+            assertTrue(service.availableLanguages().isEmpty());
+        }
+    }
+
+    /**
+     * {@code languageChangeAllowed} reads the administered flag (LC-13-06-04),
+     * here the stored false override.
+     */
+    @Test
+    void languageChangeAllowedReadsStoredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("language.operator-change", "false")));
+            assertFalse(service.languageChangeAllowed());
+        }
+    }
+
+    /**
+     * {@code customerSecondLanguage} returns the administered second-language tag
+     * (LC-13-06-06/11), read from the stored override.
+     */
+    @Test
+    void customerSecondLanguageReadsAdministeredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("language.customer-second", "nl")));
+            assertEquals("nl", service.customerSecondLanguage());
+        }
+    }
+
+    /**
+     * {@code tareContainers} skips an empty entry produced by a doubled separator
+     * (the {@code trimmed.isEmpty()} true leg of the row loop) while keeping the
+     * two well-formed rows around it (LC-14-01-04).
+     */
+    @Test
+    void tareContainersDropsAnEmptyEntry() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("balance.tare-containers",
+                    "SACPAP:Sac kraft:0.010;;BQS:Barquette:0.035")));
+            List<PosSettingsService.TareContainer> containers =
+                    new PosSettingsService().tareContainers();
+            assertEquals(2, containers.size());
+            assertEquals("SACPAP", containers.get(0).code());
+            assertEquals("BQS", containers.get(1).code());
         }
     }
 }
