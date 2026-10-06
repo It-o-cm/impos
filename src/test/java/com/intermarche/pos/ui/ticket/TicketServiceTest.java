@@ -3140,5 +3140,161 @@ class TicketServiceTest {
         service.addFamilyPricedItem(state, "80", "2,35");
         assertTrue(state.ticket.items.isEmpty());
     }
+
+    // --------------------------------------------------
+    // Campaign 2 — retours/warning added branches
+    // --------------------------------------------------
+
+    /**
+     * The cancel-by-scan interception revalues when the ticket still carries
+     * lines (the {@code !items.isEmpty()} true leg of the sync guard), and the
+     * expensive-entry warning finds no entered line when
+     * {@code lastEnteredItemId} is null — the state a SOUS-TOTAL marker leaves
+     * behind (the {@code lastEnteredItemId == null} true leg). No warning is
+     * raised.
+     */
+    @Test
+    void cancelByScanRevaluesWithLinesAndTheWarningFindsNoEnteredLine() {
+        state.auth.isLocked = false;
+        openSession();
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.cancelByScanArmed = true;
+        state.ticket.addItem("3000000000038", null, "PAIN",
+                new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.055"));
+        state.lastEnteredItemId = null;
+        service.processScan("3000000000038");
+        verify(service.homeService).cancelByScan("3000000000038");
+        verify(valuationService).revalue(state);
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * The cancel-by-scan interception revalues an emptied but persisted ticket
+     * (the {@code !items.isEmpty()} false leg and the {@code ticketDbId != null}
+     * true leg of the sync guard): the draft id outlives the last line, so the
+     * cancellation must still reach the server.
+     */
+    @Test
+    void cancelByScanRevaluesAnEmptiedPersistedTicket() {
+        state.auth.isLocked = false;
+        openSession();
+        state.cancelByScanArmed = true;
+        state.payment.ticketDbId = 5L;
+        service.processScan("3000000000038");
+        verify(service.homeService).cancelByScan("3000000000038");
+        verify(valuationService).revalue(state);
+    }
+
+    /**
+     * The expensive-entry warning says nothing when the entered line carries no
+     * unit price (the {@code entered.unitPrice == null} true leg): the price is a
+     * public, unguarded field, so a line can reach the warning with none, and the
+     * guard spares the later {@code setScale} a null dereference.
+     */
+    @Test
+    void theWarningSaysNothingWhenTheEnteredLineHasNoUnitPrice() {
+        state.auth.isLocked = false;
+        openSession();
+        when(service.posSettingsService.saleLineWarningThreshold()).thenReturn(new BigDecimal("10.00"));
+        state.cancelByScanArmed = true;
+        state.ticket.addItem("3000000000038", null, "PAIN",
+                new BigDecimal("2.00"), BigDecimal.ONE, new BigDecimal("0.055"));
+        TicketState.TicketItem entered =
+                state.ticket.items.get(state.ticket.items.size() - 1);
+        entered.unitPrice = null;
+        state.lastEnteredItemId = entered.uid;
+        service.processScan("3000000000038");
+        verify(valuationService).revalue(state);
+        assertNull(state.ticket.transientError);
+    }
+
+    /**
+     * {@code addFamilyPricedItem} clears a pending transient error before ringing
+     * (the {@code transientError != null} true leg): a free-price entry starts
+     * from a clean zone, so the family line is not shadowed by a stale message.
+     */
+    @Test
+    void addFamilyPricedItemClearsAPendingTransientError() {
+        openSession();
+        state.ticket.transientError = "old";
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80"))
+                    .thenReturn(family("80", "Epicerie"));
+            service.addFamilyPricedItem(state, "80", "2,35");
+            assertEquals(1, state.ticket.items.size());
+            assertNull(state.ticket.transientError);
+        }
+    }
+
+    /**
+     * {@code addFamilyPricedItem} treats a null family code as unknown (the
+     * {@code familyCode == null} true leg of the guard): the lookup is
+     * short-circuited to null and FAMILLE INCONNUE is set, no line added.
+     */
+    @Test
+    void addFamilyPricedItemRefusesNullFamilyCode() {
+        openSession();
+        service.addFamilyPricedItem(state, null, "2,35");
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("FAMILLE INCONNUE", state.ticket.transientError);
+    }
+
+    /**
+     * {@code addFamilyPricedItem} falls back to the family code as the line label
+     * when the family has no description (the {@code description == null} true arm
+     * of the label ternary).
+     */
+    @Test
+    void addFamilyPricedItemLabelsWithTheCodeWhenNoDescription() {
+        openSession();
+        try (MockedStatic<com.intermarche.pos.domain.catalog.ProductFamily> families =
+                mockStatic(com.intermarche.pos.domain.catalog.ProductFamily.class)) {
+            families.when(() -> com.intermarche.pos.domain.catalog.ProductFamily.findByCode("80"))
+                    .thenReturn(family("80", null));
+            service.addFamilyPricedItem(state, "80", "2,35");
+            assertEquals(1, state.ticket.items.size());
+            assertEquals("80", state.ticket.items.get(0).label);
+        }
+    }
+
+    /**
+     * {@code loadRecalledDocument} refuses a document whose line list is null (the
+     * {@code doc.lines == null} true leg of the emptiness guard) with DOCUMENT
+     * VIDE, loading nothing. The null is set on the public field through the
+     * no-arg constructor, the way the back-office client populates a document
+     * after a fetch — the 4-arg constructor would coerce it to an empty list.
+     */
+    @Test
+    void loadRecalledDocumentRefusesNullLines() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument();
+        doc.kind = com.intermarche.pos.ui.recall.RecalledDocument.Kind.DEVIS;
+        doc.code = "D1";
+        doc.lines = null;
+        service.loadRecalledDocument(state, doc);
+        assertTrue(state.ticket.items.isEmpty());
+        assertEquals("DOCUMENT VIDE", state.ticket.transientError);
+    }
+
+    /**
+     * {@code loadRecalledDocument} loads a document carrying no code, resolving
+     * the {@code doc.code == null ? "" :} ternary to its empty-string arm so the
+     * notice reads the kind and CHARGÉ without a code.
+     */
+    @Test
+    void loadRecalledDocumentLoadsADocumentWithoutACode() {
+        openSession();
+        com.intermarche.pos.ui.recall.RecalledDocument doc =
+                new com.intermarche.pos.ui.recall.RecalledDocument(
+                        com.intermarche.pos.ui.recall.RecalledDocument.Kind.COMMANDE, null,
+                        java.util.List.of(new com.intermarche.pos.ui.recall.RecalledDocument.Line(
+                                "300", "PAIN", BigDecimal.ONE, new BigDecimal("2.00"), new BigDecimal("0.055"))),
+                        BigDecimal.ZERO);
+        service.loadRecalledDocument(state, doc);
+        assertEquals(1, state.ticket.items.size());
+        assertTrue(state.ticket.transientError.contains("CHARGÉ"));
+    }
 }
 
