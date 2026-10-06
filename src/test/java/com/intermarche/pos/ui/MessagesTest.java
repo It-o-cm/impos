@@ -410,4 +410,46 @@ class MessagesTest {
                     "le bundle " + language + " doit porter common.back");
         }
     }
+
+    // --------------------------------------------------
+    // Campaign 2 — language added branches
+    // --------------------------------------------------
+
+    /**
+     * With no auth state at all (the {@code state.auth == null} true arm of the
+     * operator-language guard), the operator step contributes nothing and the
+     * chain falls through to the system language.
+     */
+    @Test
+    void operatorLanguageYieldsNothingWithoutAnAuthState() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.systemLanguage()).thenReturn("nl");
+        messages.state.auth = null;
+        assertEquals("nl", messages.getLang());
+    }
+
+    /**
+     * A second-language tag carrying a region after a dash and no underscore is
+     * reduced to its primary subtag (the {@code underscore < 0} true arm of the
+     * separator choice): {@code nl-BE} resolves the bilingual second language to
+     * {@code nl}.
+     */
+    @Test
+    void secondLanguageReducesADashRegionTag() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.customerSecondLanguage()).thenReturn("nl-BE");
+        assertEquals("nl", messages.getSecondLang());
+    }
+
+    /**
+     * A tag carrying BOTH a dash and an underscore is cut at the earliest
+     * separator (the {@code underscore < 0} false arm, {@code Math.min} branch):
+     * {@code pt-BR_x} reduces to {@code pt}.
+     */
+    @Test
+    void secondLanguageCutsAtTheEarliestSeparator() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.customerSecondLanguage()).thenReturn("pt-BR_x");
+        assertEquals("pt", messages.getSecondLang());
+    }
 }
