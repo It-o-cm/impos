@@ -655,6 +655,40 @@ panneau qu'il sert.
   `CANCEL_PAID_TICKET`) → l'original reste INTACT et un second document de reversal (négatif de
   l'original) est produit et journalisé `PAID_TICKET_CANCELLED` ; refus superviseur → message, rien.
 
+- **H24 MODE RETOUR — entrée, paramètres et aval** [S] (LC-05-01-01/-03, LC-05-02-09/-14) : touche
+  MODE RETOUR (`/action/return-mode`, `toggleReturnMode`) → notice `MODE RETOUR ACTIVÉ — LES ARTICLES
+  SONT REPRIS`, ressortie → `MODE RETOUR TERMINÉ`. Trois paramètres : `return.in-sale-allowed` à faux +
+  panier non vide → `RETOUR DANS UN TICKET DE VENTE INTERDIT` (et, une fois le mode pris, la ressortie
+  est refusée tant qu'une ligne de reprise est présente → `TICKET DE RETOUR — VENTE INTERDITE SUR CE
+  TICKET`) ; `return.without-origin-allowed` à faux → `RETOUR SANS TICKET D'ORIGINE INTERDIT` ;
+  `return.dedicated-register` → mode forcé à la connexion (`AuthService`). L'ENTRÉE demande l'aval
+  superviseur quand `gesture.endorsement-return` est actif (geste `return`), rejoué sous l'action
+  `RETURN_MODE_TOGGLE` ; la SORTIE n'est jamais endossée.
+- **H25 Prix réellement remboursé** [S] (LC-05-02-12) : `TicketLine.getEffectiveUnitPrice()` = total de
+  ligne ÷ quantité, arrondi à quatre décimales (HALF_UP) — promotions du moteur et quote-part de remise
+  ticket comprises, puisqu'elles sont déjà dans le total de ligne ; total ou quantité absents, ou quantité
+  nulle → repli sur le prix unitaire brut. La TVA restituée suit ce montant.
+- **H26 Recalcul moteur au retour & bloc RECALCUL DES AVANTAGES** [S] (LC-05-02-13, LC-05-07-02) : à la
+  création du remboursement, `ReturnValuationService.recompute` interroge le moteur sur le panier
+  CONSERVÉ ; trois statuts (`RECOMPUTED`, `NOT_APPLICABLE`, `UNAVAILABLE`) et quatre colonnes portées par
+  le `Refund` (`withdrawnGenerosity`, `keptAdvantages`, `loyaltyRecalculationSent`, statut). Le ticket de
+  retour imprime le bloc `RECALCUL DES AVANTAGES` : `AVANTAGE REPRIS <x> E` puis `Avantages conserves :`
+  (RECOMPUTED) ; `Moteur indisponible :` / `recalcul non effectue` (UNAVAILABLE — le client est remboursé
+  quand même) ; `Cagnotte et coupons :` / `recalcul transmis au programme` (origine portant une carte).
+- **H27 Saisie libre contrôlée du retour** [S] (LC-05-02-11) : sur l'écran retour, `/return/enter-article`
+  — un article scanné ou saisi désigne la LIGNE du ticket d'origine ; un code absent du ticket →
+  `ARTICLE ABSENT DU TICKET D'ORIGINE` ; le plafond par ligne (quantité restante remboursable) reste
+  l'autorité ; la page du détail se porte sur la ligne trouvée ; `/return/leave` ressort de l'écran.
+- **H28 Touches retour préprogrammées** [S] (LC-05-04-01) : `return.types` administrés (`Libellé` ou
+  `Libellé>TICKET`), rendus en touches (`/action/return-type`). Résolution PAR LIBELLÉ, jamais par
+  position, relue à chaque tap ; libellé inconnu → `TYPE DE RETOUR INCONNU`, aucune sélection retenue ;
+  journal `RETURN_TYPE_SELECTED` au libellé choisi. Un type `Libellé>TICKET` (dédié) route vers l'écran
+  retour ; un type simple entre en MODE RETOUR par l'entrée gardée (aval compris).
+- **H29 Vérification du PDV du ticket d'origine** [S] (LC-05-02-07) : à la sélection d'un ticket d'origine
+  (`/return`, `selectTicket`), le code magasin du ticket est comparé à celui de la caisse ; différent →
+  refus `TICKET D'UN AUTRE MAGASIN` ; `return.foreign-store-accepted` à vrai → accepté ; code magasin
+  absent d'un côté ou de l'autre → le retour passe (pas de refus sur une référence manquante).
+
 ## I. Session & clôture Z [S]
 
 - **I1 Rapport X** : à tout moment, lecture seule, imprimable, ne mute rien.
@@ -1067,6 +1101,43 @@ flux `BUDGET_GROUPS` du nœud pour le livrer au moteur en pile démo.
 - **S5 Sondage back-office** [N] (EXP-89) : `POST /api/bo-message` avec `question`+`options` →
   sondage affiché ; `POST /action/survey-answer` renvoie la réponse en amont (reason `SONDAGE`)
   et efface le sondage. Round-trip = résidu [N].
+
+## T. Langues [S]
+
+Chantier LC-13-06, absent du catalogue jusqu'ici. Textes, routes et paramètres vérifiés dans
+`ui/LanguageResource`, `ui/Messages`, `ui/SessionCheckFilter`, `ui/PosState`, `domain/people/Employee`.
+
+- **T1 Choix de langue par l'opérateur** [S] (LC-13-06-03) : entrée LANGUE du menu AUTRE (lien
+  `/language-select`, libellé `{inject:i18n.get('common.language')}`, joignable aussi depuis l'écran de
+  lock) → écran listant les langues offertes plus le choix « langue du magasin » ; `POST /action/language`
+  (form `language`) retient le tag, blanc = suivre le magasin (`state.language=null`) ; redirection vers
+  l'écran d'origine (`/lock` si verrouillé, `/` sinon), le nouveau libellé rendu aussitôt. Le choix vit
+  dans l'état caisse et N'EST PAS écrit sur la fiche salarié.
+- **T2 Chaîne de résolution** [S] (LC-13-06-01/-02/-05) : langue rendue (`Messages.language()`) = langue
+  choisie à l'écran (`state.language`), sinon langue du salarié connecté (`Employee.language`), sinon
+  `language.system`, sinon `fr` ; chaque étape est ignorée si le tag n'est pas une langue livrée
+  (fr/nl/pt). Les quatre atterrissages se vérifient sur un même écran (`common.back` = RETOUR/TERUG/VOLTAR).
+- **T3 Changement interdit pendant la session** [S] (LC-13-06-04) : `language.operator-change` à faux +
+  session ouverte → le choix n'est PAS pris (`chooseLanguage` ressort sans muter) et l'écran l'indique
+  (`allowed=false`) ; caisse verrouillée, le changement est toujours permis (`changeAllowed = isLocked ||
+  language.operator-change`). ÉCART catalogue : le cahier attendait « l'écran de choix n'est pas offert »,
+  le code garde la touche visible et refuse le choix.
+- **T4 Liste restreinte aux langues offertes** [S] (LC-13-06-04) : `language.available` limite les langues
+  proposées à l'intersection avec les bundles livrés (`getAvailableLanguages`), sans doublon et jamais
+  vide — le français (`DEFAULT_LANGUAGE`) est ajouté quand l'intersection est vide.
+- **T5 Double affichage client bilingue** [S] (LC-13-06-06/-11) : `language.customer-second` administré →
+  visu client et ticket en DEUX langues, la SECONDE d'abord, séparées par un slash
+  (`Terug te geven / A rendre`, `Messages.getSecondLang`/`both`) ; repli sur la langue unique quand il n'y
+  a pas de seconde langue, quand c'est la langue rendue, ou quand les deux rendus sont identiques.
+- **T6 Déconnexion remet la langue à zéro** [S] (LC-13-06) : le logout remet `state.language` à null
+  (`PosState`), le choix d'écran meurt à la déconnexion et l'opérateur suivant repart sur la résolution
+  par défaut.
+- **T7 Langue inconnue ou bundle absent → français** [S] (LC-13-06-05/-10) : une langue choisie ou
+  administrée hors bundles, ou un bundle introuvable, retombe sur le français — jamais une clé crue à
+  l'écran (`bundle`/`load` rendent une map vide, `get` retombe sur la clé par défaut fr).
+- **T8 Écrans langue joignables hors session** [S] (LC-13-06-03) : `/language-select` et `/action/language`
+  sont dans `ALLOWED_PREFIXES` de `SessionCheckFilter` → joignables caisse verrouillée ou sans session ;
+  l'écran reste `@DrawerMustBeClosed` (tiroir fermé).
 
 ## O. Inventaire exhaustif — messages d'erreur & modales
 
