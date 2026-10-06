@@ -1028,7 +1028,9 @@ public class PosSettingsService {
         LOGGER.info("Entering method floatingFloat");
         String mode = floatMode();
         LOGGER.info("Exiting method floatingFloat");
-        return mode != null && mode.startsWith("FLOATING");
+        // floatMode() reads value("cash.float-mode"), a catalog key whose default
+        // is FIXED, so it never yields null here.
+        return mode.startsWith("FLOATING");
     }
 
     /**
@@ -1201,7 +1203,8 @@ public class PosSettingsService {
         LOGGER.info("Entering method customerCreditTender");
         String key = value("customer.credit-tender");
         LOGGER.info("Exiting method customerCreditTender");
-        return key == null || key.isBlank() ? "CREDIT" : key.trim();
+        // value() never yields null for this catalog key (default CREDIT).
+        return key.isBlank() ? "CREDIT" : key.trim();
     }
 
     /**
@@ -2238,7 +2241,7 @@ public class PosSettingsService {
     public List<String> availableLanguages() {
         LOGGER.info("Entering method availableLanguages");
         String raw = value("language.available");
-        if (raw == null || raw.isBlank()) {
+        if (raw.isBlank()) {
             LOGGER.info("Exiting method availableLanguages");
             return List.of();
         }
@@ -2344,7 +2347,7 @@ public class PosSettingsService {
     public List<ReturnType> returnTypes() {
         LOGGER.info("Entering method returnTypes");
         String raw = value("return.types");
-        if (raw == null || raw.isBlank()) {
+        if (raw.isBlank()) {
             LOGGER.info("Exiting method returnTypes");
             return List.of();
         }
