@@ -2168,4 +2168,115 @@ class HomeServiceTest {
         service.markSubtotal();
         verify(service.state.ticket).setError("AUCUN ARTICLE POUR UN SOUS-TOTAL");
     }
+
+    // --------------------------------------------------
+    // Campaign 2 — retours/langue added branches
+    // --------------------------------------------------
+
+    /**
+     * {@code cancelLineByUid} proceeds to cancel when the ticket holds a single
+     * line that is NOT the target (the {@code targetUid.equals(first.uid)} false
+     * arm): the last-article guard is for cancelling the only line, not for a
+     * stray uid, so the cancel runs normally.
+     */
+    @Test
+    void cancelLineByUidProceedsWhenTheSingleLineIsNotTheTarget() {
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        when(service.endorsementService.gestureAuthorized(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        service.cancelLineByUid("B");
+        verify(service.ticketService).cancelItemById(service.state, "B");
+    }
+
+    /**
+     * {@code cancelTicket} undoes a settlement already taken before cancelling
+     * (the {@code !payments.isEmpty()} true arm): a paid-then-abandoned ticket
+     * must not leave the payment standing.
+     */
+    @Test
+    void cancelTicketUndoesPaymentsWhenPresent() {
+        when(service.endorsementService.gestureAuthorized(service.state, "abandon")).thenReturn(true);
+        java.util.List<PaymentState.PaymentEntry> payments = new ArrayList<>();
+        payments.add(new PaymentState.PaymentEntry("CASH", BigDecimal.ONE));
+        service.state.payment.payments = payments;
+        service.cancelTicket();
+        verify(service.paymentService).cancelPayments(service.state);
+        verify(service.ticketService).cancelTicket(service.state);
+    }
+
+    /**
+     * {@code cancelByScan} with a null code (the {@code code != null} false arm)
+     * matches no line and reports the article as absent.
+     */
+    @Test
+    void cancelByScanWithNullCodeFindsNoLine() {
+        service.state.cancelByScanArmed = true;
+        service.state.ticket.items.add(item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE));
+        service.cancelByScan(null);
+        assertFalse(service.state.cancelByScanArmed);
+        verify(service.state.ticket).setError("ARTICLE ABSENT DU TICKET");
+    }
+
+    /**
+     * {@code callSupervisor} forwards a non-blank free message in the payload when
+     * the store is configured (both true arms of {@code message != null &&
+     * !message.isBlank()} on the push path).
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void callSupervisorForwardsANonBlankMessageWhenConfigured() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        service.supervisorToken = Optional.empty();
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.callSupervisor("Prix", "étiquette manquante rayon 4");
+        verify(service.state.ticket).setNotice("SUPERVISEUR PRÉVENU");
+    }
+
+    /**
+     * {@code callSupervisor} omits a blank free message from the payload when the
+     * store is configured (the {@code message != null} true arm but the
+     * {@code !message.isBlank()} false arm on the push path).
+     *
+     * @throws Exception if the HTTP send stub cannot be wired
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void callSupervisorOmitsABlankMessageWhenConfigured() throws Exception {
+        when(service.syncOutboxService.isEnabled()).thenReturn(true);
+        when(service.syncOutboxService.getStoreUrl()).thenReturn("http://localhost:9999");
+        when(service.objectMapper.writeValueAsString(any())).thenReturn("{}");
+        service.supervisorToken = Optional.empty();
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<Object> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(client.send(any(), any())).thenReturn(response);
+        writeStaticFinal("SUPERVISOR_CLIENT", client);
+        service.callSupervisor("Autre", "   ");
+        verify(service.state.ticket).setNotice("SUPERVISEUR PRÉVENU");
+    }
+
+    /**
+     * {@code answerSurvey} is a no-op for a null answer with a survey pending (the
+     * {@code answer == null} true arm of the guard): nothing is journalled and the
+     * survey stays.
+     */
+    @Test
+    void answerSurveyNoOpWhenNullAnswer() {
+        PosState.BackOfficeSurvey survey = new PosState.BackOfficeSurvey();
+        survey.question = "Q";
+        service.state.backOfficeSurvey = survey;
+        service.answerSurvey(null);
+        verify(service.technicalEventService, org.mockito.Mockito.never())
+                .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
+                        org.mockito.ArgumentMatchers.anyString());
+        assertSame(survey, service.state.backOfficeSurvey);
+    }
 }
