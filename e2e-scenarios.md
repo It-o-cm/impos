@@ -160,20 +160,20 @@ panneau qu'il sert.
   0,100 kg, QUANTITÉ tapée 0,850 kg → la caisse DÉDUIT la tare (seul endroit où elle déduit) →
   ligne à 0,750 kg ; une tare qui ne laisse rien (≥ poids saisi) → `POIDS INVALIDE (0,001-99,999 KG)`.
 
-- **B25 Code-barres à prix embarqué → poids affiché** [S] (EXP-26, LC-02-05-01/04) : scan
+- **B33 Code-barres à prix embarqué → poids affiché** [S] (EXP-26, LC-02-05-01/04) : scan
   d'une étiquette à prix embarqué (préfixe 02/21/22/24/26/28, valeur digits 8–12) → ligne au
   prix lu, et POIDS DÉDUIT du prix au kilo du référentiel (sens inverse) affiché sur les deux
   visus et imprimé sur le ticket (« 0,375 kg à 4,00 €/kg ») ; sans prix référentiel, pas de poids.
-- **B26 Code-barres à poids embarqué + préfixes reclassés** [S] (EXP-27) : préfixes poids
+- **B34 Code-barres à poids embarqué + préfixes reclassés** [S] (EXP-27) : préfixes poids
   23/25/27/29 (24 et 26 basculés côté prix, 02/27/29 ajoutés) ; le repli ne dépend plus du
   filtre 2\d{12} mais du préfixe administré. Étiquette en francs → conversion en euros au taux
   6,55957 descendu du back-office (Currency), position/longueur administrées par plage.
-- **B27 Code famille** [S] (EXP-24) : « 80 » VALIDER « 2,35 » VALIDER → ligne « EPICERIE
+- **B35 Code famille** [S] (EXP-24) : « 80 » VALIDER « 2,35 » VALIDER → ligne « EPICERIE
   2,35 € » portant le libellé de la famille et la TVA par défaut ; famille inconnue → FAMILLE
   INCONNUE ; prix négatif/illisible → ERREUR PRIX SAISI.
-- **B28 Défilement Fruits & Légumes** [S] (EXP-22) : le tableau des tuiles F&L défile au lieu
+- **B36 Défilement Fruits & Légumes** [S] (EXP-22) : le tableau des tuiles F&L défile au lieu
   de paginer.
-- **B29 Répétition sans plafond** [S] (EXP-29, revu en recette) : RÉPÉTER ARTICLE trois fois de
+- **B37 Répétition sans plafond** [S] (EXP-29, revu en recette) : RÉPÉTER ARTICLE trois fois de
   suite sur la même ligne → quatre unités, trois notices `ARTICLE RÉPÉTÉ`, aucun refus ; sur une
   ligne dont la quantité a été SAISIE (3) → quatre. L'ancien refus `RÉPÉTITION IMPOSSIBLE :
   QUANTITÉ SAISIE` a disparu : il lisait la quantité, qu'il ne pouvait pas distinguer de celle
@@ -244,7 +244,7 @@ panneau qu'il sert.
   bascule du mode formation — via un point de décision unique (`selfAuthorized`), sans modale
   d'aval ; un caissier simple, lui, voit la modale d'autorisation.
 
-- **C9 Pré-saisie (le nombre avant la touche)** : un pavé reste à l'écran de vente, dans le
+- **C15 Pré-saisie (le nombre avant la touche)** : un pavé reste à l'écran de vente, dans le
   **coin bas droit** — dernière brique de la colonne d'actions, sous les dix touches, qui
   gardent leurs deux colonnes et leurs cinq rangées —, et alimente le tampon `PosPrefill`.
   L'afficheur du tampon est un simple cadre de texte, **jamais un champ de saisie** : une
@@ -271,7 +271,7 @@ panneau qu'il sert.
   (`/search?q=`) : un caissier qui a appuyé sur RECHERCHE a demandé une recherche, il lui est
   dû une liste et non une erreur. Rien de tapé → RECHERCHE ouvre l'écran recherche vide comme
   avant.
-- **C10 Pré-saisie sur les autres écrans** : **Règlement** — taper le montant puis
+- **C16 Pré-saisie sur les autres écrans** : **Règlement** — taper le montant puis
   **ESPÈCES / CARTE / TICKET RESTO / CHÈQUE / CAGNOTTE** règle en un geste ; rien de tapé,
   la saisie s'ouvre préremplie du reste dû comme avant ; les saisies de CODE (Resto Flash,
   carte cadeau, SOGEC) sont exclues, ce qu'on y tape étant un numéro et non une somme.
@@ -481,9 +481,9 @@ panneau qu'il sert.
   automatique » (un écart nul d'auto-déclaration reste distinguable d'un comptage juste).
   Réglage absent/false → écran de comptage présenté comme aujourd'hui.
 
-- **F20 Touches d'arrondi et coupures sur le pavé paiement** [S] (EXP-55) : touche ARRONDI au
+- **F35 Touches d'arrondi et coupures sur le pavé paiement** [S] (EXP-55) : touche ARRONDI au
   10 € supérieur et touches coupures (5/10/20/50/100 €) remplissent le montant à régler.
-- **F21 Annulation d'un règlement seul** [S] (EXP-63) : sur plusieurs règlements enregistrés,
+- **F36 Annulation d'un règlement seul** [S] (EXP-63) : sur plusieurs règlements enregistrés,
   annuler UNE ligne (index) sans purger les autres ; le paiement reste en cours, le draft est
   re-persisté avec les règlements survivants ; index hors plage → aucun effet.
 - **F22 INFO ARTICLE** [S] (EXP-93, revu en recette) : écran INFO ARTICLE (`/article-info`)
@@ -573,11 +573,11 @@ panneau qu'il sert.
 
 ## H. Retours [S]
 
-- **H13 Sous-total sur le ticket** [S] (EXP-43) : touche SOUS-TOTAL → marqueur après la
+- **H21 Sous-total sur le ticket** [S] (EXP-43) : touche SOUS-TOTAL → marqueur après la
   dernière ligne, somme du groupe depuis le marqueur précédent affichée à l'écran et imprimée
   (`SOUS-TOTAL x,xx`) sur le ticket, le duplicata et le ticket dématérialisé ; le total et les
   offres à seuil voient toujours le ticket entier. Un second marqueur somme depuis le premier.
-- **H14 Un seul ticket en attente** [S] (EXP-45) : un ticket déjà en attente → la mise en
+- **H23 Un seul ticket en attente** [S] (EXP-45) : un ticket déjà en attente → la mise en
   attente d'un second est refusée (« UN TICKET EST DÉJÀ EN ATTENTE - REPRENEZ-LE D'ABORD »).
 
 - **H1 Retour nominal espèces** : recherche ticket → quantités → avenant CASH →
@@ -633,11 +633,11 @@ panneau qu'il sert.
   (`Valable jusqu'au : <date>`), la validité étant aussi stockée sur l'instrument
   (`StoredValue.validUntil`).
 
-- **H13 Retour par scan du numéro** [S] (EXP-37) : le numéro imprimé en bas d'un ticket CLÔTURÉ,
+- **H20 Retour par scan du numéro** [S] (EXP-37) : le numéro imprimé en bas d'un ticket CLÔTURÉ,
   scanné sur l'écran de vente, route vers `/return` (poll `returnRequested` → navigation), la recherche
   retour préremplie. Un numéro d'un ticket EN ATTENTE reprend le panier (comportement inchangé) ; un
   numéro d'un autre magasin n'existe pas en base locale (refus implicite) ; autre caisse et autre jour OK.
-- **H14 Lignes déjà retournées grisées** [S] (EXP-37) : sur la fiche retour, une ligne entièrement
+- **H22 Lignes déjà retournées grisées** [S] (EXP-37) : sur la fiche retour, une ligne entièrement
   retournée par un retour antérieur est grisée (`.receipt-line.refunded`, « DÉJÀ RETOURNÉ ») et non
   sélectionnable ; les lignes encore retournables restent actives.
 - **H16 Ticket mixte : retour + achats, total signé** [S] (EXP-38) : un article repris (ligne
@@ -1076,6 +1076,11 @@ ses trois bandeaux sont référencés, pas approfondis.
 
 ### O-A. Zone message du ticket (transitoire — effacée au scan suivant) [S]
 
+Trois scénarios portent la ZONE elle-même (affichage puis effacement au geste suivant) ; les autres lignes du tableau sont inventoriées ici et vérifiées depuis leur groupe d'origine.
+- **OA1** Zone message au scan : `AUCUNE SESSION OUVERTE - MENU CAISSE`, `PRODUIT INTERDIT À LA VENTE`, `CODE INCONNU: <code>`, `PRODUIT INTROUVABLE`, `PLU INTROUVABLE`, `ARTICLE BALANCE INTROUVABLE (<plu>)`, `ÉTIQUETTE DÉJÀ SCANNÉE`, `POIDS INVALIDE`, `ERREUR POIDS IDENTIQUE`, `ERREUR PRIX SAISI`, `BON DE CONSIGNE ILLISIBLE` — chacun affiché puis effacé au scan valide suivant.
+- **OA2** Zone message sur action de ligne : `AUCUNE LIGNE SÉLECTIONNÉE`, `LIGNE INTROUVABLE`, `QUANTITÉ INVALIDE (1-999)`, `QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE`, `VALEUR INVALIDE`.
+- **OA3** Zone message, gardes d'état : `TERMINEZ OU ANNULEZ LE TICKET D'ABORD`, `FONCTION INDISPONIBLE EN FORMATION` (réimpression en formation), `SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE`, `PAIEMENT REFUSÉ PAR LE TPE` ; les quatre sorties superviseur par le nœud sont du résidu [N].
+
 | Déclencheur | Message exact |
 |---|---|
 | Scan/vente sans session ouverte | `AUCUNE SESSION OUVERTE - MENU CAISSE` |
@@ -1095,7 +1100,7 @@ ses trois bandeaux sont référencés, pas approfondis.
 | QUANTITÉ sur ligne pesée/négative/modifiée | `QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE` |
 | Saisie invalide dans la modale de geste | `VALEUR INVALIDE` |
 | TPE virtuel : refus simulateur | `PAIEMENT REFUSÉ PAR LE TPE` |
-| Réimpression du dernier ticket en formation | `RÉIMPRESSION INDISPONIBLE EN FORMATION` |
+| Réimpression du dernier ticket en formation | `FONCTION INDISPONIBLE EN FORMATION` |
 | Action de vente pendant un paiement actif | `TERMINEZ OU ANNULEZ LE TICKET D'ABORD` |
 | Appel superviseur sans store-url | `SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE` |
 | Appel superviseur : store injoignable | `APPEL SUPERVISEUR IMPOSSIBLE` |
@@ -1134,7 +1139,7 @@ ses trois bandeaux sont référencés, pas approfondis.
 Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action suivant
 (contrat transitoire).
 
-### O-B. Messages de page (query param / état) [S]
+### O-B. Messages de page (query param / état) [S] (scénario **OB1**)
 
 - **Lock** : identifiants faux → `IDENTIFIANTS INCORRECTS` ; compte verrouillé →
   `COMPTE VERROUILLÉ - RÉESSAYEZ PLUS TARD` (persiste pendant le lockout, badge compris).
@@ -1144,7 +1149,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
   `Le nouveau code doit comporter 4 chiffres` ; confirmation ≠ →
   `Les nouveaux codes ne correspondent pas` ; succès → `Code PIN modifié`.
 
-### O-C. Écran retours (staging — persiste jusqu'à correction) [S]
+### O-C. Écran retours (staging — persiste jusqu'à correction) [S] (scénario **OC1**)
 
 - Quantités nulles partout → `RIEN À REMBOURSER`.
 - Ligne au-delà du restant remboursable → `QUANTITÉ DÉJÀ REMBOURSÉE (<détail>)`.
@@ -1153,12 +1158,16 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 - Ces gardes se re-vérifient EN TRANSACTION : provoquer l'écart entre staging et
   exécution (2e remboursement intercalé) → même message, rollback complet.
 
-### O-D. Bons de paiement (zone bon de l'écran pay) [S]
+### O-D. Bons de paiement (zone bon de l'écran pay) [S] (scénario **OD1**)
 
 - Numéro ne matchant aucun type → `Type de bon inconnu`.
 - Type MANUAL : numéro invalide → `Numéro non reconnu — vérifiez la saisie`.
 
 ### O-E. Modales & overlays — cycle complet de chaque surface [S]
+
+- **OE1** Modales geste & avenant : ouverture des quatre types (REMISE / DISCOUNT / FORCE_PRICE / QUANTITY), saisie invalide → `VALEUR INVALIDE`, ANNULER inerte (aucune trace), QUANTITY direct, REMISE par l'avenant ; PIN manager faux → `AUTORISATION REFUSÉE` (compteur partagé), badge manager pré-rempli, ANNULER → geste abandonné.
+- **OE2** Overlay TPE & modale de complétion : demande CB (montant affiché), ACCEPT règle et complète, REFUSE → `PAIEMENT REFUSÉ PAR LE TPE`, ANNULER caisse retire la demande ; modale de complétion à solde nul (IMPRIMER = draft OPEN, NOUVELLE VENTE = clôture fiscale, `Rendu Client` si trop-perçu).
+- **OE3** Interstitiel tiroir & bandeaux : GET bloqué → `/drawer-error` → retour AU CHEMIN à la fermeture ; POST bloqué → retour au REFERER, jamais de rejeu ; bandeau FORMATION (z-50) sur tous les écrans.
 
 - **Modale de geste (main)** ×4 types (REMISE/DISCOUNT/FORCE_PRICE/QUANTITY) :
   ouverture (PosInput branché), saisie invalide → `VALEUR INVALIDE`, ANNULER → aucune
@@ -1179,7 +1188,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
   plusieurs coexistent (formation + dégradé = formation dessus). Déclencheurs : voir
   E/J, sans extension.
 
-### O-F. Écran paiement — règles de tender & moyens physiques [S]
+### O-F. Écran paiement — règles de tender & moyens physiques [S] (scénario **OF1**)
 
 | Déclencheur | Message exact |
 |---|---|
@@ -1199,7 +1208,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 | TR : montant plafonné à l'assiette | `TR PLAFONNE <x> E` |
 | Rendu payé en avoir | `RENDU EN AVOIR <x> E` |
 
-### O-G. Écran paiement — crédit client, devise, secours [S]
+### O-G. Écran paiement — crédit client, devise, secours [S] (scénario **OG1**)
 
 | Déclencheur | Message exact |
 |---|---|
@@ -1223,7 +1232,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 | Dégradé monétique déjà inactif | `MODE DÉGRADÉ MONÉTIQUE DÉJÀ INACTIF` |
 | Dégradé monétique désactivé | `MODE DÉGRADÉ MONÉTIQUE DÉSACTIVÉ` |
 
-### O-H. Bons d'achat & consultation de solde [S]
+### O-H. Bons d'achat & consultation de solde [S] (scénario **OH1**)
 
 | Déclencheur | Message exact |
 |---|---|
@@ -1234,7 +1243,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 | Instrument déjà scanné sur la vente | `BON DÉJÀ SCANNÉ SUR CETTE VENTE` |
 | Consultation solde vide | `AUCUN NUMÉRO SAISI` |
 
-### O-I. Fidélité — recherche, consultation, cagnotte [S]
+### O-I. Fidélité — recherche, consultation, cagnotte [S] (scénario **OI1**)
 
 | Déclencheur | Message exact |
 |---|---|
@@ -1257,7 +1266,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 | Cagnotte : compte inactif | `COMPTE FIDÉLITÉ INACTIF` |
 | Cagnotte : refus générique | `PAIEMENT FIDÉLITÉ REFUSÉ` |
 
-### O-J. Facturation [S]
+### O-J. Facturation [S] (scénario **OJ1**)
 
 | Déclencheur | Message exact |
 |---|---|
@@ -1275,7 +1284,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 | Émission en formation | `FACTURE INDISPONIBLE EN FORMATION` |
 | Imprimante A4 réseau injoignable | `IMPRIMANTE RESEAU INJOIGNABLE - DOCUMENT IMPRIME EN CAISSE` |
 
-### O-K. Mouvements de caisse, réimpression, retours [S]
+### O-K. Mouvements de caisse, réimpression, retours [S] (scénario **OK1**)
 
 | Déclencheur | Message exact |
 |---|---|
@@ -1297,7 +1306,7 @@ Vérifier pour CHAQUE entrée : le message s'affiche, ET s'efface au scan/action
 | Retour : moyen non autorisé | `MOYEN NON AUTORISE AU REMBOURSEMENT` |
 | Retour cagnotte sans carte d'origine | `AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE` |
 
-### O-L. Messages de page — session, clôture, supervision [S]
+### O-L. Messages de page — session, clôture, supervision [S] (scénario **OL1**)
 
 - **Fermeture du poste** (`/close`) : `Code opérateur incorrect.` ; `Autorisation superviseur
   refusée.` ; `Des tickets en attente exigent une autorisation superviseur.`.
