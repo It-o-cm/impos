@@ -53,7 +53,7 @@ public class RefundResource {
         LOGGER.info("Entering method showSearchPage");
         if (state.refund.isTicketSelected()) { LOGGER.info("Exiting method showSearchPage"); return detail(); }
         LOGGER.info("Exiting method showSearchPage");
-        return returnSearchPage.data("state", state);
+        return search();
     }
 
     /**
@@ -88,6 +88,13 @@ public class RefundResource {
     public TemplateInstance selectTicket(@PathParam("id") Long id) {
         LOGGER.info("Entering method selectTicket with id: " + id);
         refundService.selectTicket(state, id);
+        // LC-05-02-07: a ticket the register refused — another point of sale's —
+        // leaves nothing selected, and the detail page has no ticket to show. The
+        // operator stays on the search, where the refusal is in sight.
+        if (!state.refund.isTicketSelected()) {
+            LOGGER.info("Exiting method selectTicket");
+            return search();
+        }
         LOGGER.info("Exiting method selectTicket");
         return detail();
     }
@@ -211,6 +218,47 @@ public class RefundResource {
         refundService.decrementQty(state, lineId);
         LOGGER.info("Exiting method subQty");
         return detail();
+    }
+
+    /**
+     * Takes one unit back by ARTICLE CODE, keyed on the screen's pad
+     * (LC-05-02-11). The same service entry the scan bus uses, so a typed code
+     * and a scanned one behave identically.
+     *
+     * @param rawValue the keyed article code
+     * @return a 303 redirect to the refund screen (PRG pattern, so a browser
+     *         reload never replays the POST)
+     */
+    @POST
+    @Path("/enter-article")
+    public Response enterArticle(@FormParam("rawValue") String rawValue) {
+        LOGGER.info("Entering method enterArticle with rawValue: " + rawValue);
+        refundService.enterArticleByCode(state, rawValue);
+        LOGGER.info("Exiting method enterArticle");
+        return redirectReturn();
+    }
+
+    /**
+     * Leaves the return screen for the sale screen, DROPPING the ticket
+     * selection (LC-05-02-11).
+     *
+     * <p>The selection is what routes a scanned code to the return rather than to
+     * the sale, so a screen the operator left must not keep it: the next article
+     * scanned on the sale screen rings a sale, as it always did.
+     *
+     * @return a 303 redirect to the sale screen
+     */
+    @GET
+    @Path("/leave")
+    public Response leave() {
+        LOGGER.info("Entering method leave");
+        state.refund.clear();
+        // LC-05-04-01: the chosen return type dies with the screen it was chosen
+        // for, so the next return is not labelled with the previous one's type.
+        state.returnTypeLabel = null;
+        state.touch();
+        LOGGER.info("Exiting method leave");
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**
@@ -342,6 +390,18 @@ public class RefundResource {
     private TemplateInstance detail() {
         return returnDetailPage.data("state", state)
                 .data("reasons", posSettingsService.returnReasons());
+    }
+
+    /**
+     * Renders the return SEARCH page, handing it the administered return types
+     * (LC-05-04-01) so the screen can offer them as keys beside the two base
+     * gestures.
+     *
+     * @return the search page view
+     */
+    private TemplateInstance search() {
+        return returnSearchPage.data("state", state)
+                .data("returnTypes", posSettingsService.returnTypes());
     }
 
     /**

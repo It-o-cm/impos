@@ -231,8 +231,9 @@ class ChangeOrderResourceTest {
         assertRedirect(resource.printEmpty(), "/change-order?ok=empty");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String[]>> rows = ArgumentCaptor.forClass(List.class);
+        // An empty slip states no amount: nothing was dialed to pay for.
         verify(resource.ticketPrinterService).printChangeOrder(eq("C04"), eq("17"), eq("Marie"),
-                rows.capture());
+                rows.capture(), eq(null));
         assertEquals(12, rows.getValue().size());
         for (String[] row : rows.getValue()) {
             assertEquals("", row[1]);
@@ -249,7 +250,8 @@ class ChangeOrderResourceTest {
         ChangeOrderResource resource = newResource();
         when(resource.posSettingsService.changeOrderPrint()).thenReturn(false);
         assertRedirect(resource.print(), "/change-order?error=print-disabled");
-        verify(resource.ticketPrinterService, never()).printChangeOrder(any(), any(), any(), any());
+        verify(resource.ticketPrinterService, never()).printChangeOrder(any(), any(), any(),
+                any(), any());
     }
 
     /**
@@ -266,10 +268,42 @@ class ChangeOrderResourceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String[]>> rows = ArgumentCaptor.forClass(List.class);
         verify(resource.ticketPrinterService).printChangeOrder(eq("C04"), eq("17"), eq("Marie"),
-                rows.capture());
+                rows.capture(), eq(new java.math.BigDecimal("8.00")));
         String[] coinRow = rows.getValue().stream()
                 .filter(r -> r[0].equals("Pièce 0,20 €")).findFirst().orElseThrow();
         assertEquals("8,00", coinRow[1]);
         assertEquals("1", coinRow[2]);
+    }
+
+    /**
+     * The TOTAL of the slip is the sum of the dialed amounts, whichever figure was
+     * typed: an amount dialed directly and a roll count whose amount was computed
+     * both count, and a denomination nobody touched counts for nothing.
+     */
+    @Test
+    void theSlipTotalSumsEveryDialedAmount() {
+        ChangeOrderResource resource = newResource();
+        // 0,20 € is administered at 8,00 € the roll, so two rolls are 16,00 €; the
+        // 0,01 € amount is dialed as itself; the 1 € coin, which no administered roll
+        // value covers, is dialed in rolls and carries no amount — it counts for
+        // nothing rather than for a figure nobody computed.
+        resource.entry("c020", "ROLLS", "2");
+        resource.entry("c001", "AMOUNT", "1,50");
+        resource.entry("c1", "ROLLS", "3");
+        assertEquals(0, new java.math.BigDecimal("17.50")
+                .compareTo(resource.state.changeOrder.total()));
+        assertEquals("17,50", resource.state.changeOrder.getTotalFormatted());
+    }
+
+    /**
+     * A slip on which NOTHING was dialed totals zero rather than null: the filled
+     * print still states an amount, and that amount is zero.
+     */
+    @Test
+    void theSlipTotalOfAnUntouchedOrderIsZero() {
+        ChangeOrderResource resource = newResource();
+        assertEquals(0, java.math.BigDecimal.ZERO
+                .compareTo(resource.state.changeOrder.total()));
+        assertEquals("0,00", resource.state.changeOrder.getTotalFormatted());
     }
 }

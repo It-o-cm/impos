@@ -178,6 +178,32 @@ class PosStateTest {
     }
 
     /**
+     * {@code clearTicket()} brings the button menu back to ARTICLES: the sale that
+     * just ended left the register on the settlement — or the ticket — menu, and the
+     * next customer's first gesture is a scan.
+     */
+    @Test
+    void clearTicketBringsTheMenuBackToArticles() {
+        PosState state = newState();
+        state.menu = PosMenu.REGLEMENT;
+        state.clearTicket();
+        assertEquals(PosMenu.ARTICLES, state.menu);
+    }
+
+    /**
+     * A menu the cashier chose DURING a sale survives until that sale ends: nothing
+     * but {@code clearTicket()} moves the menu, so selecting the drawer menu and
+     * scanning an article leaves the drawer menu up.
+     */
+    @Test
+    void theChosenMenuSurvivesUntilTheTicketEnds() {
+        PosState state = newState();
+        state.menu = PosMenu.TIROIR;
+        state.touch();
+        assertEquals(PosMenu.TIROIR, state.menu);
+    }
+
+    /**
      * {@code clearTicket()} closes any open supervisor session and disarms the
      * cancel-by-scan mode (EXP-33/36): a supervisor authorization or an armed
      * cancel must never leak into the next customer's sale.

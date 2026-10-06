@@ -85,6 +85,41 @@ public class ChangeOrderState implements Serializable {
     }
 
     /**
+     * The TOTAL of the dialed amounts: what the order is worth, and so what the
+     * cashier hands over to be given the change.
+     *
+     * <p>The slip listed the denominations and nothing else, which left the amount to
+     * pay for them to be added up by hand — and that figure is half of the procedure:
+     * the paper the cashier gives her manager says which rolls she needs AND how much
+     * she is paying for them.
+     *
+     * <p>An entry dialed in ROLLS carries its computed amount like any other, so the
+     * total is the sum of the amounts whichever figure was typed; an entry with no
+     * amount counts for nothing.
+     *
+     * @return the total of the dialed amounts, never null
+     */
+    public BigDecimal total() {
+        BigDecimal total = BigDecimal.ZERO;
+        for (Entry entry : entries.values()) {
+            if (entry != null && entry.amount != null) {
+                total = total.add(entry.amount);
+            }
+        }
+        return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * The total of the dialed amounts, formatted with two decimals and a French
+     * comma.
+     *
+     * @return the formatted total
+     */
+    public String getTotalFormatted() {
+        return total().toPlainString().replace('.', ',');
+    }
+
+    /**
      * Clears every dialed entry.
      */
     public void clear() {

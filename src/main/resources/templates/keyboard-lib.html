@@ -3,11 +3,17 @@
  ! with digits, ALPHA keyboard — a FIXED 10-column grid needing ~554px
  ! minimum width) and the PosInput SINGLETON. CONTRACTS: PosInput.setup wires
  ! ONE input at a time (a second setup steals the buffer — one active binding
- ! per page); updateDisplay writes displayEl.value, so the display MUST be an
- ! <input> (a div silently shows nothing); external pads can feed the same
- ! buffer through PosInput.handleKey(k); initialValue is the supported
- ! prefill (never poke .buffer directly). defaultValue quirks and modes:
- ! 'integer'/'decimal'/'text' govern what keys append.
+ ! per page); external pads can feed the same buffer through
+ ! PosInput.handleKey(k); initialValue is the supported prefill (never poke
+ ! .buffer directly). defaultValue quirks and modes: 'integer'/'decimal'/'text'
+ ! govern what keys append.
+ ! THE DISPLAY IS NOT A FIELD. A till has no physical keyboard, so a visible
+ ! <input> there shows a caret waiting for keystrokes that never come — and
+ ! invites someone to plug one in. Every display is a text element carrying the
+ ! .pad-display class (the theme holds its height and its placeholder), and what
+ ! is posted travels in a hidden input named by hiddenId. updateDisplay writes
+ ! textContent on such an element and still writes .value on the few that are
+ ! inputs, and padText(el) reads a display back whichever it is.
 !}
 <script>
     window.PosKeyboards = {
@@ -206,6 +212,39 @@
         },
 
         /**
+         * Renders the PRE-ENTRY pad: digits, comma, correction keys and a wide
+         * validation key.
+         * <p>
+         * The pad of the PRE-ENTRY buffer (see {@code PosPrefill}), the one that
+         * stays on the screen instead of opening with a modal. Four columns and
+         * not three, because it carries one key the modal pads do not need — the
+         * validation that rings what was typed — and because a four-column pad of
+         * the same width has shorter keys, which is what buys the room to leave it
+         * permanently on screen.
+         * <p>
+         * ADDITIVE variant, like the e-mail, search and ticket-search keyboards:
+         * the canonical {@code .pos-key} metrics are untouched and no existing
+         * screen changes.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderPrefillPad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols4');
+            const keys = [
+                ['7', null], ['8', null], ['9', null], ['\u232b', null],
+                ['4', null], ['5', null], ['6', null], ['C', 'pos-key--danger'],
+                ['1', null], ['2', null], ['3', null], [',', null],
+                ['0', null], ['00', null], ['OK', 'pos-key--wide pos-key--success']
+            ];
+            keys.forEach(def => pad.appendChild(this._makeKey(def[0], onKey, def[1])));
+            container.appendChild(pad);
+        },
+
+        /**
          * Renders the AZERTY alphabetic keyboard with space and erase keys.
          *
          * @param container the host element to render into
@@ -355,6 +394,18 @@
         }
     };
 
+    /**
+     * Lit ce qu'un AFFICHEUR montre, qu'il soit un element de texte (le cas general
+     * depuis que les afficheurs ne sont plus des champs) ou un <input> residuel.
+     * <p>
+     * Sert aux ecrans qui reprennent la valeur affichee: rebrancher le pave sur un
+     * champ deja rempli, ou collecter des quantites saisies avant de poster.
+     */
+    window.padText = function(el) {
+        if (!el) return '';
+        return ('value' in el) ? el.value : (el.textContent || '');
+    };
+
     window.PosInput = {
         buffer: "",
         config: {},
@@ -472,13 +523,185 @@
                 visual = this.buffer.toUpperCase();
             }
 
-            displayEl.value = visual;
+            /* L'AFFICHEUR N'EST PAS UN CHAMP. Les ecrans montrent ce qui est tape
+               dans un element de texte (.pad-display) et postent la valeur par le
+               champ cache: une borne n'a pas de clavier physique, et un <input>
+               visible y attendrait des frappes qui n'arrivent jamais. On ecrit donc
+               dans le contenu, en gardant .value pour ce qui en est encore un. */
+            if ('value' in displayEl) {
+                displayEl.value = visual;
+            } else {
+                displayEl.textContent = visual;
+            }
             if (hiddenEl) hiddenEl.value = value;
         },
 
         clear: function() {
             this.buffer = "";
             this.updateDisplay();
+        }
+    };
+
+    /**
+     * The PRE-ENTRY buffer: what the cashier types BEFORE pressing a key.
+     * <p>
+     * The gesture this serves: type 3, press QUANTITÉ, and the quantity is
+     * applied — one tap instead of three (open the modal, type, validate). The
+     * key keeps its old behaviour when nothing was typed, so no gesture is lost
+     * and nobody has to learn a new one.
+     * <p>
+     * DELIBERATELY NOT PosInput. That one is a singleton with a single active
+     * binding, claimed by whichever modal is open; a pre-entry buffer sharing it
+     * would be stolen by the first modal that opens and would silently feed the
+     * wrong field. This buffer is its own small thing: no hidden input, no form,
+     * no binding — a string, a display and a pad.
+     * <p>
+     * CONTRACTS: {@code mount} may be called once per page; {@code consume}
+     * returns the value AND clears, so a key can never apply the same figure
+     * twice; {@code onEnter} is called by the validation key with the buffer, and
+     * is responsible for clearing it if it uses it.
+     */
+    window.PosPrefill = {
+
+        /** What has been typed so far, '' when nothing has. */
+        buffer: "",
+
+        /** The input element showing the buffer, or null while not mounted. */
+        displayEl: null,
+
+        /** The element showing the hint when the buffer is empty, or null. */
+        hintEl: null,
+
+        /** The longest buffer accepted; a longer key press is ignored. */
+        maxLength: 13,
+
+        /** Called by the validation key with the current buffer, or null. */
+        onEnter: null,
+
+        /**
+         * Mounts the pad and its display on a page.
+         *
+         * @param opts displayId, containerId, hintId (optional), maxLength
+         *     (optional), onEnter (optional)
+         */
+        mount: function(opts) {
+            this.displayEl = document.getElementById(opts.displayId);
+            this.hintEl = opts.hintId ? document.getElementById(opts.hintId) : null;
+            if (opts.maxLength) this.maxLength = opts.maxLength;
+            this.onEnter = opts.onEnter || null;
+            const container = document.getElementById(opts.containerId);
+            const self = this;
+            PosKeyboards.renderPrefillPad(container, function(k) { self.handleKey(k); });
+            this.clear();
+        },
+
+        /**
+         * Applies one key press to the buffer.
+         *
+         * @param k the key, a digit or one of C, backspace, comma, OK
+         */
+        handleKey: function(k) {
+            if (k === '00') {
+                // Les deux zeros d'un coup: un prix, une quantite ou un montant rond
+                // se tapent ainsi sur toutes les caisses. Jamais en tete — un nombre
+                // qui commence par 00 n'est pas un nombre que quelqu'un veut saisir —
+                // et jamais a cheval sur la longueur maximale: deux caracteres, deux
+                // places, sinon la touche ne fait rien plutot que d'en ajouter un.
+                if (this.buffer.length === 0) return;
+                if (this.buffer.length + 2 > this.maxLength) return;
+                this.buffer += '00';
+                this.render();
+                return;
+            }
+            if (k === 'C') {
+                this.clear();
+                return;
+            }
+            if (k === '\u232b') {
+                this.buffer = this.buffer.slice(0, -1);
+                this.render();
+                return;
+            }
+            if (k === 'OK') {
+                if (this.onEnter) this.onEnter(this.value());
+                return;
+            }
+            if (k === ',') {
+                // One comma and never a leading one: ",5" is not a number any
+                // server here parses, and a second comma would make the buffer
+                // unparseable at the very moment a key consumes it.
+                if (this.buffer.indexOf(',') >= 0 || this.buffer.length === 0) return;
+                if (this.buffer.length >= this.maxLength) return;
+                this.buffer += ',';
+                this.render();
+                return;
+            }
+            if (this.buffer.length >= this.maxLength) return;
+            this.buffer += k;
+            this.render();
+        },
+
+        /**
+         * Returns what was typed, with the decimal point servers parse.
+         *
+         * @return the buffer, '' when nothing was typed
+         */
+        value: function() {
+            return this.buffer.replace(',', '.');
+        },
+
+        /**
+         * Tells whether nothing has been typed.
+         *
+         * @return true when the buffer is empty
+         */
+        isEmpty: function() {
+            return this.buffer.length === 0;
+        },
+
+        /**
+         * Returns what was typed AND empties the buffer.
+         * <p>
+         * One call, one use: a key that consumes the figure must not leave it
+         * behind for the next key, which would apply yesterday's number to
+         * today's line.
+         *
+         * @return the buffer, '' when nothing was typed
+         */
+        consume: function() {
+            const taken = this.value();
+            this.clear();
+            return taken;
+        },
+
+        /** Empties the buffer and refreshes the display. */
+        clear: function() {
+            this.buffer = "";
+            this.render();
+        },
+
+        /**
+         * Refreshes the display and the hint.
+         * <p>
+         * The hint is what tells a cashier the pad is not decoration: it names
+         * the gesture while the buffer is empty, and gets out of the way as soon
+         * as a figure is typed.
+         */
+        render: function() {
+            /* L'AFFICHEUR N'EST PAS UN CHAMP DE SAISIE. Une borne n'a pas de clavier
+               physique: un <input> y est un mensonge — il affiche un curseur et
+               attend des frappes qui n'arriveront jamais. L'afficheur est donc un
+               simple element de texte, et on ecrit dans son contenu. Les ecrans qui
+               portent encore un <input> (la saisie PosInput, elle, a des champs
+               caches a poster) continuent de recevoir .value. */
+            if (this.displayEl) {
+                if ('value' in this.displayEl) {
+                    this.displayEl.value = this.buffer;
+                } else {
+                    this.displayEl.textContent = this.buffer;
+                }
+            }
+            if (this.hintEl) this.hintEl.style.visibility = this.isEmpty() ? 'visible' : 'hidden';
         }
     };
 

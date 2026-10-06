@@ -473,6 +473,26 @@ public class HomeResource {
     }
 
     /**
+     * Starts an administered return TYPE (LC-05-04-01): a labelled key that
+     * launches one of the two base gestures. A type that opens a dedicated return
+     * ticket sends the operator to the return screen; an in-sale one leaves them
+     * on the sale screen, now in return mode.
+     *
+     * @param label the label of the type the operator tapped
+     * @return a 303 redirect to the screen the gesture lives on
+     */
+    @GET
+    @Path("/action/return-type")
+    public jakarta.ws.rs.core.Response startReturnType(
+            @jakarta.ws.rs.QueryParam("label") String label) {
+        LOGGER.info("Entering method startReturnType with label: " + label);
+        boolean dedicated = homeService.startReturnType(label);
+        LOGGER.info("Exiting method startReturnType");
+        return jakarta.ws.rs.core.Response.seeOther(
+                java.net.URI.create(dedicated ? "/return" : "/")).build();
+    }
+
+    /**
      * Ends an open supervisor session (EXP-33): the FIN SUPERVISEUR key. The
      * following gestures ask for an endorsement again.
      *
@@ -571,16 +591,33 @@ public class HomeResource {
     // --- Price-modification modal ---
 
     /**
-     * Opens the price-modification modal for the targeted line.
+     * Opens the price-modification modal for the targeted line — or applies the
+     * figure typed BEFORE the key was pressed, and opens nothing.
+     *
+     * <p>The pre-entry gesture: the sale screen carries a pad of its own, the
+     * cashier types 3 and presses QUANTITÉ, and the quantity is applied in one
+     * tap instead of three. Nothing typed, the key opens its modal exactly as
+     * before: the old gesture is never taken away, which is what lets the new one
+     * be added everywhere at once.
+     *
+     * <p>The value is applied THROUGH the opening and not instead of it, so the
+     * pre-entry inherits every refusal the opening already makes — an unknown
+     * mode, a gesture with no line selected — rather than re-deciding them a
+     * second way.
      *
      * @param type the modification type (remise, discount, force_price)
+     * @param value the figure typed before the key, or null when none was
      * @return the home page
      */
     @GET
     @Path("/action/price-mod/{type}")
-    public TemplateInstance openPriceMod(@PathParam("type") String type) {
-        LOGGER.info("Entering method openPriceMod with type: " + type);
+    public TemplateInstance openPriceMod(@PathParam("type") String type,
+                                         @QueryParam("value") String value) {
+        LOGGER.info("Entering method openPriceMod with type: " + type + ", value: " + value);
         homeService.openPriceMod(type);
+        if (value != null && !value.isBlank()) {
+            homeService.applyPreEntry(value);
+        }
         LOGGER.info("Exiting method openPriceMod");
         return home();
     }

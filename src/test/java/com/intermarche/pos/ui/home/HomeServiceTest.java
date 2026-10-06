@@ -87,6 +87,12 @@ class HomeServiceTest {
         // ceremony applies, so the historical routing assertions hold.
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(service.posSettingsService.gestureEndorsementRequired()).thenReturn(true);
+        // LC-05-01-01/-03 and LC-05-02-09/14: the return-creation parameters at
+        // their catalog defaults — an article may be taken back inside a sale and
+        // without its origin ticket, and the register is not dedicated to returns.
+        when(service.posSettingsService.returnInSaleAllowed()).thenReturn(true);
+        when(service.posSettingsService.returnWithoutOriginAllowed()).thenReturn(true);
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(false);
         // Discounts and rebates active at their catalog default (BO-03-07-01),
         // so the historical remise/discount routing assertions hold.
         when(service.posSettingsService.discountEnabled()).thenReturn(true);
@@ -326,19 +332,39 @@ class HomeServiceTest {
     }
 
     /**
-     * A line whose quantity was keyed is not silently repeated (EXP-29): the
-     * quantity-not-one arm refuses out loud and recomputes nothing.
+     * Repetition has NO CEILING: three presses on the same line give three more
+     * units. The register used to refuse the second press, reading the quantity its
+     * own first press had raised as a quantity the cashier had keyed, which capped
+     * the function at two.
      */
     @Test
-    void repeatLastItemRefusesAQuantityKeyedLine() {
+    void repeatLastItemHasNoCeiling() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE);
+        service.state.ticket.items.add(it);
+        service.state.lastEnteredItemId = "A";
+        service.repeatLastItem();
+        service.repeatLastItem();
+        service.repeatLastItem();
+        assertEquals(0, new BigDecimal("4").compareTo(it.quantity));
+        verify(service.state.ticket, times(3)).setNotice("ARTICLE RÉPÉTÉ : L");
+        verify(service.ticketService, times(3)).recalculateTotal(service.state);
+    }
+
+    /**
+     * A line whose quantity the cashier KEYED is repeated like any other: the
+     * refusal that used to protect that figure is gone, and the keyed quantity
+     * simply takes one more unit.
+     */
+    @Test
+    void repeatLastItemAddsOneToAKeyedQuantity() {
         TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"),
                 new BigDecimal("3"));
         service.state.ticket.items.add(it);
         service.state.lastEnteredItemId = "A";
         service.repeatLastItem();
-        assertEquals(0, new BigDecimal("3").compareTo(it.quantity));
-        verify(service.state.ticket).setError("RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE");
-        verifyNoInteractions(service.ticketService);
+        assertEquals(0, new BigDecimal("4").compareTo(it.quantity));
+        verify(service.state.ticket).setNotice("ARTICLE RÉPÉTÉ : L");
+        verify(service.ticketService).recalculateTotal(service.state);
     }
 
     /**
@@ -1043,6 +1069,64 @@ class HomeServiceTest {
     // --- Submit price modification ---
 
     /**
+     * PRE-ENTRY: a figure typed before the key is applied to the line the opening
+     * captured, and the modal closes without ever having been seen.
+     */
+    @Test
+    void applyPreEntryAppliesTheTypedFigure() {
+        service.state.priceModState.active = true;
+        service.state.priceModState.type = PriceModType.REMISE;
+        service.state.priceModState.targetUid = "A";
+        service.applyPreEntry("3");
+        verify(service.endorsementService).requestPriceModification(service.state,
+                PriceModType.REMISE, "A", new BigDecimal("3"));
+        verify(service.state.priceModState).clear();
+        verify(service.state).touch();
+    }
+
+    /**
+     * A COMMA is what a French pad types, and it must parse: 2,50 is two euros
+     * fifty, not an invalid figure.
+     */
+    @Test
+    void applyPreEntryReadsTheFrenchComma() {
+        service.state.priceModState.active = true;
+        service.state.priceModState.type = PriceModType.REMISE;
+        service.state.priceModState.targetUid = "A";
+        service.applyPreEntry("2,50");
+        verify(service.endorsementService).requestPriceModification(service.state,
+                PriceModType.REMISE, "A", new BigDecimal("2.50"));
+    }
+
+    /**
+     * A modal that did NOT open — unknown mode, or no line selected — leaves the
+     * typed figure unused: it would otherwise land on a line nobody chose.
+     */
+    @Test
+    void applyPreEntryDoesNothingWhenTheModalDidNotOpen() {
+        service.state.priceModState.active = false;
+        service.applyPreEntry("3");
+        verify(service.state, never()).touch();
+        verifyNoInteractions(service.endorsementService);
+    }
+
+    /**
+     * An unparseable figure is refused by name and applies nothing — the same
+     * refusal the modal's own validation makes.
+     */
+    @Test
+    void applyPreEntryRefusesAnUnparseableFigure() {
+        service.state.priceModState.active = true;
+        service.state.priceModState.type = PriceModType.REMISE;
+        service.state.priceModState.targetUid = "A";
+        service.applyPreEntry("1.2.3");
+        verify(service.state.ticket).setError("VALEUR INVALIDE");
+        verify(service.state.priceModState).clear();
+        verify(service.state).touch();
+        verifyNoInteractions(service.endorsementService);
+    }
+
+    /**
      * {@code submitPriceMod()} routes a non-quantity type through the manager
      * endorsement (type not QUANTITY).
      */
@@ -1664,7 +1748,7 @@ class HomeServiceTest {
     void drawerCapAlertWarnsWhenOverCap() {
         when(service.cashSessionService.drawerCapExcess())
                 .thenReturn(new java.math.BigDecimal("1200.00"));
-        assertEquals("PRÉLÈVEMENT — CONTENU TIROIR 1200,00 €", service.drawerCapAlert());
+        assertEquals("PRÉLÈVEMENT BILLETS — CONTENU TIROIR 1200,00 €", service.drawerCapAlert());
     }
 
     /**
@@ -1698,14 +1782,301 @@ class HomeServiceTest {
 
     /**
      * {@code toggleReturnMode()} turns return mode ON from off (EXP-40): the day's
-     * articles ring as returns, announced on the message zone.
+     * articles ring as returns, announced on the message zone. The back office
+     * allows the gesture without an endorsement here (LC-05-01-01).
      */
     @Test
     void toggleReturnModeTurnsItOn() {
         service.state.returnMode = false;
+        when(service.endorsementService.gestureAuthorized(service.state, "return")).thenReturn(true);
         service.toggleReturnMode();
         assertTrue(service.state.returnMode);
         verify(service.state.ticket).setNotice("MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS");
+        verify(service.state).touch();
+    }
+
+    /**
+     * On a register the back office dedicated to returns (LC-05-01-03), the key
+     * forces the mode ON and says so instead of toggling — first guard, mode
+     * previously off.
+     */
+    @Test
+    void toggleReturnModeForcesTheModeOnADedicatedRegister() {
+        service.state.returnMode = false;
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(true);
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setError("CAISSE DÉDIÉE AUX RETOURS");
+        verify(service.state.ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * On a dedicated register the mode cannot be left either (LC-05-01-03, same
+     * guard reached with the mode already on).
+     */
+    @Test
+    void toggleReturnModeCannotLeaveADedicatedRegister() {
+        service.state.returnMode = true;
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(true);
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setError("CAISSE DÉDIÉE AUX RETOURS");
+    }
+
+    /**
+     * With mixing forbidden, leaving the mode over a ticket that already carries
+     * a returned line is refused (LC-05-01-02): both legs of the compound guard
+     * true.
+     */
+    @Test
+    void toggleReturnModeRefusesToLeaveOverAReturnedLine() {
+        service.state.returnMode = true;
+        when(service.posSettingsService.returnInSaleAllowed()).thenReturn(false);
+        service.state.ticket.items.add(
+                item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("-1")));
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setError("TICKET DE RETOUR — VENTE INTERDITE SUR CE TICKET");
+    }
+
+    /**
+     * With mixing forbidden but no returned line yet, the mode is left normally
+     * (second leg of the compound guard false: nothing has been taken back).
+     */
+    @Test
+    void toggleReturnModeLeavesWhenNothingWasReturnedYet() {
+        service.state.returnMode = true;
+        when(service.posSettingsService.returnInSaleAllowed()).thenReturn(false);
+        service.state.ticket.items.add(
+                item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE));
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR TERMINÉ");
+    }
+
+    /**
+     * With mixing forbidden and an EMPTY ticket, the mode is left normally
+     * (second leg false through the empty line list, no stream match).
+     */
+    @Test
+    void toggleReturnModeLeavesOnAnEmptyTicketWhenMixingForbidden() {
+        service.state.returnMode = true;
+        when(service.posSettingsService.returnInSaleAllowed()).thenReturn(false);
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR TERMINÉ");
+    }
+
+    /**
+     * When the store ALLOWS mixing, a returned line does not hold the mode
+     * (first leg of the compound guard false).
+     */
+    @Test
+    void toggleReturnModeLeavesOverAReturnedLineWhenMixingAllowed() {
+        service.state.returnMode = true;
+        service.state.ticket.items.add(
+                item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("-1")));
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR TERMINÉ");
+    }
+
+    /**
+     * A store forbidding returns without the origin ticket refuses the mode
+     * outright (LC-05-02-09/14).
+     */
+    @Test
+    void toggleReturnModeRefusedWhenTheOriginTicketIsMandatory() {
+        service.state.returnMode = false;
+        when(service.posSettingsService.returnWithoutOriginAllowed()).thenReturn(false);
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setError("RETOUR SANS TICKET D'ORIGINE INTERDIT");
+        verify(service.endorsementService, never())
+                .requestAuthorization(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * With returns inside a sale forbidden, entering the mode over a ticket that
+     * already carries articles is refused (LC-05-01-01): both legs of the
+     * compound guard true.
+     */
+    @Test
+    void toggleReturnModeRefusedInsideASaleTicket() {
+        service.state.returnMode = false;
+        when(service.posSettingsService.returnInSaleAllowed()).thenReturn(false);
+        service.state.ticket.items.add(
+                item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE));
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setError("RETOUR DANS UN TICKET DE VENTE INTERDIT");
+    }
+
+    /**
+     * With returns inside a sale forbidden, the mode is still accepted on an
+     * EMPTY ticket (second leg of the compound guard false).
+     */
+    @Test
+    void toggleReturnModeAcceptedOnAnEmptyTicketWhenSaleMixingForbidden() {
+        service.state.returnMode = false;
+        when(service.posSettingsService.returnInSaleAllowed()).thenReturn(false);
+        when(service.endorsementService.gestureAuthorized(service.state, "return")).thenReturn(true);
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS");
+    }
+
+    /**
+     * When the store allows mixing, a ticket already carrying articles does not
+     * block the mode (first leg of the compound guard false).
+     */
+    @Test
+    void toggleReturnModeAcceptedInsideASaleWhenMixingAllowed() {
+        service.state.returnMode = false;
+        service.state.ticket.items.add(
+                item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE));
+        when(service.endorsementService.gestureAuthorized(service.state, "return")).thenReturn(true);
+        service.toggleReturnMode();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS");
+    }
+
+    /**
+     * Without the gesture authorization the entry is PARKED for a supervisor
+     * (LC-05-01-01): nothing changes until the endorsement is granted.
+     */
+    @Test
+    void toggleReturnModeParksTheSupervisorEndorsement() {
+        service.state.returnMode = false;
+        when(service.endorsementService.gestureAuthorized(service.state, "return")).thenReturn(false);
+        service.toggleReturnMode();
+        assertFalse(service.state.returnMode);
+        verify(service.endorsementService)
+                .requestAuthorization(service.state, HomeService.RETURN_MODE_ACTION);
+        verify(service.state.ticket, never()).setNotice(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * A return TYPE the back office does not administer is refused rather than
+     * defaulted (LC-05-04-01): a key that does something else than it says is
+     * worse than a key that does nothing.
+     */
+    @Test
+    void startReturnTypeRefusesAnUnknownLabel() {
+        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of());
+        assertFalse(service.startReturnType("Contenant"));
+        assertNull(service.state.returnTypeLabel);
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setError("TYPE DE RETOUR INCONNU");
+    }
+
+    /**
+     * A null label names no type either (nullity leg of the resolution).
+     */
+    @Test
+    void startReturnTypeRefusesANullLabel() {
+        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false)));
+        assertFalse(service.startReturnType(null));
+        assertNull(service.state.returnTypeLabel);
+        verify(service.state.ticket).setError("TYPE DE RETOUR INCONNU");
+    }
+
+    /**
+     * An IN-SALE type enters MODE RETOUR through the ordinary guarded entry,
+     * names the type and journals it (LC-05-04-01).
+     */
+    @Test
+    void startReturnTypeEntersReturnModeForAnInSaleType() {
+        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false)));
+        when(service.endorsementService.gestureAuthorized(service.state, "return")).thenReturn(true);
+        assertFalse(service.startReturnType("contenant"));
+        assertEquals("Contenant", service.state.returnTypeLabel);
+        assertTrue(service.state.returnMode);
+        verify(service.technicalEventService).log(
+                TechnicalEvent.EventType.RETURN_TYPE_SELECTED, "Contenant");
+    }
+
+    /**
+     * An IN-SALE type tapped while the mode is ALREADY on only re-labels the
+     * gesture: toggling would end it (the already-on arm).
+     */
+    @Test
+    void startReturnTypeKeepsTheModeOnWhenItIsAlreadyOn() {
+        service.state.returnMode = true;
+        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Contenant", false)));
+        assertFalse(service.startReturnType("Contenant"));
+        assertTrue(service.state.returnMode);
+        assertEquals("Contenant", service.state.returnTypeLabel);
+    }
+
+    /**
+     * A DEDICATED-TICKET type names the type and sends the operator to the return
+     * screen without touching the sale (LC-05-04-01, other arm).
+     */
+    @Test
+    void startReturnTypeRoutesADedicatedTicketTypeToTheReturnScreen() {
+        when(service.posSettingsService.returnTypes()).thenReturn(java.util.List.of(
+                new com.intermarche.pos.service.PosSettingsService.ReturnType("Defectueux", true)));
+        assertTrue(service.startReturnType("Defectueux"));
+        assertEquals("Defectueux", service.state.returnTypeLabel);
+        assertFalse(service.state.returnMode);
+        verify(service.technicalEventService).log(
+                TechnicalEvent.EventType.RETURN_TYPE_SELECTED, "Defectueux");
+    }
+
+    /**
+     * Leaving MODE RETOUR drops the chosen type (LC-05-04-01): left behind, it
+     * would label the next return with the previous one's type.
+     */
+    @Test
+    void performReturnModeToggleDropsTheChosenTypeOnTheWayOut() {
+        service.state.returnMode = true;
+        service.state.returnTypeLabel = "Contenant";
+        service.performReturnModeToggle();
+        assertFalse(service.state.returnMode);
+        assertNull(service.state.returnTypeLabel);
+    }
+
+    /**
+     * Entering MODE RETOUR keeps whatever type named it: the type is chosen
+     * BEFORE the mode is entered (the other arm of the same guard).
+     */
+    @Test
+    void performReturnModeToggleKeepsTheChosenTypeOnTheWayIn() {
+        service.state.returnMode = false;
+        service.state.returnTypeLabel = "Contenant";
+        service.performReturnModeToggle();
+        assertTrue(service.state.returnMode);
+        assertEquals("Contenant", service.state.returnTypeLabel);
+    }
+
+    /**
+     * {@code performReturnModeToggle()} flips the mode ON with no guard and no
+     * endorsement — the arm the endorsement dispatch replays.
+     */
+    @Test
+    void performReturnModeToggleFlipsTheModeOn() {
+        service.state.returnMode = false;
+        service.performReturnModeToggle();
+        assertTrue(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS");
+        verify(service.state).touch();
+    }
+
+    /**
+     * {@code performReturnModeToggle()} flips the mode OFF (other arm of its
+     * ternary).
+     */
+    @Test
+    void performReturnModeToggleFlipsTheModeOff() {
+        service.state.returnMode = true;
+        service.performReturnModeToggle();
+        assertFalse(service.state.returnMode);
+        verify(service.state.ticket).setNotice("MODE RETOUR TERMINÉ");
         verify(service.state).touch();
     }
 

@@ -69,17 +69,17 @@
             <div class="pin-fields">
                 <div>
                     <div class="pin-field-label">Code PIN actuel</div>
-                    <input type="text" id="dispCurrent" class="pin-display active" value="" readonly onclick="activateField('current')">
+                    <div id="dispCurrent" class="pin-display active pad-display" onclick="activateField('current')"></div>
                     <input type="hidden" name="currentPin" id="valCurrent" value="">
                 </div>
                 <div>
                     <div class="pin-field-label">Nouveau code PIN</div>
-                    <input type="text" id="dispNew" class="pin-display" value="" readonly onclick="activateField('new')">
+                    <div id="dispNew" class="pin-display pad-display" onclick="activateField('new')"></div>
                     <input type="hidden" name="newPin" id="valNew" value="">
                 </div>
                 <div>
                     <div class="pin-field-label">Confirmer le nouveau code</div>
-                    <input type="text" id="dispConfirm" class="pin-display" value="" readonly onclick="activateField('confirm')">
+                    <div id="dispConfirm" class="pin-display pad-display" onclick="activateField('confirm')"></div>
                     <input type="hidden" name="confirmPin" id="valConfirm" value="">
                 </div>
             </div>

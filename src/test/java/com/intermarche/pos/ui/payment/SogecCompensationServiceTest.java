@@ -20,7 +20,9 @@ import static org.mockito.Mockito.when;
  * compensation journal trace. {@code isSogecBon} is covered on all its legs
  * (null/blank code, null/blank administered list, matching and non-matching
  * prefix, and a blank prefix entry skipped); {@code recordCompensation} is
- * covered by verifying the {@code SOGEC_COMPENSATION} journal call. Both
+ * covered by verifying the {@code SOGEC_COMPENSATION} journal call;
+ * {@code faceValueOf} is covered on every leg (null and blank code, a code that
+ * is not a GS1 payload, an encoded value, and an encoded zero). Both
  * collaborators are Mockito mocks. Each test is isolated and asserts absolute
  * values.
  */
@@ -87,6 +89,53 @@ class SogecCompensationServiceTest {
     @Test
     void isSogecBonFalseForNonMatchingPrefix() {
         Assertions.assertFalse(service("99;42").isSogecBon("7712345"));
+    }
+
+    /**
+     * A null code carries no face value (first guard, null leg).
+     */
+    @Test
+    void faceValueOfIsNullForANullCode() {
+        Assertions.assertNull(service("99").faceValueOf(null));
+    }
+
+    /**
+     * A blank code carries no face value (first guard, isBlank leg).
+     */
+    @Test
+    void faceValueOfIsNullForABlankCode() {
+        Assertions.assertNull(service("99").faceValueOf("   "));
+    }
+
+    /**
+     * An ordinary SOGEC code — digits with an administered prefix, not a GS1
+     * payload — carries no encoded value: the decoder claims a payload only when
+     * the payload says it is GS1, so this returns null and the cashier keys the
+     * value.
+     */
+    @Test
+    void faceValueOfIsNullForAPlainCode() {
+        Assertions.assertNull(service("99").faceValueOf("9912345678"));
+    }
+
+    /**
+     * A bon whose GS1 payload carries the amount-payable identifier returns that
+     * value, its decimal indicator applied: {@code (3902)2000} is twenty euros.
+     */
+    @Test
+    void faceValueOfReadsTheEncodedAmount() {
+        BigDecimal value = service("99").faceValueOf("(255)952600013436712345(3902)2000");
+        Assertions.assertNotNull(value);
+        Assertions.assertEquals(0, new BigDecimal("20.00").compareTo(value));
+    }
+
+    /**
+     * An encoded value of zero is no value (non-positive leg): a bon worth nothing
+     * falls back to the keyed amount rather than settling zero.
+     */
+    @Test
+    void faceValueOfIsNullForAnEncodedZero() {
+        Assertions.assertNull(service("99").faceValueOf("(255)952600013436712345(3902)0000"));
     }
 
     /**

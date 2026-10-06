@@ -36,9 +36,18 @@
     <div class="top-bar"><span class="title">Écart de caisse</span></div>
     <div class="work">
       {#if error}<div class="close-error">{error}</div>{/if}
+      {! Le MONTANT de l'ecart n'est montre que si le back-office l'autorise
+       ! (cash.variance-amount-visible, defaut non): un caissier qui lit l'ecart sait
+       ! exactement quoi changer pour le faire disparaitre, et le comptage declare
+       ! cesse d'etre un comptage. Le chiffre reste sur le Z, dans le journal et pour
+       ! la responsable; les deux issues, elles, ne changent pas. !}
       <div class="variance-box">
         <div class="variance-label">Écart constaté (seuil {threshold} €)</div>
-        <div class="variance-amount">{pending.varianceFormatted} €</div>
+        {#if amountVisible}
+          <div class="variance-amount">{pending.varianceFormatted} €</div>
+        {#else}
+          <div class="variance-amount">AU-DELÀ DU SEUIL</div>
+        {/if}
       </div>
       <div class="variance-hint">
         L'écart dépasse le seuil autorisé. Recomptez le tiroir, ou faites valider
@@ -52,9 +61,9 @@
        ! Un seul pave, rebranche sur le champ touche. !}
       <form class="sup-form" method="post" action="/action/session/close-endorsed">
         <h2>Validation superviseur</h2>
-        <input type="text" id="dispSupervisor" placeholder="Identifiant superviseur" readonly onclick="activateField('supervisor')">
+        <div id="dispSupervisor" class="pad-display" data-placeholder="Identifiant superviseur" onclick="activateField('supervisor')"></div>
         <input type="hidden" name="supervisor" id="valSupervisor" value="">
-        <input type="text" id="dispSupervisorPin" placeholder="Code superviseur" readonly onclick="activateField('supervisorPin')">
+        <div id="dispSupervisorPin" class="pad-display" data-placeholder="Code superviseur" onclick="activateField('supervisorPin')"></div>
         <input type="hidden" name="supervisorPassword" id="valSupervisorPin" value="">
         <div class="sup-kb pos-kb-compact" id="varianceKbArea"></div>
         <button type="submit" class="btn btn-danger">VALIDER L'ÉCART ET CLÔTURER</button>

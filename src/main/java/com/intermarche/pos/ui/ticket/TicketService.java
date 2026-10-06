@@ -174,6 +174,14 @@ public class TicketService {
     @Inject
     Instance<ScanContext.ScanHandler> scanHandlers;
 
+    /**
+     * The return flow, for the one scan the sale screen does not own: on the
+     * return screen a scanned article designates the ORIGIN line to take back
+     * (LC-05-02-11).
+     */
+    @Inject
+    com.intermarche.pos.ui.returnprocess.RefundService refundService;
+
     /** The sale-screen service, for the cancel-by-scan gesture (EXP-36). */
     @Inject
     com.intermarche.pos.ui.home.HomeService homeService;
@@ -503,6 +511,17 @@ public class TicketService {
             if (!state.ticket.items.isEmpty() || state.payment.ticketDbId != null) {
                 syncAndRevalue(state);
             }
+            LOGGER.info("Exiting method processScan");
+            return;
+        }
+
+        // LC-05-02-11: on the RETURN screen a scanned article designates the ORIGIN
+        // line to take back, never a new sale line. Intercepted at the single
+        // entry, like the cancel-by-scan mode above, so it runs ahead of every add
+        // handler without disturbing their disjoint priorities. The gate is the
+        // ticket selection itself, which the return screen drops when it is left.
+        if (!state.isLocked() && state.refund.isTicketSelected()) {
+            refundService.enterArticleByCode(state, code);
             LOGGER.info("Exiting method processScan");
             return;
         }

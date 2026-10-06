@@ -149,7 +149,7 @@
 
               <div class="qty-controls">
                 <a href="/return/line/{line.id}/sub" class="btn-qty {returnQty <= 0 ? 'disabled' : ''}">-</a>
-                <input type="text" class="qty-input-display" id="lineInput-{line.id}" value="{returnQty.stripTrailingZeros().toPlainString()}" readonly onclick="bindAmountPad()">
+                <div id="lineInput-{line.id}" class="qty-input-display pad-display" onclick="bindAmountPad()"></div>
                 <a href="/return/line/{line.id}/add" class="btn-qty {returnQty >= maxQty ? 'disabled' : ''}">+</a>
                 <a href="/return/select-line/{line.id}" class="btn-validate-line">✓</a>
               </div>
@@ -194,7 +194,7 @@
           {#else}
           <form action="/return/submit-amount" method="POST" id="activeForm">
             <input type="hidden" name="rawValue" id="hiddenValue" value="0">
-            <input type="text" class="sub-display {state.refund.isEditingAmount ? 'manual' : ''}" id="mainInput" value="{state.refund.totalRefundFormatted}" readonly onclick="bindAmountPad()">
+            <div id="mainInput" class="sub-display {state.refund.isEditingAmount ? 'manual' : ''} pad-display" onclick="bindAmountPad()"></div>
           </form>
           {/if}
 
@@ -202,6 +202,17 @@
         </div>
 
         <div id="numpadContainer"></div>
+
+        {! LC-05-02-11 : la saisie libre controlee. Le code frappe ici designe une
+         ! LIGNE DU TICKET D'ORIGINE a reprendre, jamais une ligne nouvelle : un
+         ! code absent du ticket est refuse. Le pave du montant se rebranche sur ce
+         ! champ au toucher, la borne n'ayant pas de clavier. Un article SCANNE
+         ! passe par le meme service, cote serveur. !}
+        <form action="/return/enter-article" method="POST" style="display:flex; gap:6px; margin-bottom:8px;">
+          <div id="articleCodeDisplay" class="pad-display" data-placeholder="Code article" onclick="bindTextField('article')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;"></div>
+          <input type="hidden" name="rawValue" id="articleCodeValue" value="">
+          <button type="submit" class="btn btn-muted">ARTICLE</button>
+        </form>
 
         {#if reasons && !reasons.isEmpty()}
         <!-- LC-05-05-01/02 : le motif de retour, choisi dans la liste
@@ -236,7 +247,7 @@
            ! empruntent desormais le pave du montant: un clic le rebranche sur le
            ! champ touche, un clic sur le montant le rend au montant. !}
           <form action="/return/credit-account" method="GET" style="grid-column: 1 / -1; display:flex; gap:6px;">
-            <input type="text" id="creditNumberDisplay" placeholder="N° compte client" value="{state.refund.creditAccountNumber ?: ''}" readonly onclick="bindTextField('number')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;">
+            <div id="creditNumberDisplay" class="pad-display" data-placeholder="N° compte client" onclick="bindTextField('number')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;"></div>
             <input type="hidden" name="number" id="creditNumberValue" value="{state.refund.creditAccountNumber ?: ''}">
             <button type="submit" class="btn btn-muted">CLIENT</button>
           </form>
@@ -244,9 +255,9 @@
            ! superviseur, laissant deux documents (l'original intact + le reversal).
            ! Distinct d'un retour client : reprend TOUTES les lignes en espèces. !}
           <form action="/return/cancel-paid" method="POST" style="grid-column: 1 / -1; display:flex; gap:6px; border-top:1px solid var(--danger); padding-top:8px; margin-top:4px;">
-            <input type="text" id="cancelSupervisorDisplay" placeholder="Superviseur" readonly onclick="bindTextField('supervisor')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <div id="cancelSupervisorDisplay" class="pad-display" data-placeholder="Superviseur" onclick="bindTextField('supervisor')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;"></div>
             <input type="hidden" name="supervisor" id="cancelSupervisorValue" value="">
-            <input type="text" id="cancelPasswordDisplay" placeholder="Code" readonly onclick="bindTextField('supervisorPassword')" style="width:6rem; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;">
+            <div id="cancelPasswordDisplay" class="pad-display" data-placeholder="Code" onclick="bindTextField('supervisorPassword')" style="width:6rem; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;"></div>
             <input type="hidden" name="supervisorPassword" id="cancelPasswordValue" value="">
             <button type="submit" class="btn btn-danger">ANNULER CE TICKET PAYÉ</button>
           </form>
@@ -256,7 +267,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/" class="btn-back">RETOUR</a>
+    <a href="/return/leave" class="btn-back">RETOUR</a>
   </div>
 </div>
 
@@ -287,8 +298,8 @@
     var initialValue = "0";
 
     var mainInputEl = document.getElementById('mainInput');
-    if(mainInputEl && mainInputEl.value) {
-      initialValue = mainInputEl.value;
+    if(mainInputEl && padText(mainInputEl)) {
+      initialValue = padText(mainInputEl);
     }
 
     if (selectedId && selectedId !== 'null' && selectedId !== '') {
@@ -297,7 +308,7 @@
         displayId = 'lineInput-' + selectedId;
         kbdType = 'numpad';
         mode = 'integer';
-        initialValue = lineInputEl.value || "0";
+        initialValue = padText(lineInputEl) || "0";
       }
     }
 
@@ -313,9 +324,10 @@
     });
   }
 
-  /* Les trois champs texte du panneau de droite: numéro de compte client,
-     identifiant et code du superviseur qui annule un ticket payé. */
+  /* Les champs texte du panneau de droite: code de l'article repris, numéro de
+     compte client, identifiant et code du superviseur qui annule un ticket payé. */
   var RETURN_TEXT_FIELDS = {
+    article:            { display: 'articleCodeDisplay',      hidden: 'articleCodeValue',      type: 'numpad', mode: 'text', max: 14 },
     number:             { display: 'creditNumberDisplay',     hidden: 'creditNumberValue',     type: 'numpad', mode: 'text', max: 20 },
     supervisor:         { display: 'cancelSupervisorDisplay', hidden: 'cancelSupervisorValue', type: 'alpha',  mode: 'text', max: 32 },
     supervisorPassword: { display: 'cancelPasswordDisplay',   hidden: 'cancelPasswordValue',   type: 'numpad', mode: 'pin',  max: 8 }

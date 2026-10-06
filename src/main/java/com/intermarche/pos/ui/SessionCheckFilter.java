@@ -57,6 +57,9 @@ public class SessionCheckFilter implements ContainerRequestFilter {
      *       without a session, and it must not be locked behind having one;</li>
      *   <li>{@code /weight}: the scale PUSHES here — a machine surface, like the
      *       scan bus under {@code /api/}, that a redirect would simply break;</li>
+     *   <li>{@code /language-select} and its action: choosing the interface
+     *       language is what an operator does BEFORE opening the register
+     *       (LC-13-06-03), so it cannot be locked behind having a session;</li>
      *   <li>{@code /pin-change}, {@code /badge-print}, {@code /theme-select},
      *       {@code /supervisor} and their actions: what an operator does at their
      *       post rather than at the till. None of them sells anything, and the
@@ -87,6 +90,8 @@ public class SessionCheckFilter implements ContainerRequestFilter {
             "/action/badge-print",
             "/theme-select",
             "/action/theme",
+            "/language-select",
+            "/action/language",
             "/supervisor",
             "/action/supervisor",
             "/drawer-error",

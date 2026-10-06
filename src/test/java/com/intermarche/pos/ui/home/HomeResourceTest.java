@@ -11,6 +11,7 @@ import com.intermarche.pos.ui.ticket.TicketState;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
+import org.mockito.InOrder;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -26,6 +27,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -515,8 +518,39 @@ class HomeResourceTest {
         HomeResource resource = newResource();
         when(resource.state.isLocked()).thenReturn(false);
         TemplateInstance mainView = stubMain(resource);
-        assertSame(mainView, resource.openPriceMod("remise"));
+        assertSame(mainView, resource.openPriceMod("remise", null));
         verify(resource.homeService).openPriceMod("remise");
+        verify(resource.homeService, never()).applyPreEntry(anyString());
+    }
+
+    /**
+     * PRE-ENTRY: a figure typed before the key is applied through the opening,
+     * which is what makes it inherit the opening's own refusals.
+     */
+    @Test
+    void openPriceModAppliesAFigureTypedBeforeTheKey() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        stubMain(resource);
+        resource.openPriceMod("quantity", "3");
+        InOrder order = inOrder(resource.homeService);
+        order.verify(resource.homeService).openPriceMod("quantity");
+        order.verify(resource.homeService).applyPreEntry("3");
+    }
+
+    /**
+     * A BLANK value is not a pre-entry: the key opens its modal as it always
+     * did — the two legs of the guard, null and blank.
+     */
+    @Test
+    void openPriceModIgnoresAnEmptyPreEntry() {
+        HomeResource resource = newResource();
+        when(resource.state.isLocked()).thenReturn(false);
+        stubMain(resource);
+        resource.openPriceMod("remise", "");
+        resource.openPriceMod("remise", "   ");
+        verify(resource.homeService, times(2)).openPriceMod("remise");
+        verify(resource.homeService, never()).applyPreEntry(anyString());
     }
 
     /**

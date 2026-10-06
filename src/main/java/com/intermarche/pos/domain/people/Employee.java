@@ -158,6 +158,17 @@ public class Employee extends BaseEntity {
     @jakarta.persistence.Column(name = "theme", length = 20)
     public String theme;
 
+    /**
+     * Interface language administered for this employee (fr, nl or pt), or null
+     * to follow the store's system language (LC-13-06-02). Referential data, like
+     * {@link #theme}: it is administered in the back office and travels in the
+     * referential pull, and it applies on its own as soon as this operator signs
+     * in — which is what a bilingual region needs, a till serving a
+     * French-speaking cashier and a Dutch-speaking one on the same day.
+     */
+    @jakarta.persistence.Column(name = "language", length = 10)
+    public String language;
+
     // --------------------------------------------------
     // Status
     // --------------------------------------------------

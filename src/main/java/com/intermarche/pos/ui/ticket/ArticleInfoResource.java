@@ -2,6 +2,8 @@ package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.domain.catalog.Price;
 import com.intermarche.pos.domain.catalog.Product;
+import com.intermarche.pos.service.CashSessionService;
+import com.intermarche.pos.ui.PosState;
 import io.quarkus.qute.Location;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -11,21 +13,34 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+
+import java.net.URI;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import org.jboss.logging.Logger;
 
 /**
- * INFO ARTICLE — a READ-ONLY article lookup (EXP-93). A code is scanned or keyed
- * and the register shows the article's label, code, price and VAT, and nothing
- * else: there is NO path from this screen that adds a line to the ticket.
+ * INFO ARTICLE — an article lookup (EXP-93). A code is scanned or keyed and the
+ * register shows the article's label, code, price and VAT.
  *
  * <p>It is reachable CAISSE FERMÉE without a user code — it is on the
  * {@code LockCheckFilter} allowlist and needs neither an open session nor a
  * logged-in operator, because looking up what an article costs is not a sale.
  * It is not drawer-guarded either (no {@code @DrawerMustBeClosed}): a pure
  * consultation never touches the drawer.
+ *
+ * <p>THE LOOKUP CAN END IN A SALE, and that was the recette's point: a cashier who
+ * looks an article up for a customer is usually about to sell it, and the screen
+ * offered no way out but RETOUR. A found article can now be TAKEN — one unit, added
+ * through the scan admission like any typed code — and RETOUR keeps its meaning,
+ * which is "no".
+ *
+ * <p>THE TAKE KEY IS CONDITIONAL, and that is what preserves the read-only reason
+ * above: it shows only when the register is unlocked AND a session is open, which is
+ * exactly when a ticket can exist. Caisse fermée, or before anyone logged in, the
+ * screen is the pure consultation it has always been.
  */
 @Path("/")
 public class ArticleInfoResource {
@@ -35,6 +50,15 @@ public class ArticleInfoResource {
 
     /** The article-info screen. */
     @Inject @Location("article-info") Template articleInfo;
+
+    /** The ticket the taken article is added to. */
+    @Inject TicketService ticketService;
+
+    /** Whether a ticket can exist at all: the lock and the logged operator. */
+    @Inject PosState state;
+
+    /** Whether a session is open, the other half of "a ticket can exist". */
+    @Inject CashSessionService cashSessionService;
 
     /**
      * Shows the article-info screen: a lookup form, and — when a code is given —
@@ -55,7 +79,45 @@ public class ArticleInfoResource {
         return articleInfo
                 .data("code", code == null ? "" : code)
                 .data("info", info)
-                .data("notFound", notFound);
+                .data("notFound", notFound)
+                .data("canTake", canTake());
+    }
+
+    /**
+     * Whether the screen may offer to TAKE the article: the register is unlocked and
+     * a session is open, which together are the only state in which a ticket exists.
+     *
+     * @return true when the found article can be added to a ticket
+     */
+    boolean canTake() {
+        return !state.isLocked() && cashSessionService.getOpenSession() != null;
+    }
+
+    /**
+     * Takes the looked-up article: ONE unit, added through the scan admission — the
+     * same chain a scanner walks, which is the only one that knows the EANs, the GS1
+     * payloads, the vouchers and the price-embedded labels.
+     *
+     * <p>Refused in the states where no ticket can exist, so a code posted straight
+     * at this action caisse fermée adds nothing. The cashier lands back on the sale
+     * screen, where the line is.
+     *
+     * @param code the code of the article shown on the screen
+     * @return a redirect to the sale screen, or back to the lookup when the register
+     *     is in no state to sell
+     */
+    @GET
+    @Path("/action/article-info/take")
+    public Response takeArticle(@QueryParam("code") String code) {
+        LOGGER.info("Entering method takeArticle with code: " + code);
+        String trimmed = code == null ? "" : code.trim();
+        if (trimmed.isEmpty() || !canTake()) {
+            LOGGER.info("Exiting method takeArticle: rien a prendre");
+            return Response.seeOther(URI.create("/article-info")).build();
+        }
+        ticketService.processScan(trimmed);
+        LOGGER.info("Exiting method takeArticle");
+        return Response.seeOther(URI.create("/")).build();
     }
 
     /**

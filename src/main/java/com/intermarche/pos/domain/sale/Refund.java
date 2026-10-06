@@ -129,6 +129,47 @@ public class Refund extends BaseEntity {
     @Column(name = "credit_account_number", length = 40)
     public String creditAccountNumber;
 
+    /**
+     * How far the recalculation of the KEPT basket against the promotion engine
+     * got (LC-05-02-13): {@code NOT_APPLICABLE} (no engine administered, or the
+     * whole ticket came back), {@code RECOMPUTED} (the engine answered) or
+     * {@code UNAVAILABLE} (it was asked and could not answer — the refund went
+     * through anyway, the customer being at the till). Null on rows written
+     * before the recalculation existed.
+     */
+    @Column(name = "recalculation_status", length = 20)
+    public String recalculationStatus;
+
+    /**
+     * The generosity the kept basket no longer deserves, tax included
+     * (LC-05-02-13): what the return takes back BEYOND the price refunded,
+     * because the advantages of the sale were granted on a basket that no longer
+     * exists. Null unless the recalculation ran; never negative — a return
+     * never grants a new advantage.
+     */
+    @Column(name = "withdrawn_generosity", precision = 19, scale = 4)
+    public BigDecimal withdrawnGenerosity;
+
+    /**
+     * The labels of the advantages the kept basket STILL earns, joined by
+     * {@code " | "} in the engine's own order, or null when the recalculation did
+     * not run or the kept basket earns none (LC-05-07-02, printed on the return
+     * ticket). Joined in one column, as the restricted tenders of a ticket line
+     * are: the register restates these labels and computes nothing from them.
+     */
+    @Column(name = "kept_advantages", length = 500)
+    public String keptAdvantages;
+
+    /**
+     * Whether the return was notified to the external loyalty service
+     * (LC-05-02-13): true when the origin ticket carried a card, so the
+     * {@code TICKET_RETURN} event was enqueued and the décagnottage is the
+     * loyalty service's to compute. The register prints that it was sent and
+     * never an amount it did not compute.
+     */
+    @Column(name = "loyalty_recalculation_sent", nullable = false)
+    public boolean loyaltyRecalculationSent;
+
     /** The refunded lines. */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "refund_id", nullable = false)

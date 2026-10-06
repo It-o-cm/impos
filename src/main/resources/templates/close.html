@@ -70,7 +70,7 @@
       <form class="close-form" method="post" action="/action/close">
         <h2>Code opérateur</h2>
         <div class="close-row">
-          <input class="close-input" type="text" id="dispPassword" value="" readonly onclick="activateField('password')">
+          <div id="dispPassword" class="close-input pad-display" onclick="activateField('password')"></div>
           <input type="hidden" name="password" id="valPassword" value="">
           <button class="btn btn-primary" type="submit">FERMER LA CAISSE</button>
         </div>
@@ -83,9 +83,9 @@
       <form class="close-form" method="post" action="/action/close">
         <h2>Fermeture forcée — autorisation superviseur</h2>
         <div class="close-row">
-          <input class="close-input" type="text" id="dispSupervisor" placeholder="Identifiant superviseur" value="" readonly onclick="activateField('supervisor')">
+          <div id="dispSupervisor" class="close-input pad-display" data-placeholder="Identifiant superviseur" onclick="activateField('supervisor')"></div>
           <input type="hidden" name="supervisor" id="valSupervisor" value="">
-          <input class="close-input" type="text" id="dispSupervisorPin" placeholder="Code" value="" readonly onclick="activateField('supervisorPin')">
+          <div id="dispSupervisorPin" class="close-input pad-display" data-placeholder="Code" onclick="activateField('supervisorPin')"></div>
           <input type="hidden" name="supervisorPassword" id="valSupervisorPin" value="">
           <button class="btn btn-danger" type="submit">FORCER LA FERMETURE</button>
         </div>

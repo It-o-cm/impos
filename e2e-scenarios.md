@@ -9,6 +9,17 @@ sur :8090 (seed miroir) ; **[N]** = + second nœud en rôle store (consolidation
 
 Convention : chaque scénario = parcours → attendus vérifiables (écran, base, log, impression).
 
+**Règle d'interface, sans exception : la caisse n'a PAS de clavier physique.** Toute saisie
+passe par un pavé tactile, et ce que le caissier tape s'affiche dans un **élément de texte**
+(classe `pad-display`), jamais dans un `<input>` : un champ visible y montrerait un curseur
+attendant des frappes impossibles, et inviterait à brancher un clavier. La valeur postée voyage
+dans un champ caché nommé par `hiddenId`. Un scénario qui trouve un champ de saisie libre sur un
+écran de caisse est un défaut, pas une variante. Seule exception : `digital-ticket`, page servie
+au téléphone du CLIENT, qui a un vrai clavier.
+Le **pavé de pré-saisie** de l'écran de vente occupe le coin **bas droit** (dernière brique de la
+colonne d'actions, sous les dix touches) ; sur les écrans à panneau, le pavé reste dans le
+panneau qu'il sert.
+
 ## A. Prise de poste & authentification [S]
 
 - **A0 Sonde de santé publique** [S] : `GET /q/health` est un endpoint NON applicatif
@@ -111,7 +122,8 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **B17 Code GS1 — règlement** [S] : chèque cadeau (GDTI 253) / coupon (GCN 255) hors phase
   paiement → `BON VALABLE EN PHASE PAIEMENT` ; type non paramétré → `CHEQUE CADEAU GS1 NON
   PARAMETRE` / `COUPON GS1 NON PARAMETRE` ; coupon expiré → `BON EXPIRE LE <date>`.
-- **B18 Répéter article** : `RÉPÉTER ARTICLE` → +1 sur la dernière ligne unité, notice
+- **B18 Répéter article** : `RÉPÉTER ARTICLE` → +1 sur la dernière ligne, autant de fois que la
+  touche est pressée (voir B29), notice
   `ARTICLE RÉPÉTÉ : <label>` ; aucun dernier article → `AUCUN ARTICLE À RÉPÉTER` ; ligne pesée
   → `RÉPÉTITION IMPOSSIBLE : ARTICLE EN PESÉE` ; prix embarqué → `RÉPÉTITION IMPOSSIBLE :
   ARTICLE PRIX EMBARQUÉ`.
@@ -161,8 +173,12 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   INCONNUE ; prix négatif/illisible → ERREUR PRIX SAISI.
 - **B28 Défilement Fruits & Légumes** [S] (EXP-22) : le tableau des tuiles F&L défile au lieu
   de paginer.
-- **B29 Refus de répétition après quantité** [S] (EXP-29) : RÉPÉTER ARTICLE sur une ligne dont
-  la quantité a été saisie → RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE ; quantité 1 → répète.
+- **B29 Répétition sans plafond** [S] (EXP-29, revu en recette) : RÉPÉTER ARTICLE trois fois de
+  suite sur la même ligne → quatre unités, trois notices `ARTICLE RÉPÉTÉ`, aucun refus ; sur une
+  ligne dont la quantité a été SAISIE (3) → quatre. L'ancien refus `RÉPÉTITION IMPOSSIBLE :
+  QUANTITÉ SAISIE` a disparu : il lisait la quantité, qu'il ne pouvait pas distinguer de celle
+  que la répétition venait elle-même de monter, et plafonnait donc la fonction à deux unités.
+  Seules la pesée et le prix embarqué refusent encore.
 
 - **B30 L'affichage du ticket suit la saisie** [S] (2e passe, P1) : sur un ticket long (plus
   d'une page de lignes), l'ajout d'une ligne fait sauter l'affichage sur LA page qui porte
@@ -227,6 +243,46 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   autorise DIRECTEMENT les gestes sans drapeau propre — impression du badge opérateur,
   bascule du mode formation — via un point de décision unique (`selfAuthorized`), sans modale
   d'aval ; un caissier simple, lui, voit la modale d'autorisation.
+
+- **C9 Pré-saisie (le nombre avant la touche)** : un pavé reste à l'écran de vente, dans le
+  **coin bas droit** — dernière brique de la colonne d'actions, sous les dix touches, qui
+  gardent leurs deux colonnes et leurs cinq rangées —, et alimente le tampon `PosPrefill`.
+  L'afficheur du tampon est un simple cadre de texte, **jamais un champ de saisie** : une
+  borne n'a pas de clavier physique, et un `<input>` y montrerait un curseur attendant des
+  frappes impossibles. Il occupe toute la largeur de la zone et ne porte **aucune consigne** :
+  le geste s'apprend une fois. Le pavé a une touche **`00`** (jamais en tête de nombre, jamais
+  à cheval sur la longueur maximale) en plus des chiffres, de `⌫`, `C`, `,` et `OK`.
+  Taper `3` puis **QUANTITÉ**
+  applique la quantité sans ouvrir la modale (`?value=`) ; taper `2,50` puis **REMISE / PRIX**
+  applique la remise en euros ; taper puis **REMISE TICKET** applique la remise globale.
+  **Rien de tapé, la touche ouvre sa modale exactement comme avant** — aucun geste n'est
+  retiré, et c'est ce qui permet de poser le mécanisme partout d'un coup. La valeur passe
+  PAR l'ouverture : elle hérite donc de ses refus (type inconnu, aucune ligne sélectionnée)
+  au lieu de les redécider. Valeur illisible → `VALEUR INVALIDE`, rien n'est appliqué.
+  Les autres modes de la modale (discount %, prix forcé, remise ticket en %) restent
+  accessibles en ne tapant rien. La touche `OK` du pavé envoie le code tapé par
+  **l'admission du scan** (`POST /api/pos/scan`), seul chemin qui connaît les EAN, les GS1,
+  les bons et les codes à prix embarqué : taper un code vaut le scanner.
+  **RECHERCHE sur un code tapé ne passe plus par l'écran recherche** : taper un EAN ou un PLU
+  puis **RECHERCHE** (`/action/search/direct`) fait entrer l'article directement au ticket par
+  la même admission du scan, et l'écran de vente ne bouge pas. L'EAN est interrogé avant le
+  PLU — c'est ce qu'un scanner aurait lu, et les deux espaces se croisent sur les petits
+  nombres. Code inconnu des deux espaces → l'écran recherche s'ouvre **prérempli du code**
+  (`/search?q=`) : un caissier qui a appuyé sur RECHERCHE a demandé une recherche, il lui est
+  dû une liste et non une erreur. Rien de tapé → RECHERCHE ouvre l'écran recherche vide comme
+  avant.
+- **C10 Pré-saisie sur les autres écrans** : **Règlement** — taper le montant puis
+  **ESPÈCES / CARTE / TICKET RESTO / CHÈQUE / CAGNOTTE** règle en un geste ; rien de tapé,
+  la saisie s'ouvre préremplie du reste dû comme avant ; les saisies de CODE (Resto Flash,
+  carte cadeau, SOGEC) sont exclues, ce qu'on y tape étant un numéro et non une somme.
+  **Fruits & légumes** — le pavé occupe le bas d'une colonne à droite de la grille (qui passe
+  de quatre à trois colonnes et continue de défiler), `OK` ajoute l'article du code tapé.
+  Sur chacun de ces écrans le pavé est posé dans le **coin bas droit**, à la même place qu'à
+  l'écran de vente : la main du caissier n'a pas à le chercher d'un écran à l'autre.
+  **Saisie directe** — taper la quantité (produit connu) ou le prix (produit non reconnu)
+  puis le produit enregistre sans passer par la saisie.
+  Un seul pavé par écran, deux propriétaires successifs : le tampon tant que rien n'est
+  choisi, `PosInput` dès qu'un champ l'est — jamais les deux à la fois.
 
 ## D. Fidélité [S]
 
@@ -430,10 +486,15 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **F21 Annulation d'un règlement seul** [S] (EXP-63) : sur plusieurs règlements enregistrés,
   annuler UNE ligne (index) sans purger les autres ; le paiement reste en cours, le draft est
   re-persisté avec les règlements survivants ; index hors plage → aucun effet.
-- **F22 INFO ARTICLE (lecture seule)** [S] (EXP-93) : écran INFO ARTICLE (`/article-info`)
+- **F22 INFO ARTICLE** [S] (EXP-93, revu en recette) : écran INFO ARTICLE (`/article-info`)
   atteignable CAISSE FERMÉE sans code utilisateur (allowlist LockCheckFilter) ; scan/saisie d'un
-  code → libellé, prix, TVA, marque en lecture seule ; AUCUN ajout au ticket possible ; code
-  inconnu → message introuvable.
+  code → libellé, prix, TVA, marque ; code inconnu → message introuvable.
+  **JE PRENDS L'ARTICLE** (`/action/article-info/take`) apparaît quand une vente est possible —
+  caisse déverrouillée ET session ouverte — et ajoute UNE unité par l'admission du scan, puis
+  rend l'écran de vente ; RETOUR garde son sens : non. Caisse verrouillée ou sans session, la
+  touche n'apparaît pas et l'action postée directement n'ajoute rien : l'écran redevient la
+  consultation pure qu'il doit rester hors vente. Le défaut corrigé : une fois l'article affiché,
+  le caissier n'avait aucune sortie sauf RETOUR, alors qu'il cherche le plus souvent à le vendre.
 - **F31 Carte TRD (assiette + plafond)** [S] (EXP-60) : règlement `/action/pay-trd` — borné à
   l'assiette éligible titre-restaurant (au-delà → `TRD PLAFONNE`), et au plafond administré
   `payment.trd-card-cap` ; assiette nulle → `TRD: AUCUN ARTICLE ELIGIBLE`, rien réglé.
@@ -442,8 +503,16 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **F33 Carte cadeau fournisseur** [S] (EXP-66) : `/action/pay-giftcard` — interrogation du
   registre émetteur ; carte invalide → `CARTE CADEAU REFUSEE` ; solde nul → `CARTE CADEAU: SOLDE NUL` ;
   montant > solde → plafonné au solde (`CARTE CADEAU x,xx E`).
-- **F34 Bon SOGEC** [S] (EXP-58) : `/action/pay-sogec` — circuit distinct du coupon GS1 générique ;
-  le bon règle le ticket et une trace de compensation `SOGEC_COMPENSATION` est journalisée.
+- **F34 Bon SOGEC** [S] (EXP-58, revu en recette) : `/action/pay-sogec` — circuit distinct du
+  coupon GS1 générique ; le bon règle **sa valeur faciale**, jamais le reste dû, et une trace de
+  compensation `SOGEC_COMPENSATION` est journalisée pour le montant imputé. L'écran a deux
+  champs, le code et la valeur, le pavé se reportant sur celui qu'on touche. Valeur portée par
+  le code-barres du bon (`(390n)`) → elle gagne sur ce qui est tapé ; aucune valeur ni décodée
+  ni tapée → `BON SOGEC: VALEUR REQUISE`, rien n'est réglé ; bon de 20 € sur un ticket de
+  56,50 € → 20 € réglés, 36,50 € restants ; bon de 20 € sur un reste dû de 8 € →
+  `BON SOGEC PLAFONNE  8,00 E`, 8 € imputés, aucun rendu ; ticket déjà soldé → rien, sans
+  message. Le défaut corrigé : sans montant le serveur retombait sur le reste dû et le ticket
+  sortait intégralement payé en SOGEC.
 
 ## G. Après-vente [S]
 
@@ -489,10 +558,18 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
   du numéro d'un ticket mis en attente sur UNE AUTRE caisse le fait rappeler via le nœud
   (`InterTillResumeClient`), re-domicilié sur cette caisse et rouvert. Le fetch réel depuis le
   nœud exige imedge → résidu **[N]**.
-- **G23 Prélèvement vers le coffre** [S] (EXP-87) : sur l'écran PRÉLÈVEMENT (espèces), le bouton
-  VERS LE COFFRE enregistre un mouvement `WITHDRAWAL` marqué `safeDeposit` (motif « Prélèvement
-  coffre »), enfilé pour le nœud. Le coffre lui-même est une entité du nœud magasin (imedge) : la
-  caisse n'enregistre que le mouvement qui l'alimente ; le solde du coffre reste **[N]**.
+- **G23 Prélèvement : destination obligatoire** [S] (EXP-87, revu en recette) : l'écran
+  PRÉLÈVEMENT n'a plus qu'une validation et une **destination à choisir** — le coffre, toujours
+  offert, plus les destinations administrées (`cash.withdrawal-destinations`). Destination vide →
+  `DESTINATION OBLIGATOIRE`, rien n'est enregistré. Destination « Coffre » sur les ESPÈCES (casse
+  indifférente) → mouvement `WITHDRAWAL` marqué `safeDeposit` (motif « Prélèvement coffre »),
+  enfilé pour le nœud, comme l'ancien bouton VERS LE COFFRE. Destination « Coffre » sur un AUTRE
+  moyen → prélèvement ordinaire dont le motif nomme le coffre (le mouvement d'alimentation du
+  coffre est une notion espèces sur le nœud). Toute autre destination → motif « Prélèvement
+  <moyen> vers <destination> ». Le défaut corrigé : deux boutons côte à côte dont rien n'expliquait
+  la différence, l'un marquant le coffre, l'autre ne nommant aucune destination. Le coffre
+  lui-même est une entité du nœud magasin (imedge) : la caisse n'enregistre que le mouvement qui
+  l'alimente ; le solde du coffre reste **[N]**.
 
 ## H. Retours [S]
 
@@ -589,23 +666,42 @@ Convention : chaque scénario = parcours → attendus vérifiables (écran, base
 - **I4 Z en formation** → bloqué.
 - **I5 Écart au-delà du seuil** [S] (EXP-82) : `cash.variance-threshold` administré (usuel
   1 €) ; un comptage dont l'écart absolu dépasse le seuil ne clôture PAS — la caisse route
-  vers l'écran d'arbitrage `/session/variance` (écart affiché, seuil rappelé), avec deux
+  vers l'écran d'arbitrage `/session/variance` (seuil rappelé), avec deux
   sorties : RECOMPTER (retour `/cash-count`) ou validation superviseur
   (`/action/session/close-endorsed`). La validation laisse la trace nominative
   (`varianceEndorsedBy` en base + journal `SESSION_CLOSED … écart validé par <badge>`) ;
   un superviseur refusé renvoie `/session/variance?error=supervisor`. Un écart ≤ seuil
   clôture directement comme aujourd'hui.
-- **I6 Fond flottant** [S] (EXP-95) : `cash.float-mode=FLOATING` ; les soirs qui NE sont PAS
-  un jour de comptage complet (hors week-end et dernier jour du mois — `isFullCountDay`),
-  `close-start` clôture directement sans écran de comptage : prélèvement = surplus au-dessus
-  du fond initial, `floatingNoCount=true`, AUCUN écart arbitré (journal « fond flottant sans
-  comptage »). Les jours de comptage complet et le mode FIXED repassent par le comptage + le
-  seuil d'écart (I5).
-- **I7 Moyens papier comptés** [S] (EXP-83) : l'écran de comptage liste les moyens papier
-  déclarés (tenders `cashierDeclaration` : chèques, bons, avoirs) avec leur quantité
-  théorique (nombre de règlements du jour) et un champ de saisie ; la déclaration
-  (déclaré vs théorique) est postée en JSON (`paperDeclaration`), stockée sur la session et
-  reportée au Z.
+  - **Le MONTANT de l'écart n'est pas montré au caissier** [S] (recette) :
+    `cash.variance-amount-visible` (défaut **non**) → l'écran annonce `AU-DELÀ DU SEUIL` sans le
+    chiffre ; activé, il affiche le montant comme avant. Un caissier qui lit l'écart sait quoi
+    changer pour le faire disparaître, et le comptage déclaré cesse d'être un comptage. Le
+    montant reste sur le Z, dans le journal et dans le rapport que lit la responsable.
+- **I6 Mode de fond de caisse et période de RAZ caissière** [S] (EXP-95, complété en recette) :
+  `cash.float-mode` a **trois** valeurs, et c'est elle qui dit quand la caissière est
+  réellement comptée — `FIXED` (fond fixe : comptage et RAZ caissière **chaque soir**, défaut),
+  `FLOATING_WEEK_MONTH` (fond flottant : comptage en fin de semaine et le dernier jour du mois),
+  `FLOATING_MONTH` (fond flottant : dernier jour du mois seulement, cas rare). `FLOATING` reste
+  accepté comme ancienne écriture de `FLOATING_WEEK_MONTH`. La période existe pour que le CA
+  d'une période corresponde à ce qui a été remis en banque. Les soirs qui NE sont PAS un jour de
+  comptage complet (`isFullCountDay`), `close-start` clôture directement sans écran de comptage :
+  prélèvement = surplus au-dessus du fond initial, `floatingNoCount=true`, AUCUN écart arbitré
+  (journal « fond flottant sans comptage »). La RAZ du **financier point de vente**, elle, est
+  quotidienne dans tous les modes : c'est la journée du MAGASIN, elle ne vit pas sur la caisse
+  (bloc 09, imedge) → **[N]**.
+- **I6b Prélèvement de clôture proposé** [S] (recette) : l'écran de comptage calcule le
+  prélèvement au fil du comptage — **compté moins ce que le tiroir doit garder**, ce dernier
+  valant fond de caisse + mouvements nets du jour (une monnaie reçue en apport AUGMENTE ce qu'on
+  garde, un prélèvement déjà fait le diminue ; comptage juste → la différence est exactement la
+  recette espèces). Le montant reste modifiable : dès que la caissière touche le champ, c'est le
+  sien qui part. Tiroir inférieur au fond → zéro proposé, jamais de prélèvement négatif. Le
+  défaut corrigé : la caissière faisait cette soustraction au crayon sur un papier.
+- **I7 Moyens papier comptés** [S] (EXP-83, revu en recette) : l'écran de comptage liste les
+  moyens papier déclarés (tenders `cashierDeclaration` : chèques, bons, avoirs) avec un champ de
+  saisie **vide**, et la quantité théorique **n'est plus affichée** : un champ prérempli de la
+  réponse attendue n'est pas une déclaration, c'est une validation. La caissière compte ses
+  chèques et saisit ce qu'elle compte ; la déclaration (déclaré vs théorique) est postée en JSON
+  (`paperDeclaration`), stockée sur la session et reportée au Z, où l'écart se lit.
 - **I8 CA par caissier** [S] (EXP-79) : le rapport X/Z agrège, EN PLUS du total terminal
   (document du poste, inchangé), le CA TTC et le nombre de tickets PAR caissier
   (`Ticket.cashier`), rendu sous les totaux terminal.
@@ -805,12 +901,34 @@ station à feuilles). **Rien n'est écrit ni numéroté avant l'émission** (`/i
 
 ## Q. Mouvements de caisse [S]
 
-- **Q1 Mouvement générique** (WITHDRAWAL / DEPOSIT / EXPENSE / CUSTOMER_DEPOSIT / DECLARATION) :
-  enregistrement → bandeau `MOUVEMENT ENREGISTRÉ` ; au-delà du seuil administré sans superviseur
-  → aval manager parqué (avertissement « Au-delà de <seuil> €, un aval manager sera demandé. ») ;
-  formation → `INDISPONIBLE EN FORMATION` ; hors session → `AUCUNE SESSION OUVERTE` ; type
-  inconnu → `TYPE DE MOUVEMENT INVALIDE` ; aval refusé/absent → `AVAL MANAGER REFUSÉ OU
+- **Q1 Mouvement générique** [S] (revu en recette) — **TROIS types** : DÉPENSE, ACOMPTE CLIENT,
+  DÉCLARATION. Enregistrement → bandeau `MOUVEMENT ENREGISTRÉ` **et impression d'un justificatif**
+  (type, motif, moyen, montant, ligne de signature) : ces trois mouvements ne laissaient aucun
+  papier, une dépense sortait du tiroir sans pièce à classer. Au-delà du seuil administré sans
+  superviseur → aval manager parqué (avertissement « Au-delà de <seuil> €, un aval manager sera
+  demandé. ») ; formation → `INDISPONIBLE EN FORMATION` ; hors session → `AUCUNE SESSION OUVERTE` ;
+  type inconnu → `TYPE DE MOUVEMENT INVALIDE` ; aval refusé/absent → `AVAL MANAGER REFUSÉ OU
   MANQUANT`. Tender vide = espèces.
+  - **PRÉLÈVEMENT et APPORT y sont refusés** → `PRÉLÈVEMENT ET APPORT : ÉCRANS DÉDIÉS`. Ils ont
+    leurs propres écrans, où ils sont comptés coupure par coupure et impriment leur bordereau ;
+    le formulaire plat les enregistrait sans ce comptage — deux chemins pour un même geste, dont
+    un dégradé.
+  - **DÉPENSE : motif obligatoire**, choisi dans la liste administrée `cash.movement-reasons`,
+    désormais une liste de motifs de DÉPENSE seulement (elle proposait « Apport de fond » pour
+    une dépense). Motif absent ou blanc → `MOTIF OBLIGATOIRE`.
+  - **ACOMPTE CLIENT : référence de commande obligatoire** → `RÉFÉRENCE DE COMMANDE OBLIGATOIRE`
+    si elle manque. L'acompte passe par `recordAcompte` (EXP-85), qui porte la référence dans sa
+    propre colonne : c'est elle que le rappel de la commande lit pour déduire ce qui a déjà été
+    versé (croiser G21). La commande elle-même vit sur le nœud ; la caisse en cite la référence.
+  - **DÉCLARATION : ni motif ni référence** — elle énonce un comptage, et cet énoncé est
+    maintenant COMPARÉ (voir Q1b).
+- **Q1b Écart de déclaration au X et au Z** [S] (recette) : le montant déclaré est mis en face du
+  théorique espèces, à l'écran rapport comme sur le X/Z imprimé — `Espèces déclarées` et
+  `Écart déclaration`. La DERNIÈRE déclaration espèces de la session gagne (un caissier qui
+  déclare deux fois s'est corrigé) ; une déclaration portant un AUTRE moyen n'est pas les
+  espèces et est ignorée ; aucune déclaration → aucune des deux lignes (une ligne à zéro
+  énoncerait un comptage que personne n'a fait). Le mouvement lui-même ne déplace toujours rien.
+  Le défaut corrigé : la déclaration était écrite et jamais relue.
 - **Q2 Prélèvement manuel d'un tender** (LC-12-03) : cash = comptage par dénominations,
   non-cash = totalité du théorique du registre (aucun champ) → `PRÉLÈVEMENT ENREGISTRÉ`
   (+ impression si le flag l'exige) ; moyen non retirable → `MOYEN DE PAIEMENT NON AUTORISÉ` ;
@@ -822,6 +940,8 @@ station à feuilles). **Rien n'est écrit ni numéroté avant l'émission** (`/i
   TIROIR` (plafond NON contournable) ; mêmes gardes formation / session / méthode / aval ;
   liste vide → `AUCUN MOYEN DE PAIEMENT PARAMÉTRÉ POUR LE TRANSFERT`.
 - **Q4 Mouvement financier — enregistrement** (LC-12-06-01/02/03) : écran `/financial-movement`,
+  atteint par la touche **MVT FINANCIER** du menu TIROIR — la route n'était référencée par aucun
+  bouton (trouvée en recette, écran inatteignable),
   moyen perçu ∈ `movement.financial-sources`, moyen rendu ∈ `movement.financial-destinations`
   (LC-12-06-02, listes administrées), montant > 0 → `MOUVEMENT ENREGISTRÉ`, un mouvement
   TRANSFER espèces→crédit client est écrit (source `paymentMethod`, destination `transferTo`) et
@@ -834,7 +954,9 @@ station à feuilles). **Rien n'est écrit ni numéroté avant l'émission** (`/i
   PAIEMENT INVALIDE` ; source = destination → `MEME MOYEN EN SOURCE ET DESTINATION` ; montant
   ≤ 0 → `MONTANT INVALIDE` ; aval refusé/absent → `AVAL MANAGER REFUSÉ OU MANQUANT`.
 - **Q6 Bordereau de commande de monnaie — impression vierge** (LC-12-05-01/02) : écran
-  `/change-order` listant toutes les dénominations euro ; « IMPRIMER BORDEREAU VIERGE » sort un
+  `/change-order`, atteint par la touche **COMMANDE MONNAIE** du menu TIROIR — la route n'était
+  référencée par aucun bouton, comme le mouvement financier (trouvé à la recotation HD_29) —
+  listant toutes les dénominations euro ; « IMPRIMER BORDEREAU VIERGE » sort un
   bordereau ne portant que la liste des dénominations (colonnes montant et nbr. rouleaux vides)
   pour saisie manuscrite (LC-12-05-02).
 - **Q7 Bordereau — saisie et calcul croisé** (LC-12-05-03/04/05/06/07, P2) : par dénomination,
@@ -843,23 +965,47 @@ station à feuilles). **Rien n'est écrit ni numéroté avant l'émission** (`/i
   0,01 € roul.=0,50 € → 3 rouleaux = 1,50 €), le sens choisi (LC-12-05-05) pilotant la ligne ;
   correspondance administrée `change-order.roll-values` ; dénomination sans valeur de rouleau →
   rouleaux non proposés ; les deux sens se vérifient l'un l'autre.
-- **Q8 Bordereau — impression rempli** (LC-12-05-08) : « IMPRIMER LE BORDEREAU » sort le
-  bordereau portant le numéro de caisse, l'opérateur (numéro et nom), l'horodatage et un tableau
-  dénomination / montant / nbr. rouleaux, cellules remplies ou vides selon la saisie ; garde
-  `change-order.print` désactivé → `IMPRESSION DU BORDEREAU DÉSACTIVÉE` ; dénomination inconnue
-  → `DÉNOMINATION INCONNUE`.
+- **Q8 Bordereau — impression rempli** (LC-12-05-08, complété en recette) : « IMPRIMER LE
+  BORDEREAU » sort le bordereau portant le numéro de caisse, l'opérateur (numéro et nom),
+  l'horodatage et un tableau dénomination / montant / nbr. rouleaux, cellules remplies ou vides
+  selon la saisie, puis **`TOTAL A REMETTRE` et une ligne de signature** : c'est la procédure
+  supermarché — la caissière remet ce papier, son numéro, son nom et **ce montant** à sa
+  responsable, qui lui rend la monnaie. Le total somme les montants quel que soit le sens de
+  saisie (un nombre de rouleaux compte par son montant calculé) ; une dénomination sans valeur de
+  rouleau administrée ne porte aucun montant et compte pour zéro ; rien de saisi → total
+  `0,00`. Le bordereau VIERGE (Q6), lui, n'énonce aucun total — il est fait pour être rempli à la
+  main. Garde `change-order.print` désactivé → `IMPRESSION DU BORDEREAU DÉSACTIVÉE` ;
+  dénomination inconnue → `DÉNOMINATION INCONNUE`.
+  - En **hypermarché** la procédure est l'autre : la caissière demande ses rouleaux et le montant
+    est saisi en **apport** (Q9), ce qui augmente ce que son tiroir doit garder — et c'est
+    exactement ce que I6b déduit au moment de la clôture. L'échange lui-même n'est jamais
+    enregistré sur la caisse, ni au départ ni au retour.
 
 - **Q9 Apport de monnaie par coupure** [S] (EXP-15) : écran APPORT MONNAIE (`/apport`), saisie
   par coupure via les onglets billets/pièces/rouleaux (mêmes fragments `/cash-count/fragment`
   que le prélèvement), total calculé, VALIDER L'APPORT → mouvement `DEPOSIT` en base portant le
   `denominationDetail`, bordereau `APPORT DE MONNAIE` imprimé (total + signature) ; au-delà du
   seuil `cash.movement-endorsement-threshold` la modale superviseur s'ouvre (parking op=apport).
-- **Q10 Calculatrice de fond** [S] (EXP-04) : écran CALCULATRICE DE FOND (`/cash-calculator`),
-  comptage par coupure billets jusqu'à 200 €, total affiché en direct, REMETTRE À ZÉRO ; RIEN
-  n'est posté, aucun mouvement en base, aucun `TechnicalEvent` — distinct du comptage Z opposable.
-- **Q11 Plafond de contenu du tiroir** [S] (EXP-17) : `cash.drawer-cap` administré ; quand le
-  théorique espèces du tiroir dépasse le plafond, l'écran de vente affiche le bandeau
-  `PRÉLÈVEMENT — CONTENU TIROIR x,xx €` sans bloquer la vente ; plafond 0 → aucun bandeau.
+- **Q10 Calculatrice de fond** [S] (EXP-04, complété en recette) : écran CALCULATRICE DE FOND
+  (`/cash-calculator`), comptage par coupure billets jusqu'à 200 €, total affiché en direct,
+  première coupure sélectionnée d'emblée (voir C-pré-saisie), REMETTRE À ZÉRO ; aucun mouvement
+  en base, aucun `TechnicalEvent` — distinct du comptage Z opposable.
+  **IMPRIMER LE COMPTAGE** (`/action/cash-calculator/print`) sort un ticket
+  `COMPTAGE DE CONTROLE (fond de caisse)` : coupures comptées, total, mention « document de
+  controle - aucun mouvement », puis bandeau `COMPTAGE IMPRIMÉ`. Imprimer n'est pas enregistrer :
+  le total et le détail partent le temps d'un ticket, rien n'est écrit. Total nul → rien
+  n'est imprimé et l'écran revient sans erreur (un comptage pas encore fait n'est pas une faute).
+  C'est le papier que la caissière garde le matin et montre à sa responsable quand le fond n'est
+  pas juste.
+- **Q11 Plafond de contenu du tiroir (seuil d'assurance)** [S] (EXP-17, complété en recette) :
+  `cash.drawer-cap` administré — le montant que l'assurance garantit sur **tout le caisson**,
+  fond de caisse ET recette, ce que le théorique espèces mesure déjà. Quand il est dépassé,
+  l'écran de vente affiche le bandeau `PRÉLÈVEMENT BILLETS — CONTENU TIROIR x,xx €` suivi du
+  lien **PRÉLEVER**, sans bloquer la vente ; plafond 0 → aucun bandeau. Le lien ouvre
+  `/withdrawal?method=CASH&notes=1` : comptage **BILLETS SEULEMENT**, les onglets PIÈCES et
+  ROULEAUX disparaissent et l'écran le dit (« les pièces restent pour rendre la monnaie »). Ce
+  qui ramène un tiroir sous le plafond, c'est la liasse. C'est une présentation, pas une règle :
+  le chemin d'enregistrement est le même.
 
 ## R. Consommation & budgets moteur (campagnes)
 

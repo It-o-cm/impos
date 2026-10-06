@@ -208,11 +208,12 @@ public class CashSessionResource {
             LOGGER.info("Exiting method startClosing");
             return Response.seeOther(URI.create("/lock")).build();
         }
-        // EXP-95: in FLOATING mode, only the full-count days (week-end and the
-        // last day of the month) count the drawer. On any other evening the
-        // register withdraws the surplus above the initial float and arbitrates
-        // NO variance — the counting screen is skipped entirely.
-        if ("FLOATING".equals(posSettingsService.floatMode())
+        // EXP-95: on a FLOATING float, only the full-count days count the drawer —
+        // which days those are is the mode's own answer (week-end and end of month,
+        // or end of month alone). On any other evening the register withdraws the
+        // surplus above the initial float and arbitrates NO variance — the counting
+        // screen is skipped entirely.
+        if (posSettingsService.floatingFloat()
                 && !cashSessionService.isFullCountDay(java.time.LocalDate.now())) {
             CashSessionService.SessionReport report = cashSessionService.closeSession(
                     state.auth.operatorId, null, null, null, false, null, null, true);
@@ -312,6 +313,9 @@ public class CashSessionResource {
                 .data("state", state)
                 .data("pending", state.pendingClose)
                 .data("threshold", posSettingsService.varianceThreshold().toPlainString())
+                // Recette: the cashier is told THAT the gap crossed the threshold, not
+                // how much — a figure she can read is a figure she can count towards.
+                .data("amountVisible", posSettingsService.varianceAmountVisible())
                 .data("error", message), MediaType.TEXT_HTML).build();
     }
 

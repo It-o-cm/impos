@@ -78,6 +78,15 @@ class RefundServiceTest {
         // The conditional-printing rule (LC-08-03): left un-stubbed, it forces
         // nothing, which is the behaviour every case here was written against.
         s.printPolicy = mock(com.intermarche.pos.ui.hardware.PrintPolicy.class);
+        // LC-05-02-13: the recalculation of the kept basket runs inside the
+        // refund's transaction. Left un-stubbed it answers null, which the cases
+        // below would read as a missing collaborator, so the fixture makes it say
+        // what an unadministered engine says: nothing to recompute.
+        s.returnValuationService = mock(ReturnValuationService.class);
+        when(s.returnValuationService.recompute(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(ReturnValuationService.Recalculation
+                        .none(ReturnValuationService.RecalculationStatus.NOT_APPLICABLE));
         return s;
     }
 
@@ -210,6 +219,163 @@ class RefundServiceTest {
         assertNull(state.refund.manualTotalAmount);
         assertNull(state.refund.returnReason);
         assertEquals(1L, state.version);
+    }
+
+    /**
+     * Builds a store carrying a code, for the point-of-sale check of a recalled
+     * ticket (LC-05-02-07).
+     *
+     * @param code the store code, or null
+     * @return the store
+     */
+    private com.intermarche.pos.domain.store.Store store(String code) {
+        com.intermarche.pos.domain.store.Store store =
+                new com.intermarche.pos.domain.store.Store();
+        store.code = code;
+        return store;
+    }
+
+    /**
+     * Mocks {@code Store.findAll().firstResult()} to the register's own store.
+     *
+     * @param panache the active static mock
+     * @param own the register's store, or null when the referential is empty
+     */
+    private void registerStore(MockedStatic<PanacheEntityBase> panache,
+                               com.intermarche.pos.domain.store.Store own) {
+        @SuppressWarnings("unchecked")
+        PanacheQuery<com.intermarche.pos.domain.store.Store> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(own);
+        panache.when(com.intermarche.pos.domain.store.Store::findAll).thenReturn(query);
+    }
+
+    /**
+     * A ticket issued by ANOTHER point of sale is refused when the back office
+     * does not accept one (LC-05-02-07): the refusal is said out loud and the
+     * selection stays empty, instead of the ticket simply never resolving.
+     */
+    @Test
+    void selectTicketRefusesAForeignStoreTicket() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        when(s.posSettingsService.returnForeignStoreAccepted()).thenReturn(false);
+        Ticket found = ticket(10L, "T-1", "50.00");
+        found.store = store("0002");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(found);
+            registerStore(panache, store("0001"));
+            s.selectTicket(state, 10L);
+        }
+        assertNull(state.refund.selectedTicket);
+        assertEquals("TICKET D'UN AUTRE MAGASIN", state.refund.errorMessage);
+    }
+
+    /**
+     * A store that accepts foreign tickets selects it like any other
+     * (LC-05-02-07, parameter on).
+     */
+    @Test
+    void selectTicketAcceptsAForeignStoreTicketWhenAdministered() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        when(s.posSettingsService.returnForeignStoreAccepted()).thenReturn(true);
+        Ticket found = ticket(10L, "T-1", "50.00");
+        found.store = store("0002");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(found);
+            registerStore(panache, store("0001"));
+            s.selectTicket(state, 10L);
+        }
+        assertSame(found, state.refund.selectedTicket);
+        assertNull(state.refund.errorMessage);
+    }
+
+    /**
+     * A ticket of THIS point of sale is not foreign (the codes match).
+     */
+    @Test
+    void selectTicketAcceptsATicketOfItsOwnStore() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket found = ticket(10L, "T-1", "50.00");
+        found.store = store("0001");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(found);
+            registerStore(panache, store("0001"));
+            s.selectTicket(state, 10L);
+        }
+        assertSame(found, state.refund.selectedTicket);
+    }
+
+    /**
+     * A ticket whose store carries no code is not foreign: the comparison has
+     * nothing to stand on (second leg of the ticket-side guard).
+     */
+    @Test
+    void selectTicketAcceptsATicketWhoseStoreHasNoCode() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket found = ticket(10L, "T-1", "50.00");
+        found.store = store(null);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(found);
+            s.selectTicket(state, 10L);
+        }
+        assertSame(found, state.refund.selectedTicket);
+    }
+
+    /**
+     * A register whose own store is unknown refuses nothing: a referential that
+     * was not loaded must not cost the customer their return (first leg of the
+     * register-side guard).
+     */
+    @Test
+    void selectTicketAcceptsWhenTheRegisterStoreIsUnknown() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket found = ticket(10L, "T-1", "50.00");
+        found.store = store("0002");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(found);
+            registerStore(panache, null);
+            s.selectTicket(state, 10L);
+        }
+        assertSame(found, state.refund.selectedTicket);
+    }
+
+    /**
+     * A register whose own store carries no code refuses nothing either (second
+     * leg of the register-side guard).
+     */
+    @Test
+    void selectTicketAcceptsWhenTheRegisterStoreHasNoCode() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket found = ticket(10L, "T-1", "50.00");
+        found.store = store("0002");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(10L)).thenReturn(found);
+            registerStore(panache, store(null));
+            s.selectTicket(state, 10L);
+        }
+        assertSame(found, state.refund.selectedTicket);
+    }
+
+    /**
+     * A lookup that resolves to NOTHING never reaches the store check: there is
+     * no ticket to place (the null-ticket leg of the guard).
+     */
+    @Test
+    void selectTicketIgnoresAnUnknownTicketWithoutCheckingTheStore() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Ticket.findById(99L)).thenReturn(null);
+            s.selectTicket(state, 99L);
+        }
+        assertNull(state.refund.selectedTicket);
+        assertNull(state.refund.errorMessage);
+        verify(s.posSettingsService, never()).returnForeignStoreAccepted();
     }
 
     // --- selectReason (LC-05-05-01) ---
@@ -418,6 +584,234 @@ class RefundServiceTest {
         assertEquals(BigDecimal.ZERO, state.refund.manualTotalAmount);
         assertFalse(state.refund.isEditingAmount);
         assertEquals(1L, state.version);
+    }
+
+    // --- enterArticleByCode ---
+
+    /**
+     * Builds a ticket line carrying an article code, so the code-driven entry has
+     * something to match (LC-05-02-11).
+     *
+     * @param id the line database id
+     * @param qty the sold quantity
+     * @param ean the article barcode, or null
+     * @param plu the produce number, or null
+     * @return the line
+     */
+    private TicketLine coded(long id, String qty, String ean, String plu) {
+        TicketLine l = line(id, qty, "10.00", "0.20", "MILK");
+        l.ean = ean;
+        l.plu = plu;
+        return l;
+    }
+
+    /**
+     * Stubs the gift-card lookup of a code to "not an instrument", the lookup
+     * every staging of a line with an EAN goes through.
+     *
+     * @param panache the active static mock
+     * @param ean the article barcode
+     */
+    private void noGiftCard(MockedStatic<PanacheEntityBase> panache, String ean) {
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Product> query = mock(PanacheQuery.class);
+        when(query.firstResult()).thenReturn(null);
+        panache.when(() -> Product.find("ean", ean)).thenReturn(query);
+    }
+
+    /**
+     * Without a selected ticket there is nothing to match a code against, and
+     * nothing is said (first leg of the entry guard).
+     */
+    @Test
+    void enterArticleByCodeDoesNothingWithoutATicket() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        s.enterArticleByCode(state, "123");
+        assertNull(state.refund.errorMessage);
+        assertTrue(state.refund.returnQuantities.isEmpty());
+    }
+
+    /**
+     * A selected ticket without its lines is no better (second leg of the entry
+     * guard).
+     */
+    @Test
+    void enterArticleByCodeDoesNothingWithoutLines() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "50.00");
+        original.lines = null;
+        state.refund.selectedTicket = original;
+        s.enterArticleByCode(state, "123");
+        assertNull(state.refund.errorMessage);
+    }
+
+    /**
+     * A null code is refused as an empty entry (first leg of the blank guard).
+     */
+    @Test
+    void enterArticleByCodeRefusesANullCode() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        s.enterArticleByCode(state, null);
+        assertEquals("AUCUN CODE SAISI", state.refund.errorMessage);
+    }
+
+    /**
+     * A blank code is refused too (second leg of the blank guard: trimmed empty).
+     */
+    @Test
+    void enterArticleByCodeRefusesABlankCode() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        s.enterArticleByCode(state, "   ");
+        assertEquals("AUCUN CODE SAISI", state.refund.errorMessage);
+    }
+
+    /**
+     * A code the recalled ticket does not carry is refused: the control of the
+     * origin ticket is exactly what this entry keeps (LC-05-02-11).
+     */
+    @Test
+    void enterArticleByCodeRefusesACodeAbsentFromTheTicket() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        s.enterArticleByCode(state, "999");
+        assertEquals("ARTICLE ABSENT DU TICKET D'ORIGINE", state.refund.errorMessage);
+        assertTrue(state.refund.returnQuantities.isEmpty());
+    }
+
+    /**
+     * A code matching a CANCELLED line only is as absent as any other: a
+     * cancelled article was never sold (the cancelled leg of the line filter).
+     */
+    @Test
+    void enterArticleByCodeIgnoresACancelledLine() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine cancelled = coded(1L, "2", "123", null);
+        cancelled.cancelled = true;
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", cancelled);
+        s.enterArticleByCode(state, "123");
+        assertEquals("ARTICLE ABSENT DU TICKET D'ORIGINE", state.refund.errorMessage);
+    }
+
+    /**
+     * A matching EAN takes one unit back, selects the line and carries the detail
+     * page onto it, so the cashier sees what they scanned (LC-05-02-11).
+     */
+    @Test
+    void enterArticleByCodeTakesOneUnitBackOnTheMatchingEan() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.detailPage = 3;
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            noGiftCard(panache, "123");
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.enterArticleByCode(state, "123");
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+        assertEquals(1L, state.refund.selectedLineId);
+        assertEquals(0, state.refund.detailPage);
+    }
+
+    /**
+     * A produce number the cashier types matches the line's PLU (second leg of
+     * the code match), and a line without an EAN skips the instrument lookup.
+     */
+    @Test
+    void enterArticleByCodeTakesOneUnitBackOnTheMatchingPlu() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", null, "4011"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.enterArticleByCode(state, "4011");
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
+    }
+
+    /**
+     * A code whose lines are all exhausted is refused as already returned, never
+     * silently ignored: the cashier must know why nothing moved (LC-05-02-11).
+     */
+    @Test
+    void enterArticleByCodeSaysWhenTheArticleIsAlreadyFullyReturned() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L))
+                    .thenReturn(List.of(refundLineQty("2")));
+            s.enterArticleByCode(state, "123");
+        }
+        assertEquals("ARTICLE DÉJÀ ENTIÈREMENT RETOURNÉ", state.refund.errorMessage);
+        assertTrue(state.refund.returnQuantities.isEmpty());
+    }
+
+    /**
+     * An article staged up to its sold quantity is exhausted too, past refunds or
+     * not: the staged quantity is part of the same cap.
+     */
+    @Test
+    void enterArticleByCodeSaysWhenTheStagedQuantityIsAlreadyTheWholeLine() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.enterArticleByCode(state, "123");
+        }
+        assertEquals("ARTICLE DÉJÀ ENTIÈREMENT RETOURNÉ", state.refund.errorMessage);
+        assertEquals(0, new BigDecimal("2").compareTo(state.refund.returnQuantities.get(1L)));
+    }
+
+    /**
+     * An article sold on SEVERAL lines is served in order: the first line being
+     * exhausted, the unit falls on the second (the continue arm of the search).
+     */
+    @Test
+    void enterArticleByCodeFallsToTheNextLineCarryingTheSameArticle() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00",
+                coded(1L, "1", "123", null), coded(2L, "1", "123", null));
+        state.refund.returnQuantities.put(1L, BigDecimal.ONE);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            noGiftCard(panache, "123");
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> RefundLine.list("originalLineId", 2L)).thenReturn(List.of());
+            s.enterArticleByCode(state, "123");
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(2L)));
+        assertEquals(2L, state.refund.selectedLineId);
+    }
+
+    /**
+     * A code surrounded by spaces is the same code: the scanner and the pad both
+     * hand over what the cashier gave, and neither is asked to be tidy.
+     */
+    @Test
+    void enterArticleByCodeTrimsTheCode() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        state.refund.selectedTicket = ticket(10L, "T-1", "50.00", coded(1L, "2", "123", null));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            noGiftCard(panache, "123");
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            s.enterArticleByCode(state, "  123  ");
+        }
+        assertNull(state.refund.errorMessage);
+        assertEquals(0, BigDecimal.ONE.compareTo(state.refund.returnQuantities.get(1L)));
     }
 
     // --- setReturnQuantity ---
@@ -1002,6 +1396,243 @@ class RefundServiceTest {
             s.performRefund(state, Refund.RefundMethod.CASH);
             assertTrue(mc.constructed().get(0).lines.isEmpty());
         }
+    }
+
+    /**
+     * A recomputed recalculation is carried onto the refund (LC-05-02-13): the
+     * status, the advantage withdrawn and the surviving advantages joined in one
+     * column, plus the note that the loyalty programme was asked to recompute
+     * (the origin ticket carries a card).
+     */
+    @Test
+    void performRefundCarriesTheRecomputedRecalculation() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        original.fidelityCard = "CARD-9";
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.returnValuationService.recompute(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new ReturnValuationService.Recalculation(
+                        ReturnValuationService.RecalculationStatus.RECOMPUTED,
+                        new BigDecimal("2.50"), List.of("REMISE PANIER", "OFFRE-7")));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals("RECOMPUTED", refund.recalculationStatus);
+            assertEquals(new BigDecimal("2.50"), refund.withdrawnGenerosity);
+            assertEquals("REMISE PANIER | OFFRE-7", refund.keptAdvantages);
+            assertTrue(refund.loyaltyRecalculationSent);
+        }
+    }
+
+    /**
+     * A recomputed recalculation that found no surviving advantage leaves the
+     * column null rather than an empty string (the join is skipped), and a ticket
+     * without a card is not announced to the loyalty programme.
+     */
+    @Test
+    void performRefundLeavesNoKeptAdvantageWhenNoneSurvives() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.returnValuationService.recompute(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new ReturnValuationService.Recalculation(
+                        ReturnValuationService.RecalculationStatus.RECOMPUTED,
+                        new BigDecimal("1.00"), List.of()));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals("RECOMPUTED", refund.recalculationStatus);
+            assertNull(refund.keptAdvantages);
+            assertFalse(refund.loyaltyRecalculationSent);
+        }
+    }
+
+    /**
+     * An engine that could not answer leaves UNAVAILABLE on the refund and no
+     * amount at all — and the refund goes through: the customer is at the till
+     * (LC-05-02-13, degraded arm).
+     */
+    @Test
+    void performRefundGoesThroughWhenTheEngineCannotAnswer() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.returnValuationService.recompute(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(ReturnValuationService.Recalculation
+                        .none(ReturnValuationService.RecalculationStatus.UNAVAILABLE));
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals("UNAVAILABLE", refund.recalculationStatus);
+            assertNull(refund.withdrawnGenerosity);
+            assertNull(refund.keptAdvantages);
+            verify(refund).persist();
+        }
+        verify(s.ticketPrinterService).printRefund(55L);
+    }
+
+    /**
+     * The recalculation is asked about what the ticket KEEPS, past refunds and
+     * this one deducted (LC-05-02-13): three sold, one already returned, one
+     * returned now leaves one.
+     */
+    @Test
+    void performRefundAsksTheRecalculationAboutWhatIsKept() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00", line(1L, "3", "10.00", "0.20", "MILK"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L))
+                    .thenReturn(List.of(refundLineQty("1")));
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            org.mockito.ArgumentCaptor<java.util.Map<Long, BigDecimal>> captor =
+                    org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+            verify(s.returnValuationService).recompute(
+                    org.mockito.ArgumentMatchers.same(original), captor.capture());
+            assertEquals(0, new BigDecimal("1").compareTo(captor.getValue().get(1L)));
+        }
+    }
+
+    /**
+     * A line that was CANCELLED during the sale is not named in the kept map at
+     * all: it was never sold, so it is neither kept nor returned.
+     */
+    @Test
+    void performRefundLeavesACancelledLineOutOfTheKeptMap() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine cancelled = line(2L, "1", "4.00", "0.20", "VOID");
+        cancelled.cancelled = true;
+        Ticket original = ticket(10L, "T-1", "100.00",
+                line(1L, "3", "10.00", "0.20", "MILK"), cancelled);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            org.mockito.ArgumentCaptor<java.util.Map<Long, BigDecimal>> captor =
+                    org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+            verify(s.returnValuationService).recompute(
+                    org.mockito.ArgumentMatchers.same(original), captor.capture());
+            assertFalse(captor.getValue().containsKey(2L));
+            assertEquals(0, new BigDecimal("2").compareTo(captor.getValue().get(1L)));
+        }
+    }
+
+    /**
+     * A line that was over-returned by past refunds is kept at ZERO, never at a
+     * negative quantity the engine would choke on.
+     */
+    @Test
+    void performRefundClampsTheKeptQuantityAtZero() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        Ticket original = ticket(10L, "T-1", "100.00",
+                line(1L, "1", "10.00", "0.20", "MILK"), line(2L, "1", "4.00", "0.20", "BREAD"));
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("1"));
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> RefundLine.list("originalLineId", 2L))
+                    .thenReturn(List.of(refundLineQty("3")));
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            org.mockito.ArgumentCaptor<java.util.Map<Long, BigDecimal>> captor =
+                    org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+            verify(s.returnValuationService).recompute(
+                    org.mockito.ArgumentMatchers.same(original), captor.capture());
+            assertEquals(0, BigDecimal.ZERO.compareTo(captor.getValue().get(1L)));
+            assertEquals(0, BigDecimal.ZERO.compareTo(captor.getValue().get(2L)));
+        }
+    }
+
+    /**
+     * A line that carried an advantage at the sale — its total is below unit
+     * price times quantity — is refunded at the price ACTUALLY PAID
+     * (LC-05-02-12): the refund line carries that price, the total is its
+     * product, and the restituted VAT follows the same amount. Refunding the
+     * unit price would hand back 20,00 EUR on a line the customer paid 16,00 EUR
+     * for.
+     */
+    @Test
+    void performRefundHandsBackThePricePaidNotTheUnitPrice() {
+        RefundService s = newService();
+        PosState state = new PosState();
+        TicketLine discounted = line(1L, "3", "10.00", "0.20", "MILK");
+        discounted.totalPrice = new BigDecimal("24.00");
+        Ticket original = ticket(10L, "T-1", "24.00", discounted);
+        state.refund.selectedTicket = original;
+        state.refund.returnQuantities.put(1L, new BigDecimal("2"));
+        CashSession session = mock(CashSession.class);
+        when(s.ticketNumberService.nextRefundNumber()).thenReturn("R-1");
+        when(s.ticketNumberService.getTerminalId()).thenReturn("C04");
+        when(s.cashSessionService.getOpenSession()).thenReturn(session);
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class);
+             MockedConstruction<Refund> mc = mockConstruction(Refund.class, (mock, ctx) -> {
+                 mock.lines = new ArrayList<>();
+                 mock.id = 55L;
+             })) {
+            panache.when(() -> RefundLine.list("originalLineId", 1L)).thenReturn(List.of());
+            panache.when(() -> Refund.list("originalTicketId", 10L)).thenReturn(List.of());
+            s.performRefund(state, Refund.RefundMethod.CASH);
+            Refund refund = mc.constructed().get(0);
+            assertEquals(new BigDecimal("16.00"), refund.totalAmount);
+            assertEquals(new BigDecimal("13.33"), refund.totalExcludingTax);
+            assertEquals(new BigDecimal("2.67"), refund.totalVat);
+            assertEquals(1, refund.lines.size());
+            assertEquals(new BigDecimal("8.0000"), refund.lines.get(0).price);
+            assertEquals(new BigDecimal("2"), refund.lines.get(0).quantity);
+        }
+        verify(s.technicalEventService).log(TechnicalEvent.EventType.REFUND_CREATED, "T-1 CASH 16.00");
     }
 
     /**

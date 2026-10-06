@@ -184,6 +184,12 @@ public class HomeService {
      * administered cap, or null when the cap is not exceeded (or not set). It
      * never blocks the sale — it is only an indicator.
      *
+     * <p>IT ASKS FOR BANKNOTES, and says so. The ceiling is the sum the shop's
+     * insurance guarantees on the whole till — float and takings together — and what
+     * takes a drawer back under it is the notes: the coins have to stay, there is
+     * change to give. The alert used to ask for a "prélèvement" without saying of
+     * what, which left the cashier to guess and the coins to leave with the rest.
+     *
      * @return the alert message, or null when nothing to warn about
      */
     public String drawerCapAlert() {
@@ -194,7 +200,8 @@ public class HomeService {
             return null;
         }
         LOGGER.info("Exiting method drawerCapAlert");
-        return "PRÉLÈVEMENT — CONTENU TIROIR " + String.format("%.2f", excess).replace('.', ',') + " €";
+        return "PRÉLÈVEMENT BILLETS — CONTENU TIROIR "
+                + String.format("%.2f", excess).replace('.', ',') + " €";
     }
 
     public List<RestrictedTenderRow> restrictedTenderRows() {
@@ -258,6 +265,15 @@ public class HomeService {
      * measurement ({@code LC-02-13-15}) and a price-embedded label names one physical
      * object ({@code LC-02-13-16}); repeating either would invent a weight nobody put
      * on the scale.
+     *
+     * <p>THERE IS NO CEILING, and a keyed quantity is no longer refused. The register
+     * used to turn down a line whose quantity was not one, to protect the operator
+     * from repeating over a figure they had deliberately entered (EXP-29). That guard
+     * read the QUANTITY, which it cannot tell apart from the quantity the repetition
+     * itself had just raised: the second press on the same line therefore refused what
+     * the first press had done, capping the function at two units and sending the
+     * cashier to the quantity key for a third. Adding one unit is an explicit gesture
+     * with a visible outcome on the line, so it is allowed as often as it is pressed.
      */
     public void repeatLastItem() {
         LOGGER.info("Entering method repeatLastItem");
@@ -276,15 +292,6 @@ public class HomeService {
         }
         if (last.priceEmbedded) {
             state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX EMBARQUÉ");
-            state.touch();
-            LOGGER.info("Exiting method repeatLastItem");
-            return;
-        }
-        // EXP-29: a line whose quantity was keyed is not silently repeated —
-        // repeating adds one, which would make an ambiguous total over a quantity
-        // the operator deliberately entered. The exit is to key the quantity again.
-        if (last.quantity.compareTo(BigDecimal.ONE) != 0) {
-            state.ticket.setError("RÉPÉTITION IMPOSSIBLE : QUANTITÉ SAISIE");
             state.touch();
             LOGGER.info("Exiting method repeatLastItem");
             return;
@@ -442,26 +449,173 @@ public class HomeService {
     }
 
     /**
-     * Arms the cancel-by-scan mode (EXP-36): the next scanned code designates the
-     * line to cancel instead of adding one. Mirrors {@link #armQuantity} — arms one
-     * scan, disarmed by the scan entry once used.
+     * The parked action string of a MODE RETOUR entry awaiting a supervisor
+     * endorsement (LC-05-01-01); the endorsement dispatch replays it through
+     * {@link #performReturnModeToggle()}.
      */
+    public static final String RETURN_MODE_ACTION = "RETURN_MODE_TOGGLE";
+
     /**
      * Toggles RETURN MODE (EXP-40): the day's return till, where each article
      * entered rings as a return (a negative line) instead of a sale. A day mode,
      * not a per-sale one — it stays on across tickets until toggled off, and a
      * banner keeps it visible. Return-without-ticket (EXP-39) is exactly this
      * mode applied to an article that has no original ticket to recall.
+     * <p>
+     * Four back-office decisions gate the gesture: a register dedicated to
+     * returns never leaves the mode (LC-05-01-03), a store may forbid taking an
+     * article back without its origin ticket (LC-05-02-09/14) or inside a ticket
+     * that already carries sales (LC-05-01-01), and the entry may require a
+     * supervisor endorsement. Only the ENTRY is gated — leaving the mode hands
+     * the till back its ordinary powers.
      */
     public void toggleReturnMode() {
         LOGGER.info("Entering method toggleReturnMode");
-        state.returnMode = !state.returnMode;
-        state.ticket.setNotice(state.returnMode
-                ? "MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS" : "MODE RETOUR TERMINÉ");
-        state.touch();
+        // LC-05-01-03: a register the back office dedicated to returns is in
+        // return mode for good — it sells nothing, so the key has nothing left
+        // to toggle and says so instead of handing the till back to sales.
+        if (posSettingsService.returnDedicatedRegister()) {
+            state.returnMode = true;
+            state.ticket.setError("CAISSE DÉDIÉE AUX RETOURS");
+            state.touch();
+            LOGGER.info("Exiting method toggleReturnMode");
+            return;
+        }
+        if (state.returnMode) {
+            // LC-05-01-02: where the store forbids mixing, a ticket opened as a
+            // return stays a return to the end — leaving the mode over returned
+            // lines would ring the next articles as a sale on the same ticket.
+            if (!posSettingsService.returnInSaleAllowed() && hasReturnLine()) {
+                state.ticket.setError("TICKET DE RETOUR — VENTE INTERDITE SUR CE TICKET");
+                state.touch();
+                LOGGER.info("Exiting method toggleReturnMode");
+                return;
+            }
+            performReturnModeToggle();
+            LOGGER.info("Exiting method toggleReturnMode");
+            return;
+        }
+        // LC-05-02-09/14: taking an article back without its origin ticket can be
+        // forbidden store-wide; the recall-based return (/return) is then the only
+        // way in.
+        if (!posSettingsService.returnWithoutOriginAllowed()) {
+            state.ticket.setError("RETOUR SANS TICKET D'ORIGINE INTERDIT");
+            state.touch();
+            LOGGER.info("Exiting method toggleReturnMode");
+            return;
+        }
+        // LC-05-01-01: a return inside a ticket that already carries sales is a
+        // permission of its own — without it the return starts on an empty ticket.
+        if (!posSettingsService.returnInSaleAllowed() && !state.ticket.items.isEmpty()) {
+            state.ticket.setError("RETOUR DANS UN TICKET DE VENTE INTERDIT");
+            state.touch();
+            LOGGER.info("Exiting method toggleReturnMode");
+            return;
+        }
+        // LC-05-01-01: supervisor authorization when the back office asks for it.
+        // Only the ENTRY is endorsed — ending the mode gives the till back its
+        // ordinary powers and needs no manager.
+        if (endorsementService.gestureAuthorized(state, "return")) {
+            performReturnModeToggle();
+        } else {
+            endorsementService.requestAuthorization(state, RETURN_MODE_ACTION);
+            state.touch();
+        }
         LOGGER.info("Exiting method toggleReturnMode");
     }
 
+    /**
+     * Starts the administered return TYPE the operator tapped (LC-05-04-01): a
+     * labelled shortcut to one of the two base gestures, so a store can offer
+     * "Contenant" or "Article défectueux" rather than make the cashier remember
+     * which base gesture each case calls for.
+     *
+     * <p>The type is resolved BY LABEL, never by position: the administered list
+     * is re-read at every tap and a store that reorders it mid-day must not turn
+     * one key into another. An unknown label is refused rather than defaulted —
+     * a key that does something else than it says is worse than a key that does
+     * nothing.
+     *
+     * <p>An in-sale type goes through the ordinary MODE RETOUR entry, guards and
+     * supervisor endorsement included: a labelled shortcut may not buy its way
+     * past a permission. A dedicated-ticket type only records the type, the
+     * return screen being where that gesture lives.
+     *
+     * @param label the label of the type the operator tapped, possibly null
+     * @return true when the type opens a dedicated return ticket, so the caller
+     *         sends the operator to the return screen
+     */
+    public boolean startReturnType(String label) {
+        LOGGER.info("Entering method startReturnType with label: " + label);
+        String typed = label == null ? "" : label.trim();
+        com.intermarche.pos.service.PosSettingsService.ReturnType type = null;
+        for (com.intermarche.pos.service.PosSettingsService.ReturnType candidate
+                : posSettingsService.returnTypes()) {
+            if (candidate.label().equalsIgnoreCase(typed)) {
+                type = candidate;
+                break;
+            }
+        }
+        if (type == null) {
+            state.ticket.setError("TYPE DE RETOUR INCONNU");
+            state.touch();
+            LOGGER.info("Exiting method startReturnType");
+            return false;
+        }
+        state.returnTypeLabel = type.label();
+        technicalEventService.log(TechnicalEvent.EventType.RETURN_TYPE_SELECTED, type.label());
+        if (type.dedicatedTicket()) {
+            state.touch();
+            LOGGER.info("Exiting method startReturnType");
+            return true;
+        }
+        if (!state.returnMode) {
+            toggleReturnMode();
+        }
+        LOGGER.info("Exiting method startReturnType");
+        return false;
+    }
+
+    /**
+     * Tells whether the ticket in progress already carries a returned article
+     * (a negative line): the test for a ticket opened as a return, which may
+     * not turn back into a sale when the store forbids mixing (LC-05-01-02).
+     *
+     * @return true when at least one line of the ticket is negative
+     */
+    private boolean hasReturnLine() {
+        LOGGER.info("Entering method hasReturnLine");
+        boolean found = state.ticket.items.stream()
+                .anyMatch(item -> item.getTotalPrice().signum() < 0);
+        LOGGER.info("Exiting method hasReturnLine");
+        return found;
+    }
+
+    /**
+     * Performs the return-mode toggle once every guard and the supervisor
+     * endorsement have passed (LC-05-01-01): flips the mode and announces it on
+     * the sale screen, where a banner keeps it visible.
+     */
+    public void performReturnModeToggle() {
+        LOGGER.info("Entering method performReturnModeToggle");
+        state.returnMode = !state.returnMode;
+        if (!state.returnMode) {
+            // LC-05-04-01: the chosen return type belongs to the gesture, and the
+            // gesture is over. Left behind, it would label the next return with
+            // the previous one's type.
+            state.returnTypeLabel = null;
+        }
+        state.ticket.setNotice(state.returnMode
+                ? "MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS" : "MODE RETOUR TERMINÉ");
+        state.touch();
+        LOGGER.info("Exiting method performReturnModeToggle");
+    }
+
+    /**
+     * Arms the cancel-by-scan mode (EXP-36): the next scanned code designates the
+     * line to cancel instead of adding one. Mirrors {@link #armQuantity} — arms one
+     * scan, disarmed by the scan entry once used.
+     */
     public void armCancelByScan() {
         LOGGER.info("Entering method armCancelByScan");
         state.cancelByScanArmed = true;
@@ -615,6 +769,41 @@ public class HomeService {
         }
         state.touch();
         LOGGER.info("Exiting method openPriceMod");
+    }
+
+    /**
+     * Applies the figure typed BEFORE the key was pressed, and closes the modal
+     * the key had just opened.
+     *
+     * <p>Called only after {@link #openPriceMod(String)}, and deliberately so:
+     * the opening is what validates the mode and captures the target line, so the
+     * pre-entry inherits those two refusals instead of re-deciding them. A modal
+     * that did not open — unknown mode, no line selected — leaves the typed figure
+     * unused rather than applying it to a line nobody chose.
+     *
+     * @param rawValue the figure typed on the sale screen's own pad
+     */
+    public void applyPreEntry(String rawValue) {
+        LOGGER.info("Entering method applyPreEntry with rawValue: " + rawValue);
+        if (!state.priceModState.active) {
+            LOGGER.info("Exiting method applyPreEntry");
+            return;
+        }
+        BigDecimal value;
+        try {
+            value = new BigDecimal(rawValue.replace(",", "."));
+        } catch (NumberFormatException malformed) {
+            // Same refusal as the modal's own: the figure is named invalid and
+            // nothing is applied. A pre-entry cannot be "half applied", since the
+            // operator is no longer looking at a field to correct.
+            state.ticket.setError("VALEUR INVALIDE");
+            state.priceModState.clear();
+            state.touch();
+            LOGGER.info("Exiting method applyPreEntry");
+            return;
+        }
+        submitPriceMod(state.priceModState.type, state.priceModState.targetUid, value);
+        LOGGER.info("Exiting method applyPreEntry");
     }
 
     /**

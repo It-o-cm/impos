@@ -6,11 +6,11 @@
  ! @DrawerMayBeOpen: the lock screen must stay reachable drawer open.
 !}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{inject:i18n.lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Déconnexion</title>
+    <title>{inject:i18n.get('lock.title')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -56,8 +56,8 @@
 
 <div class="pos-terminal">
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
-        <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
+        <span id="opInfo">CAISSE 04 | {inject:i18n.get('lock.operatorLabel')} : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
     <div class="main-area"></div>
@@ -65,38 +65,42 @@
 
     <div class="lane-closed-screen" id="laneClosed">
         {#if paused}
-        <div class="lane-closed-text">CAISSE VERROUILLÉE</div>
-        <div class="lane-closed-sub">Verrouillée par {lockedName} (code {lockedBadge})</div>
-        <button class="btn btn-warning lane-closed-btn" onclick="resumePaused()">DÉVERROUILLER</button>
-        <button class="btn btn-muted lane-closed-btn" onclick="showSupervisor()">SUPERVISEUR</button>
+        <div class="lane-closed-text">{inject:i18n.get('lock.lockedScreen')}</div>
+        <div class="lane-closed-sub">{inject:i18n.format('lock.lockedBy', lockedName, lockedBadge)}</div>
+        <button class="btn btn-warning lane-closed-btn" onclick="resumePaused()">{inject:i18n.get('lock.unlock')}</button>
+        <button class="btn btn-muted lane-closed-btn" onclick="showSupervisor()">{inject:i18n.get('lock.supervisor')}</button>
         {#else}
-        <div class="lane-closed-text">CAISSE FERMÉE</div>
+        <div class="lane-closed-text">{inject:i18n.get('lock.laneClosed')}</div>
         <div class="lane-closed-sub">{welcomeMessage}</div>
-        <button class="btn btn-warning lane-closed-btn" onclick="showResume()">S'IDENTIFIER</button>
+        <button class="btn btn-warning lane-closed-btn" onclick="showResume()">{inject:i18n.get('lock.identify')}</button>
         {/if}
+        {! LC-13-06-03 : le choix de la langue AVANT l'ouverture de caisse. C'est le
+         ! seul ecran que voit un operateur qui ne lit pas la langue de la caisse,
+         ! donc le seul endroit ou cette touche sert vraiment. !}
+        <a href="/language-select" class="btn btn-muted lane-closed-btn" style="text-decoration:none;">{inject:i18n.get('common.language')}</a>
     </div>
 
     <div class="overlay" id="resumeScreen">
         <div class="overlay-panel">
         <div class="overlay-header">
-            <div class="overlay-title">AUTHENTIFICATION</div>
+            <div class="overlay-title">{inject:i18n.get('lock.auth')}</div>
         </div>
 
         <div class="resume-container">
             <div class="login-modes">
-                <button class="login-toggle active" id="btnPinMode" onclick="setMode('pin', this)">CODE PIN RAPIDE</button>
-                <button class="login-toggle" id="btnIdMode" onclick="setMode('id', this)">IDENTIFIANT</button>
+                <button class="login-toggle active" id="btnPinMode" onclick="setMode('pin', this)">{inject:i18n.get('lock.pinMode')}</button>
+                <button class="login-toggle" id="btnIdMode" onclick="setMode('id', this)">{inject:i18n.get('lock.loginMode')}</button>
             </div>
 
-            <div class="step-indicator" id="stepIndicator" style="display:none;">Étape 1/2 : Identifiant</div>
-            <div class="hint-text" id="loginHint">Saisissez votre code :</div>
+            <div class="step-indicator" id="stepIndicator" style="display:none;">{inject:i18n.get('lock.step1')}</div>
+            <div class="hint-text" id="loginHint">{inject:i18n.get('lock.enterCode')}</div>
 
             <form action="/action/unlock" method="POST" id="unlockForm">
                 <input type="hidden" name="login" id="inputLogin">
                 <input type="hidden" name="password" id="inputPassword">
-                <input type="text" id="resumeDisplay" class="resume-display" value="" readonly>
+                <div id="resumeDisplay" class="resume-display pad-display"></div>
                 <div id="keyboardArea"></div>
-                <button type="button" id="actionBtn" class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="handleAction()">CONNEXION</button>
+                <button type="button" id="actionBtn" class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="handleAction()">{inject:i18n.get('lock.connect')}</button>
             </form>
 
             {#if error??}
@@ -110,7 +114,7 @@
     <div class="overlay" id="supervisorScreen">
         <div class="overlay-panel">
         <div class="overlay-header">
-            <div class="overlay-title">AUTORISATION SUPERVISEUR</div>
+            <div class="overlay-title">{inject:i18n.get('lock.supervisorAuth')}</div>
         </div>
         <div class="resume-container">
             <div class="hint-text">
@@ -122,9 +126,9 @@
              ! volet superviseur etait decoratif. Ils sont desormais en lecture
              ! seule et alimentes par le pave ci-dessous, qui se rebranche sur
              ! le champ touche — PosInput ne cable qu'un champ a la fois. !}
-            <input type="text" id="supLogin" class="resume-display" placeholder="Identifiant superviseur" readonly onclick="activateSup('login')">
+            <div id="supLogin" class="resume-display pad-display" data-placeholder="Identifiant superviseur" onclick="activateSup('login')"></div>
             <input type="hidden" id="supLoginValue" value="">
-            <input type="text" id="supPass" class="resume-display" placeholder="Code superviseur" readonly onclick="activateSup('password')">
+            <div id="supPass" class="resume-display pad-display" data-placeholder="Code superviseur" onclick="activateSup('password')"></div>
             <input type="hidden" id="supPassValue" value="">
             <div id="supKeyboardArea" class="pos-kb-compact"></div>
             <form method="POST" action="/action/force-unlock" onsubmit="return fillSup(this)">
@@ -149,6 +153,19 @@
 
 <script>
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    /* LC-13-06 : les libelles que le script ecrit lui-meme. Ils sont resolus
+       cote serveur a l'affichage, comme ceux du HTML : le script ne connait
+       aucune langue, il lit cette table. */
+    var LBL = {
+        enterCode:  "{inject:i18n.get('lock.enterCode')}",
+        enterLogin: "{inject:i18n.get('lock.enterLogin')}",
+        enterPin:   "{inject:i18n.get('lock.enterPin')}",
+        connect:    "{inject:i18n.get('lock.connect')}",
+        next:       "{inject:i18n.get('lock.next')}",
+        step1:      "{inject:i18n.get('lock.step1')}",
+        step2:      "{inject:i18n.get('lock.step2')}"
+    };
 
     let currentMode = "pin";
     let currentStep = 1;
@@ -296,14 +313,14 @@
 
         if (currentMode === 'pin') {
             indicator.style.display = 'none';
-            hint.innerText = "Saisissez votre code :";
-            btn.innerText = "CONNEXION";
+            hint.innerText = LBL.enterCode;
+            btn.innerText = LBL.connect;
         } else {
             indicator.style.display = 'block';
             if (currentStep === 1) {
-                indicator.innerText = "Étape 1/2 : Identifiant";
-                hint.innerText = "Entrez votre identifiant :";
-                btn.innerText = "SUIVANT";
+                indicator.innerText = LBL.step1;
+                hint.innerText = LBL.enterLogin;
+                btn.innerText = LBL.next;
 
                 PosInput.setup({
                     displayId: 'resumeDisplay',
@@ -315,9 +332,9 @@
                 });
 
             } else {
-                indicator.innerText = "Étape 2/2 : Mot de passe";
-                hint.innerText = "Entrez votre code PIN :";
-                btn.innerText = "CONNEXION";
+                indicator.innerText = LBL.step2;
+                hint.innerText = LBL.enterPin;
+                btn.innerText = LBL.connect;
 
                 PosInput.setup({
                     displayId: 'resumeDisplay',

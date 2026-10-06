@@ -55,6 +55,11 @@ class AuthServiceTest {
     private AuthService newService() {
         AuthService service = new AuthService();
         service.technicalEventService = mock(TechnicalEventService.class);
+        // The back-office parameters at their catalog defaults: a sign-in reads
+        // the dedicated-return-register flag (LC-05-01-03), so the collaborator
+        // can no longer be left null. Cases that drive a parameter replace this
+        // mock with their own.
+        service.posSettingsService = mock(PosSettingsService.class);
         service.maxAttempts = 3;
         service.lockoutMinutes = 5;
         return service;
@@ -235,6 +240,51 @@ class AuthServiceTest {
             assertEquals(AuthService.LoginResult.SUCCESS, result);
             verify(state.auth).login(42L, "Alice Martin", "12341234");
             verify(service.technicalEventService).log(TechnicalEvent.EventType.REGISTER_UNLOCKED, null, "12341234");
+        }
+    }
+
+    /**
+     * On a register the back office dedicated to returns (LC-05-01-03), a
+     * successful sign-in finds the till already in return mode — the guard arm
+     * where the parameter is on.
+     */
+    @Test
+    void loginForcesReturnModeOnADedicatedRegister() {
+        AuthService service = newService();
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(true);
+        PosState state = newState();
+        Employee employee = mock(Employee.class);
+        employee.id = 42L;
+        employee.badgeId = "12341234";
+        when(employee.isCurrentlyLocked()).thenReturn(false);
+        when(employee.verifyPassword("1234")).thenReturn(true);
+        when(employee.getFullName()).thenReturn("Alice Martin");
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("alice")).thenReturn(employee);
+            assertEquals(AuthService.LoginResult.SUCCESS, service.login(state, "alice", "1234"));
+            assertTrue(state.returnMode);
+        }
+    }
+
+    /**
+     * On an ordinary register the sign-in leaves the return mode alone
+     * (LC-05-01-03, parameter off).
+     */
+    @Test
+    void loginLeavesReturnModeAloneOnAnOrdinaryRegister() {
+        AuthService service = newService();
+        when(service.posSettingsService.returnDedicatedRegister()).thenReturn(false);
+        PosState state = newState();
+        Employee employee = mock(Employee.class);
+        employee.id = 42L;
+        employee.badgeId = "12341234";
+        when(employee.isCurrentlyLocked()).thenReturn(false);
+        when(employee.verifyPassword("1234")).thenReturn(true);
+        when(employee.getFullName()).thenReturn("Alice Martin");
+        try (MockedStatic<Employee> emp = mockStatic(Employee.class)) {
+            emp.when(() -> Employee.findActiveLogin("alice")).thenReturn(employee);
+            assertEquals(AuthService.LoginResult.SUCCESS, service.login(state, "alice", "1234"));
+            assertFalse(state.returnMode);
         }
     }
 

@@ -170,6 +170,12 @@ public class EndorsementResource {
             else if (actionToExecute.equals("TRAINING_TOGGLE")) {
                 homeService.performTrainingToggle();
             }
+            else if (actionToExecute.equals(
+                    com.intermarche.pos.ui.home.HomeService.RETURN_MODE_ACTION)) {
+                // LC-05-01-01: the endorsed entry into MODE RETOUR — the till
+                // starts taking articles back only once a manager has answered.
+                homeService.performReturnModeToggle();
+            }
             else if (actionToExecute.startsWith("REFUND_")) {
                 // Format: REFUND_<METHOD>_<ticketId>
                 String[] parts = actionToExecute.split("_");

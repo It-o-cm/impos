@@ -52,15 +52,18 @@ class RefundResourceTest {
     }
 
     /**
-     * Stubs the {@code return-search} template to return a recognizable view for the
-     * given resource's state.
+     * Stubs the {@code return-search} template to return a recognizable view for
+     * the given resource's state, through the two-step render the search page now
+     * uses: the state, then the administered return types (LC-05-04-01).
      *
      * @param resource the resource whose {@code returnSearchPage} template is stubbed
-     * @return the view {@code returnSearchPage.data("state", state)} returns
+     * @return the view the search render returns
      */
     private TemplateInstance stubSearch(RefundResource resource) {
+        TemplateInstance withState = mock(TemplateInstance.class);
         TemplateInstance view = mock(TemplateInstance.class);
-        when(resource.returnSearchPage.data("state", resource.state)).thenReturn(view);
+        when(resource.returnSearchPage.data("state", resource.state)).thenReturn(withState);
+        when(withState.data(eq("returnTypes"), any())).thenReturn(view);
         return view;
     }
 
@@ -244,10 +247,13 @@ class RefundResourceTest {
 
     /**
      * {@code selectTicket()} selects the ticket by id and returns the detail view.
+     * The selection having succeeded, the store check of LC-05-02-07 let it
+     * through.
      */
     @Test
     void selectTicketSelectsAndReturnsDetail() {
         RefundResource resource = newResource();
+        when(resource.state.refund.isTicketSelected()).thenReturn(true);
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.selectTicket(5L));
         verify(resource.refundService).selectTicket(resource.state, 5L);
@@ -383,5 +389,51 @@ class RefundResourceTest {
         TemplateInstance detailView = stubDetail(resource);
         assertSame(detailView, resource.payLoyalty());
         verify(resource.refundService).requestRefund(resource.state, Refund.RefundMethod.LOYALTY);
+    }
+
+    /**
+     * A ticket the register REFUSED (another point of sale's, LC-05-02-07) leaves
+     * nothing selected, so the render falls back to the search page: the detail
+     * page would have no ticket to show.
+     */
+    @Test
+    void selectTicketRendersTheSearchWhenNothingGotSelected() {
+        RefundResource resource = newResource();
+        when(resource.state.refund.isTicketSelected()).thenReturn(false);
+        TemplateInstance searchView = stubSearch(resource);
+        assertSame(searchView, resource.selectTicket(10L));
+        verify(resource.refundService).selectTicket(resource.state, 10L);
+        verifyNoInteractions(resource.returnDetailPage);
+    }
+
+    /**
+     * {@code enterArticle} hands the keyed code to the same service entry the
+     * scan bus uses (LC-05-02-11) and redirects, so a browser reload never
+     * replays the entry.
+     */
+    @Test
+    void enterArticleDelegatesAndRedirects() {
+        RefundResource resource = newResource();
+        try (Response response = resource.enterArticle("123")) {
+            assertEquals(303, response.getStatus());
+            assertEquals("/return", response.getLocation().toString());
+        }
+        verify(resource.refundService).enterArticleByCode(resource.state, "123");
+    }
+
+    /**
+     * {@code leave} DROPS the ticket selection on the way out (LC-05-02-11): the
+     * selection is what routes a scan to the return, so the sale screen must not
+     * inherit it.
+     */
+    @Test
+    void leaveDropsTheSelectionAndRedirectsToTheSaleScreen() {
+        RefundResource resource = newResource();
+        try (Response response = resource.leave()) {
+            assertEquals(303, response.getStatus());
+            assertEquals("/", response.getLocation().toString());
+        }
+        verify(resource.state.refund).clear();
+        verify(resource.state).touch();
     }
 }

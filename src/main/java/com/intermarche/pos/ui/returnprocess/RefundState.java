@@ -137,6 +137,28 @@ public class RefundState implements Serializable {
     }
 
     /**
+     * Returns the detail page a line is displayed on (LC-05-02-11): a scanned or
+     * keyed article is useless to the cashier if the line it bumped sits on
+     * another page, so the screen follows the find.
+     *
+     * @param lineId the database id of the line, or null
+     * @return the zero-based page index, or the current page when the line is not
+     *         one of the refundable lines
+     */
+    public int pageOf(Long lineId) {
+        if (lineId == null || selectedTicket == null || selectedTicket.lines == null) {
+            return detailPage;
+        }
+        List<TicketLine> allLines = refundableLines();
+        for (int index = 0; index < allLines.size(); index++) {
+            if (lineId.equals(allLines.get(index).id)) {
+                return index / PAGE_SIZE;
+            }
+        }
+        return detailPage;
+    }
+
+    /**
      * Returns the refund quantity of a line.
      *
      * @param lineId the database id of the line
@@ -168,8 +190,10 @@ public class RefundState implements Serializable {
     }
 
     /**
-     * Returns the refund total: the manual amount when typed, otherwise the
-     * sum of the selected line quantities at their original unit prices.
+     * Returns the refund total: the manual amount when typed, otherwise the sum
+     * of the selected line quantities at the price actually paid on each
+     * original line (LC-05-02-12) — advantages of the sale included, so the
+     * till never hands back more than it took.
      *
      * @return the refund total including tax
      */
@@ -182,7 +206,12 @@ public class RefundState implements Serializable {
         for (TicketLine line : refundableLines()) {
             BigDecimal qty = returnQuantities.getOrDefault(line.id, BigDecimal.ZERO);
             if (qty.compareTo(BigDecimal.ZERO) > 0) {
-                total = total.add(line.unitPrice.multiply(qty));
+                // Rounded line by line, to the centime, exactly as the VAT
+                // ventilation of the refund is: the effective unit price carries
+                // four decimals, and a total built from unrounded products would
+                // not match the restituted HT and VAT it is supposed to sum to.
+                total = total.add(line.getEffectiveUnitPrice().multiply(qty)
+                        .setScale(2, RoundingMode.HALF_UP));
             }
         }
         return total;

@@ -1,10 +1,15 @@
 {!
  ! Cash-movement page (CashMovementResource): the cashier records a drawer
- ! movement (withdrawal, deposit, expense, customer down-payment, cash-count
- ! declaration) with an amount and a reason. A movement strictly above the
- ! administered threshold parks the movement and opens the SHARED endorsement
- ! modal; the movement is written only once a manager answers it. Outcome
- ! messages arrive via the ?error= / ?ok= query params.
+ ! movement — expense, customer down-payment or cash-count declaration — with an
+ ! amount and the field that justifies it. The withdrawal and the coin supply are
+ ! NOT here: they have their own screens, where they are counted denomination by
+ ! denomination and print a bordereau. A movement strictly above the administered
+ ! threshold parks the movement and opens the SHARED endorsement modal; the
+ ! movement is written only once a manager answers it, and a justificatif is
+ ! printed. Outcome messages arrive via the ?error= / ?ok= query params.
+ ! ONE pad for two fields: the amount (price numpad) and the order reference of a
+ ! down-payment (alpha keyboard); touching a field repoints PosInput onto it,
+ ! keeping what was already typed there.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -57,9 +62,7 @@
         <form method="post" action="/action/cash-movement/record">
           <div class="form-row">
             <label for="type">Type</label>
-            <select id="type" name="type">
-              <option value="WITHDRAWAL">Prélèvement</option>
-              <option value="DEPOSIT">Apport</option>
+            <select id="type" name="type" onchange="showFieldsFor(this.value)">
               <option value="EXPENSE">Dépense</option>
               <option value="CUSTOMER_DEPOSIT">Acompte client</option>
               <option value="DECLARATION">Déclaration (comptage)</option>
@@ -67,11 +70,11 @@
           </div>
           <div class="form-row">
             <label for="amountDisplay">Montant €</label>
-            <input type="text" id="amountDisplay" class="kb-display" value="0,00" readonly>
+            <div id="amountDisplay" class="kb-display pad-display" onclick="focusField('amount')"></div>
             <input type="hidden" id="amountHidden" name="amount" value="0">
           </div>
           <div class="keyboard" id="amountKbArea"></div>
-          <div class="form-row">
+          <div class="form-row" id="reasonRow">
             <label for="reason">Motif</label>
             <select id="reason" name="reason">
               <option value="">—</option>
@@ -79,6 +82,15 @@
                 <option value="{reason}">{reason}</option>
               {/for}
             </select>
+          </div>
+          {! L'acompte client repond d'une COMMANDE: sa reference est obligatoire,
+           ! faute de quoi le magasin encaisse une avance que rien ne rattache. La
+           ! commande elle-meme vit sur le noeud magasin; la caisse en cite la
+           ! reference en attendant de pouvoir l'interroger. !}
+          <div class="form-row" id="referenceRow" style="display:none;">
+            <label for="referenceDisplay">Référence commande</label>
+            <div id="referenceDisplay" class="kb-display pad-display" onclick="focusField('reference')"></div>
+            <input type="hidden" id="referenceHidden" name="reference" value="">
           </div>
           {#if !tenders.isEmpty()}
           <div class="form-row">
@@ -129,16 +141,47 @@
       managerHint.style.display = (!isNaN(typed) && typed > threshold) ? 'block' : 'none';
     }
 
-    PosInput.setup({
-        displayId: 'amountDisplay',
-        hiddenId: 'amountHidden',
-        containerId: 'amountKbArea',
-        keyboardType: 'price',
-        mode: 'decimal',
-        maxLength: 9,
-        initialValue: '0',
-        onChange: toggleManagerHint
-    });
+    /**
+     * Repointe le pavé sur le montant ou sur la référence de commande.
+     * <p>
+     * Un seul pavé à l'écran, deux cibles : le montant se tape sur le pavé prix,
+     * la référence sur le clavier alphanumérique (une référence de commande n'est
+     * pas forcément un nombre). Le champ touché reprend ce qu'il contenait déjà,
+     * sinon passer de l'un à l'autre effacerait la première saisie.
+     */
+    function focusField(field) {
+        const reference = field === 'reference';
+        const hiddenId = reference ? 'referenceHidden' : 'amountHidden';
+        PosInput.setup({
+            displayId: reference ? 'referenceDisplay' : 'amountDisplay',
+            hiddenId: hiddenId,
+            containerId: 'amountKbArea',
+            keyboardType: reference ? 'alpha' : 'price',
+            mode: reference ? 'text' : 'decimal',
+            uppercase: reference,
+            maxLength: reference ? 20 : 9,
+            initialValue: document.getElementById(hiddenId).value || (reference ? '' : '0'),
+            onChange: reference ? function() {} : toggleManagerHint
+        });
+    }
+
+    /**
+     * Montre le champ que le type de mouvement exige, et lui seul.
+     * <p>
+     * La dépense nomme son motif, l'acompte nomme sa commande, la déclaration ne
+     * nomme rien — elle énonce un comptage. Le pavé revient au montant à chaque
+     * changement de type, parce que c'est toujours la première saisie.
+     */
+    function showFieldsFor(type) {
+        document.getElementById('reasonRow').style.display =
+            (type === 'EXPENSE') ? 'flex' : 'none';
+        document.getElementById('referenceRow').style.display =
+            (type === 'CUSTOMER_DEPOSIT') ? 'flex' : 'none';
+        focusField('amount');
+    }
+
+    focusField('amount');
+    showFieldsFor(document.getElementById('type').value);
     toggleManagerHint(amountHidden.value);
   </script>
 </body>

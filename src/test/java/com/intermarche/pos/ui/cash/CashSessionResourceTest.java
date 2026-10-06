@@ -475,6 +475,35 @@ class CashSessionResourceTest {
     }
 
     /**
+     * The discrepancy screen says whether the AMOUNT may be shown, on both arms of
+     * the administered flag: hidden by default so a cashier cannot count towards the
+     * figure, shown when the shop asks for it.
+     */
+    @Test
+    void variancePageSaysWhetherTheAmountMayBeShown() {
+        CashSessionResource resource = newResource();
+        resource.state.pendingClose = new PosState.PendingClose(
+                new BigDecimal("110.00"), BigDecimal.ZERO, "{}", "{}", new BigDecimal("10.00"));
+        when(resource.posSettingsService.varianceThreshold()).thenReturn(new BigDecimal("1.00"));
+        java.util.Map<String, Object> sink = new java.util.LinkedHashMap<>();
+        TemplateInstance view = mock(TemplateInstance.class);
+        when(resource.varianceAlert.data(anyString(), any())).thenAnswer(invocation -> {
+            sink.put(invocation.getArgument(0), invocation.getArgument(1));
+            return view;
+        });
+        when(view.data(anyString(), any())).thenAnswer(invocation -> {
+            sink.put(invocation.getArgument(0), invocation.getArgument(1));
+            return view;
+        });
+        when(resource.posSettingsService.varianceAmountVisible()).thenReturn(false);
+        resource.variancePage(null);
+        assertEquals(Boolean.FALSE, sink.get("amountVisible"));
+        when(resource.posSettingsService.varianceAmountVisible()).thenReturn(true);
+        resource.variancePage(null);
+        assertEquals(Boolean.TRUE, sink.get("amountVisible"));
+    }
+
+    /**
      * {@code closeEndorsed()} redirects to the session when nothing is pending
      * (guard true arm).
      */
@@ -531,7 +560,7 @@ class CashSessionResourceTest {
         CashSession open = mock(CashSession.class);
         when(resource.cashSessionService.getOpenSession()).thenReturn(open);
         when(resource.posSettingsService.islandAutoDeclaration()).thenReturn(false);
-        when(resource.posSettingsService.floatMode()).thenReturn("FLOATING");
+        when(resource.posSettingsService.floatingFloat()).thenReturn(true);
         when(resource.cashSessionService.isFullCountDay(any())).thenReturn(false);
         CashSessionService.SessionReport report = mock(CashSessionService.SessionReport.class);
         when(resource.cashSessionService.closeSession(7L, null, null, null, false, null, null, true))

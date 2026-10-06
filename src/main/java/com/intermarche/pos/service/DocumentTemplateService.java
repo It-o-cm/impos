@@ -275,11 +275,19 @@ public class DocumentTemplateService {
                 data.put("session", Map.of("number", "C04-S00012",
                         "openedAt", "15/09/2026 08:02", "closedAt", "15/09/2026 20:14",
                         "closing", type == DocumentTemplate.DocumentType.Z_REPORT));
-                data.put("totals", Map.of("ticketCount", "128", "includingTax", "3412,55",
-                        "refunds", "24,90", "theoreticalCash", "1204,30",
-                        "openingFloat", "100,00", "countedCash", "1204,30",
-                        "variance", "0,00", "withdrawn", "1104,30",
-                        "otherTenders", "0,00", "bankDeposit", "2258,25"));
+                data.put("totals", Map.ofEntries(
+                        Map.entry("ticketCount", "128"),
+                        Map.entry("includingTax", "3412,55"),
+                        Map.entry("refunds", "24,90"),
+                        Map.entry("theoreticalCash", "1204,30"),
+                        Map.entry("declaredCash", "1204,30"),
+                        Map.entry("declaredVariance", "0,00"),
+                        Map.entry("openingFloat", "100,00"),
+                        Map.entry("countedCash", "1204,30"),
+                        Map.entry("variance", "0,00"),
+                        Map.entry("withdrawn", "1104,30"),
+                        Map.entry("otherTenders", "0,00"),
+                        Map.entry("bankDeposit", "2258,25")));
                 data.put("tenders", List.of(
                         Map.of("label", "CASH", "amount", "1154,30"),
                         Map.of("label", "CARD", "amount", "2258,25")));

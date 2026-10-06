@@ -152,4 +152,37 @@ class RefundTest {
         refund.totalAmount = new BigDecimal("20.0000");
         Assertions.assertNotEquals(before, refund.getChecksum());
     }
+
+    /**
+     * The recalculation fields (LC-05-02-13) default to absent — no status, no
+     * amount, no surviving advantage, nothing sent to the loyalty programme — so
+     * a refund created before the recalculation existed reads as one that never
+     * ran.
+     */
+    @Test
+    void recalculationFieldsDefaultToAbsent() {
+        Refund refund = new Refund();
+        Assertions.assertNull(refund.recalculationStatus);
+        Assertions.assertNull(refund.withdrawnGenerosity);
+        Assertions.assertNull(refund.keptAdvantages);
+        Assertions.assertFalse(refund.loyaltyRecalculationSent);
+    }
+
+    /**
+     * The recalculation fields round-trip what the return established
+     * (LC-05-02-13): the status, the advantage withdrawn, the surviving
+     * advantages joined in one column and the loyalty notification.
+     */
+    @Test
+    void recalculationFieldsRoundTrip() {
+        Refund refund = new Refund();
+        refund.recalculationStatus = "RECOMPUTED";
+        refund.withdrawnGenerosity = new BigDecimal("2.5000");
+        refund.keptAdvantages = "REMISE PANIER | OFFRE-7";
+        refund.loyaltyRecalculationSent = true;
+        Assertions.assertEquals("RECOMPUTED", refund.recalculationStatus);
+        Assertions.assertEquals(new BigDecimal("2.5000"), refund.withdrawnGenerosity);
+        Assertions.assertEquals("REMISE PANIER | OFFRE-7", refund.keptAdvantages);
+        Assertions.assertTrue(refund.loyaltyRecalculationSent);
+    }
 }

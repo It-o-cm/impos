@@ -881,7 +881,9 @@ public class DemoIT {
                                 new Locator.GetByRoleOptions().setName("C").setExact(true))
                         .click(new Locator.ClickOptions().setTimeout(5000).setForce(true));
                 tapDigits(page, "#payNumpadZone", digits);
-                if (expectedDisplay.equals(page.locator(displayId).inputValue())) {
+                // The display is a TEXT element, not a field: a till has no physical
+                // keyboard, so nothing on these screens is an <input> the pad fills.
+                if (expectedDisplay.equals(page.locator(displayId).innerText().trim())) {
                     page.locator(formId + " button[type=submit]").click();
                     return;
                 }

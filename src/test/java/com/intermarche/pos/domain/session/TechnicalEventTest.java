@@ -53,14 +53,15 @@ class TechnicalEventTest {
     }
 
     /**
-     * The nested EventType enum exposes exactly its twenty-nine declared
-     * constants (the NF525 types, the operator-security events, the
-     * sync-supervision relaunch events, the GS1 decoding trace, the paid-ticket
-     * cancellation of EXP-49 and the SOGEC compensation of EXP-58).
+     * The nested EventType enum exposes exactly its thirty declared constants
+     * (the NF525 types, the operator-security events, the sync-supervision
+     * relaunch events, the GS1 decoding trace, the paid-ticket cancellation of
+     * EXP-49, the SOGEC compensation of EXP-58 and the administered return type
+     * of LC-05-04-01).
      */
     @Test
-    void eventTypeEnumHasTwentyNineConstants() {
-        Assertions.assertEquals(29, TechnicalEvent.EventType.values().length);
+    void eventTypeEnumHasThirtyConstants() {
+        Assertions.assertEquals(30, TechnicalEvent.EventType.values().length);
     }
 
     /**
@@ -95,6 +96,7 @@ class TechnicalEventTest {
                 TechnicalEvent.EventType.TICKET_PARKED,
                 TechnicalEvent.EventType.TICKET_RESUMED,
                 TechnicalEvent.EventType.REFUND_CREATED,
+                TechnicalEvent.EventType.RETURN_TYPE_SELECTED,
                 TechnicalEvent.EventType.DIGITAL_TICKET_SENT,
                 TechnicalEvent.EventType.SUPERVISOR_CALLED,
                 TechnicalEvent.EventType.TRAINING_STARTED,

@@ -80,6 +80,13 @@
                     <div class="row"><span class="label">Fond de caisse</span><span class="value">{report.session.openingFloatFormatted} €</span></div>
                     <div class="row"><span class="label">Mouvements nets</span><span class="value">{report.netCashMovementsFormatted} €</span></div>
                     <div class="row cash"><span class="label">Espèces théoriques</span><span class="value">{report.theoreticalCashFormatted} €</span></div>
+                    {! La declaration de comptage n'est enoncee que si le caissier en a
+                     ! faite une: elle ne valait rien tant que rien ne la comparait au
+                     ! theorique, et une ligne a zero dirait un comptage inexistant. !}
+                    {#if report.declared}
+                    <div class="row"><span class="label">Espèces déclarées</span><span class="value">{report.declaredCashFormatted} €</span></div>
+                    <div class="row"><span class="label">Écart déclaration</span><span class="value">{report.declaredCashVarianceFormatted} €</span></div>
+                    {/if}
                 </div>
             </div>
 

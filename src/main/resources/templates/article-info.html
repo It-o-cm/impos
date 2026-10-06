@@ -1,8 +1,10 @@
 {!
- ! INFO ARTICLE (ArticleInfoResource, EXP-93). READ-ONLY article lookup, reachable
- ! caisse fermée without a user code (LockCheckFilter allowlist). A code is keyed
- ! or scanned; the article's label, code, price and VAT are shown. NO control here
- ! adds a line to the ticket — consultation only.
+ ! INFO ARTICLE (ArticleInfoResource, EXP-93). Article lookup, reachable caisse
+ ! fermée without a user code (LockCheckFilter allowlist). A code is keyed or
+ ! scanned; the article's label, code, price and VAT are shown.
+ ! JE PRENDS L'ARTICLE n'apparait QUE si une vente est possible (canTake: caisse
+ ! deverrouillee et session ouverte) — ailleurs l'ecran reste la consultation pure
+ ! qu'il a toujours ete. RETOUR garde son sens: non.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -16,7 +18,7 @@
     .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
     .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
     .top-bar .store-name { color: var(--primary); font-weight: bold; font-size: var(--fs-title); }
-    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }
+    .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; gap: 15px; }
     .main-area { display: flex; justify-content: center; align-items: center; }
     .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 10px; padding: 30px 40px; width: 34rem; }
     .panel h2 { text-transform: uppercase; margin-bottom: 20px; text-align: center; letter-spacing: 1px; }
@@ -46,7 +48,7 @@
          ! le champ cache qui part dans la requete, comme sur l'ecran de
          ! recherche produit. !}
         <form class="lookup" method="get" action="/article-info">
-          <input type="text" id="codeDisplay" value="{code}" readonly>
+          <div id="codeDisplay" class="pad-display"></div>
           <input type="hidden" name="code" id="codeHidden" value="{code}">
           <button type="submit" class="btn btn-primary">CHERCHER</button>
         </form>
@@ -69,6 +71,10 @@
 
     <div class="bottom-nav">
       <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+      {#if info?? && canTake}
+        <a href="/action/article-info/take?code={code}" class="btn btn-success"
+           style="width: 15rem;">JE PRENDS L'ARTICLE</a>
+      {/if}
     </div>
   </div>
 

@@ -70,13 +70,50 @@ class CashCountResourceTest {
         TemplateInstance withItems = mock(TemplateInstance.class);
         TemplateInstance withFragment = mock(TemplateInstance.class);
         TemplateInstance withPaper = mock(TemplateInstance.class);
+        TemplateInstance withFloat = mock(TemplateInstance.class);
         when(resource.cashCount.data("state", resource.state)).thenReturn(withState);
         when(withState.data("items", bills)).thenReturn(withItems);
         // EXP-83: no open session → the paper tenders are the empty list.
         when(withItems.data("paperTenders", java.util.List.of())).thenReturn(withPaper);
-        when(withPaper.data("fragment", false)).thenReturn(withFragment);
+        // Recette: with no open session there is nothing to keep, so the screen
+        // proposes a withdrawal deduced from zero rather than from nothing.
+        when(withPaper.data("floatReference", "0.00")).thenReturn(withFloat);
+        when(withFloat.data("fragment", false)).thenReturn(withFragment);
         TemplateInstance result = resource.cashCountPage();
         assertSame(withFragment, result);
+    }
+
+    /**
+     * With an OPEN session the screen carries the report's float reference — what the
+     * drawer must keep — so the closing withdrawal can be proposed instead of being
+     * worked out on paper.
+     */
+    @Test
+    void cashCountPageCarriesTheFloatReferenceOfTheOpenSession() {
+        CashCountResource resource = newResource();
+        List<CashItem> bills = List.of(new CashItem("b50", "Billet 50 €", 50.0));
+        when(resource.cashCountService.getBills()).thenReturn(bills);
+        com.intermarche.pos.domain.session.CashSession open =
+                mock(com.intermarche.pos.domain.session.CashSession.class);
+        com.intermarche.pos.service.CashSessionService.SessionReport report =
+                new com.intermarche.pos.service.CashSessionService.SessionReport();
+        report.floatReference = new java.math.BigDecimal("150.00");
+        when(resource.cashSessionService.getOpenSession()).thenReturn(open);
+        when(resource.cashSessionService.buildReport(open)).thenReturn(report);
+        java.util.Map<String, Object> sink = new java.util.LinkedHashMap<>();
+        TemplateInstance view = mock(TemplateInstance.class);
+        when(resource.cashCount.data(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            sink.put(invocation.getArgument(0), invocation.getArgument(1));
+            return view;
+        });
+        when(view.data(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            sink.put(invocation.getArgument(0), invocation.getArgument(1));
+            return view;
+        });
+        resource.cashCountPage();
+        assertEquals("150.00", sink.get("floatReference"));
     }
 
     /**

@@ -243,6 +243,79 @@ class RefundStateTest {
     }
 
     /**
+     * pageOf answers the current page for a null line id, so a find that named
+     * nothing never moves the screen (first leg of the guard).
+     */
+    @Test
+    void pageOfKeepsTheCurrentPageForANullLineId() {
+        RefundState s = new RefundState();
+        s.detailPage = 2;
+        assertEquals(2, s.pageOf(null));
+    }
+
+    /**
+     * pageOf answers the current page when no ticket is selected (second leg).
+     */
+    @Test
+    void pageOfKeepsTheCurrentPageWithoutATicket() {
+        RefundState s = new RefundState();
+        s.detailPage = 1;
+        assertEquals(1, s.pageOf(5L));
+    }
+
+    /**
+     * pageOf answers the current page when the selected ticket has no lines at
+     * all (third leg).
+     */
+    @Test
+    void pageOfKeepsTheCurrentPageWithoutLines() {
+        RefundState s = new RefundState();
+        s.detailPage = 3;
+        s.selectedTicket = ticket(null);
+        assertEquals(3, s.pageOf(5L));
+    }
+
+    /**
+     * pageOf finds a line on the FIRST page (LC-05-02-11): six lines fit a page,
+     * so the first of them is on page zero.
+     */
+    @Test
+    void pageOfFindsALineOnTheFirstPage() {
+        RefundState s = new RefundState();
+        s.detailPage = 4;
+        s.selectedTicket = ticket(Arrays.asList(
+                line(1L, new BigDecimal("1.00")), line(2L, new BigDecimal("1.00"))));
+        assertEquals(0, s.pageOf(2L));
+    }
+
+    /**
+     * pageOf finds a line on a LATER page: the seventh refundable line opens the
+     * second page.
+     */
+    @Test
+    void pageOfFindsALineOnALaterPage() {
+        RefundState s = new RefundState();
+        java.util.List<TicketLine> lines = new java.util.ArrayList<>();
+        for (long id = 1; id <= 8; id++) {
+            lines.add(line(id, new BigDecimal("1.00")));
+        }
+        s.selectedTicket = ticket(lines);
+        assertEquals(1, s.pageOf(7L));
+    }
+
+    /**
+     * pageOf keeps the current page for a line the ticket does not carry (the
+     * loop falls through).
+     */
+    @Test
+    void pageOfKeepsTheCurrentPageForAnUnknownLine() {
+        RefundState s = new RefundState();
+        s.detailPage = 1;
+        s.selectedTicket = ticket(Arrays.asList(line(1L, new BigDecimal("1.00"))));
+        assertEquals(1, s.pageOf(99L));
+    }
+
+    /**
      * getTotalRefundAmount returns the manual amount when one is typed.
      */
     @Test
@@ -276,6 +349,37 @@ class RefundStateTest {
         s.returnQuantities.put(1L, new BigDecimal("3"));
         s.returnQuantities.put(2L, BigDecimal.ZERO);
         assertEquals(new BigDecimal("6.00"), s.getTotalRefundAmount());
+    }
+
+    /**
+     * getTotalRefundAmount values each line at the price ACTUALLY PAID
+     * (LC-05-02-12): a line whose total carries an advantage is refunded below
+     * its unit price, and the sum is rounded to the centime line by line.
+     */
+    @Test
+    void getTotalRefundAmountValuesLinesAtThePricePaid() {
+        TicketLine discounted = line(1L, new BigDecimal("10.00"));
+        discounted.quantity = new BigDecimal("3");
+        discounted.totalPrice = new BigDecimal("24.00");
+        RefundState s = new RefundState();
+        s.selectedTicket = ticket(Arrays.asList(discounted));
+        s.returnQuantities.put(1L, new BigDecimal("2"));
+        assertEquals(new BigDecimal("16.00"), s.getTotalRefundAmount());
+    }
+
+    /**
+     * The per-line rounding applies on a price that does not divide evenly
+     * (LC-05-02-12): 2,00 EUR over three units, two units handed back.
+     */
+    @Test
+    void getTotalRefundAmountRoundsEachLineToTheCentime() {
+        TicketLine odd = line(1L, new BigDecimal("1.00"));
+        odd.quantity = new BigDecimal("3");
+        odd.totalPrice = new BigDecimal("2.00");
+        RefundState s = new RefundState();
+        s.selectedTicket = ticket(Arrays.asList(odd));
+        s.returnQuantities.put(1L, new BigDecimal("2"));
+        assertEquals(new BigDecimal("1.33"), s.getTotalRefundAmount());
     }
 
     /**

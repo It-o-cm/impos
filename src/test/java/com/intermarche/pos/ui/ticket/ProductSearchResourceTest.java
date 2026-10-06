@@ -36,7 +36,10 @@ import static org.mockito.Mockito.*;
  * resolved through {@link Price#findCurrentPrice(Long)}, intercepted with a
  * second static mock on {@link Price}. All entity mocks have their public
  * fields set directly, no database and no Quarkus context is booted, and every
- * branch of both endpoints is covered with absolute expected values.
+ * branch of both endpoints is covered with absolute expected values. The direct
+ * search endpoint resolves its code through the {@link Product} finders declared
+ * on the entity itself, so its cases mock {@link Product} statically rather than
+ * {@link PanacheEntityBase}.
  */
 class ProductSearchResourceTest {
 
@@ -246,6 +249,92 @@ class ProductSearchResourceTest {
         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
         assertEquals("/", response.getLocation().toString());
         verify(resource.ticketService).processScan("3245");
+    }
+
+    /**
+     * {@code searchDirect(null)} normalizes a null query to the empty string
+     * (query ternary null arm), so the emptiness guard short-circuits the
+     * compound condition before any catalog lookup (first leg false arm): no
+     * scan happens and the cashier lands on the search screen with an empty
+     * query.
+     */
+    @Test
+    void searchDirectWithNullQueryFallsBackToTheSearchScreen() {
+        ProductSearchResource resource = newResource();
+        Response response = resource.searchDirect(null);
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/search?q=", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * {@code searchDirect("   ")} trims a non-null query (query ternary
+     * non-null arm) down to the empty string, which again short-circuits the
+     * compound condition on its first leg: no scan, and the search screen
+     * receives an empty query.
+     */
+    @Test
+    void searchDirectWithABlankQueryFallsBackToTheSearchScreen() {
+        ProductSearchResource resource = newResource();
+        Response response = resource.searchDirect("   ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/search?q=", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * {@code searchDirect(ean)} on a code the catalog knows as an EAN takes the
+     * first arm of the disjunction (EAN found), which short-circuits the PLU
+     * lookup: the trimmed code walks the scan chain and the cashier stays on
+     * the sale screen.
+     */
+    @Test
+    void searchDirectWithAKnownEanScansWithoutLeavingTheSaleScreen() {
+        ProductSearchResource resource = newResource();
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("3245412")).thenReturn(mock(Product.class));
+            Response response = resource.searchDirect("  3245412  ");
+            assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+            assertEquals("/", response.getLocation().toString());
+            products.verify(() -> Product.findActiveByPlu(org.mockito.ArgumentMatchers.anyString()), never());
+        }
+        verify(resource.ticketService).processScan("3245412");
+    }
+
+    /**
+     * {@code searchDirect(plu)} on a code no EAN carries (first arm false) but
+     * a weighed article does (second arm true) also scans: the PLU lookup is
+     * the fallback the disjunction exists for.
+     */
+    @Test
+    void searchDirectWithAKnownPluScansWithoutLeavingTheSaleScreen() {
+        ProductSearchResource resource = newResource();
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("1234")).thenReturn(null);
+            products.when(() -> Product.findActiveByPlu("1234")).thenReturn(mock(Product.class));
+            Response response = resource.searchDirect("1234");
+            assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+            assertEquals("/", response.getLocation().toString());
+        }
+        verify(resource.ticketService).processScan("1234");
+    }
+
+    /**
+     * {@code searchDirect(code)} on a code neither namespace knows (both arms
+     * of the disjunction false) scans nothing and hands the code to the search
+     * screen, which is what a cashier who pressed RECHERCHE asked for.
+     */
+    @Test
+    void searchDirectWithAnUnknownCodeOpensTheSearchScreen() {
+        ProductSearchResource resource = newResource();
+        try (MockedStatic<Product> products = mockStatic(Product.class)) {
+            products.when(() -> Product.findActiveByEan("999")).thenReturn(null);
+            products.when(() -> Product.findActiveByPlu("999")).thenReturn(null);
+            Response response = resource.searchDirect("999");
+            assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+            assertEquals("/search?q=999", response.getLocation().toString());
+        }
+        verifyNoInteractions(resource.ticketService);
     }
 
     /**

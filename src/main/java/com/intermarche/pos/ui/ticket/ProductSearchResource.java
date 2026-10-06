@@ -176,6 +176,47 @@ public class ProductSearchResource {
     }
 
     /**
+     * Searches a code typed BEFORE the key was pressed, and skips the search
+     * screen when that code is one the catalog knows.
+     *
+     * <p>The gesture: the cashier types an EAN or a PLU on the sale screen's own
+     * pad and presses RECHERCHE. A code the catalog knows goes straight through
+     * {@code processScan} — the same chain a scanner walks, by the doctrine of
+     * {@link #scanTypedCode(String)} above: typing is scanning. A code it does not
+     * know opens the search screen with the query already typed, which is the
+     * other half of what the key promises: the gesture is never lost, and a
+     * fragment or a name finishes the usual way.
+     *
+     * <p>That fallback is the only difference with the pad's own OK key, which
+     * always scans: a cashier who pressed RECHERCHE asked to search, so an unknown
+     * code owes them a result list rather than an error on the sale screen.
+     *
+     * <p>EAN before PLU: an EAN is what a scanner would have read, and the two
+     * namespaces collide on short numbers. The other order would make a typed EAN
+     * resolve to whatever weighed article carries the same digits.
+     *
+     * @param query the code typed before the key, or null
+     * @return a redirect to the sale screen when the catalog knows the code, to
+     *     the search screen otherwise
+     */
+    @GET
+    @Path("/action/search/direct")
+    public Response searchDirect(@QueryParam("q") String query) {
+        LOGGER.info("Entering method searchDirect with query: " + query);
+        String code = query == null ? "" : query.trim();
+        boolean known = !code.isEmpty()
+                && (Product.findActiveByEan(code) != null || Product.findActiveByPlu(code) != null);
+        if (known) {
+            ticketService.processScan(code);
+            LOGGER.info("Exiting method searchDirect");
+            return Response.seeOther(URI.create("/")).build();
+        }
+        LOGGER.info("Exiting method searchDirect");
+        return Response.seeOther(URI.create("/search?q="
+                + java.net.URLEncoder.encode(code, java.nio.charset.StandardCharsets.UTF_8))).build();
+    }
+
+    /**
      * Adds a search result to the ticket by its EAN and returns to the home
      * page.
      *

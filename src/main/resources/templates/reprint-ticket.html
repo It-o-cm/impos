@@ -83,8 +83,7 @@
         <!-- EXP-47 : recherche par numéro, date (jj/mm/aaaa) ou montant (0,00) —
              le moteur de recherche partagé avec le retour. -->
         <form method="post" action="/reprint/search" style="display:flex; gap:8px; padding:8px 12px;">
-            <input type="text" id="patternDisplay" class="search-display" placeholder="N° ticket, date jj/mm/aaaa ou montant"
-                   readonly onclick="openSearchPad()">
+            <div id="patternDisplay" class="search-display pad-display" data-placeholder="N° ticket, date jj/mm/aaaa ou montant" onclick="openSearchPad()"></div>
             <input type="hidden" name="pattern" id="patternHidden" value="">
             <button type="submit" class="btn btn-primary">RECHERCHER</button>
         </form>

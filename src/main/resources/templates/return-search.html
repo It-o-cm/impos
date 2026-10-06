@@ -52,6 +52,12 @@
     .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 20px; height: 5rem; }
     .btn-back { background: var(--bg-row); color: var(--text-main); padding: 12px 25px; border-radius: 4px; text-decoration: none; font-weight: bold; border: 1px solid var(--border-strong); }
 
+
+    /* LC-05-04-01 : les touches de types de retours, au-dessus du pave de
+       recherche. Deux par ligne, comme les motifs de l'ecran de detail. */
+    .return-types { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+    .return-type-btn { flex: 1 1 45%; text-align: center; padding: 8px 4px; border-radius: 6px; text-decoration: none; font-size: var(--fs-label); border: 1px solid var(--border-strong); color: var(--text-main); background: var(--bg-page); }
+    .return-type-btn.on { background: var(--primary); border-color: var(--primary); color: white; font-weight: bold; }
   </style>
 </head>
 <body data-theme="{posTheme}">
@@ -70,6 +76,11 @@
       </div>
 
       <div class="content-area">
+        {! LC-05-02-07 : le refus d'un ticket d'un autre magasin se lit ici, l'ecran
+         ! de detail n'ayant aucun ticket a montrer dans ce cas. !}
+        {#if state.refund.errorMessage??}
+        <div style="margin:10px; background:rgba(211,47,47,0.15); border:1px solid var(--danger); color:var(--danger); padding:8px; font-weight:bold; font-size:var(--fs-label); text-align:center; border-radius:6px;">{state.refund.errorMessage}</div>
+        {/if}
         <div class="search-results-list">
           {#if state.refund.foundTickets.isEmpty}
             {#if state.refund.searchPattern.length >= 3}
@@ -91,9 +102,20 @@
 
     <div class="action-panel">
       <div id="searchKeyboardZone">
+        {! LC-05-04-01 : les types de retours administres, offerts en touches a cote
+         ! des deux gestes de base. Une touche lance son geste et nomme le type ; le
+         ! libelle est journalise, de sorte que les rapports distinguent un retour de
+         ! contenant d'un retour d'article defectueux. !}
+        {#if returnTypes && !returnTypes.isEmpty()}
+        <div class="return-types">
+          {#for type in returnTypes}
+          <a href="/action/return-type?label={type.label}" class="return-type-btn{#if state.returnTypeLabel == type.label} on{/if}">{type.label}</a>
+          {/for}
+        </div>
+        {/if}
         <form action="/return/search" method="POST" id="searchForm">
           <input type="hidden" name="rawValue" id="searchHidden" value="">
-          <input type="text" id="searchDisplay" class="search-display" readonly>
+          <div id="searchDisplay" class="search-display pad-display"></div>
           <div id="searchPadContainer"></div>
         </form>
       </div>
@@ -101,7 +123,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/" class="btn-back">RETOUR</a>
+    <a href="/return/leave" class="btn-back">RETOUR</a>
   </div>
 </div>
 

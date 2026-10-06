@@ -92,6 +92,10 @@ public class RefundService {
     @Inject
     com.intermarche.pos.ui.ticket.TicketSearchService ticketSearchService;
 
+    /** Re-prices the basket the return leaves behind (LC-05-02-13). */
+    @Inject
+    ReturnValuationService returnValuationService;
+
     /**
      * Searches the closed tickets of the last 30 days matching the typed
      * number fragment (3 characters minimum).
@@ -140,6 +144,20 @@ public class RefundService {
     public void selectTicket(PosState state, Long ticketId) {
         LOGGER.info("Entering method selectTicket with state: " + state + ", ticketId: " + ticketId);
         Ticket t = Ticket.findById(ticketId);
+        // LC-05-02-07: the origin ticket's POINT OF SALE is CHECKED, not assumed.
+        // Tickets being register-local, a foreign one historically just never
+        // resolved — the right behaviour by accident, which says nothing to the
+        // cashier and would fall the day a store-level search answers. Checked
+        // here, the refusal is a decision the back office owns and a message the
+        // cashier can read.
+        if (t != null && isForeignStoreTicket(t)
+                && !posSettingsService.returnForeignStoreAccepted()) {
+            state.refund.clearSelection();
+            state.refund.errorMessage = "TICKET D'UN AUTRE MAGASIN";
+            state.touch();
+            LOGGER.info("Exiting method selectTicket");
+            return;
+        }
         if (t != null) {
             state.refund.selectedTicket = t;
             // EXP-37: mark the lines already fully returned by past refunds so the
@@ -164,6 +182,32 @@ public class RefundService {
         }
         state.touch();
         LOGGER.info("Exiting method selectTicket");
+    }
+
+    /**
+     * Whether a ticket was issued by another point of sale than this register's
+     * (LC-05-02-07).
+     *
+     * <p>A ticket naming no store, or a register whose own store is unknown,
+     * is NOT foreign: the comparison has nothing to stand on, and refusing a
+     * return over a missing reference would punish the customer for a
+     * referential that was not loaded. Codes are compared, not rows: the
+     * register's store and a synchronized ticket's store are two different
+     * objects naming the same shop.
+     *
+     * @param ticket the recalled ticket, never null
+     * @return true when both stores are known and they differ
+     */
+    private boolean isForeignStoreTicket(Ticket ticket) {
+        if (ticket.store == null || ticket.store.code == null) {
+            return false;
+        }
+        com.intermarche.pos.domain.store.Store own =
+                com.intermarche.pos.domain.store.Store.findAll().firstResult();
+        if (own == null || own.code == null) {
+            return false;
+        }
+        return !own.code.equals(ticket.store.code);
     }
 
     /**
@@ -334,6 +378,80 @@ public class RefundService {
         }
         state.touch();
         LOGGER.info("Exiting method setReturnQuantity");
+    }
+
+    /**
+     * Takes one unit back by ARTICLE CODE rather than by tapping a line
+     * (LC-05-02-11): the gesture a cashier actually makes, scanning the article
+     * the customer hands over, with the control of the recalled ticket kept
+     * whole.
+     *
+     * <p>The code designates a line OF THE ORIGIN TICKET, never a new line: a
+     * code that ticket does not carry is refused outright, and a code whose lines
+     * are all exhausted is refused as already returned rather than silently
+     * doing nothing. An article sold on several lines is served in order, the
+     * first line with something left to give back taking the unit — the per-line
+     * cap of {@link #setReturnQuantity} still being the authority on "something
+     * left".
+     *
+     * <p>The found line becomes the selected one and the detail page follows it,
+     * so the cashier sees on the screen what they just scanned.
+     *
+     * @param state the current POS state
+     * @param code the scanned or keyed article code (EAN or PLU), possibly null
+     */
+    public void enterArticleByCode(PosState state, String code) {
+        LOGGER.info("Entering method enterArticleByCode with code: " + code);
+        Ticket selected = state.refund.selectedTicket;
+        if (selected == null || selected.lines == null) {
+            LOGGER.info("Exiting method enterArticleByCode");
+            return;
+        }
+        String typed = code == null ? "" : code.trim();
+        if (typed.isEmpty()) {
+            state.refund.errorMessage = "AUCUN CODE SAISI";
+            state.touch();
+            LOGGER.info("Exiting method enterArticleByCode");
+            return;
+        }
+        boolean codeOnTicket = false;
+        for (TicketLine line : selected.lines) {
+            if (line.cancelled || !matchesCode(line, typed)) {
+                continue;
+            }
+            codeOnTicket = true;
+            BigDecimal staged = state.refund.getReturnQty(line.id);
+            BigDecimal refundable = line.quantity.subtract(alreadyRefunded(line.id));
+            if (staged.compareTo(refundable) >= 0) {
+                // That line has nothing left to give back; another line may carry
+                // the same article, so the search goes on.
+                continue;
+            }
+            state.refund.errorMessage = null;
+            incrementQty(state, line.id);
+            state.refund.selectedLineId = line.id;
+            state.refund.detailPage = state.refund.pageOf(line.id);
+            state.touch();
+            LOGGER.info("Exiting method enterArticleByCode");
+            return;
+        }
+        state.refund.errorMessage = codeOnTicket
+                ? "ARTICLE DÉJÀ ENTIÈREMENT RETOURNÉ"
+                : "ARTICLE ABSENT DU TICKET D'ORIGINE";
+        state.touch();
+        LOGGER.info("Exiting method enterArticleByCode");
+    }
+
+    /**
+     * Whether a ticket line was rung with the given code, be it the article's
+     * barcode or the produce number the cashier types (LC-05-02-11).
+     *
+     * @param line the original ticket line
+     * @param code the scanned or keyed code, already trimmed and non-empty
+     * @return true when the line carries that code as its EAN or its PLU
+     */
+    private boolean matchesCode(TicketLine line, String code) {
+        return code.equals(line.ean) || code.equals(line.plu);
     }
 
     /**
@@ -534,14 +652,20 @@ public class RefundService {
                 throw new IllegalStateException("Double remboursement refusé sur la ligne " + lineId);
             }
 
+            // LC-05-02-12: the refunded price is the one actually PAID on the
+            // original line — the engine's promotions and the share of a global
+            // ticket discount live on the line total, never on its unit price, so
+            // refunding the unit price would hand back an advantage the customer
+            // already received. The VAT restituted follows the same amount.
+            BigDecimal paidUnitPrice = orig.getEffectiveUnitPrice();
             RefundLine rl = new RefundLine();
             rl.originalLineId = lineId;
             rl.productLabel = orig.productLabel;
             rl.quantity = qty;
-            rl.price = orig.unitPrice;
+            rl.price = paidUnitPrice;
             rl.vatRate = orig.vatRate;
             refund.lines.add(rl);
-            breakdown.add(orig.vatRate, orig.unitPrice.multiply(qty).setScale(2, RoundingMode.HALF_UP));
+            breakdown.add(orig.vatRate, paidUnitPrice.multiply(qty).setScale(2, RoundingMode.HALF_UP));
         }
 
         refund.totalAmount = state.refund.getTotalRefundAmount();
@@ -558,6 +682,28 @@ public class RefundService {
             state.touch();
             throw new IllegalStateException("Plafond de remboursement du ticket dépassé");
         }
+
+        // LC-05-02-13: before the refund is written, ask the promotion engine what
+        // the basket the customer KEEPS is worth now. The advantages of the sale
+        // were granted on a basket that no longer exists, and the difference with
+        // what was paid for those kept lines is what the return takes back beyond
+        // the price. The call is made HERE, inside the transaction, so the answer
+        // is part of the refund document or there is no refund document at all;
+        // it never throws and never blocks — an engine that cannot answer leaves
+        // UNAVAILABLE on the paper and the customer is refunded all the same.
+        ReturnValuationService.Recalculation recalculation =
+                returnValuationService.recompute(original, keptQuantitiesAfter(original, refund));
+        refund.recalculationStatus = recalculation.status.name();
+        if (recalculation.status == ReturnValuationService.RecalculationStatus.RECOMPUTED) {
+            refund.withdrawnGenerosity = recalculation.withdrawnGenerosity;
+            refund.keptAdvantages = recalculation.keptAdvantages.isEmpty()
+                    ? null : String.join(" | ", recalculation.keptAdvantages);
+        }
+        // The loyalty half of the same requirement: the décagnottage belongs to
+        // the loyalty service, which the TICKET_RETURN event below notifies. The
+        // refund records that it was sent — never an amount the register did not
+        // compute.
+        refund.loyaltyRecalculationSent = original.fidelityCard != null;
 
         refund.persist();
 
@@ -755,6 +901,37 @@ public class RefundService {
                 }
             }
         }
+    }
+
+    /**
+     * The quantity each original line KEEPS once this refund is taken into
+     * account, keyed by original line id (LC-05-02-13): the sold quantity less
+     * what past refunds already took back, less what this one takes.
+     *
+     * <p>Built from the refund's own lines rather than from the screen state, for
+     * the reason the caps are re-checked in this transaction: the staging on the
+     * screen can be stale, the lines about to be persisted cannot.
+     *
+     * @param original the ticket being returned against
+     * @param refund the refund being created, its lines already built
+     * @return the kept quantity of every non-cancelled line, zero included
+     */
+    private java.util.Map<Long, BigDecimal> keptQuantitiesAfter(Ticket original, Refund refund) {
+        java.util.Map<Long, BigDecimal> returnedNow = new java.util.HashMap<>();
+        for (RefundLine line : refund.lines) {
+            returnedNow.merge(line.originalLineId, line.quantity, BigDecimal::add);
+        }
+        java.util.Map<Long, BigDecimal> kept = new java.util.HashMap<>();
+        for (TicketLine line : original.lines) {
+            if (line.cancelled || line.id == null) {
+                continue;
+            }
+            BigDecimal remaining = line.quantity
+                    .subtract(alreadyRefunded(line.id))
+                    .subtract(returnedNow.getOrDefault(line.id, BigDecimal.ZERO));
+            kept.put(line.id, remaining.signum() < 0 ? BigDecimal.ZERO : remaining);
+        }
+        return kept;
     }
 
     /**

@@ -77,7 +77,7 @@
             {#if editable}
             <div class="entry">
                 <div class="entry-title">Adresse email</div>
-                <input type="text" id="kbDisplay" class="display" readonly value="{address}" onclick="activateField('email')">
+                <div id="kbDisplay" class="display pad-display" onclick="activateField('email')"></div>
                 <input type="hidden" id="kbHidden" name="email" value="{address}">
                 <div class="actions">
                     <button class="btn btn-success" type="submit">ENVOYER</button>
@@ -96,7 +96,7 @@
         <form class="work" method="post" action="/ticket-email/sms">
             <div class="entry">
                 <div class="entry-title">Numéro de téléphone (SMS)</div>
-                <input type="text" id="phoneDisplay" class="display" value="{phone}" placeholder="06 12 34 56 78" readonly onclick="activateField('phone')">
+                <div id="phoneDisplay" class="display pad-display" data-placeholder="06 12 34 56 78" onclick="activateField('phone')"></div>
                 <input type="hidden" name="phone" id="phoneHidden" value="{phone}">
                 <div class="actions">
                     <button class="btn btn-primary" type="submit">ENVOYER PAR SMS</button>

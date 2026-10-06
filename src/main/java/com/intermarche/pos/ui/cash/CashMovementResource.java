@@ -28,11 +28,28 @@ import org.jboss.logging.Logger;
 
 /**
  * JAX-RS resource of the cash-movement screen: the cashier records a drawer
- * movement (withdrawal, deposit, expense, customer down-payment or cash-count
- * declaration) with its amount and reason, and the movement is written to the
- * register's own database and pushed to the store node through the outbox by
- * {@link CashMovementService} — no synchronous network call sits in this path,
- * so a register cut off from the network keeps recording movements.
+ * movement (expense, customer down-payment or cash-count declaration) with its
+ * amount and reason, and the movement is written to the register's own database
+ * and pushed to the store node through the outbox by {@link CashMovementService}
+ * — no synchronous network call sits in this path, so a register cut off from the
+ * network keeps recording movements.
+ * <p>
+ * THREE TYPES, NOT FIVE. The screen used to offer the withdrawal and the coin
+ * supply as well, as a flat amount with no denomination detail — while the two
+ * buttons next to it on the drawer menu do the same gestures counted coin by coin
+ * and print their bordereau. Two roads for one movement, one of them degraded, is
+ * how a prélèvement ends up recorded without the count that makes it opposable, so
+ * those two types are refused here and the dedicated screens own them.
+ * <p>
+ * A JUSTIFICATIF IS PRINTED for every movement recorded here. These three printed
+ * nothing, which left an expense taken from the drawer with no paper to put in the
+ * till beside the receipts.
+ * <p>
+ * THE REASON IS NOT DECORATION: an expense must name the reason it was paid for
+ * (administered list), and a customer down-payment must name the ORDER it belongs
+ * to — it is then written through {@code recordAcompte}, which carries that
+ * reference in its own column so a later recall of the order deducts what was
+ * already collected (EXP-85). A declaration names nothing — it states a count.
  * <p>
  * ENDORSEMENT ceremony (BO-04-01-44 threshold): a movement strictly above the
  * administered threshold ({@code cash.movement-endorsement-threshold}) needs a
@@ -61,6 +78,8 @@ public class CashMovementResource {
     @Inject CashMovementService cashMovementService;
     @Inject PosSettingsService posSettingsService;
     @Inject EndorsementService endorsementService;
+    @Inject com.intermarche.pos.ui.hardware.TicketPrinterService ticketPrinterService;
+    @Inject com.intermarche.pos.service.TicketNumberService ticketNumberService;
     @Inject PosState state;
 
     /**
@@ -82,6 +101,12 @@ public class CashMovementResource {
             message = "AUCUNE SESSION OUVERTE";
         } else if ("bad-type".equals(error)) {
             message = "TYPE DE MOUVEMENT INVALIDE";
+        } else if ("own-screen".equals(error)) {
+            message = "PRÉLÈVEMENT ET APPORT : ÉCRANS DÉDIÉS";
+        } else if ("reason".equals(error)) {
+            message = "MOTIF OBLIGATOIRE";
+        } else if ("reference".equals(error)) {
+            message = "RÉFÉRENCE DE COMMANDE OBLIGATOIRE";
         } else if ("endorsement".equals(error)) {
             message = "AVAL MANAGER REFUSÉ OU MANQUANT";
         } else if ("training".equals(error)) {
@@ -112,6 +137,7 @@ public class CashMovementResource {
      * @param typeStr the movement type name
      * @param amountStr the amount typed by the cashier (French comma tolerated)
      * @param reason the movement reason, or null
+     * @param reference the order reference of a customer down-payment, or null
      * @param paymentMethod the tender the movement concerns, or null for cash
      * @return a redirect back to the cash-movement page carrying the outcome
      */
@@ -121,8 +147,9 @@ public class CashMovementResource {
     public Response record(@FormParam("type") String typeStr,
                            @FormParam("amount") String amountStr,
                            @FormParam("reason") String reason,
+                           @FormParam("reference") String reference,
                            @FormParam("paymentMethod") String paymentMethod) {
-        LOGGER.info("Entering method record with typeStr: " + typeStr + ", amountStr: " + amountStr + ", reason: " + reason + ", paymentMethod: " + paymentMethod);
+        LOGGER.info("Entering method record with typeStr: " + typeStr + ", amountStr: " + amountStr + ", reason: " + reason + ", reference: " + reference + ", paymentMethod: " + paymentMethod);
         if (state.trainingMode) {
             LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=training");
@@ -131,9 +158,15 @@ public class CashMovementResource {
             LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=no-session");
         }
-        if (parseType(typeStr) == null) {
+        CashMovement.MovementType type = parseType(typeStr);
+        if (type == null) {
             LOGGER.info("Exiting method record");
             return redirect("/cash-movement?error=bad-type");
+        }
+        String rejection = rejectionOf(type, reason, reference);
+        if (rejection != null) {
+            LOGGER.info("Exiting method record: " + rejection);
+            return redirect("/cash-movement?error=" + rejection);
         }
         if (cashMovementService.requiresEndorsement(parseAmount(amountStr))
                 && !endorsementService.operatorIsSupervisor(state)) {
@@ -144,13 +177,61 @@ public class CashMovementResource {
             form.put("type", typeStr);
             form.put("amount", amountStr == null ? "" : amountStr);
             form.put("reason", reason == null ? "" : reason);
+            form.put("reference", reference == null ? "" : reference);
             form.put("paymentMethod", paymentMethod == null ? "" : paymentMethod);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form, "/cash-movement");
             LOGGER.info("Exiting method record: aval demande");
             return redirect("/cash-movement");
         }
         LOGGER.info("Exiting method record");
-        return perform(typeStr, amountStr, reason, paymentMethod, supervisorBadge());
+        return perform(typeStr, amountStr, reason, reference, paymentMethod, supervisorBadge());
+    }
+
+    /**
+     * Says why a movement cannot be recorded on THIS screen, as the error code the
+     * page turns into a sentence.
+     *
+     * <p>Three refusals, each of them a gesture that exists elsewhere or a field
+     * without which the movement cannot be justified: a withdrawal or a coin supply
+     * belongs to its own screen, where it is counted denomination by denomination; an
+     * expense must say what it paid for; a customer down-payment must say which order
+     * it belongs to. A declaration asks for neither — it states a count.
+     *
+     * @param type the parsed movement type, never null
+     * @param reason the reason chosen in the administered list, or null
+     * @param reference the order reference of a down-payment, or null
+     * @return the error code, or null when the movement may be recorded
+     */
+    private String rejectionOf(CashMovement.MovementType type, String reason, String reference) {
+        if (type == CashMovement.MovementType.WITHDRAWAL
+                || type == CashMovement.MovementType.DEPOSIT) {
+            return "own-screen";
+        }
+        if (type == CashMovement.MovementType.EXPENSE && (reason == null || reason.isBlank())) {
+            return "reason";
+        }
+        if (type == CashMovement.MovementType.CUSTOMER_DEPOSIT
+                && (reference == null || reference.isBlank())) {
+            return "reference";
+        }
+        return null;
+    }
+
+    /**
+     * The operator-facing wording of a movement type, printed on the justificatif.
+     *
+     * @param type the movement type, never null
+     * @return the wording the cashier read on the screen
+     */
+    private String typeLabelOf(CashMovement.MovementType type) {
+        return switch (type) {
+            case EXPENSE -> "Dépense";
+            case CUSTOMER_DEPOSIT -> "Acompte client";
+            case DECLARATION -> "Déclaration (comptage)";
+            case WITHDRAWAL -> "Prélèvement";
+            case DEPOSIT -> "Apport";
+            case TRANSFER -> "Transfert";
+        };
     }
 
     /**
@@ -164,7 +245,7 @@ public class CashMovementResource {
         LOGGER.info("Entering method performEndorsed with endorsedBy: " + endorsedBy);
         LOGGER.info("Exiting method performEndorsed");
         return perform(form.get("type"), form.get("amount"), form.get("reason"),
-                form.get("paymentMethod"), endorsedBy);
+                form.get("reference"), form.get("paymentMethod"), endorsedBy);
     }
 
     /**
@@ -175,12 +256,13 @@ public class CashMovementResource {
      * @param typeStr the movement type name
      * @param amountStr the raw amount
      * @param reason the movement reason, or null
+     * @param reference the order reference of a customer down-payment, or null
      * @param paymentMethod the tender the movement concerns, or null for cash
      * @param endorsedBy the endorsing manager's badge, or null when none was needed
      * @return a redirect back to the cash-movement page carrying the outcome
      */
     private Response perform(String typeStr, String amountStr, String reason,
-                             String paymentMethod, String endorsedBy) {
+                             String reference, String paymentMethod, String endorsedBy) {
         LOGGER.info("Entering method perform with typeStr: " + typeStr + ", amountStr: " + amountStr);
         if (state.trainingMode) {
             LOGGER.info("Exiting method perform");
@@ -196,6 +278,11 @@ public class CashMovementResource {
             LOGGER.info("Exiting method perform");
             return redirect("/cash-movement?error=bad-type");
         }
+        String rejection = rejectionOf(type, reason, reference);
+        if (rejection != null) {
+            LOGGER.info("Exiting method perform: " + rejection);
+            return redirect("/cash-movement?error=" + rejection);
+        }
         BigDecimal amount = parseAmount(amountStr);
         if (cashMovementService.requiresEndorsement(amount) && endorsedBy == null) {
             LOGGER.info("Exiting method perform");
@@ -206,13 +293,23 @@ public class CashMovementResource {
         // BO-03-02-20: the movement names the tender it concerns when the form
         // carries one; a blank selection lands as null, i.e. a cash movement.
         String tender = (paymentMethod == null || paymentMethod.isBlank()) ? null : paymentMethod.trim();
-        CashMovement recorded = cashMovementService.record(
-                session, cashier, type, amount, reason, endorsedBy, tender, null, null);
+        // EXP-85: a down-payment goes through its OWN writer, which carries the order
+        // reference in its own column — that column is what a later recall of the
+        // order reads to deduct what was already collected. Recording it as a plain
+        // movement would leave the reference as prose nobody can query.
+        CashMovement recorded = (type == CashMovement.MovementType.CUSTOMER_DEPOSIT)
+                ? cashMovementService.recordAcompte(session, cashier, amount, reference)
+                : cashMovementService.record(
+                        session, cashier, type, amount, reason, endorsedBy, tender, null, null);
         state.touch();
         if (recorded == null) {
             LOGGER.info("Exiting method perform");
             return redirect("/cash-movement?error=endorsement");
         }
+        // The paper that justifies the cash: these three movements printed nothing,
+        // so an expense left the drawer with no slip to file beside the receipts.
+        ticketPrinterService.printMovementTicket(typeLabelOf(type), amount, recorded.reason,
+                tender, state.getOperatorName(), ticketNumberService.getTerminalId());
         LOGGER.info("Exiting method perform");
         return redirect("/cash-movement?ok=1");
     }

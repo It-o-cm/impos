@@ -56,6 +56,7 @@ class CashSessionServiceTest {
         service.ticketNumberService = mock(TicketNumberService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.syncOutboxService = mock(SyncOutboxService.class);
+        service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
         return service;
     }
@@ -325,6 +326,213 @@ class CashSessionServiceTest {
             assertEquals(0, new BigDecimal("50.00").compareTo(report.theoreticalCash));
             assertFalse(report.closing);
         }
+    }
+
+    /**
+     * The FLOAT REFERENCE is what the drawer must keep: the opening float plus the
+     * net cash movements of the session. A coin supply received during the day raises
+     * it — the store handed over change, not revenue — and a withdrawal already made
+     * lowers it, so that counted minus the reference is the cash revenue and nothing
+     * else.
+     */
+    @Test
+    void buildReportStatesWhatTheDrawerMustKeep() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("100.00");
+        CashMovement supply = new CashMovement();
+        supply.type = CashMovement.MovementType.DEPOSIT;
+        supply.amount = new BigDecimal("50.00");
+        CashMovement taken = new CashMovement();
+        taken.type = CashMovement.MovementType.WITHDRAWAL;
+        taken.amount = new BigDecimal("20.00");
+        taken.paymentMethod = CashMovement.CASH;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session))
+                    .thenReturn(List.of(supply, taken));
+            stubNoAdministeredTenders(mocked);
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, new BigDecimal("130.00").compareTo(report.floatReference));
+            assertEquals("130,00", report.getFloatReferenceFormatted());
+            assertEquals("130.00", report.getFloatReferencePlain());
+        }
+    }
+
+    /**
+     * A report built on nothing keeps the float as the reference, and a null
+     * reference still reads as zero on the plain accessor (the null arm), the
+     * closing screen having to be given a number whatever happened.
+     */
+    @Test
+    void theFloatReferenceFallsBackToZero() {
+        CashSessionService.SessionReport bare = new CashSessionService.SessionReport();
+        assertEquals("0.00", bare.getFloatReferencePlain());
+        bare.floatReference = null;
+        assertEquals("0.00", bare.getFloatReferencePlain());
+        assertEquals("0,00", bare.getFloatReferenceFormatted());
+    }
+
+    /**
+     * A session with NO declaration states none: the report's declared cash stays
+     * null, the variance stays zero, and {@code isDeclared} is false — a line at
+     * zero would state a count nobody made.
+     */
+    @Test
+    void buildReportWithoutADeclarationStatesNone() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session)).thenReturn(List.of());
+            stubNoAdministeredTenders(mocked);
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertFalse(report.isDeclared());
+            assertNull(report.declaredCash);
+            assertEquals(0, BigDecimal.ZERO.compareTo(report.declaredCashVariance));
+            assertEquals("—", report.getDeclaredCashFormatted());
+            assertEquals("—", report.getDeclaredCashVarianceFormatted());
+        }
+    }
+
+    /**
+     * A cash DECLARATION is put beside the theoretical: declared 60 € against a 50 €
+     * float with no sale gives a +10 € gap. The declaration itself moves nothing, so
+     * the theoretical is unchanged by it.
+     */
+    @Test
+    void buildReportStatesTheGapBetweenTheDeclarationAndTheTheoretical() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session))
+                    .thenReturn(List.of(declaration(new BigDecimal("60.00"), null,
+                            java.time.LocalDateTime.of(2026, 10, 5, 10, 0))));
+            stubNoAdministeredTenders(mocked);
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertTrue(report.isDeclared());
+            assertEquals(0, new BigDecimal("60.00").compareTo(report.declaredCash));
+            assertEquals(0, new BigDecimal("10.00").compareTo(report.declaredCashVariance));
+            assertEquals(0, new BigDecimal("50.00").compareTo(report.theoreticalCash));
+            assertEquals("60,00", report.getDeclaredCashFormatted());
+            assertEquals("10,00", report.getDeclaredCashVarianceFormatted());
+        }
+    }
+
+    /**
+     * The LAST declaration wins: a cashier who declares twice has corrected
+     * themselves. The later row is kept whichever order the query returns them in
+     * (both arms of the date comparison), and a declaration naming ANOTHER TENDER is
+     * not the cash and is ignored.
+     */
+    @Test
+    void buildReportKeepsTheLastCashDeclaration() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session))
+                    .thenReturn(List.of(
+                            declaration(new BigDecimal("80.00"), null,
+                                    java.time.LocalDateTime.of(2026, 10, 5, 11, 0)),
+                            declaration(new BigDecimal("60.00"), null,
+                                    java.time.LocalDateTime.of(2026, 10, 5, 10, 0)),
+                            declaration(new BigDecimal("999.00"), "CHEQUE",
+                                    java.time.LocalDateTime.of(2026, 10, 5, 12, 0))));
+            stubNoAdministeredTenders(mocked);
+            CashSessionService.SessionReport report = service.buildReport(session);
+            assertEquals(0, new BigDecimal("80.00").compareTo(report.declaredCash));
+            assertEquals(0, new BigDecimal("30.00").compareTo(report.declaredCashVariance));
+        }
+    }
+
+    /**
+     * An UNDATED declaration is not the latest when a dated one exists (null arm of
+     * the date comparison), and it is still kept when it is the only one (the
+     * current-null arm): a row with no date cannot win over a dated row, but it is
+     * not thrown away either.
+     */
+    @Test
+    void buildReportWeighsAnUndatedDeclaration() {
+        CashSessionService service = newService();
+        CashSession dated = mock(CashSession.class);
+        dated.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    dated, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", dated)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", dated))
+                    .thenReturn(List.of(
+                            declaration(new BigDecimal("70.00"), null,
+                                    java.time.LocalDateTime.of(2026, 10, 5, 9, 0)),
+                            declaration(new BigDecimal("999.00"), null, null)));
+            stubNoAdministeredTenders(mocked);
+            assertEquals(0, new BigDecimal("70.00")
+                    .compareTo(service.buildReport(dated).declaredCash));
+        }
+        CashSession alone = mock(CashSession.class);
+        alone.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    alone, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", alone)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", alone))
+                    .thenReturn(List.of(declaration(new BigDecimal("65.00"), null, null)));
+            stubNoAdministeredTenders(mocked);
+            assertEquals(0, new BigDecimal("65.00")
+                    .compareTo(service.buildReport(alone).declaredCash));
+        }
+    }
+
+    /**
+     * A declaration carrying NO amount is ignored rather than read as zero (the
+     * amount-null arm): the drawer was never declared.
+     */
+    @Test
+    void buildReportIgnoresADeclarationWithoutAnAmount() {
+        CashSessionService service = newService();
+        CashSession session = mock(CashSession.class);
+        session.openingFloat = new BigDecimal("50.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.list("session = ?1 and status = ?2",
+                    session, Ticket.TicketStatus.CLOSED)).thenReturn(List.of());
+            mocked.when(() -> Refund.list("session", session)).thenReturn(List.of());
+            mocked.when(() -> CashMovement.list("session = ?1", session))
+                    .thenReturn(List.of(declaration(null, null,
+                            java.time.LocalDateTime.of(2026, 10, 5, 10, 0))));
+            stubNoAdministeredTenders(mocked);
+            assertFalse(service.buildReport(session).isDeclared());
+        }
+    }
+
+    /**
+     * Builds a cash-count declaration movement.
+     *
+     * @param amount the declared amount, possibly null
+     * @param tender the tender it declares, null for the cash
+     * @param date the moment it was recorded, possibly null
+     * @return the movement
+     */
+    private CashMovement declaration(BigDecimal amount, String tender,
+                                     java.time.LocalDateTime date) {
+        CashMovement movement = new CashMovement();
+        movement.type = CashMovement.MovementType.DECLARATION;
+        movement.amount = amount;
+        movement.paymentMethod = tender;
+        movement.movementDate = date;
+        return movement;
     }
 
     /**
@@ -808,17 +1016,62 @@ class CashSessionServiceTest {
     }
 
     /**
-     * EXP-95: {@code isFullCountDay} is true on the week-end (Saturday, Sunday)
-     * and on the last day of the month, false on an ordinary weekday. Jan 2024
-     * starts on a Monday, so the 6th/7th are the week-end, the 15th an ordinary
-     * Monday and the 31st the last day (a Wednesday).
+     * EXP-95 on a FIXED float: EVERY evening is a full-count day, the cashier being
+     * counted and reset daily. Jan 2024 starts on a Monday, so the 6th/7th are the
+     * week-end, the 15th an ordinary Monday and the 31st the last day of the month —
+     * all four count.
      */
     @Test
-    void isFullCountDayCoversWeekEndLastDayAndOrdinaryDay() {
+    void isFullCountDayIsEveryDayOnAFixedFloat() {
         CashSessionService service = newService();
+        when(service.posSettingsService.floatMode()).thenReturn("FIXED");
+        when(service.posSettingsService.floatingFloat()).thenReturn(false);
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 6)));
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 7)));
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 15)));
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 31)));
+    }
+
+    /**
+     * EXP-95 on a float floating to the WEEK and the MONTH: the week-end (both
+     * days) and the last day of the month count, an ordinary weekday does not.
+     */
+    @Test
+    void isFullCountDayCoversWeekEndAndMonthEndOnAWeeklyFloatingFloat() {
+        CashSessionService service = newService();
+        when(service.posSettingsService.floatMode()).thenReturn("FLOATING_WEEK_MONTH");
+        when(service.posSettingsService.floatingFloat()).thenReturn(true);
         assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 6)));
         assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 7)));
         assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 31)));
+        assertFalse(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 15)));
+    }
+
+    /**
+     * The FORMER spelling {@code FLOATING} still names the week-and-month mode: a
+     * shop administered before the third mode existed keeps its behaviour.
+     */
+    @Test
+    void isFullCountDayAcceptsTheFormerFloatingSpelling() {
+        CashSessionService service = newService();
+        when(service.posSettingsService.floatMode()).thenReturn("FLOATING");
+        when(service.posSettingsService.floatingFloat()).thenReturn(true);
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 6)));
+        assertFalse(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 15)));
+    }
+
+    /**
+     * EXP-95 on a float floating to the MONTH ALONE (the rare case): only the last
+     * day of the month counts — the week-end does not.
+     */
+    @Test
+    void isFullCountDayCoversOnlyMonthEndOnAMonthlyFloatingFloat() {
+        CashSessionService service = newService();
+        when(service.posSettingsService.floatMode()).thenReturn("FLOATING_MONTH");
+        when(service.posSettingsService.floatingFloat()).thenReturn(true);
+        assertTrue(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 31)));
+        assertFalse(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 6)));
+        assertFalse(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 7)));
         assertFalse(service.isFullCountDay(java.time.LocalDate.of(2024, 1, 15)));
     }
 

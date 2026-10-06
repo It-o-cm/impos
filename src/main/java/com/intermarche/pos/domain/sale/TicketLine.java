@@ -293,6 +293,37 @@ public class TicketLine extends BaseEntity {
     public String cancelledBy;
 
     /**
+     * Returns the unit price the customer ACTUALLY PAID on this line, tax
+     * included (LC-05-02-12): the line total shared out over the quantity, so
+     * the advantages the line carries are part of it — a valuation-engine
+     * promotion and the share of a global ticket discount both land on
+     * {@link #totalPrice} and never on {@link #unitPrice}.
+     * <p>
+     * This is the price a RETURN hands back. Refunding {@link #unitPrice} would
+     * give the customer more than they paid on any line that carried an
+     * advantage, and the difference would come out of the store's till.
+     * <p>
+     * Scale 4, like every stored unit price, so a division that does not
+     * terminate has a defined result and a return of the WHOLE quantity still
+     * adds up to the line total at the centime.
+     * <p>
+     * Falls back to {@link #unitPrice} when the line total is absent (rows
+     * written before it was stored) or when the quantity is absent or zero:
+     * there is then nothing to share out, and the unit price is the only price
+     * the line knows.
+     *
+     * @return the unit price actually paid including tax, or the plain unit
+     *         price when the line total cannot be shared out
+     */
+    public BigDecimal getEffectiveUnitPrice() {
+        if (this.totalPrice == null || this.quantity == null
+                || this.quantity.signum() == 0) {
+            return this.unitPrice;
+        }
+        return this.totalPrice.divide(this.quantity, 4, RoundingMode.HALF_UP);
+    }
+
+    /**
      * Returns the line total formatted for display (2 decimals, French comma).
      *
      * @return the formatted line total

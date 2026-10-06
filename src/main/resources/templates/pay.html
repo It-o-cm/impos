@@ -45,6 +45,13 @@
            children below are unchanged. */
         .overlay-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; background: var(--bg-panel); border: 2px solid var(--border-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); overflow-y: auto; }
         .overlay.active { display: flex; }
+        /* PRÉ-SAISIE : l'afficheur du tampon, dans la zone laissée libre tant
+           qu'aucun moyen n'est choisi. Même forme que celui de l'écran de vente. */
+        .prefill-display { width: 100%; background-color: var(--bg-dark); color: var(--warning);
+                           border: 2px solid var(--border-strong); border-radius: 6px; padding: 3px 8px;
+                           font-size: var(--fs-amount); font-weight: bold; text-align: right; margin-bottom: 8px;
+                           line-height: 1.4; min-height: 1.4em; overflow: hidden; }
+        .prefill-hint { font-size: var(--fs-label); color: var(--text-muted); }
 
         /* Contenu Paiement */
         .pay-content { flex: 1; display: flex; flex-direction: column; width: 96%; margin: 0 auto; min-height: 0; }
@@ -255,7 +262,15 @@
 
                     <div class="pay-action-row">
                         <div class="pay-info-zone">
-                            <div class="pay-no-selection" id="payNoSelection">Choisissez un moyen<br>de paiement</div>
+                            <!-- PRÉ-SAISIE : tant qu'aucun moyen n'est choisi, le pavé
+                                 de la colonne appartient au tampon de pré-saisie. Taper
+                                 le montant PUIS le moyen règle en un geste ; ne rien
+                                 taper laisse chaque touche ouvrir sa saisie comme avant,
+                                 préremplie du reste dû. -->
+                            <div class="pay-no-selection" id="payNoSelection">
+                                <div id="prefillDisplay" class="prefill-display pad-display"></div>
+                                <div id="prefillHint">Choisissez un moyen<br>de paiement<br><span class="prefill-hint">ou tapez le montant puis le moyen</span></div>
+                            </div>
 
                             <!-- Panneau de saisie d'un bon piloté par le serveur (numéro / montant) -->
                             {#if state.payment.voucherPanelOpen}
@@ -269,7 +284,7 @@
                                             <div class="sub-info">Coupon sans numéro</div>
                                         {/if}
                                         <form action="/action/voucher-amount" method="POST" id="voucherAmountForm">
-                                            <input type="text" id="voucherAmountDisplay" class="sub-display voucher" value="0,00" readonly style="color:var(--success);border-color:var(--success);letter-spacing:0;">
+                                            <div id="voucherAmountDisplay" class="sub-display voucher pad-display" style="color:var(--success);border-color:var(--success);letter-spacing:0;"></div>
                                             <input type="hidden" name="amount" id="voucherAmountValue" value="0">
                                             <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">VALIDER LE BON</button>
                                         </form>
@@ -281,7 +296,7 @@
                                             <div class="voucher-error">{state.payment.voucherError}</div>
                                         {/if}
                                         <form action="/action/voucher-number" method="POST" id="voucherNumberForm">
-                                            <input type="text" id="voucherNumberDisplay" class="sub-display voucher" value="" readonly>
+                                            <div id="voucherNumberDisplay" class="sub-display voucher pad-display"></div>
                                             <input type="hidden" name="number" id="voucherNumberValue" value="">
                                             <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">VALIDER LE N°</button>
                                         </form>
@@ -306,7 +321,7 @@
                             <form action="/action/pay-card" method="POST" class="sub-input-area" id="cardForm">
                                 <div class="pay-mode-label">CARTE BANCAIRE</div>
                                 <div class="sub-info">Montant à débiter :</div>
-                                <input type="text" id="cardDisplay" class="sub-display" value="0,00" readonly>
+                                <div id="cardDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="cardValue" value="0">
                                 <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">VALIDER</button>
                             </form>
@@ -318,7 +333,7 @@
                                 <div class="sub-info">Dû {state.remainingFormatted} € — arrondi à {state.cashRoundedRemainingFormatted} €</div>
                                 {/if}
                                 <div class="sub-info">Montant donné par le client :</div>
-                                <input type="text" id="cashDisplay" class="sub-display" value="0,00" readonly>
+                                <div id="cashDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="given" id="cashValue" value="0">
                                 <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">VALIDER ESPÈCES</button>
                             </form>
@@ -327,7 +342,7 @@
                             <form action="/action/pay-tr" method="POST" class="sub-input-area" id="trForm">
                                 <div class="pay-mode-label">TICKET RESTO</div>
                                 <div class="sub-info">Montant du ticket :</div>
-                                <input type="text" id="trDisplay" class="sub-display" value="0,00" readonly>
+                                <div id="trDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="trValue" value="0">
                                 <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">VALIDER</button>
                             </form>
@@ -336,7 +351,7 @@
                             <form action="/action/pay-cheque" method="POST" class="sub-input-area" id="chequeForm">
                                 <div class="pay-mode-label">CHÈQUE</div>
                                 <div class="sub-info">Montant du chèque :</div>
-                                <input type="text" id="chequeDisplay" class="sub-display" value="0,00" readonly>
+                                <div id="chequeDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="chequeValue" value="0">
                                 <button type="submit" class="btn btn-muted" style="width:100%;margin-top:8px;">VALIDER</button>
                             </form>
@@ -345,7 +360,7 @@
                             <form action="/action/pay-fid" method="POST" class="sub-input-area" id="fidForm">
                                 <div class="pay-mode-label">CAGNOTTE</div>
                                 <div class="sub-info">Montant à utiliser :</div>
-                                <input type="text" id="fidDisplay" class="sub-display" value="0,00" readonly>
+                                <div id="fidDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="fidValue" value="0">
                                 <button type="submit" class="btn btn-warning" style="width:100%;margin-top:8px;color:black;">UTILISER</button>
                             </form>
@@ -353,29 +368,39 @@
                             <form action="/action/pay-trd" method="POST" class="sub-input-area" id="trdForm">
                                 <div class="pay-mode-label">CARTE TRD</div>
                                 <div class="sub-info">Montant imputé sur l'assiette titres-restaurant :</div>
-                                <input type="text" id="trdDisplay" class="sub-display" value="0,00" readonly>
+                                <div id="trdDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="trdValue" value="0">
                                 <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">VALIDER</button>
                             </form>
                             <form action="/action/pay-restoflash" method="POST" class="sub-input-area" id="restoflashForm">
                                 <div class="pay-mode-label">RESTO FLASH</div>
                                 <div class="sub-info">Jeton, scanné ou saisi :</div>
-                                <input type="text" id="restoflashDisplay" class="sub-display" value="" readonly>
+                                <div id="restoflashDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="token" id="restoflashValue" value="">
                                 <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">VALIDER LE JETON</button>
                             </form>
                             <form action="/action/pay-giftcard" method="POST" class="sub-input-area" id="giftcardForm">
                                 <div class="pay-mode-label">CARTE CADEAU</div>
                                 <div class="sub-info">Numéro de carte, scanné ou saisi :</div>
-                                <input type="text" id="giftcardDisplay" class="sub-display" value="" readonly>
+                                <div id="giftcardDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="cardNumber" id="giftcardValue" value="">
                                 <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">VALIDER LA CARTE</button>
                             </form>
+                            {! Le bon SOGEC se saisit en DEUX champs: son code, et sa VALEUR
+                             ! FACIALE. Sans ce second champ le serveur n'avait aucun montant et
+                             ! retombait sur le reste du: un bon de 20 E soldait un ticket de
+                             ! 56,50 E. Un seul pave a l'ecran, deux cibles: toucher un champ y
+                             ! repointe PosInput en gardant ce qui y etait deja. Un bon dont le
+                             ! code-barres porte sa valeur (390n) la voit decodee cote serveur,
+                             ! quoi qu'il y ait ici. !}
                             <form action="/action/pay-sogec" method="POST" class="sub-input-area" id="sogecForm">
                                 <div class="pay-mode-label">BON SOGEC</div>
                                 <div class="sub-info">Code du bon, scanné ou saisi :</div>
-                                <input type="text" id="sogecDisplay" class="sub-display" value="" readonly>
+                                <div id="sogecDisplay" class="sub-display pad-display" onclick="sogecFocus('code')"></div>
                                 <input type="hidden" name="couponCode" id="sogecValue" value="">
+                                <div class="sub-info">Valeur du bon :</div>
+                                <div id="sogecAmountDisplay" class="sub-display pad-display" onclick="sogecFocus('amount')"></div>
+                                <input type="hidden" name="amount" id="sogecAmountValue" value="">
                                 <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">VALIDER LE BON</button>
                             </form>
                         </div>
@@ -388,16 +413,16 @@
                 <!-- Colonne moyens de paiement -->
                 <div class="pay-methods">
                     {#if offeredTenders.contains('CARD')}
-                    <button class="btn btn-primary" onclick="openInput('card')">CARTE BANCAIRE</button>
+                    <button class="btn btn-primary" onclick="payWith('card')">CARTE BANCAIRE</button>
                     {/if}
                     {#if offeredTenders.contains('CASH')}
-                    <button class="btn btn-success" onclick="openInput('cash')">ESPÈCES</button>
+                    <button class="btn btn-success" onclick="payWith('cash')">ESPÈCES</button>
                     {/if}
                     {#if offeredTenders.contains('TR')}
-                    <button class="btn btn-muted" onclick="openInput('tr')">TICKET RESTO</button>
+                    <button class="btn btn-muted" onclick="payWith('tr')">TICKET RESTO</button>
                     {/if}
                     {#if offeredTenders.contains('CHEQUE')}
-                    <button class="btn btn-muted" onclick="openInput('cheque')">CHÈQUE</button>
+                    <button class="btn btn-muted" onclick="payWith('cheque')">CHÈQUE</button>
                     {/if}
                     {#if offeredTenders.contains('VOUCHER')}
                     <button class="btn btn-voucher" onclick="openVoucher()">BONS D'ACHAT</button>
@@ -418,7 +443,7 @@
                     </form>
                     {/if}
                     {#if offeredTenders.contains('FIDELITY')}
-                    <button class="btn btn-warning" onclick="openInput('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
+                    <button class="btn btn-warning" onclick="payWith('fid')" {#if !state.fidelity.active}disabled{/if}>CAGNOTTE</button>
                     {/if}
                     {! EXP-60/67/66/58 : nouveaux moyens. Chacun est une TOUCHE qui
                      ! ouvre sa zone de saisie et son pavé tactile, comme les moyens
@@ -551,12 +576,12 @@
                 <form action="/action/pay-backup" method="POST" id="backupAmountForm"
                       style="display:flex; flex-direction:column; gap:6px;">
                     <div class="pos-label">Montant accepté par le terminal</div>
-                    <input type="text" id="backupAmountDisplay" class="sub-display" value="0,00" readonly>
+                    <div id="backupAmountDisplay" class="sub-display pad-display"></div>
                     <input type="hidden" name="amount" id="backupAmountValue" value="0">
                     {#if backupEndorsement}
-                    <input type="text" id="backupLoginDisplay" class="sub-display" placeholder="Identifiant superviseur" readonly onclick="payBindPad('backup', 'login')">
+                    <div id="backupLoginDisplay" class="sub-display pad-display" data-placeholder="Identifiant superviseur" onclick="payBindPad('backup', 'login')"></div>
                     <input type="hidden" name="login" id="backupLoginValue" value="">
-                    <input type="text" id="backupPasswordDisplay" class="sub-display" placeholder="Mot de passe" readonly onclick="payBindPad('backup', 'password')">
+                    <div id="backupPasswordDisplay" class="sub-display pad-display" data-placeholder="Mot de passe" onclick="payBindPad('backup', 'password')"></div>
                     <input type="hidden" name="password" id="backupPasswordValue" value="">
                     {/if}
                     <div id="backupKeypad" class="pos-kb-compact"></div>
@@ -569,7 +594,7 @@
                      ! taper quand elle ne le lit pas — c'est le cas meme que ce
                      ! panneau existe pour traiter. Un <input> libre ne le permettait
                      ! pas sur une borne sans clavier. !}
-                    <input type="text" id="backupScanDisplay" class="sub-display" placeholder="Scannez ou saisissez le code" readonly onclick="payBindPad('backupScan', 'payload')">
+                    <div id="backupScanDisplay" class="sub-display pad-display" data-placeholder="Scannez ou saisissez le code" onclick="payBindPad('backupScan', 'payload')"></div>
                     <input type="hidden" name="payload" id="backupScanValue" value="">
                     <div id="backupScanKeypad" class="pos-kb-compact"></div>
                     <button type="submit" class="btn btn-success">VALIDER LE RETOUR</button>
@@ -620,7 +645,7 @@
             <form action="/action/pay-currency" method="POST" id="currencyAmountForm"
                   style="width:18.75rem; display:flex; flex-direction:column; gap:6px;">
                 <div class="pos-label">Montant remis en {state.payment.selectedCurrency.displayUnit}</div>
-                <input type="text" id="currencyAmountDisplay" class="sub-display" value="0,00" readonly>
+                <div id="currencyAmountDisplay" class="sub-display pad-display"></div>
                 <input type="hidden" name="amount" id="currencyAmountValue" value="0">
                 <div id="currencyKeypad" class="pos-kb-compact"></div>
                 <button type="submit" class="btn btn-success">VALIDER</button>
@@ -664,9 +689,9 @@
         <div class="pos-total" style="text-align:center;">{state.payment.tenderHeldAmount} €</div>
         <form action="/action/tender-authorize" method="POST"
               style="display:flex; flex-direction:column; gap:8px;">
-            <input type="text" id="tenderLoginDisplay" class="sub-display" placeholder="Identifiant" readonly onclick="payBindPad('tender', 'login')">
+            <div id="tenderLoginDisplay" class="sub-display pad-display" data-placeholder="Identifiant" onclick="payBindPad('tender', 'login')"></div>
             <input type="hidden" name="login" id="tenderLoginValue" value="">
-            <input type="text" id="tenderPasswordDisplay" class="sub-display" placeholder="Mot de passe" readonly onclick="payBindPad('tender', 'password')">
+            <div id="tenderPasswordDisplay" class="sub-display pad-display" data-placeholder="Mot de passe" onclick="payBindPad('tender', 'password')"></div>
             <input type="hidden" name="password" id="tenderPasswordValue" value="">
             <div id="tenderKeypad" class="pos-kb-compact"></div>
             <button type="submit" class="btn btn-success">AUTORISER LE RÈGLEMENT</button>
@@ -703,9 +728,9 @@
         <div class="pos-total" style="text-align:center;">{state.payment.creditPendingAmount} €</div>
         <form action="/action/credit-authorize" method="POST" id="creditAuthForm"
               style="display:flex; flex-direction:column; gap:8px;">
-            <input type="text" id="creditLoginDisplay" class="sub-display" placeholder="Identifiant" readonly onclick="payBindPad('creditAuth', 'login')">
+            <div id="creditLoginDisplay" class="sub-display pad-display" data-placeholder="Identifiant" onclick="payBindPad('creditAuth', 'login')"></div>
             <input type="hidden" name="login" id="creditLoginValue" value="">
-            <input type="text" id="creditPasswordDisplay" class="sub-display" placeholder="Mot de passe" readonly onclick="payBindPad('creditAuth', 'password')">
+            <div id="creditPasswordDisplay" class="sub-display pad-display" data-placeholder="Mot de passe" onclick="payBindPad('creditAuth', 'password')"></div>
             <input type="hidden" name="password" id="creditPasswordValue" value="">
             <div id="creditAuthKeypad" class="pos-kb-compact"></div>
             <button type="submit" class="btn btn-success">AUTORISER LE DÉPASSEMENT</button>
@@ -751,7 +776,7 @@
             <form action="/action/pay-credit" method="POST" id="creditAmountForm"
                   style="width:18.75rem; display:flex; flex-direction:column; gap:6px;">
                 <div class="pos-label">Montant à porter au compte</div>
-                <input type="text" id="creditAmountDisplay" class="sub-display" value="0,00" readonly>
+                <div id="creditAmountDisplay" class="sub-display pad-display"></div>
                 <input type="hidden" name="amount" id="creditAmountValue" value="0">
                 <div id="creditKeypad" class="pos-kb-compact"></div>
                 <button type="submit" class="btn btn-success">PORTER AU COMPTE</button>
@@ -762,12 +787,12 @@
         {#else}
         {! LC-07-09-02 and -07: by number when it is known, by name when it is not. !}
         <form action="/action/credit-number" method="POST" style="display:flex; gap:8px;">
-            <input type="text" id="creditNumberDisplay" class="sub-display" style="flex:1;" placeholder="N° de compte" readonly onclick="payBindPad('creditLookup', 'number')">
+            <div id="creditNumberDisplay" class="sub-display pad-display" data-placeholder="N° de compte" onclick="payBindPad('creditLookup', 'number')" style="flex:1;"></div>
             <input type="hidden" name="number" id="creditNumberValue" value="">
             <button type="submit" class="btn btn-primary" style="width:9.375rem;">VALIDER</button>
         </form>
         <form action="/action/credit-search" method="POST" style="display:flex; gap:8px;">
-            <input type="text" id="creditSearchDisplay" class="sub-display" style="flex:1;" placeholder="Nom du client" value="{state.payment.creditSearch}" readonly onclick="payBindPad('creditLookup', 'search')">
+            <div id="creditSearchDisplay" class="sub-display pad-display" data-placeholder="Nom du client" onclick="payBindPad('creditLookup', 'search')" style="flex:1;"></div>
             <input type="hidden" name="search" id="creditSearchValue" value="{state.payment.creditSearch}">
             <button type="submit" class="btn btn-primary" style="width:9.375rem;">RECHERCHER</button>
         </form>
@@ -835,9 +860,34 @@
     const TENDER_DEFAULTS = { {#for entry in tenderDefaults}'{entry.key}': {entry.value}{#if entry_hasNext}, {/if}{/for} };
 
     /* Les moyens qui se saisissent au CODE et non au montant. Leur pavé est
-       numérique entier, il n'ouvre sur aucune valeur, et le code part seul :
-       le montant vide retombe sur le reste dû côté serveur. */
+       numérique entier et n'ouvre sur aucune valeur. Resto Flash et la carte
+       cadeau partent avec le code seul — leur montant est plafonné par l'assiette
+       ou par le solde côté serveur ; le bon SOGEC, lui, porte son propre champ de
+       valeur faciale, qu'aucun reste dû ne remplace. */
     const CODE_MODES = ['restoflash', 'giftcard', 'sogec'];
+
+    /**
+     * Règle avec le moyen demandé, en consommant le montant tapé d'avance.
+     * <p>
+     * C'est la touche de moyen de paiement vue du caissier : s'il a tapé un
+     * montant sur le pavé qui reste à l'écran, le règlement part tout de suite ;
+     * sinon la saisie s'ouvre comme avant, préremplie du reste dû. Les saisies de
+     * CODE (bons Resto Flash, carte cadeau, SOGEC) sont exclues : ce qu'on y tape
+     * est un numéro, pas une somme, et le confondre réglerait un montant qui est
+     * un identifiant.
+     */
+    function payWith(mode) {
+        if (!PosPrefill.isEmpty() && !CODE_MODES.includes(mode)) {
+            const hidden = document.getElementById(mode + 'Value');
+            const form = document.getElementById(mode + 'Form');
+            if (hidden && form) {
+                hidden.value = PosPrefill.consume();
+                form.submit();
+                return;
+            }
+        }
+        openInput(mode);
+    }
 
     function openInput(mode) {
         const noSelectionDiv = document.getElementById('payNoSelection');
@@ -870,6 +920,12 @@
 
         if (codeMode) {
             PosInput.clear();
+            /* Le bon SOGEC a un second champ: il repart vide a chaque ouverture,
+               pour qu'un bon n'herite jamais de la valeur du precedent. */
+            if (mode === 'sogec') {
+                document.getElementById('sogecAmountDisplay').textContent = '';
+                document.getElementById('sogecAmountValue').value = '';
+            }
             return;
         }
 
@@ -895,6 +951,45 @@
             PosInput.updateDisplay();
         }
     }
+
+    /**
+     * Repointe le pavé sur l'un des deux champs du bon SOGEC.
+     * <p>
+     * Un seul pavé pour deux saisies : le code en entier, la valeur en montant.
+     * Le champ touché reprend ce qu'il contenait déjà (`initialValue`), sinon
+     * passer de l'un à l'autre effacerait la première saisie.
+     */
+    function sogecFocus(field) {
+        const amount = field === 'amount';
+        const hiddenId = amount ? 'sogecAmountValue' : 'sogecValue';
+        PosInput.setup({
+            displayId: amount ? 'sogecAmountDisplay' : 'sogecDisplay',
+            hiddenId: hiddenId,
+            containerId: 'payNumpadZone',
+            keyboardType: amount ? 'payment' : 'numpad',
+            mode: amount ? 'payment' : 'integer',
+            placeholder: amount ? "0,00" : "",
+            maxLength: amount ? 10 : 30,
+            initialValue: document.getElementById(hiddenId).value || "",
+            onEnter: () => { document.getElementById('sogecForm').submit(); }
+        });
+    }
+
+    // PRÉ-SAISIE. Le pavé de la colonne n'appartient à personne tant qu'aucun
+    // moyen n'est choisi : il sert alors le tampon. Dès qu'une touche de moyen
+    // ouvre sa saisie, PosInput reprend le même conteneur et le pavé devient le
+    // sien — un seul pavé à l'écran, deux propriétaires successifs, jamais deux
+    // en même temps.
+    (function mountPrefill() {
+        if (document.getElementById('voucherNumberForm')
+                || document.getElementById('voucherAmountForm')) return;
+        PosPrefill.mount({
+            displayId: 'prefillDisplay',
+            containerId: 'payNumpadZone',
+            maxLength: 10,
+            onEnter: function() { /* la validation est la touche du moyen */ }
+        });
+    })();
 
     // --- Bons d'achat : ouverture du choix de type (zone centrale) ---
     function openVoucher() {

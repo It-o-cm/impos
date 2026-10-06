@@ -47,7 +47,7 @@
         <div class="card">
           <h3>Devis, commande, bon de vente, click &amp; collect</h3>
           <form class="row" method="post" action="/action/recall">
-            <input type="text" id="dispCode" placeholder="Code du document" readonly onclick="activateField('code')">
+            <div id="dispCode" class="pad-display" data-placeholder="Code du document" onclick="activateField('code')"></div>
             <input type="hidden" name="code" id="valCode" value="">
             <button type="submit" class="btn btn-primary">RAPPELER</button>
           </form>
@@ -57,11 +57,11 @@
           <h3>Acompte sur commande</h3>
           <form method="post" action="/action/recall/acompte">
             <div class="row">
-              <input type="text" id="dispOrder" placeholder="N° commande" readonly onclick="activateField('order')">
+              <div id="dispOrder" class="pad-display" data-placeholder="N° commande" onclick="activateField('order')"></div>
               <input type="hidden" name="orderReference" id="valOrder" value="">
             </div>
             <div class="row">
-              <input type="text" id="dispAmount" placeholder="Montant €" readonly onclick="activateField('amount')">
+              <div id="dispAmount" class="pad-display" data-placeholder="Montant €" onclick="activateField('amount')"></div>
               <input type="hidden" name="amount" id="valAmount" value="">
               <button type="submit" class="btn btn-success">ENREGISTRER L'ACOMPTE</button>
             </div>

@@ -5,7 +5,10 @@
  ! recorded, no event is emitted. Distinct from the Z-closing count, which
  ! persists and journals. The three denomination lists are all rendered and the
  ! tabs toggle them client-side (no fetch), because the calculator's banknotes
- ! differ from the count fragment's (which stops at 50 €).
+ ! differ from the count fragment's (which stops at 50 €). A denomination is
+ ! ALWAYS selected — the first of the active tab at load, the first of the new tab
+ ! on a tab change — because the numpad is wired only by selectItem(): with no
+ ! selection the keys went nowhere and the entry was lost in silence.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -33,6 +36,7 @@
     .denom-list.active { display: flex; }
     .count-item { display: grid; grid-template-columns: 13.75rem 1fr 7.5rem; align-items: center; background: var(--bg-panel); padding: 10px 15px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; }
     .count-item.selected { background: #10233d; border-color: var(--primary); }
+    .calc-printed { border: 1px solid var(--success); border-radius: 6px; padding: 8px; color: var(--success); font-weight: bold; text-align: center; }
     .item-label { font-size: var(--fs-row); font-weight: bold; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .item-qty { text-align: center; font-size: var(--fs-row); color: var(--text-main); }
     .item-total { text-align: right; font-size: var(--fs-amount); font-weight: bold; color: var(--primary); }
@@ -92,6 +96,9 @@
             <div class="total-amount" id="totalDisplay">0,00 €</div>
           </div>
           <div class="calc-hint">Aide au comptage — rien n'est enregistré.</div>
+          {#if printed}
+            <div class="calc-printed">COMPTAGE IMPRIMÉ</div>
+          {/if}
           <div class="numpad-container" id="numpadArea"></div>
         </div>
       </div>
@@ -100,6 +107,15 @@
     <div class="bottom-nav">
       <a class="btn btn-muted" href="/">RETOUR</a>
       <button type="button" class="btn btn-primary" onclick="resetAll()">REMETTRE À ZÉRO</button>
+      {! Le comptage du matin se termine par un papier: c'est la seule trace qu'il
+       ! laisse, et c'est ce que la caissiere montre a sa responsable quand le fond
+       ! n'est pas juste. Imprimer n'est pas enregistrer — le total et le detail
+       ! partent au serveur le temps d'un ticket, rien n'est ecrit. !}
+      <form method="post" action="/action/cash-calculator/print" onsubmit="return prepareCount();">
+        <input type="hidden" id="countAmount" name="amount" value="0">
+        <input type="hidden" id="countDetail" name="detail" value="">
+        <button type="submit" class="btn btn-success">IMPRIMER LE COMPTAGE</button>
+      </form>
     </div>
   </div>
 
@@ -119,6 +135,7 @@
       btnElement.classList.add('active');
       document.querySelectorAll('.denom-list').forEach(l => l.classList.remove('active'));
       document.getElementById('list-' + type).classList.add('active');
+      selectFirstOf(type);
     }
 
     /* Arms the numpad for a denomination, loading its current quantity back so a
@@ -159,6 +176,24 @@
         total.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €';
     }
 
+    /* Remplit les deux champs caches avec ce que l'ecran affiche: le total tel
+       qu'il est additionne ici, et le detail coupure par coupure, sous la meme
+       forme que le comptage de cloture ({"id":quantite}). Les quantites nulles
+       n'y figurent pas: le ticket ne liste que ce qui a ete compte. */
+    function prepareCount() {
+      let total = 0;
+      const detail = {};
+      for (const [id, qty] of Object.entries(countState)) {
+        if (qty > 0) {
+          detail[id] = qty;
+          total += (countValues[id] || 0) * qty;
+        }
+      }
+      document.getElementById('countAmount').value = total.toFixed(2);
+      document.getElementById('countDetail').value = JSON.stringify(detail);
+      return true;
+    }
+
     /* Clears the whole scratchpad — a fresh count. */
     function resetAll() {
       for (const id of Object.keys(countState)) delete countState[id];
@@ -174,6 +209,20 @@
     document.querySelectorAll('.count-item').forEach(item => {
       item.addEventListener('click', () => selectItem(item));
     });
+
+    /* La premiere coupure est selectionnee d'emblee: le pave n'est cable que par
+       selectItem(), donc sans selection les touches ne vont nulle part et la frappe
+       est perdue en silence. Un caissier qui arrive sur l'ecran et tape un nombre
+       compte des billets de 50, la premiere ligne de la liste. */
+    const firstItem = document.querySelector('.denom-list.active .count-item');
+    if (firstItem) selectItem(firstItem);
+
+    /* Changer d'onglet reporte la selection sur la premiere ligne du nouvel onglet,
+       pour la meme raison: la coupure selectionnee doit toujours etre visible. */
+    function selectFirstOf(type) {
+      const item = document.querySelector('#list-' + type + ' .count-item');
+      if (item) selectItem(item);
+    }
   </script>
 </body>
 </html>

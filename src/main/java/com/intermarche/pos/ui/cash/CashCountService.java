@@ -74,4 +74,61 @@ public class CashCountService {
         LOGGER.info("Exiting method getRolls");
         return items;
     }
+
+    /**
+     * Turns a {@code countDetail} JSON into the printable lines of a count: one
+     * label-and-amount pair per denomination actually counted, in the order of the
+     * denominations handed in.
+     *
+     * <p>The ids are the keys of that JSON and the values are quantities, so the
+     * amount of a line is the denomination's value times its quantity — a roll
+     * counting for the whole roll, as the lists above encode. A denomination
+     * counted ZERO times is not a line: a slip listing every coin of the euro at
+     * zero says nothing the cashier can check.
+     *
+     * <p>The parse is deliberately forgiving: an entry that is not a pair, a
+     * quantity that is not a number, an id no denomination carries — each is
+     * skipped rather than failing the slip, because the detail is built in the
+     * browser and a slip is better incomplete than absent.
+     *
+     * @param detail the per-denomination JSON, possibly null or blank
+     * @param items the denominations the figures refer to
+     * @return the printable lines, empty when nothing was counted
+     */
+    public List<String[]> denominationLines(String detail, List<CashItem> items) {
+        LOGGER.info("Entering method denominationLines with detail: " + detail);
+        List<String[]> lines = new ArrayList<>();
+        if (detail == null || detail.isBlank()) {
+            LOGGER.info("Exiting method denominationLines");
+            return lines;
+        }
+        String body = detail.replace("{", "").replace("}", "").replace("\"", "");
+        for (String entry : body.split(",")) {
+            String[] parts = entry.split(":");
+            if (parts.length != 2) {
+                continue;
+            }
+            String id = parts[0].trim();
+            int quantity;
+            try {
+                quantity = Integer.parseInt(parts[1].trim());
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (quantity <= 0) {
+                continue;
+            }
+            for (CashItem item : items) {
+                if (item.id.equals(id)) {
+                    java.math.BigDecimal amount = java.math.BigDecimal.valueOf(item.value)
+                            .multiply(java.math.BigDecimal.valueOf(quantity));
+                    lines.add(new String[] {item.label + " x" + quantity,
+                            String.format("%.2f", amount).replace('.', ',') + " E"});
+                    break;
+                }
+            }
+        }
+        LOGGER.info("Exiting method denominationLines");
+        return lines;
+    }
 }

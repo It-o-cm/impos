@@ -294,9 +294,13 @@ public class PosSettingsService {
                 "Montant au-delà duquel un mouvement de caisse (prélèvement, apport, dépense, acompte, déclaration) exige un aval manager. Un mouvement à ce montant ou en dessous passe sans aval (BO-04-01-44).",
                 "100.00", null),
         new Def("cash.movement-reasons", Type.TEXT, "MOUVEMENTS DE CAISSE",
-                "Motifs autorisés",
-                "Motifs proposés au caissier pour un mouvement de caisse, séparés par des points-virgules. Vide : la saisie du motif reste libre (BO-04-01-44).",
-                "Prélèvement coffre;Apport de fond;Achat de timbres;Dépense pharmacie;Erreur de caisse", null),
+                "Motifs de dépense",
+                "Motifs proposés au caissier pour une DÉPENSE payée sur le tiroir, séparés par des points-virgules ; le motif est obligatoire, un motif manquant refuse la dépense. La liste ne mélange plus les motifs de prélèvement et d'apport, qui ont leurs propres écrans (BO-04-01-44).",
+                "Achat de timbres;Frais de restaurant;Dépense pharmacie;Fournitures;Erreur de caisse", null),
+        new Def("cash.withdrawal-destinations", Type.TEXT, "MOUVEMENTS DE CAISSE",
+                "Destinations de prélèvement",
+                "Destinations proposées au caissier pour un prélèvement, en plus du coffre qui est toujours offert, séparées par des points-virgules. La destination est obligatoire : un prélèvement qui ne dit pas où va l'argent n'est pas opposable (LC-12-03).",
+                "Caisse centrale;Coffre-fort magasin;Remise en banque", null),
         new Def("invoice.customer-fields", Type.TEXT, "FACTURE",
                 "Champs du client en compte",
                 "Champs demandés à la création d'un client en caisse, séparés par des points-virgules, une étoile marquant les obligatoires : companyName, contactName, street, postalCode, city, siret, vatNumber, phone, email. Vide : tous les champs, raison sociale obligatoire (LC-08-04-10).",
@@ -376,6 +380,42 @@ public class PosSettingsService {
         new Def("return.print-reason", Type.BOOL, "RETOUR CLIENT",
                 "Impression du motif de retour",
                 "Le motif choisi est imprimé sur le ticket de retour. Désactivé : le motif est journalisé mais n'apparaît pas sur le ticket (LC-05-05-03).",
+                "true", null),
+        new Def("return.in-sale-allowed", Type.BOOL, "RETOUR CLIENT",
+                "Retour d'article dans un ticket de vente",
+                "Des articles peuvent être repris dans un ticket qui porte déjà des ventes : le total du ticket est alors positif ou négatif selon les montants. Désactivé : un retour s'enregistre sur son propre ticket, jamais mêlé à une vente (LC-05-01-01).",
+                "true", null),
+        new Def("return.dedicated-register", Type.BOOL, "RETOUR CLIENT",
+                "Caisse dédiée aux retours",
+                "Cette caisse n'accepte que des retours : le mode retour y est permanent et aucune vente n'y est possible. Désactivé : la caisse vend et reprend (LC-05-01-03).",
+                "false", null),
+        new Def("language.system", Type.TEXT, "LANGUE",
+                "Langue système du point de vente",
+                "Langue par défaut de la visu caisse, de la visu client et du ticket : fr, nl ou pt. C'est celle qui s'applique quand l'opérateur n'en a pas choisi d'autre et qu'aucune langue ne lui est administrée. Vide ou inconnue : français (LC-13-06-01/05/10).",
+                "fr", null),
+        new Def("language.available", Type.TEXT, "LANGUE",
+                "Langues proposées en caisse",
+                "Langues que l'opérateur peut choisir, séparées par des points-virgules, parmi fr, nl et pt. Une langue sans bundle livré est ignorée ; liste vide : seul le français est proposé (LC-13-06-03/04).",
+                "fr;nl;pt", null),
+        new Def("language.operator-change", Type.BOOL, "LANGUE",
+                "Changement de langue pendant la session",
+                "L'opérateur peut changer la langue à tout moment, y compris pendant une transaction. Désactivé : le changement n'est possible qu'avant l'ouverture de caisse (LC-13-06-04).",
+                "true", null),
+        new Def("language.customer-second", Type.TEXT, "LANGUE",
+                "Deuxième langue de la visu client et du ticket",
+                "Deuxième langue affichée à côté de la première sur la visu client et le ticket, pour les régions bilingues : « Terug te geven / A rendre ». Vide : visu client et ticket monolingues (LC-13-06-06/11).",
+                "", null),
+        new Def("return.types", Type.TEXT, "RETOUR CLIENT",
+                "Types de retours",
+                "Types de retours proposés en caisse en plus des deux gestes de base, séparés par des points-virgules. Un type s'écrit « Libellé », ou « Libellé>TICKET » pour un type qui ouvre un ticket de retour dédié au lieu de reprendre l'article dans la vente. Vide : seuls les deux gestes de base sont proposés (LC-05-04-01).",
+                "Contenant;Article défectueux>TICKET", null),
+        new Def("return.foreign-store-accepted", Type.BOOL, "RETOUR CLIENT",
+                "Retour d'un ticket d'un autre magasin",
+                "Un ticket émis par un autre point de vente est accepté en retour. Désactivé : le retour ne se fait que sur le point de vente où les achats ont été effectués, ce qui est la règle entre adhérents indépendants (LC-05-02-07).",
+                "false", null),
+        new Def("return.without-origin-allowed", Type.BOOL, "RETOUR CLIENT",
+                "Retour sans ticket d'origine",
+                "Un article peut être repris sans que son ticket d'origine soit identifié : les articles sont saisis librement et leur prix reste modifiable. Désactivé : tout retour passe par le rappel du ticket d'origine (LC-05-02-09/14).",
                 "true", null),
         new Def("island.change-allowed", Type.BOOL, "ILOT / TPV",
                 "Rendu monnaie autorisé sur l'îlot",
@@ -577,9 +617,13 @@ public class PosSettingsService {
                 "Seuil d'écart de caisse (€)",
                 "Écart de caisse (valeur absolue) au-delà duquel la clôture alerte et exige un recomptage ou une validation superviseur nominative. Usuellement 1 € (EXP-82).",
                 "1.00", null),
+        new Def("cash.variance-amount-visible", Type.BOOL, "CLÔTURE",
+                "Montant de l'écart visible du caissier",
+                "Activé : l'écran d'écart affiche le montant constaté. Désactivé (défaut) : il annonce seulement que l'écart dépasse le seuil, sans le chiffre — un caissier qui lit l'écart peut ajuster son comptage jusqu'à le faire disparaître. Le montant reste dans le Z, dans le journal et pour la responsable.",
+                "false", null),
         new Def("cash.float-mode", Type.TEXT, "CLÔTURE",
                 "Mode de fond de caisse",
-                "FIXED : le fond est compté chaque soir (défaut). FLOATING : le caissier prélève les billets le soir en laissant le fond initial et ne compte réellement qu'en fin de semaine et le dernier jour du mois ; les soirs sans comptage ne calculent aucun écart (EXP-95).",
+                "FIXED : fond fixe, la caissière compte son tiroir chaque soir et la RAZ caissière est quotidienne (défaut). FLOATING_WEEK_MONTH : fond flottant, le comptage réel et la RAZ caissière n'ont lieu qu'en fin de semaine et le dernier jour du mois. FLOATING_MONTH : fond flottant avec RAZ caissière mensuelle seulement (cas rare). Les soirs sans comptage prélèvent le surplus au-dessus du fond initial et ne calculent aucun écart. FLOATING est accepté comme synonyme de FLOATING_WEEK_MONTH (EXP-95).",
                 "FIXED", null),
         new Def("gesture.endorsement-scope", Type.TEXT, "GESTES NÉGATIFS",
                 "Portée de l'aval superviseur",
@@ -931,9 +975,35 @@ public class PosSettingsService {
     }
 
     /**
-     * The float mode (EXP-95): {@code FIXED} (counted every evening, default) or
-     * {@code FLOATING} (bills withdrawn the evening leaving the initial float,
-     * full count only at week-end and the last day of the month).
+     * Whether the discrepancy screen shows the cashier the AMOUNT of the gap
+     * (recette), disabled by default.
+     *
+     * <p>A blind count is the whole point of counting: a cashier who reads "écart
+     * +12,40 €" knows exactly what to change to make it vanish, and the figure she
+     * declares stops being a count. Disabled, the screen says only that the gap
+     * crossed the threshold, and the two exits are unchanged — recount, or have a
+     * supervisor validate. The amount itself is never hidden from the people who
+     * arbitrate: it is on the Z, in the journal and in the report the manager reads.
+     *
+     * @return true when the amount is shown on the discrepancy screen
+     */
+    public boolean varianceAmountVisible() {
+        LOGGER.info("Entering method varianceAmountVisible");
+        LOGGER.info("Exiting method varianceAmountVisible");
+        return boolValue("cash.variance-amount-visible");
+    }
+
+    /**
+     * The float mode (EXP-95), which is also the period of the CASHIER's own reset:
+     * {@code FIXED} (counted every evening, the cashier's financial reset being
+     * daily — the default), {@code FLOATING_WEEK_MONTH} (real count and cashier
+     * reset at the end of the week and on the last day of the month) or
+     * {@code FLOATING_MONTH} (monthly only, a rare case). {@code FLOATING} is
+     * accepted as the former spelling of {@code FLOATING_WEEK_MONTH}.
+     *
+     * <p>The point of the period is that the monthly revenue matches what was
+     * banked: the shop's own daily reset is a different event, which belongs to the
+     * store node.
      *
      * @return the administered mode, never null
      */
@@ -941,6 +1011,24 @@ public class PosSettingsService {
         LOGGER.info("Entering method floatMode");
         LOGGER.info("Exiting method floatMode");
         return value("cash.float-mode");
+    }
+
+    /**
+     * Whether the register runs on a FLOATING float, whichever reset period the
+     * mode names.
+     *
+     * <p>Read as a prefix rather than compared to a list: the two floating modes
+     * differ only in how often the cashier is actually counted, and every caller
+     * that asks this question wants to know whether the evening may skip the count
+     * at all.
+     *
+     * @return true when the float floats
+     */
+    public boolean floatingFloat() {
+        LOGGER.info("Entering method floatingFloat");
+        String mode = floatMode();
+        LOGGER.info("Exiting method floatingFloat");
+        return mode != null && mode.startsWith("FLOATING");
     }
 
     /**
@@ -1437,6 +1525,14 @@ public class PosSettingsService {
         return value("backup.method-labels");
     }
 
+    /**
+     * Whether customer credit may still settle a sale while the client
+     * referential is stale ({@code LC-07-09-05}): disabled, credit is refused
+     * until the referential has been refreshed, the outstanding balance and the
+     * ceiling no longer being trustworthy.
+     *
+     * @return true when credit is allowed in degraded mode
+     */
     public boolean creditAllowedInDegraded() {
         LOGGER.info("Entering method creditAllowedInDegraded");
         LOGGER.info("Exiting method creditAllowedInDegraded");
@@ -1826,12 +1922,16 @@ public class PosSettingsService {
     }
 
     /**
-     * The reasons offered to the cashier for a cash movement (BO-04-01-44),
+     * The reasons offered to the cashier for a DRAWER EXPENSE (BO-04-01-44),
      * parsed from the semicolon-separated administered list; blank entries are
-     * dropped, and an empty or blank setting yields an empty list (free reason
-     * entry). Never null.
+     * dropped, and an empty or blank setting yields an empty list. Never null.
      *
-     * @return the authorized movement reasons, in catalog order
+     * <p>Only the expense asks for one. The list used to serve every movement type
+     * and therefore mixed the motives of gestures that no longer sit on the same
+     * screen — a prélèvement and an apport are counted on their own pages — which
+     * offered "Apport de fond" as the reason for an expense.
+     *
+     * @return the authorized expense reasons, in catalog order
      */
     public List<String> cashMovementReasons() {
         LOGGER.info("Entering method cashMovementReasons");
@@ -1851,6 +1951,38 @@ public class PosSettingsService {
         }
         LOGGER.info("Exiting method cashMovementReasons");
         return reasons;
+    }
+
+    /**
+     * The destinations offered for a manual withdrawal besides the safe
+     * ({@code LC-12-03}), parsed from the semicolon-separated administered list;
+     * blank entries are dropped, and an empty setting yields an empty list — the
+     * safe then being the only destination. Never null.
+     *
+     * <p>The screen used to carry two buttons, VALIDER LE PRÉLÈVEMENT and VERS LE
+     * COFFRE, whose difference nothing on the page explained: one flagged the
+     * movement as feeding the safe, the other named no destination at all. A
+     * withdrawal that does not say where the money went is not opposable, so the
+     * destination is now chosen and mandatory.
+     *
+     * @return the administered withdrawal destinations, in catalog order
+     */
+    public List<String> withdrawalDestinations() {
+        LOGGER.info("Entering method withdrawalDestinations");
+        String raw = value("cash.withdrawal-destinations");
+        if (raw.isBlank()) {
+            LOGGER.info("Exiting method withdrawalDestinations");
+            return List.of();
+        }
+        List<String> destinations = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                destinations.add(trimmed);
+            }
+        }
+        LOGGER.info("Exiting method withdrawalDestinations");
+        return destinations;
     }
 
     /**
@@ -2080,6 +2212,173 @@ public class PosSettingsService {
         LOGGER.info("Entering method printReturnReason");
         LOGGER.info("Exiting method printReturnReason");
         return boolValue("return.print-reason");
+    }
+
+    /**
+     * The store's system language (LC-13-06-01): the language of the register
+     * screens, the customer display and the ticket when the operator has chosen
+     * none and none is administered for them.
+     *
+     * @return the administered system language tag
+     */
+    public String systemLanguage() {
+        LOGGER.info("Entering method systemLanguage");
+        LOGGER.info("Exiting method systemLanguage");
+        return value("language.system");
+    }
+
+    /**
+     * The languages the operator may choose from (LC-13-06-03/04), parsed from
+     * the semicolon-separated administered list; blank entries are dropped and an
+     * empty setting yields an empty list. Never null — the caller narrows it to
+     * the languages a bundle ships.
+     *
+     * @return the administered language tags, in order
+     */
+    public List<String> availableLanguages() {
+        LOGGER.info("Entering method availableLanguages");
+        String raw = value("language.available");
+        if (raw == null || raw.isBlank()) {
+            LOGGER.info("Exiting method availableLanguages");
+            return List.of();
+        }
+        List<String> languages = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                languages.add(trimmed);
+            }
+        }
+        LOGGER.info("Exiting method availableLanguages");
+        return languages;
+    }
+
+    /**
+     * Whether the operator may change the language DURING the session, a
+     * transaction included (LC-13-06-04). Disabled, the change is only possible
+     * before the register is opened, which LC-13-06-03 always allows.
+     *
+     * @return true when the language may be changed at any moment
+     */
+    public boolean languageChangeAllowed() {
+        LOGGER.info("Entering method languageChangeAllowed");
+        LOGGER.info("Exiting method languageChangeAllowed");
+        return boolValue("language.operator-change");
+    }
+
+    /**
+     * The second language of the customer display and the ticket in a bilingual
+     * region (LC-13-06-06/11), or a blank string when the store is monolingual.
+     *
+     * @return the administered second language tag, possibly blank
+     */
+    public String customerSecondLanguage() {
+        LOGGER.info("Entering method customerSecondLanguage");
+        LOGGER.info("Exiting method customerSecondLanguage");
+        return value("language.customer-second");
+    }
+
+    /**
+     * Whether articles may be taken back inside a ticket that already carries
+     * sales (LC-05-01-01). The ticket then mixes sold and returned lines and
+     * its total is positive or negative according to the amounts. Disabled: a
+     * return runs on a ticket of its own.
+     *
+     * @return true when a sale ticket may carry returned articles
+     */
+    public boolean returnInSaleAllowed() {
+        LOGGER.info("Entering method returnInSaleAllowed");
+        LOGGER.info("Exiting method returnInSaleAllowed");
+        return boolValue("return.in-sale-allowed");
+    }
+
+    /**
+     * Whether this register is dedicated to returns (LC-05-01-03): the return
+     * mode is permanent there and no sale is possible. Disabled: the register
+     * both sells and takes back.
+     *
+     * @return true when the register accepts returns only
+     */
+    public boolean returnDedicatedRegister() {
+        LOGGER.info("Entering method returnDedicatedRegister");
+        LOGGER.info("Exiting method returnDedicatedRegister");
+        return boolValue("return.dedicated-register");
+    }
+
+    /**
+     * Whether a return may be recorded without an identified origin ticket
+     * (LC-05-02-09/14): the returned articles are then keyed freely, at a price
+     * the cashier may still change. Disabled: every return goes through the
+     * recall of its origin ticket.
+     *
+     * @return true when a return without origin ticket is accepted
+     */
+    public boolean returnWithoutOriginAllowed() {
+        LOGGER.info("Entering method returnWithoutOriginAllowed");
+        LOGGER.info("Exiting method returnWithoutOriginAllowed");
+        return boolValue("return.without-origin-allowed");
+    }
+
+    /**
+     * One return type the back office offers in addition to the two base
+     * gestures (LC-05-04-01).
+     *
+     * @param label what the key is called on the screen, never blank
+     * @param dedicatedTicket true when the key opens a dedicated return ticket,
+     *        false when it takes the article back inside the sale
+     */
+    public record ReturnType(String label, boolean dedicatedTicket) {
+    }
+
+    /**
+     * The return types offered in caisse (LC-05-04-01), parsed from the
+     * semicolon-separated administered list. An entry is a label, optionally
+     * followed by {@code >TICKET} to say the key opens a dedicated return ticket
+     * rather than taking the article back inside the sale; anything else after
+     * the marker reads as the in-sale gesture, so a typo offers a key that works.
+     * Blank entries are dropped and an empty setting yields an empty list — only
+     * the two base gestures are then offered. Never null.
+     *
+     * @return the administered return types, in order
+     */
+    public List<ReturnType> returnTypes() {
+        LOGGER.info("Entering method returnTypes");
+        String raw = value("return.types");
+        if (raw == null || raw.isBlank()) {
+            LOGGER.info("Exiting method returnTypes");
+            return List.of();
+        }
+        List<ReturnType> types = new ArrayList<>();
+        for (String part : raw.split(";")) {
+            String entry = part.trim();
+            if (entry.isEmpty()) {
+                continue;
+            }
+            int marker = entry.indexOf('>');
+            String label = marker < 0 ? entry : entry.substring(0, marker).trim();
+            if (label.isEmpty()) {
+                continue;
+            }
+            boolean dedicated = marker >= 0
+                    && "TICKET".equalsIgnoreCase(entry.substring(marker + 1).trim());
+            types.add(new ReturnType(label, dedicated));
+        }
+        LOGGER.info("Exiting method returnTypes");
+        return types;
+    }
+
+    /**
+     * Whether a ticket issued by ANOTHER point of sale is accepted in return
+     * (LC-05-02-07). Disabled — the catalog default — the return happens only
+     * where the purchase was made, which is the rule between independent
+     * retailers: each one owns its own stock and its own accounts.
+     *
+     * @return true when a foreign-store ticket may be returned here
+     */
+    public boolean returnForeignStoreAccepted() {
+        LOGGER.info("Entering method returnForeignStoreAccepted");
+        LOGGER.info("Exiting method returnForeignStoreAccepted");
+        return boolValue("return.foreign-store-accepted");
     }
 
     /**

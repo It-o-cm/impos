@@ -491,6 +491,15 @@ public class TicketPrinterService {
                     "vat", DF.format(bucket.vatAmount)));
         }
         data.put("vatRows", vatRows);
+        // LC-05-07-02: the recalculation of the kept basket reaches an administered
+        // layout too, so a store that designed its own return ticket can print what
+        // the return takes back instead of losing it.
+        data.put("recalculation", java.util.Map.of(
+                "status", safe(refund.recalculationStatus),
+                "withdrawn", refund.withdrawnGenerosity == null ? ""
+                        : DF.format(refund.withdrawnGenerosity),
+                "keptAdvantages", safe(refund.keptAdvantages),
+                "loyaltySent", refund.loyaltyRecalculationSent ? "1" : ""));
         return data;
     }
 
@@ -600,21 +609,26 @@ public class TicketPrinterService {
                         : session.closingDate.format(
                                 DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
                 "closing", report.closing));
-        data.put("totals", java.util.Map.of(
-                "ticketCount", String.valueOf(report.ticketCount),
-                "includingTax", report.getTotalIncludingTaxFormatted(),
-                "refunds", report.getTotalRefundsFormatted(),
-                "theoreticalCash", report.getTheoreticalCashFormatted(),
-                "openingFloat", session == null || session.openingFloat == null ? ""
-                        : DF.format(session.openingFloat),
-                "countedCash", session == null || session.countedAmount == null ? ""
-                        : DF.format(session.countedAmount),
-                "variance", session == null || session.variance == null ? ""
-                        : DF.format(session.variance),
-                "withdrawn", session == null || session.withdrawnAmount == null ? ""
-                        : DF.format(session.withdrawnAmount),
-                "otherTenders", report.getOtherMethodsTotalFormatted(),
-                "bankDeposit", report.getBankDepositTotalFormatted()));
+        // A LinkedHashMap rather than Map.of: the totals now exceed the ten pairs the
+        // factory accepts, and the order is the order a layout reads them in.
+        java.util.Map<String, Object> totals = new java.util.LinkedHashMap<>();
+        totals.put("ticketCount", String.valueOf(report.ticketCount));
+        totals.put("includingTax", report.getTotalIncludingTaxFormatted());
+        totals.put("refunds", report.getTotalRefundsFormatted());
+        totals.put("theoreticalCash", report.getTheoreticalCashFormatted());
+        totals.put("declaredCash", report.getDeclaredCashFormatted());
+        totals.put("declaredVariance", report.getDeclaredCashVarianceFormatted());
+        totals.put("openingFloat", session == null || session.openingFloat == null ? ""
+                : DF.format(session.openingFloat));
+        totals.put("countedCash", session == null || session.countedAmount == null ? ""
+                : DF.format(session.countedAmount));
+        totals.put("variance", session == null || session.variance == null ? ""
+                : DF.format(session.variance));
+        totals.put("withdrawn", session == null || session.withdrawnAmount == null ? ""
+                : DF.format(session.withdrawnAmount));
+        totals.put("otherTenders", report.getOtherMethodsTotalFormatted());
+        totals.put("bankDeposit", report.getBankDepositTotalFormatted());
+        data.put("totals", totals);
         java.util.List<java.util.Map<String, Object>> tenders = new java.util.ArrayList<>();
         for (CashSessionService.SessionReport.MethodRow row : report.getDetailedMethodRows()) {
             tenders.add(java.util.Map.of("label", row.method(), "amount", row.amountFormatted()));
@@ -1089,6 +1103,13 @@ public class TicketPrinterService {
         }
         sb.append(formatLine("Fond de caisse", DF.format(session.openingFloat) + " E"));
         sb.append(formatLine("Especes theorique", DF.format(report.theoreticalCash) + " E"));
+        // The cashier's own declaration, stated only when they made one, and stated
+        // next to the theoretical — the comparison is the whole point of asking.
+        if (report.isDeclared()) {
+            sb.append(formatLine("Especes declarees", DF.format(report.declaredCash) + " E"));
+            sb.append(formatLine("Ecart declaration",
+                    DF.format(report.declaredCashVariance) + " E"));
+        }
         if (report.closing) {
             sb.append(formatLine("Especes comptees", DF.format(session.countedAmount) + " E"));
             sb.append(formatLine("ECART", DF.format(session.variance) + " E"));
@@ -1179,6 +1200,7 @@ public class TicketPrinterService {
                         "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
             }
         }
+        sb.append(refundRecalculationBlock(refund));
         sb.append("\n");
         // Footer
         sb.append("\n");
@@ -1186,6 +1208,59 @@ public class TicketPrinterService {
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printRefund");
+    }
+
+    /**
+     * The recalculation block of a return ticket (LC-05-07-02): what the return
+     * takes back beyond the refunded price, what the kept basket still earns, and
+     * whether the loyalty programme was asked to recompute.
+     *
+     * <p>Three things are printed, and only what the register can vouch for: the
+     * advantage withdrawn, which the engine's re-pricing of the kept basket
+     * establishes to the centime; the advantages that survive, restated from the
+     * engine's own labels; and the fact that the décagnottage was handed to the
+     * loyalty service, which owns that amount — never a figure this register
+     * computed for it. A recalculation that could not run says so rather than
+     * printing silence, because a customer who loses an advantage must read why.
+     *
+     * @param refund the refund being printed
+     * @return the block and its separator, or an empty string when no
+     *         recalculation applied to this refund
+     */
+    private String refundRecalculationBlock(Refund refund) {
+        LOGGER.info("Entering method refundRecalculationBlock");
+        String status = refund.recalculationStatus;
+        boolean recomputed = "RECOMPUTED".equals(status);
+        boolean unavailable = "UNAVAILABLE".equals(status);
+        if (!recomputed && !unavailable && !refund.loyaltyRecalculationSent) {
+            LOGGER.info("Exiting method refundRecalculationBlock");
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("RECALCUL DES AVANTAGES", WIDTH)).append("\n");
+        if (recomputed) {
+            BigDecimal withdrawn = refund.withdrawnGenerosity == null
+                    ? BigDecimal.ZERO : refund.withdrawnGenerosity;
+            sb.append(formatLine("AVANTAGE REPRIS", DF.format(withdrawn) + " E"));
+            if (refund.keptAdvantages != null && !refund.keptAdvantages.isBlank()) {
+                sb.append("Avantages conserves :\n");
+                for (String label : refund.keptAdvantages.split(" \\| ")) {
+                    sb.append(String.format("  - %s%n",
+                            label.length() > WIDTH - 4 ? label.substring(0, WIDTH - 4) : label));
+                }
+            }
+        }
+        if (unavailable) {
+            sb.append("Moteur indisponible :\n");
+            sb.append("recalcul non effectue\n");
+        }
+        if (refund.loyaltyRecalculationSent) {
+            sb.append("Cagnotte et coupons :\n");
+            sb.append("recalcul transmis au programme\n");
+        }
+        LOGGER.info("Exiting method refundRecalculationBlock");
+        return sb.toString();
     }
 
     /**
@@ -1739,6 +1814,108 @@ public class TicketPrinterService {
     }
 
     /**
+     * Prints the CONTROL COUNT of the float (EXP-04): the slip a cashier keeps after
+     * counting her drawer at the start of the day, denomination by denomination.
+     *
+     * <p>IT RECORDS NOTHING, and that is the point: the calculator is a scratchpad,
+     * no movement is written and no event emitted. The paper is the only trace, and
+     * it is what the cashier shows her manager when the float is right — or wrong.
+     * The slip says COMPTAGE DE CONTROLE rather than anything resembling a
+     * declaration, because nothing here is opposable.
+     *
+     * @param total the counted total
+     * @param lines the per-denomination detail, already formatted label/value
+     * @param operator the operator's name, blank when unknown
+     * @param terminalId the register the count was made on
+     */
+    public void printFloatCountTicket(BigDecimal total, java.util.List<String[]> lines,
+            String operator, String terminalId) {
+        LOGGER.info("Entering method printFloatCountTicket with total: " + total + ", lines: " + lines + ", operator: " + operator + ", terminalId: " + terminalId);
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("COMPTAGE DE CONTROLE", WIDTH)).append("\n");
+        sb.append(center("(fond de caisse)", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", terminalId));
+        }
+        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        if (operator != null && !operator.isBlank()) {
+            sb.append(String.format("Operateur : %s%n", operator));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (lines != null) {
+            for (String[] line : lines) {
+                sb.append(formatLine(line[0], line[1]));
+            }
+            if (!lines.isEmpty()) {
+                sb.append("-".repeat(WIDTH)).append("\n");
+            }
+        }
+        sb.append(formatLine("TOTAL COMPTE", DF.format(total) + " E"));
+        sb.append("\n");
+        sb.append(center("Document de controle - aucun mouvement", WIDTH)).append("\n");
+        sb.append("\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printFloatCountTicket");
+    }
+
+    /**
+     * Prints the JUSTIFICATIF of a flat cash movement — an expense, a customer
+     * down-payment or a cash-count declaration: the paper that justifies the cash
+     * that left or entered the drawer outside a sale.
+     *
+     * <p>IT EXISTS BECAUSE THESE THREE PRINTED NOTHING. The withdrawal and the
+     * coin supply have had their bordereau from the start; an expense taken from the
+     * drawer left no trace the shop could put in the till with the receipt, which is
+     * exactly what a cash audit asks for. Built-in layout only, like the other two
+     * drawer papers, and the same signature line: the movement is countersigned, not
+     * merely recorded.
+     *
+     * @param typeLabel the movement's wording as the cashier chose it
+     * @param amount the movement's amount
+     * @param reason the reason or the reference carried by the movement, blank when none
+     * @param tenderLabel the tender the movement concerns, blank for cash
+     * @param operator the operator's name, blank when unknown
+     * @param terminalId the register the movement was recorded on
+     */
+    public void printMovementTicket(String typeLabel, BigDecimal amount, String reason,
+            String tenderLabel, String operator, String terminalId) {
+        LOGGER.info("Entering method printMovementTicket with typeLabel: " + typeLabel + ", amount: " + amount + ", reason: " + reason + ", tenderLabel: " + tenderLabel + ", operator: " + operator + ", terminalId: " + terminalId);
+        StringBuilder sb = new StringBuilder();
+        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(center("MOUVEMENT DE CAISSE", WIDTH)).append("\n");
+        sb.append("-".repeat(WIDTH)).append("\n");
+        if (terminalId != null) {
+            sb.append(String.format("Caisse : %s%n", terminalId));
+        }
+        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        if (operator != null && !operator.isBlank()) {
+            sb.append(String.format("Operateur : %s%n", operator));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("TYPE", typeLabel == null ? "" : typeLabel));
+        if (reason != null && !reason.isBlank()) {
+            sb.append(formatLine("MOTIF", reason));
+        }
+        if (tenderLabel != null && !tenderLabel.isBlank()) {
+            sb.append(formatLine("MOYEN", tenderLabel));
+        }
+        sb.append("-".repeat(WIDTH)).append("\n");
+        sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
+        sb.append("\n");
+        sb.append("Signature: ..............................\n");
+        hardwareService.printReceipt(sb.toString());
+        hardwareService.cutPaper();
+        LOGGER.info("Exiting method printMovementTicket");
+    }
+
+    /**
      * Prints the coin-supply (apport de monnaie) bordereau (EXP-15): the mirror
      * of the withdrawal slip, stating the denominations brought INTO the drawer,
      * how many of each and for how much. Built-in layout only — the apport has no
@@ -1889,10 +2066,12 @@ public class TicketPrinterService {
      * @param operatorName the operator's name, or null
      * @param rows one {@code {dénomination, montant, nbr. rouleaux}} triple per
      *        denomination; the montant and rolls are blank on an empty slip
+     * @param total what the order is worth — the sum the cashier hands over to be
+     *        given the rolls — or null on an empty slip, which states no amount
      */
     public void printChangeOrder(String terminalId, String operatorNumber, String operatorName,
-            java.util.List<String[]> rows) {
-        LOGGER.info("Entering method printChangeOrder with terminalId: " + terminalId + ", operatorNumber: " + operatorNumber);
+            java.util.List<String[]> rows, BigDecimal total) {
+        LOGGER.info("Entering method printChangeOrder with terminalId: " + terminalId + ", operatorNumber: " + operatorNumber + ", total: " + total);
         StringBuilder sb = new StringBuilder();
         sb.append(center("INTERMARCHE", WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
@@ -1921,6 +2100,14 @@ public class TicketPrinterService {
             }
         }
         sb.append("-".repeat(WIDTH)).append("\n");
+        // What the order is WORTH, and a line to countersign: the cashier gives this
+        // paper and that sum to her manager, who hands back the rolls. The slip used
+        // to list the denominations and leave the amount to be added up by hand.
+        if (total != null) {
+            sb.append(formatLine("TOTAL A REMETTRE", DF.format(total) + " E"));
+            sb.append("\n");
+            sb.append("Signature: ..............................\n");
+        }
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printChangeOrder");

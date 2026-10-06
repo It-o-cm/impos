@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1207,21 +1208,40 @@ class PaymentServiceTest {
     // --------------------------------------------------
 
     /**
-     * {@code processSogec} returns on a non-positive defaulted amount and records
-     * no compensation.
+     * {@code processSogec} with NO value at all — nothing decoded from the bon
+     * (null arm of the face-value fallback) and nothing keyed (null arm of the
+     * refusal guard) — settles nothing and says so. This is the regression the
+     * recette found: the register used to read "no amount" as "the whole ticket".
      */
     @Test
-    void processSogecZeroReturns() {
-        state.ticket.totalAmount = BigDecimal.ZERO;
+    void processSogecWithoutAnyValueSettlesNothing() {
+        state.ticket.totalAmount = new BigDecimal("56.50");
+        state.payment.ticketDbId = 3L;
         service.processSogec(state, "SG1", null);
-        verifyNoInteractions(hardwareService);
-        verifyNoInteractions(sogecCompensationService);
+        verify(hardwareService).displayMessage("BON SOGEC: VALEUR REQUISE");
+        verify(sogecCompensationService, never()).recordCompensation(any(), any());
         assertTrue(state.payment.payments.isEmpty());
     }
 
     /**
-     * {@code processSogec} settles the bon and records the compensation trace
-     * for the supplier reimbursement (completion reached).
+     * {@code processSogec} with a keyed value of zero (non-positive arm of the
+     * refusal guard, the null arm being covered above) also settles nothing: a bon
+     * is worth what is printed on it, and zero is not a value.
+     */
+    @Test
+    void processSogecWithAZeroValueSettlesNothing() {
+        state.ticket.totalAmount = new BigDecimal("56.50");
+        state.payment.ticketDbId = 3L;
+        service.processSogec(state, "SG1", BigDecimal.ZERO);
+        verify(hardwareService).displayMessage("BON SOGEC: VALEUR REQUISE");
+        verify(sogecCompensationService, never()).recordCompensation(any(), any());
+        assertTrue(state.payment.payments.isEmpty());
+    }
+
+    /**
+     * {@code processSogec} settles the KEYED value when the bon's barcode carries
+     * none (null arm of the decoded value) and records the compensation trace for
+     * the supplier reimbursement.
      */
     @Test
     void processSogecSettlesAndRecordsCompensation() {
@@ -1230,6 +1250,64 @@ class PaymentServiceTest {
         service.processSogec(state, "SG1", new BigDecimal("5"));
         assertEquals(0, new BigDecimal("5").compareTo(state.payment.paidAmount));
         verify(sogecCompensationService).recordCompensation("SG1", new BigDecimal("5"));
+    }
+
+    /**
+     * A bon whose own barcode carries its face value (non-null arm of the decoded
+     * value) settles THAT value, whatever the cashier keyed: the paper wins.
+     */
+    @Test
+    void processSogecPrefersTheValueEncodedOnTheBon() {
+        state.ticket.totalAmount = new BigDecimal("56.50");
+        state.payment.ticketDbId = 3L;
+        when(sogecCompensationService.faceValueOf("SG1")).thenReturn(new BigDecimal("10.00"));
+        service.processSogec(state, "SG1", new BigDecimal("5"));
+        assertEquals(0, new BigDecimal("10.00").compareTo(state.payment.paidAmount));
+        verify(sogecCompensationService).recordCompensation("SG1", new BigDecimal("10.00"));
+    }
+
+    /**
+     * A 20 € bon on a 56,50 € ticket settles TWENTY EUROS and leaves 36,50 € to
+     * pay — the exact case the recette reported coming out paid in full by SOGEC.
+     * The cap arm is not taken, so nothing is announced.
+     */
+    @Test
+    void processSogecSettlesOnlyItsFaceValueOnALargerTicket() {
+        state.ticket.totalAmount = new BigDecimal("56.50");
+        state.payment.ticketDbId = 3L;
+        service.processSogec(state, "SG1", new BigDecimal("20.00"));
+        assertEquals(0, new BigDecimal("20.00").compareTo(state.payment.paidAmount));
+        assertEquals(0, new BigDecimal("36.50").compareTo(state.getRemaining()));
+        verify(hardwareService, never()).displayMessage(startsWith("BON SOGEC PLAFONNE"));
+    }
+
+    /**
+     * A bon worth MORE than what is left to pay is capped at the remainder (cap arm
+     * true), the cap is announced, and the compensation trace carries the capped
+     * amount: the register hands no change back against a manufacturer's coupon.
+     */
+    @Test
+    void processSogecCapsABonLargerThanTheRemainder() {
+        state.ticket.totalAmount = new BigDecimal("8.00");
+        state.payment.ticketDbId = 3L;
+        service.processSogec(state, "SG1", new BigDecimal("20.00"));
+        assertEquals(0, new BigDecimal("8.00").compareTo(state.payment.paidAmount));
+        verify(hardwareService).displayMessage("BON SOGEC PLAFONNE  8,00 E");
+        verify(sogecCompensationService).recordCompensation("SG1", new BigDecimal("8.00"));
+    }
+
+    /**
+     * A bon presented on an already settled ticket (non-positive remainder) settles
+     * nothing and records nothing — and says nothing either, the cashier having made
+     * no mistake worth a message.
+     */
+    @Test
+    void processSogecOnASettledTicketDoesNothing() {
+        state.ticket.totalAmount = BigDecimal.ZERO;
+        service.processSogec(state, "SG1", new BigDecimal("20.00"));
+        verifyNoInteractions(hardwareService);
+        verify(sogecCompensationService, never()).recordCompensation(any(), any());
+        assertTrue(state.payment.payments.isEmpty());
     }
 
     /**

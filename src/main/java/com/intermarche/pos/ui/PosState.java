@@ -285,6 +285,14 @@ public class PosState implements Serializable {
     public boolean returnMode = false;
 
     /**
+     * The label of the administered return TYPE the operator chose (LC-05-04-01),
+     * or null when they used one of the two base gestures. It names the kind of
+     * return in progress — a container, a defective article — on the screen and in
+     * the journal, and it is dropped with the gesture it belongs to.
+     */
+    public String returnTypeLabel = null;
+
+    /**
      * True while the register runs in training mode: nothing is persisted
      * (no draft, no ticket number, no fiscal chain, no sync), the drawer
      * stays shut, refunds and session actions are blocked, and every screen
@@ -292,6 +300,17 @@ public class PosState implements Serializable {
      * empty cart.
      */
     public boolean trainingMode = false;
+
+    /**
+     * The interface language the OPERATOR chose on this register, or null to
+     * follow the chain below it (LC-13-06-03/04): the language administered for
+     * the signed-in operator, then the store's system language, then French.
+     * <p>
+     * Dropped at sign-out, as the requirement asks: the default language applies
+     * again when the register closes, so a Dutch-speaking cashier's choice does
+     * not greet the French-speaking one who takes the post after them.
+     */
+    public String language = null;
 
     /** Version counter used by the UI polling. */
     public long version = 0;
@@ -493,9 +512,18 @@ public class PosState implements Serializable {
 
     /**
      * Clears the current ticket and every transaction-related sub-state.
+     *
+     * <p>IT ALSO BRINGS THE BUTTON MENU BACK TO {@link PosMenu#ARTICLES}. The next
+     * customer's first gesture is a scan, and whoever just paid left the register on
+     * the settlement menu: a new ticket that opens on the keys of the previous one
+     * costs the cashier a tap on every sale. Done here rather than at the end of the
+     * payment, because every way a ticket ends — paid, abandoned, parked, operator
+     * logged out — passes through this broom, and a menu reset placed on one of them
+     * would be missing from the others.
      */
     public void clearTicket() {
         ticket.clear();
+        menu = PosMenu.ARTICLES;
         fidelity.clear();
         payment.reset();
         selectedTicketIndex = -1;

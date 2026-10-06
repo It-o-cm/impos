@@ -1,0 +1,65 @@
+{!
+ ! LC-13-06-03/04 : l'ecran de choix de la langue de l'interface. Calque sur
+ ! theme-select : meme mise en page, meme retour. Le choix vit dans l'etat de la
+ ! caisse et meurt a la deconnexion ; il n'ecrit rien sur la fiche operateur, qui
+ ! appartient au back-office.
+!}
+<!DOCTYPE html>
+<html lang="{inject:i18n.lang}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{inject:i18n.get('language.title')}</title>
+    <style>
+        {#include theme /}
+        body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pos-terminal { grid-template-rows: 3.75rem 1fr 5rem; }
+        .top-bar { background-color: var(--bg-page); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; font-size: var(--fs-bar); color: var(--text-muted); }
+        .top-bar .title { color: var(--text-main); font-weight: bold; font-size: var(--fs-title); }
+        .main-area { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+        .lead { color: var(--text-muted); font-size: var(--fs-section); }
+        .refused { color: var(--danger); font-weight: bold; font-size: var(--fs-section); }
+        .choices { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; }
+        .choice { padding: 18px 30px; font-size: var(--fs-btn-lg); font-weight: bold; border-radius: 8px; border: 2px solid var(--border-strong); background: var(--bg-panel); color: var(--text-main); cursor: pointer; min-width: 11.25rem; }
+        .choice.current { border-color: var(--primary); background: var(--primary); color: #fff; }
+        .choice:disabled { opacity: 0.35; cursor: not-allowed; }
+        .bottom-nav { background-color: var(--bg-page); border-top: 1px solid var(--border-color); display: flex; justify-content: center; align-items: center; padding: 0 10px; }
+    </style>
+</head>
+<body data-theme="{posTheme}">
+    <div class="pos-terminal">
+        <div class="top-bar">
+            <span class="title">{inject:i18n.get('language.title')}</span>
+            <span id="clock"></span>
+        </div>
+
+        <div class="main-area">
+            {#if allowed}
+            <span class="lead">{inject:i18n.get('language.lead')}</span>
+            {#else}
+            <span class="refused">{inject:i18n.get('language.changeRefused')}</span>
+            {/if}
+            <div class="choices">
+                {#for l in languages}
+                <form method="post" action="/action/language">
+                    <input type="hidden" name="language" value="{l}">
+                    <button type="submit" class="choice {#if l == current}current{/if}" {#if !allowed}disabled{/if}>{inject:i18n.languageName(l)}</button>
+                </form>
+                {/for}
+                <form method="post" action="/action/language">
+                    <input type="hidden" name="language" value="">
+                    <button type="submit" class="choice" {#if !allowed}disabled{/if}>{inject:i18n.get('language.storeDefault')}</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="bottom-nav">
+            <a href="{#if state.isLocked()}/lock{#else}/{/if}" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
+        </div>
+    </div>
+
+    <script>
+        setInterval(function () { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+    </script>
+</body>
+</html>

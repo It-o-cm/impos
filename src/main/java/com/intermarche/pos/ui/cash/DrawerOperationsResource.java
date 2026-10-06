@@ -65,6 +65,19 @@ public class DrawerOperationsResource {
     /** Action code journaled when a manager endorses a drawer operation. */
     public static final String ENDORSEMENT_ACTION = "DRAWER_OPERATION";
 
+    /**
+     * The destination that means the store SAFE, always offered and never
+     * administered away (EXP-87).
+     *
+     * <p>It is held here rather than in the administered list because it is not a
+     * label: a cash withdrawal heading to the safe is recorded as a safe-feeding
+     * movement, flagged and pushed to the node that holds the safe. A destination
+     * read from a free-text setting could not be recognised reliably — and a shop
+     * that renamed its entry would silently turn its safe deposits into ordinary
+     * withdrawals.
+     */
+    public static final String SAFE_DESTINATION = "Coffre";
+
     /** The withdrawal screen. */
     @Inject @Location("withdrawal") Template withdrawal;
 
@@ -105,9 +118,16 @@ public class DrawerOperationsResource {
      * Shows the withdrawal screen: the tender list when none is chosen, then either the
      * denomination count of cash or the read-only theoretical of another tender.
      *
+     * <p>BANKNOTES ONLY when {@code notes} is given, which is the way in from the
+     * insurance-ceiling alert: the coin and roll tabs are not offered, because what
+     * brings a drawer back under the ceiling is the notes — the coins have to stay,
+     * there is change to give. It is a presentation, not a rule: the recording path
+     * is the same, and a posted count of coins would still be recorded.
+     *
      * @param method the chosen tender key, or null while none is chosen
      * @param error an optional error code from a redirect
      * @param ok a non-null flag when the previous withdrawal was recorded
+     * @param notes a non-null flag asking for the banknotes-only count
      * @return the withdrawal page
      */
     @GET
@@ -115,8 +135,9 @@ public class DrawerOperationsResource {
     @Produces(MediaType.TEXT_HTML)
     public TemplateInstance withdrawalPage(@QueryParam("method") String method,
                                            @QueryParam("error") String error,
-                                           @QueryParam("ok") String ok) {
-        LOGGER.info("Entering method withdrawalPage with method: " + method + ", error: " + error + ", ok: " + ok);
+                                           @QueryParam("ok") String ok,
+                                           @QueryParam("notes") String notes) {
+        LOGGER.info("Entering method withdrawalPage with method: " + method + ", error: " + error + ", ok: " + ok + ", notes: " + notes);
         List<DrawerMethodService.DrawerMethod> methods = drawerMethodService.withdrawable();
         DrawerMethodService.DrawerMethod selected = chosen(methods, method);
         LOGGER.info("Exiting method withdrawalPage");
@@ -131,6 +152,9 @@ public class DrawerOperationsResource {
                 .data("coins", cashCountService.getCoins())
                 .data("rolls", cashCountService.getRolls())
                 .data("threshold", posSettingsService.cashMovementEndorsementThreshold().toPlainString())
+                .data("notesOnly", notes != null)
+                .data("safeDestination", SAFE_DESTINATION)
+                .data("destinations", posSettingsService.withdrawalDestinations())
                 .data("saved", ok != null)
                 .data("error", messageOf(error));
     }
@@ -292,6 +316,7 @@ public class DrawerOperationsResource {
      * @param method the tender key chosen on the screen
      * @param amountStr the counted total, for cash only (French comma tolerated)
      * @param detail the per-denomination JSON of a cash count, or null
+     * @param destination where the money goes, as chosen on the screen
      * @return a redirect back to the withdrawal screen carrying the outcome
      */
     @POST
@@ -299,8 +324,9 @@ public class DrawerOperationsResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response recordWithdrawal(@FormParam("method") String method,
                                      @FormParam("amount") String amountStr,
-                                     @FormParam("detail") String detail) {
-        LOGGER.info("Entering method recordWithdrawal with method: " + method + ", amountStr: " + amountStr + ", detail: " + detail);
+                                     @FormParam("detail") String detail,
+                                     @FormParam("destination") String destination) {
+        LOGGER.info("Entering method recordWithdrawal with method: " + method + ", amountStr: " + amountStr + ", detail: " + detail + ", destination: " + destination);
         if (state.trainingMode) {
             LOGGER.info("Exiting method recordWithdrawal");
             return redirect("/withdrawal?error=training");
@@ -315,6 +341,18 @@ public class DrawerOperationsResource {
             return redirect("/withdrawal?error=bad-method");
         }
         boolean cash = CashMovement.CASH.equals(method);
+        if (destination == null || destination.isBlank()) {
+            LOGGER.info("Exiting method recordWithdrawal: destination manquante");
+            return redirect("/withdrawal?error=destination&method=" + method);
+        }
+        // EXP-87: the SAFE is not one destination among others — the movement that
+        // feeds it is flagged and pushed to the node, which holds the safe. Cash
+        // only: the safe-feeding movement is a cash notion on the node, so another
+        // tender heading there is an ordinary withdrawal naming the safe.
+        if (SAFE_DESTINATION.equalsIgnoreCase(destination.trim()) && cash) {
+            LOGGER.info("Exiting method recordWithdrawal: vers le coffre");
+            return recordSafeDeposit(amountStr, detail);
+        }
         BigDecimal amount = cash ? parseAmount(amountStr) : drawerMethodService.theoreticalOf(method);
         if (amount.signum() <= 0) {
             LOGGER.info("Exiting method recordWithdrawal");
@@ -327,6 +365,7 @@ public class DrawerOperationsResource {
             form.put("method", method == null ? "" : method);
             form.put("amount", amountStr == null ? "" : amountStr);
             form.put("detail", detail == null ? "" : detail);
+            form.put("destination", destination);
             endorsementService.requestAuthorization(state, ENDORSEMENT_ACTION, form,
                     "/withdrawal?method=" + method);
             LOGGER.info("Exiting method recordWithdrawal: aval demande");
@@ -334,7 +373,8 @@ public class DrawerOperationsResource {
         }
         String label = drawerMethodService.labelOf(method);
         CashMovement recorded = cashMovementService.record(session, cashierOf(),
-                CashMovement.MovementType.WITHDRAWAL, amount, "Prélèvement " + label, endorsedBy,
+                CashMovement.MovementType.WITHDRAWAL, amount,
+                "Prélèvement " + label + " vers " + destination.trim(), endorsedBy,
                 method, null, cash ? detail : null);
         state.touch();
         if (recorded == null) {
@@ -594,7 +634,8 @@ public class DrawerOperationsResource {
         endorsedByOverride = endorsedBy;
         try {
             LOGGER.info("Exiting method performEndorsedWithdrawal");
-            return recordWithdrawal(form.get("method"), form.get("amount"), form.get("detail"));
+            return recordWithdrawal(form.get("method"), form.get("amount"), form.get("detail"),
+                    form.get("destination"));
         } finally {
             endorsedByOverride = null;
         }
@@ -643,6 +684,7 @@ public class DrawerOperationsResource {
             case "same-method" -> "SOURCE ET DESTINATION IDENTIQUES";
             case "amount" -> "MONTANT INVALIDE";
             case "insufficient" -> "MONTANT SUPÉRIEUR AU THÉORIQUE DU TIROIR";
+            case "destination" -> "DESTINATION OBLIGATOIRE";
             case "endorsement" -> "AVAL MANAGER REFUSÉ OU MANQUANT";
             case "training" -> "INDISPONIBLE EN FORMATION";
             default -> null;

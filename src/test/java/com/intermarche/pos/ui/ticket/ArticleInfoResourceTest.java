@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
+import jakarta.ws.rs.core.Response;
+
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -16,20 +18,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link ArticleInfoResource} (EXP-93).
  * <p>
- * The resource is a READ-ONLY article lookup: it renders a form, and when a code
- * is given, the found article or a not-found message — never a path that adds a
- * line. The Qute {@code articleInfo} template is a Mockito mock whose fluent
+ * The resource is an article lookup: it renders a form, and when a code is given,
+ * the found article or a not-found message. Taking the article is a separate,
+ * CONDITIONAL action — it needs an unlocked register and an open session — and both
+ * of its guards are covered on each leg. The Qute {@code articleInfo} template is a
+ * Mockito mock whose fluent
  * {@code data(...)} chain echoes itself so the returned view is identifiable and
  * the {@code info}/{@code notFound} values can be captured; the two Panache
  * finders and the current-price lookup are neutralized with
@@ -56,6 +62,14 @@ class ArticleInfoResourceTest {
     private ArticleInfoResource newResource() {
         ArticleInfoResource resource = new ArticleInfoResource();
         resource.articleInfo = mock(Template.class);
+        resource.ticketService = mock(TicketService.class);
+        resource.cashSessionService = mock(com.intermarche.pos.service.CashSessionService.class);
+        // A real state: the lock is the register's own gate and a fresh one is locked,
+        // which is also the state the take key must not appear in.
+        resource.state = new com.intermarche.pos.ui.PosState();
+        resource.state.auth.isLocked = false;
+        when(resource.cashSessionService.getOpenSession())
+                .thenReturn(mock(com.intermarche.pos.domain.session.CashSession.class));
         view = mock(TemplateInstance.class);
         when(resource.articleInfo.data(anyString(), any())).thenReturn(view);
         when(view.data(anyString(), any())).thenReturn(view);
@@ -197,6 +211,95 @@ class ArticleInfoResourceTest {
         assertEquals("—", info.getPlu());
         assertEquals("—", info.getPriceFormatted());
         assertEquals("—", info.getVatFormatted());
+    }
+
+    /**
+     * The take key is offered when the register is unlocked AND a session is open:
+     * the only state in which a ticket can exist.
+     */
+    @Test
+    void theTakeKeyIsOfferedWhenASaleIsPossible() {
+        ArticleInfoResource resource = newResource();
+        assertTrue(resource.canTake());
+        resource.infoPage(null);
+        verify(view).data("canTake", true);
+    }
+
+    /**
+     * A LOCKED register offers no take key (first leg false): caisse fermée, the
+     * screen is the pure consultation it has always been.
+     */
+    @Test
+    void theTakeKeyIsHiddenOnALockedRegister() {
+        ArticleInfoResource resource = newResource();
+        resource.state.auth.isLocked = true;
+        assertFalse(resource.canTake());
+        resource.infoPage(null);
+        verify(view).data("canTake", false);
+    }
+
+    /**
+     * With NO open session there is no take key either (second leg false): there is
+     * no ticket to add a line to.
+     */
+    @Test
+    void theTakeKeyIsHiddenWithoutAnOpenSession() {
+        ArticleInfoResource resource = newResource();
+        when(resource.cashSessionService.getOpenSession()).thenReturn(null);
+        assertFalse(resource.canTake());
+        resource.infoPage(null);
+        verify(view).data("canTake", false);
+    }
+
+    /**
+     * Taking the article walks the code through the SCAN ADMISSION — the chain a
+     * scanner walks — and lands the cashier back on the sale screen, where the line
+     * now is. The code is trimmed on the way.
+     */
+    @Test
+    void takeArticleScansTheCodeAndReturnsToTheSaleScreen() {
+        ArticleInfoResource resource = newResource();
+        Response response = resource.takeArticle("  3245412  ");
+        assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+        assertEquals("/", response.getLocation().toString());
+        verify(resource.ticketService).processScan("3245412");
+    }
+
+    /**
+     * An empty code takes nothing (first leg of the refusal) and comes back to the
+     * lookup.
+     */
+    @Test
+    void takeArticleWithAnEmptyCodeTakesNothing() {
+        ArticleInfoResource resource = newResource();
+        Response response = resource.takeArticle("   ");
+        assertEquals("/article-info", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * A NULL code takes nothing either (the null arm of the trimming ternary).
+     */
+    @Test
+    void takeArticleWithANullCodeTakesNothing() {
+        ArticleInfoResource resource = newResource();
+        Response response = resource.takeArticle(null);
+        assertEquals("/article-info", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
+    }
+
+    /**
+     * A code posted straight at the action on a LOCKED register takes nothing
+     * (second leg of the refusal): the key was not shown, and the action does not
+     * trust that it was not.
+     */
+    @Test
+    void takeArticleIsRefusedWhenNoSaleIsPossible() {
+        ArticleInfoResource resource = newResource();
+        resource.state.auth.isLocked = true;
+        Response response = resource.takeArticle("3245412");
+        assertEquals("/article-info", response.getLocation().toString());
+        verifyNoInteractions(resource.ticketService);
     }
 
     /**

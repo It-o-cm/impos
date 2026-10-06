@@ -65,6 +65,12 @@ public class TechnicalEvent extends PanacheEntity {
         TICKET_RESUMED,
         /** A refund was created (method and amount in the detail). */
         REFUND_CREATED,
+        /**
+         * An administered return TYPE was selected in caisse (its label in the
+         * detail, LC-05-04-01), so the store reports can tell a container return
+         * from a defective-article one.
+         */
+        RETURN_TYPE_SELECTED,
         /** The digital receipt was sent to a customer email. */
         DIGITAL_TICKET_SENT,
         /** The cashier called a supervisor (reason in the detail). */

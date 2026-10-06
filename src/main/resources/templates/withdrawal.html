@@ -1,5 +1,13 @@
 {!
  ! Manual withdrawal of a drawer tender (DrawerOperationsResource, LC-12-03).
+ ! ONE validation button and a MANDATORY destination (recette): the screen used to
+ ! carry VALIDER LE PRÉLÈVEMENT and VERS LE COFFRE side by side, with nothing
+ ! saying what told them apart — one flagged a safe-feeding movement, the other
+ ! named no destination at all. The destination is now chosen; the safe is always
+ ! offered and a cash withdrawal heading there is still the flagged movement.
+ ! BILLETS SEULEMENT (?notes=1, l'entree de l'alerte de plafond d'assurance): les
+ ! onglets PIECES et ROULEAUX disparaissent, parce que ce qui ramene un tiroir sous
+ ! le plafond c'est la liasse — les pieces restent pour rendre la monnaie.
  ! Three states on one page: the tender list (no ?method=), the denomination
  ! count of cash (?method=CASH), the read-only theoretical of any other tender.
  ! The cash count reuses the /cash-count/fragment/{type} tabs and posts its
@@ -61,6 +69,9 @@
 
     .manager-block { border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 15px; flex-shrink: 0; }
     .manager-block .hint { color: var(--text-muted); font-size: var(--fs-body); margin-bottom: 6px; }
+    .notes-only { border: 1px solid var(--warning); border-radius: 6px; padding: 8px; color: var(--warning); font-weight: bold; text-align: center; font-size: var(--fs-body); }
+    .dest-box { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .dest-select { width: 100%; padding: 10px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
     .manager-block .form-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 6px 0; }
     .manager-block label { color: var(--text-muted); font-weight: bold; text-transform: uppercase; }
     .manager-block input { width: 12.5rem; padding: 8px; font-size: var(--fs-field); font-weight: bold; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
@@ -95,8 +106,10 @@
             <div class="count-list-area">
               <div class="tabs-container">
                 <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
+                {#if !notesOnly}
                 <button type="button" class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
                 <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+                {/if}
               </div>
               <div class="items-scroll" id="listContainer">
                 {#for item in bills}
@@ -113,6 +126,19 @@
               <div class="total-box">
                 <div class="total-label">À prélever</div>
                 <div class="total-amount" id="totalDisplay">0,00 €</div>
+              </div>
+              {#if notesOnly}
+                <div class="notes-only">BILLETS SEULEMENT<br>les pièces restent pour rendre la monnaie</div>
+              {/if}
+              <div class="dest-box">
+                <label class="total-label" for="destination">Destination</label>
+                <select id="destination" name="destination" class="dest-select">
+                  <option value="">—</option>
+                  <option value="{safeDestination}">{safeDestination}</option>
+                  {#for destination in destinations}
+                    <option value="{destination}">{destination}</option>
+                  {/for}
+                </select>
               </div>
               {! L'aval ne se saisit plus ici: au-dela du seuil le prelevement
                ! est PARQUE et la modale partagee s'ouvre. !}
@@ -131,6 +157,16 @@
               <div class="amount">{selected.amountFormatted} €</div>
             </div>
             <div class="fixed-hint">Le prélèvement porte sur la totalité du théorique affiché.</div>
+            <div class="dest-box">
+              <label class="total-label" for="destinationFixed">Destination</label>
+              <select id="destinationFixed" name="destination" class="dest-select">
+                <option value="">—</option>
+                <option value="{safeDestination}">{safeDestination}</option>
+                {#for destination in destinations}
+                  <option value="{destination}">{destination}</option>
+                {/for}
+              </select>
+            </div>
             {#if needsEndorsement}
               <div class="manager-block">
                 <div class="hint">Au-delà de {threshold} €, un aval manager sera demandé.</div>
@@ -157,11 +193,9 @@
     <div class="bottom-nav">
       {#if selected??}
         <a href="/withdrawal" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
-        {#if isCash}
-        <!-- EXP-87 : le même comptage part vers le coffre (le coffre est une entité
-             du nœud magasin ; la caisse n'enregistre que le mouvement qui l'alimente). -->
-        <button type="submit" form="withdrawForm" formaction="/action/safe-deposit/record" class="btn btn-lg btn-warning" style="width: 11.25rem; color:#000;">VERS LE COFFRE</button>
-        {/if}
+        <!-- EXP-87 : une seule validation. La DESTINATION dit ce que devient l'argent,
+             et le coffre y reste un cas a part (le coffre est une entite du noeud
+             magasin ; la caisse n'enregistre que le mouvement qui l'alimente). -->
         <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE PRÉLÈVEMENT</button>
       {#else}
         <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>

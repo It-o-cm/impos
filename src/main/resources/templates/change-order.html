@@ -67,8 +67,7 @@
                 <form class="denom-form" method="post" action="/action/change-order/entry">
                   <input type="hidden" name="id" value="{denom.id}">
                   <input type="hidden" name="type" value="AMOUNT">
-                  <input type="text" id="dispAmount-{denom.id}" value="{denom.amount}" readonly
-                         onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'decimal')">
+                  <div id="dispAmount-{denom.id}" class="pad-display" onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'decimal')"></div>
                   <input type="hidden" name="value" id="valAmount-{denom.id}" value="{denom.amount}">
                   <button type="submit" class="btn btn-sm btn-muted">€</button>
                 </form>
@@ -78,8 +77,7 @@
                 <form class="denom-form" method="post" action="/action/change-order/entry">
                   <input type="hidden" name="id" value="{denom.id}">
                   <input type="hidden" name="type" value="ROLLS">
-                  <input type="text" id="dispRolls-{denom.id}" value="{denom.rolls}" readonly
-                         onclick="bindDenom('dispRolls-{denom.id}', 'valRolls-{denom.id}', 'numpad', 'integer')">
+                  <div id="dispRolls-{denom.id}" class="pad-display" onclick="bindDenom('dispRolls-{denom.id}', 'valRolls-{denom.id}', 'numpad', 'integer')"></div>
                   <input type="hidden" name="value" id="valRolls-{denom.id}" value="{denom.rolls}">
                   <button type="submit" class="btn btn-sm btn-muted">rl</button>
                 </form>

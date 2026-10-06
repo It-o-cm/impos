@@ -72,13 +72,20 @@ public class CashCountResource {
         // EXP-83: the paper tenders the cashier declares by count, with their
         // theoretical quantities — empty when no session is open.
         com.intermarche.pos.domain.session.CashSession open = cashSessionService.getOpenSession();
+        com.intermarche.pos.service.CashSessionService.SessionReport report =
+                (open != null) ? cashSessionService.buildReport(open) : null;
         java.util.List<com.intermarche.pos.service.CashSessionService.SessionReport.PaperTenderRow> paperTenders =
-                (open != null) ? cashSessionService.buildReport(open).getPaperTenders() : java.util.List.of();
+                (report != null) ? report.getPaperTenders() : java.util.List.of();
+        // Recette: the cashier deduced her float with a pencil. The screen knows what
+        // the drawer must keep — the float plus the day's movements — so it proposes
+        // the withdrawal as what she counted minus that, and she may still change it.
+        String floatReference = (report != null) ? report.getFloatReferencePlain() : "0.00";
         LOGGER.info("Exiting method cashCountPage");
         return cashCount
             .data("state", state)
             .data("items", cashCountService.getBills())
             .data("paperTenders", paperTenders)
+            .data("floatReference", floatReference)
             .data("fragment", false);
     }
 

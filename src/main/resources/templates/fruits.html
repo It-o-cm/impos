@@ -38,7 +38,21 @@
         .plu-tool-btn:hover { border-color: var(--primary); color: var(--primary); }
 
         .plu-container { flex: 1; display: flex; flex-direction: column; background: #111; border: 1px solid var(--border-color); border-radius: 5px; overflow: hidden; min-height: 0; }
-        .plu-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; padding: 10px; align-content: start; overflow-y: auto; flex: 1; min-height: 0; }
+        /* PRÉ-SAISIE : la grille et le pavé se partagent la largeur. La grille
+           passe de quatre à trois colonnes — elle DÉFILE (EXP-22), donc elle perd
+           des articles visibles, pas des articles — et le pavé prend la colonne
+           libérée. Taper le code puis OK vaut le bouton « Saisir un code PLU »,
+           qui reste pour qui préfère la modale. */
+        .plu-body { flex: 1; min-height: 0; display: flex; gap: 10px; }
+        .plu-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; padding: 10px; align-content: start; overflow-y: auto; flex: 1; min-height: 0; }
+        /* Le pavé prend le COIN BAS DROIT, comme sur tous les écrans qui le
+           portent : colonne de droite, et collé au bas par margin-top:auto. */
+        .plu-prefill { flex: 0 0 13.75rem; padding: 10px 10px 10px 0; display: flex; flex-direction: column;
+                       gap: 8px; justify-content: flex-end; }
+        .plu-prefill .prefill-display { background-color: var(--bg-dark); color: var(--warning); border: 2px solid var(--border-strong);
+                                        border-radius: 6px; padding: 4px 8px; font-size: var(--fs-amount); font-weight: bold; text-align: right;
+                                        line-height: 1.4; min-height: 1.4em; overflow: hidden; }
+        .plu-prefill .prefill-hint { font-size: var(--fs-label); color: var(--text-muted); text-align: center; }
         .plu-btn { background: var(--bg-row); font-size: var(--fs-btn-sm); padding: 8px 4px; border: 1px solid var(--border-strong); color: var(--text-main); border-radius: 5px; cursor: pointer; text-align: center; transition: 0.2s; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; }
         .plu-btn:hover { background: #444; border-color: var(--primary); }
         .plu-btn .plu-emoji { font-size: 1.2rem; }
@@ -108,8 +122,15 @@
         </div>
         {/if}
         <div class="plu-container">
-            <!-- EXP-22 : la grille F&L DÉFILE au lieu de paginer (voir .plu-grid). -->
-            <div class="plu-grid" id="pluGrid"></div>
+            <div class="plu-body">
+                <!-- EXP-22 : la grille F&L DÉFILE au lieu de paginer (voir .plu-grid). -->
+                <div class="plu-grid" id="pluGrid"></div>
+                <div class="plu-prefill">
+                    <div id="prefillDisplay" class="prefill-display pad-display"></div>
+                    <span class="prefill-hint" id="prefillHint">CODE PLU PUIS OK</span>
+                    <div class="pos-kb-compact" id="prefillPad"></div>
+                </div>
+            </div>
             <div class="plu-pagination pos-pager">
                 <a href="/" class="btn btn-sm btn-muted">RETOUR</a>
             </div>
@@ -121,7 +142,7 @@
                     <span class="plu-modal-title">Rechercher un produit</span>
                     <button class="btn btn-sm btn-muted" onclick="closePluSearch()">RETOUR</button>
                 </div>
-                <input type="text" class="plu-search-input" id="pluSearchDisplay" placeholder="Tapez un nom..." readonly>
+                <div id="pluSearchDisplay" class="plu-search-input pad-display" data-placeholder="Tapez un nom..."></div>
                 <div id="pluSearchKb" class="plu-kb-area"></div>
                 <div class="plu-search-results" id="pluSearchResults"><div class="plu-search-empty">Tapez pour rechercher...</div></div>
             </div>
@@ -133,7 +154,7 @@
                     <span class="plu-modal-title">Code PLU</span>
                     <button class="btn btn-sm btn-muted" onclick="closePluCode()">RETOUR</button>
                 </div>
-                <input type="text" class="plu-code-display" id="pluCodeDisplay" value="" readonly>
+                <div id="pluCodeDisplay" class="plu-code-display pad-display"></div>
                 <div id="pluCodeNumpad" class="plu-kb-area"></div>
                 <a href="#" id="pluCodeValidate" class="btn btn-lg btn-success" style="width:100%;">VALIDER</a>
             </div>
@@ -168,6 +189,21 @@
         }
         grid.innerHTML = html;
     }
+
+    // PRÉ-SAISIE : le pavé de la colonne de droite ajoute l'article du code tapé,
+    // sans passer par la modale. Celle-ci reste accessible par son bouton — la
+    // pré-saisie ajoute un chemin, elle n'en retire aucun.
+    PosPrefill.mount({
+        displayId: 'prefillDisplay',
+        containerId: 'prefillPad',
+        hintId: 'prefillHint',
+        maxLength: 6,
+        onEnter: function(code) {
+            if (!code) return;
+            PosPrefill.clear();
+            window.location.href = '/action/add/' + encodeURIComponent(code);
+        }
+    });
 
     function openPluCode() {
         PosInput.setup({

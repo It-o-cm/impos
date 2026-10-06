@@ -265,4 +265,99 @@ class TicketLineTest {
         Assertions.assertEquals(new BigDecimal("0.750"), line.embeddedWeight);
         Assertions.assertEquals(new BigDecimal("4.0000"), line.embeddedUnitPrice);
     }
+
+    /**
+     * Builds a line carrying a quantity, a unit price and a line total, the
+     * three fields {@code getEffectiveUnitPrice} reads (LC-05-02-12).
+     *
+     * @param qty the sold quantity, or null
+     * @param unitPrice the catalog unit price including tax
+     * @param totalPrice the line total including tax, or null
+     * @return the line
+     */
+    private TicketLine priced(String qty, String unitPrice, String totalPrice) {
+        TicketLine line = new TicketLine();
+        line.quantity = qty == null ? null : new BigDecimal(qty);
+        line.unitPrice = new BigDecimal(unitPrice);
+        line.totalPrice = totalPrice == null ? null : new BigDecimal(totalPrice);
+        return line;
+    }
+
+    /**
+     * {@code getEffectiveUnitPrice} shares the line total out over the quantity
+     * when the line carries no advantage: the result is the unit price itself
+     * (LC-05-02-12, nominal case).
+     */
+    @Test
+    void effectiveUnitPriceEqualsTheUnitPriceWithoutAnyAdvantage() {
+        Assertions.assertEquals(new BigDecimal("10.0000"),
+                priced("3", "10.00", "30.00").getEffectiveUnitPrice());
+    }
+
+    /**
+     * An advantage carried by the line total — an engine promotion or the share
+     * of a global ticket discount, neither of which touches the unit price —
+     * lowers the refunded unit price (LC-05-02-12, the defect this closes).
+     */
+    @Test
+    void effectiveUnitPriceCarriesTheAdvantageOfTheSale() {
+        TicketLine line = priced("3", "10.00", "24.00");
+        Assertions.assertEquals(new BigDecimal("8.0000"), line.getEffectiveUnitPrice());
+        Assertions.assertTrue(line.getEffectiveUnitPrice().compareTo(line.unitPrice) < 0);
+    }
+
+    /**
+     * A division that does not terminate is rounded to four decimals, and a
+     * return of the WHOLE quantity still adds up to the line total at the
+     * centime (LC-05-02-12, rounding contract).
+     */
+    @Test
+    void effectiveUnitPriceRoundsToFourDecimalsAndStillSumsToTheLineTotal() {
+        TicketLine line = priced("3", "1.00", "2.00");
+        Assertions.assertEquals(new BigDecimal("0.6667"), line.getEffectiveUnitPrice());
+        Assertions.assertEquals(new BigDecimal("2.00"),
+                line.getEffectiveUnitPrice().multiply(line.quantity)
+                        .setScale(2, java.math.RoundingMode.HALF_UP));
+    }
+
+    /**
+     * With no line total there is nothing to share out, so the unit price is
+     * handed back (first leg of the fallback guard).
+     */
+    @Test
+    void effectiveUnitPriceFallsBackToTheUnitPriceWithoutALineTotal() {
+        Assertions.assertEquals(new BigDecimal("10.00"),
+                priced("3", "10.00", null).getEffectiveUnitPrice());
+    }
+
+    /**
+     * With no quantity there is nothing to divide by (second leg of the
+     * fallback guard).
+     */
+    @Test
+    void effectiveUnitPriceFallsBackToTheUnitPriceWithoutAQuantity() {
+        Assertions.assertEquals(new BigDecimal("10.00"),
+                priced(null, "10.00", "30.00").getEffectiveUnitPrice());
+    }
+
+    /**
+     * A zero quantity would be a division by zero (third leg of the fallback
+     * guard).
+     */
+    @Test
+    void effectiveUnitPriceFallsBackToTheUnitPriceOnAZeroQuantity() {
+        Assertions.assertEquals(new BigDecimal("10.00"),
+                priced("0", "10.00", "0.00").getEffectiveUnitPrice());
+    }
+
+    /**
+     * A RETURN line inside a mixed ticket (EXP-38) carries a negative quantity
+     * and a negative total: the quotient is the positive price paid, and the
+     * zero guard does not catch it.
+     */
+    @Test
+    void effectiveUnitPriceOfAReturnLineIsThePositivePricePaid() {
+        Assertions.assertEquals(new BigDecimal("2.0000"),
+                priced("-2", "2.00", "-4.00").getEffectiveUnitPrice());
+    }
 }

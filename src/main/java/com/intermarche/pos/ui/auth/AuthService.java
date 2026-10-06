@@ -171,6 +171,7 @@ public class AuthService {
             Employee employee = Employee.findActiveLogin(loginInfo);
             if (employee != null) {
                 state.auth.login(employee.id, employee.getFullName(), employee.badgeId);
+                applyDedicatedReturnRegister(state);
                 technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
                         null, employee.badgeId);
                 LOGGER.info("Exiting method login");
@@ -183,6 +184,7 @@ public class AuthService {
         if (status.isSuccess()) {
             state.auth.login(status.employee.id, status.employee.getFullName(),
                     status.employee.badgeId);
+            applyDedicatedReturnRegister(state);
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_UNLOCKED,
                     null, status.employee.badgeId);
             LOGGER.info("Exiting method login");
@@ -190,6 +192,22 @@ public class AuthService {
         }
         LOGGER.info("Exiting method login");
         return status.locked ? LoginResult.LOCKED : LoginResult.INVALID;
+    }
+
+    /**
+     * Forces MODE RETOUR on a register the back office dedicated to returns
+     * (LC-05-01-03): the mode is permanent there, so an operator signing in
+     * finds the till already taking articles back rather than pressing a key the
+     * register would refuse to un-press.
+     *
+     * @param state the current POS state
+     */
+    private void applyDedicatedReturnRegister(PosState state) {
+        LOGGER.info("Entering method applyDedicatedReturnRegister");
+        if (posSettingsService.returnDedicatedRegister()) {
+            state.returnMode = true;
+        }
+        LOGGER.info("Exiting method applyDedicatedReturnRegister");
     }
 
 
@@ -320,6 +338,9 @@ public class AuthService {
                     null, state.auth.operatorBadgeId);
         }
         state.auth.logout();
+        // LC-13-06-02: at sign-out the default language applies again. The choice
+        // belonged to the operator who made it, not to the register.
+        state.language = null;
         state.clearTicket();
         LOGGER.info("Exiting method logout");
     }

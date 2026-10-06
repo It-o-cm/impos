@@ -44,8 +44,11 @@ import static org.mockito.Mockito.when;
  * {@link org.mockito.Mockito#mockStatic} on {@link PanacheEntityBase}. No
  * database and no Quarkus context are booted.
  * <p>
- * Branch enumeration (both arms of every decision, 100%): the page's five error
- * codes plus the {@code ok != null} saved flag; {@code record}'s training gate,
+ * Branch enumeration (both arms of every decision, 100%): the page's eight error
+ * codes plus the {@code ok != null} saved flag; {@code rejectionOf}'s three
+ * refusals (a withdrawal and a coin supply, which belong to their own screens; an
+ * expense with no reason; a down-payment with no order reference) and the
+ * declaration that passes them all; {@code record}'s training gate,
  * {@code session == null}, {@code type == null} (via a null and an unknown
  * name), {@code requiresEndorsement} with the endorsement-resolved and
  * endorsement-refused arms, the {@code operatorId != null} cashier ternary and
@@ -73,6 +76,10 @@ class CashMovementResourceTest {
         resource.posSettingsService = mock(PosSettingsService.class);
         resource.endorsementService = mock(EndorsementService.class);
         resource.cashMovement = mock(Template.class);
+        resource.ticketPrinterService =
+                mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
+        resource.ticketNumberService =
+                mock(com.intermarche.pos.service.TicketNumberService.class);
         return resource;
     }
 
@@ -204,6 +211,40 @@ class CashMovementResourceTest {
     }
 
     /**
+     * The page renders the own-screen message: a withdrawal or a coin supply posted
+     * here is sent back to its own screen, where it is counted.
+     */
+    @Test
+    void pageOwnScreenMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("own-screen", null));
+        verify(chain[3]).data("error", "PRÉLÈVEMENT ET APPORT : ÉCRANS DÉDIÉS");
+    }
+
+    /**
+     * The page renders the missing-reason message of a refused expense.
+     */
+    @Test
+    void pageMissingReasonMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("reason", null));
+        verify(chain[3]).data("error", "MOTIF OBLIGATOIRE");
+    }
+
+    /**
+     * The page renders the missing-reference message of a refused down-payment.
+     */
+    @Test
+    void pageMissingReferenceMessage() {
+        CashMovementResource resource = newResource();
+        TemplateInstance[] chain = stubPageChain(resource);
+        assertSame(chain[4], resource.cashMovementPage("reference", null));
+        verify(chain[3]).data("error", "RÉFÉRENCE DE COMMANDE OBLIGATOIRE");
+    }
+
+    /**
      * The page renders the endorsement message (third {@code equals} true arm).
      */
     @Test
@@ -248,7 +289,7 @@ class CashMovementResourceTest {
     void recordTrainingModeBlocked() {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = true;
-        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null),
+        assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, null),
                 "/cash-movement?error=training");
         verifyNoInteractions(resource.cashSessionService);
         verifyNoInteractions(resource.cashMovementService);
@@ -263,7 +304,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(null);
-        assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", null),
+        assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, null),
                 "/cash-movement?error=no-session");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -277,7 +318,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record(null, "10", "Coffre", null),
+        assertRedirect(resource.record(null, "10", "Timbres", null, null),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -291,7 +332,7 @@ class CashMovementResourceTest {
         CashMovementResource resource = newResource();
         resource.state.trainingMode = false;
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
-        assertRedirect(resource.record("BOGUS", "10", "Coffre", null),
+        assertRedirect(resource.record("BOGUS", "10", "Timbres", null, null),
                 "/cash-movement?error=bad-type");
         verifyNoInteractions(resource.cashMovementService);
     }
@@ -313,11 +354,11 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(session);
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
         when(resource.cashMovementService.record(eq(session), eq(cashier),
-                eq(CashMovement.MovementType.WITHDRAWAL), eq(new BigDecimal("30.00")),
-                eq("Coffre"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
+                eq(CashMovement.MovementType.EXPENSE), eq(new BigDecimal("30.00")),
+                eq("Timbres"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("WITHDRAWAL", "30,00", "Coffre", null),
+            assertRedirect(resource.record("EXPENSE", "30,00", "Timbres", null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.state).touch();
@@ -338,15 +379,15 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(session);
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
         when(resource.cashMovementService.record(eq(session), eq(cashier),
-                eq(CashMovement.MovementType.WITHDRAWAL), any(),
-                eq("Coffre"), eq(null), eq("CHEQUE"), eq(null), eq(null))).thenReturn(recorded);
+                eq(CashMovement.MovementType.EXPENSE), any(),
+                eq("Timbres"), eq(null), eq("CHEQUE"), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", "CHEQUE"),
+            assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, "CHEQUE"),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
-                eq(CashMovement.MovementType.WITHDRAWAL), any(), eq("Coffre"), eq(null),
+                eq(CashMovement.MovementType.EXPENSE), any(), eq("Timbres"), eq(null),
                 eq("CHEQUE"), eq(null), eq(null));
     }
 
@@ -364,15 +405,15 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(session);
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
         when(resource.cashMovementService.record(eq(session), eq(cashier),
-                eq(CashMovement.MovementType.WITHDRAWAL), any(),
-                eq("Coffre"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
+                eq(CashMovement.MovementType.EXPENSE), any(),
+                eq("Timbres"), eq(null), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("WITHDRAWAL", "10", "Coffre", "   "),
+            assertRedirect(resource.record("EXPENSE", "10", "Timbres", null, "   "),
                     "/cash-movement?ok=1");
         }
         verify(resource.cashMovementService).record(eq(session), eq(cashier),
-                eq(CashMovement.MovementType.WITHDRAWAL), any(), eq("Coffre"), eq(null),
+                eq(CashMovement.MovementType.EXPENSE), any(), eq("Timbres"), eq(null),
                 eq(null), eq(null), eq(null));
     }
 
@@ -393,11 +434,11 @@ class CashMovementResourceTest {
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(true);
         when(resource.cashMovementService.record(eq(session), eq(cashier),
-                eq(CashMovement.MovementType.DEPOSIT), eq(BigDecimal.ZERO),
-                eq("Apport"), eq("M1"), eq(null), eq(null), eq(null))).thenReturn(recorded);
+                eq(CashMovement.MovementType.EXPENSE), eq(BigDecimal.ZERO),
+                eq("Timbres"), eq("M1"), eq(null), eq(null), eq(null))).thenReturn(recorded);
         try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
             ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
-            assertRedirect(resource.record("DEPOSIT", null, "Apport", null),
+            assertRedirect(resource.record("EXPENSE", null, "Timbres", null, null),
                     "/cash-movement?ok=1");
         }
         verify(resource.endorsementService, never()).authorize(any(), any(), any());
@@ -446,15 +487,16 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        assertRedirect(resource.record("WITHDRAWAL", "150", "Coffre", null),
+        assertRedirect(resource.record("EXPENSE", "150", "Timbres", null, null),
                 "/cash-movement");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<java.util.Map<String, String>> form = ArgumentCaptor.forClass(java.util.Map.class);
         verify(resource.endorsementService).requestAuthorization(eq(resource.state),
                 eq("CASH_MOVEMENT"), form.capture(), eq("/cash-movement"));
-        assertEquals("WITHDRAWAL", form.getValue().get("type"));
+        assertEquals("EXPENSE", form.getValue().get("type"));
         assertEquals("150", form.getValue().get("amount"));
-        assertEquals("Coffre", form.getValue().get("reason"));
+        assertEquals("Timbres", form.getValue().get("reason"));
+        assertEquals("", form.getValue().get("reference"));
         assertEquals("", form.getValue().get("paymentMethod"));
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -471,9 +513,9 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         java.util.Map<String, String> parked = new java.util.LinkedHashMap<>();
-        parked.put("type", "WITHDRAWAL");
+        parked.put("type", "EXPENSE");
         parked.put("amount", "150");
-        parked.put("reason", "Coffre");
+        parked.put("reason", "Timbres");
         parked.put("paymentMethod", null);
         assertRedirect(resource.performEndorsed(parked, null),
                 "/cash-movement?error=endorsement");
@@ -497,17 +539,19 @@ class CashMovementResourceTest {
         when(resource.cashMovementService.record(eq(session), eq(null),
                 eq(CashMovement.MovementType.DECLARATION), eq(BigDecimal.ZERO),
                 eq("Comptage"), eq(null), eq(null), eq(null), eq(null))).thenReturn(null);
-        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null),
+        assertRedirect(resource.record("DECLARATION", "abc", "Comptage", null, null),
                 "/cash-movement?error=endorsement");
         verify(resource.state).touch();
     }
 
     /**
      * An above-threshold record parked with a NULL amount, a NULL reason and a
-     * PRESENT tender exercises the opposite arm of three parking ternaries:
-     * {@code amountStr == null} true, {@code reason == null} true and
-     * {@code paymentMethod == null} false — the null fields land as empty
-     * strings and the present tender lands as itself in the parked form.
+     * PRESENT tender exercises the opposite arm of the parking ternaries:
+     * {@code amountStr == null} true, {@code reason == null} true,
+     * {@code reference == null} true and {@code paymentMethod == null} false — the
+     * null fields land as empty strings and the present tender lands as itself in
+     * the parked form. The type is a DECLARATION, the one movement that asks for
+     * neither a reason nor a reference.
      */
     @Test
     void recordParksNullAmountNullReasonAndPresentTender() {
@@ -516,17 +560,211 @@ class CashMovementResourceTest {
         when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
         when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(true);
         when(resource.endorsementService.operatorIsSupervisor(resource.state)).thenReturn(false);
-        assertRedirect(resource.record("WITHDRAWAL", null, null, "CB"),
+        assertRedirect(resource.record("DECLARATION", null, null, null, "CB"),
                 "/cash-movement");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<java.util.Map<String, String>> form = ArgumentCaptor.forClass(java.util.Map.class);
         verify(resource.endorsementService).requestAuthorization(eq(resource.state),
                 eq("CASH_MOVEMENT"), form.capture(), eq("/cash-movement"));
-        assertEquals("WITHDRAWAL", form.getValue().get("type"));
+        assertEquals("DECLARATION", form.getValue().get("type"));
         assertEquals("", form.getValue().get("amount"));
         assertEquals("", form.getValue().get("reason"));
+        assertEquals("", form.getValue().get("reference"));
         assertEquals("CB", form.getValue().get("paymentMethod"));
         verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A WITHDRAWAL posted to this screen is refused: the prélèvement has its own
+     * screen, where it is counted denomination by denomination and prints its
+     * bordereau. The flat form here would record it without that count.
+     */
+    @Test
+    void recordRefusesAWithdrawalWhichHasItsOwnScreen() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("WITHDRAWAL", "30", "Coffre", null, null),
+                "/cash-movement?error=own-screen");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A DEPOSIT posted to this screen is refused for the same reason — the second
+     * leg of the own-screen disjunction: the apport de monnaie is counted on its
+     * own page.
+     */
+    @Test
+    void recordRefusesADepositWhichHasItsOwnScreen() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("DEPOSIT", "30", "Apport", null, null),
+                "/cash-movement?error=own-screen");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * An EXPENSE with NO reason is refused (null leg of the reason guard): cash
+     * that left the drawer must say what it paid for.
+     */
+    @Test
+    void recordRefusesAnExpenseWithoutAReason() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("EXPENSE", "30", null, null, null),
+                "/cash-movement?error=reason");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * An EXPENSE whose reason is blank is refused too (isBlank leg of the reason
+     * guard) — the empty entry of the administered list is not a reason.
+     */
+    @Test
+    void recordRefusesAnExpenseWithABlankReason() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("EXPENSE", "30", "   ", null, null),
+                "/cash-movement?error=reason");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A CUSTOMER_DEPOSIT with NO order reference is refused (null leg of the
+     * reference guard): an advance the store cashes must name what it advances on.
+     */
+    @Test
+    void recordRefusesADownPaymentWithoutAnOrderReference() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, null, null),
+                "/cash-movement?error=reference");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A CUSTOMER_DEPOSIT whose reference is blank is refused too (isBlank leg of
+     * the reference guard).
+     */
+    @Test
+    void recordRefusesADownPaymentWithABlankOrderReference() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        when(resource.cashSessionService.getOpenSession()).thenReturn(mock(CashSession.class));
+        assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, "  ", null),
+                "/cash-movement?error=reference");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    /**
+     * A CUSTOMER_DEPOSIT is written through {@code recordAcompte} (EXP-85), which
+     * carries the order reference in its own column: that column is what a later
+     * recall of the order reads to deduct what was already collected. The generic
+     * writer is not used, which would have left the reference as prose.
+     */
+    @Test
+    void recordADownPaymentThroughTheAcompteWriter() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        CashMovement recorded = mock(CashMovement.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
+        when(resource.cashMovementService.recordAcompte(session, cashier,
+                new BigDecimal("30"), " CMD42 ")).thenReturn(recorded);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            assertRedirect(resource.record("CUSTOMER_DEPOSIT", "30", null, " CMD42 ", null),
+                    "/cash-movement?ok=1");
+        }
+        verify(resource.cashMovementService).recordAcompte(session, cashier,
+                new BigDecimal("30"), " CMD42 ");
+        verify(resource.cashMovementService, never()).record(any(), any(), any(), any(), any(),
+                any(), any(), any(), any());
+    }
+
+    /**
+     * A down-payment the acompte writer refuses (it returns null on an amount or a
+     * reference it will not write) redirects rather than confirming, and prints
+     * nothing.
+     */
+    @Test
+    void recordADownPaymentTheWriterRefuses() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
+        when(resource.cashMovementService.recordAcompte(any(), any(), any(), any()))
+                .thenReturn(null);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(mock(Employee.class));
+            assertRedirect(resource.record("CUSTOMER_DEPOSIT", "0", null, "CMD42", null),
+                    "/cash-movement?error=endorsement");
+        }
+        verifyNoInteractions(resource.ticketPrinterService);
+    }
+
+    /**
+     * Every movement recorded here PRINTS its justificatif, carrying the type's
+     * wording, the amount and the reason: these three movements used to leave the
+     * drawer with no paper to file beside the receipts.
+     */
+    @Test
+    void recordPrintsTheJustificatif() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        CashMovement recorded = mock(CashMovement.class);
+        // The slip states the reason the movement WAS RECORDED with, read back off
+        // the written movement rather than off the form.
+        recorded.reason = "Timbres";
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
+        when(resource.cashMovementService.record(any(), any(), any(), any(), any(), any(),
+                any(), any(), any())).thenReturn(recorded);
+        when(resource.ticketNumberService.getTerminalId()).thenReturn("C01");
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            assertRedirect(resource.record("EXPENSE", "12,50", "Timbres", null, null),
+                    "/cash-movement?ok=1");
+        }
+        verify(resource.ticketPrinterService).printMovementTicket("Dépense",
+                new BigDecimal("12.50"), "Timbres", null, null, "C01");
+    }
+
+    /**
+     * A DECLARATION asks for neither a reason nor a reference (both guards' type
+     * arms false) and is recorded as it stands, with its own wording on the
+     * justificatif.
+     */
+    @Test
+    void recordADeclarationNeedsNeitherReasonNorReference() {
+        CashMovementResource resource = newResource();
+        resource.state.trainingMode = false;
+        CashSession session = mock(CashSession.class);
+        Employee cashier = mock(Employee.class);
+        CashMovement recorded = mock(CashMovement.class);
+        when(resource.cashSessionService.getOpenSession()).thenReturn(session);
+        when(resource.cashMovementService.requiresEndorsement(any())).thenReturn(false);
+        when(resource.cashMovementService.record(any(), any(), any(), any(), any(), any(),
+                any(), any(), any())).thenReturn(recorded);
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(() -> Employee.findById(7L)).thenReturn(cashier);
+            assertRedirect(resource.record("DECLARATION", "200", null, null, null),
+                    "/cash-movement?ok=1");
+        }
+        verify(resource.cashMovementService).record(eq(session), eq(cashier),
+                eq(CashMovement.MovementType.DECLARATION), eq(new BigDecimal("200")),
+                eq(null), eq(null), eq(null), eq(null), eq(null));
+        verify(resource.ticketPrinterService).printMovementTicket(eq("Déclaration (comptage)"),
+                any(), eq(null), eq(null), any(), any());
     }
 
     /**

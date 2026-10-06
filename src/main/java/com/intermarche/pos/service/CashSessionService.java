@@ -103,6 +103,40 @@ public class CashSessionService {
         public BigDecimal fidelityReportedTotal = BigDecimal.ZERO;
 
         /**
+         * The cash the drawer must KEEP at closing: the opening float plus the net
+         * cash movements of the session.
+         *
+         * <p>It is the figure the closing withdrawal is deduced from — counted minus
+         * this — and the cashier used to do that subtraction on a piece of paper. It
+         * is not the opening float alone, because a coin supply received during the
+         * day RAISES what the drawer must keep (the store handed over change, not
+         * revenue), and a withdrawal already made lowers it. Count it right and the
+         * difference is exactly the cash revenue.
+         *
+         * <p>It follows the same float rule as the theoretical (BO-03-02-22): where
+         * the cash is not a tender the back office lets make up the float, the float
+         * is not part of it either.
+         */
+        public BigDecimal floatReference = BigDecimal.ZERO;
+
+        /**
+         * The cash the cashier DECLARED during the session (the last declaration
+         * movement), or null when none was recorded.
+         *
+         * <p>The declaration used to be written and never read: the register stored
+         * a figure nothing compared to anything, so the function answered no question.
+         * It is now put beside the theoretical, which is the only reason to ask a
+         * cashier what the drawer holds.
+         */
+        public BigDecimal declaredCash;
+
+        /**
+         * The declared cash MINUS the theoretical, zero while no declaration was
+         * recorded. Positive, the drawer holds more than the register expects.
+         */
+        public BigDecimal declaredCashVariance = BigDecimal.ZERO;
+
+        /**
          * True when the cash is declared by the register rather than counted by
          * the cashier (BO-03-02-17).
          */
@@ -263,6 +297,56 @@ public class CashSessionService {
          */
         public String getTheoreticalCashFormatted() {
             return money(theoreticalCash);
+        }
+
+        /**
+         * Returns the cash the drawer must keep at closing, French format.
+         *
+         * @return the formatted float reference
+         */
+        public String getFloatReferenceFormatted() {
+            return money(floatReference);
+        }
+
+        /**
+         * Returns the cash the drawer must keep at closing as a plain number, for the
+         * closing screen's own arithmetic (a dot decimal separator, no currency).
+         *
+         * @return the float reference, plain
+         */
+        public String getFloatReferencePlain() {
+            BigDecimal value = floatReference == null ? BigDecimal.ZERO : floatReference;
+            return value.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        }
+
+        /**
+         * Returns the cash the cashier declared, French format, or a dash when no
+         * declaration was recorded this session.
+         *
+         * @return the formatted declared cash, or a dash
+         */
+        public String getDeclaredCashFormatted() {
+            return declaredCash == null ? "—" : money(declaredCash);
+        }
+
+        /**
+         * Returns the gap between the declared cash and the theoretical, French
+         * format, or a dash when no declaration was recorded this session.
+         *
+         * @return the formatted declaration variance, or a dash
+         */
+        public String getDeclaredCashVarianceFormatted() {
+            return declaredCash == null ? "—" : money(declaredCashVariance);
+        }
+
+        /**
+         * Whether a cash declaration was recorded during the session, which is what
+         * decides if the two lines above are stated at all.
+         *
+         * @return true when the cashier declared the drawer
+         */
+        public boolean isDeclared() {
+            return declaredCash != null;
         }
 
         /**
@@ -462,8 +546,20 @@ public class CashSessionService {
         // without any movement leaves the theoretical strictly unchanged)
         BigDecimal netMovements = BigDecimal.ZERO;
         List<CashMovement> movements = CashMovement.list("session = ?1", session);
+        CashMovement lastDeclaration = null;
         for (CashMovement movement : movements) {
             netMovements = netMovements.add(cashImpact(movement));
+            // The LAST cash declaration is the one that counts: a cashier who declares
+            // twice has corrected themselves, and the earlier figure is not an opinion
+            // the report has to carry. A declaration naming another tender is not the
+            // cash (a null tender reads as cash, like everywhere else).
+            if (movement.type == CashMovement.MovementType.DECLARATION
+                    && isCash(movement.paymentMethod)
+                    && movement.amount != null
+                    && (lastDeclaration == null
+                        || laterThan(movement.movementDate, lastDeclaration.movementDate))) {
+                lastDeclaration = movement;
+            }
         }
         // LC-12-03 and LC-12-10: the theoretical of EACH tender follows its movements
         // too, not only the cash. A withdrawal of cheques lowers the cheques, and a
@@ -481,6 +577,15 @@ public class CashSessionService {
                 ? session.openingFloat : BigDecimal.ZERO;
         report.theoreticalCash = floatPart.add(cashTotal).subtract(cashRefunds)
                 .add(netMovements).setScale(2, RoundingMode.HALF_UP);
+        // What the drawer must KEEP: the float as administered, plus what the day's
+        // movements added to it or took from it. The closing withdrawal is the rest.
+        report.floatReference = floatPart.add(netMovements).setScale(2, RoundingMode.HALF_UP);
+        // The declaration is worth stating only against the theoretical, and the
+        // theoretical is only known here.
+        if (lastDeclaration != null) {
+            report.declaredCash = lastDeclaration.amount.setScale(2, RoundingMode.HALF_UP);
+            report.declaredCashVariance = report.declaredCash.subtract(report.theoreticalCash);
+        }
         applyReportingRules(report);
         LOGGER.info("Exiting method buildReport");
         return report;
@@ -694,6 +799,22 @@ public class CashSessionService {
     }
 
     /**
+     * Tells whether one movement date is later than another, a MISSING date reading
+     * as the earliest: a row with no date cannot win over a dated one, and two
+     * undated rows keep the first the query returned.
+     *
+     * @param candidate the date of the movement being weighed, possibly null
+     * @param current the date of the movement held so far, possibly null
+     * @return true when the candidate is the later of the two
+     */
+    private boolean laterThan(java.time.LocalDateTime candidate, java.time.LocalDateTime current) {
+        if (candidate == null) {
+            return false;
+        }
+        return current == null || candidate.isAfter(current);
+    }
+
+    /**
      * Closes the open session of this register (Z report): stores the counted
      * amount, the denominations detail, the theoretical amount, the variance
      * and the withdrawal, then marks the session closed and journals it.
@@ -737,19 +858,44 @@ public class CashSessionService {
     }
 
     /**
-     * Whether a date is a FULL-COUNT day of the floating-float mode (EXP-95): the
-     * end of the week (Saturday or Sunday) or the last calendar day of the month.
-     * On any other day a floating register is not fully counted and no variance
-     * is arbitrated (§7: no controlled tolerance on no-count evenings).
+     * Whether a date is a FULL-COUNT day — the evening the CASHIER herself is
+     * counted and reset (EXP-95). The answer is the administered float mode's, not
+     * the calendar's alone:
+     *
+     * <ul>
+     *   <li>{@code FIXED} — a fixed float is counted EVERY evening, so every day is
+     *       a full-count day;</li>
+     *   <li>{@code FLOATING_WEEK_MONTH} (and its former spelling {@code FLOATING})
+     *       — the end of the week (Saturday or Sunday) or the last calendar day of
+     *       the month;</li>
+     *   <li>{@code FLOATING_MONTH} — the last calendar day of the month only, the
+     *       rare case.</li>
+     * </ul>
+     *
+     * <p>The period exists so the revenue of a period matches what was banked for
+     * it. On any other evening a floating register is not fully counted and no
+     * variance is arbitrated (§7: no controlled tolerance on no-count evenings).
+     *
+     * <p>The SHOP's own daily reset is a different event — it is the store's day, not
+     * the cashier's, and it does not live on the register.
      *
      * @param date the day to test (passed in, never read from a clock here)
      * @return true when the register must be fully counted that evening
      */
     public boolean isFullCountDay(java.time.LocalDate date) {
         LOGGER.info("Entering method isFullCountDay with date: " + date);
+        String mode = posSettingsService.floatMode();
+        boolean lastOfMonth = date.getDayOfMonth() == date.lengthOfMonth();
+        if ("FLOATING_MONTH".equals(mode)) {
+            LOGGER.info("Exiting method isFullCountDay");
+            return lastOfMonth;
+        }
+        if (!posSettingsService.floatingFloat()) {
+            LOGGER.info("Exiting method isFullCountDay");
+            return true;
+        }
         java.time.DayOfWeek dow = date.getDayOfWeek();
         boolean endOfWeek = dow == java.time.DayOfWeek.SATURDAY || dow == java.time.DayOfWeek.SUNDAY;
-        boolean lastOfMonth = date.getDayOfMonth() == date.lengthOfMonth();
         LOGGER.info("Exiting method isFullCountDay");
         return endOfWeek || lastOfMonth;
     }

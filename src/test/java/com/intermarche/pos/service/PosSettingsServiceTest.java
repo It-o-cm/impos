@@ -432,6 +432,28 @@ class PosSettingsServiceTest {
     }
 
     /**
+     * {@code withdrawalDestinations} splits the administered list, trimming each
+     * entry and dropping blank ones ({@code !isEmpty} both arms), and returns an
+     * empty list for a blank setting (isBlank true arm) — the safe then being the
+     * only destination the screen offers.
+     */
+    @Test
+    void withdrawalDestinationsSplitsAndDropsBlanks() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.withdrawal-destinations",
+                            " Caisse centrale ; ; Banque ")));
+            assertEquals(List.of("Caisse centrale", "Banque"),
+                    new PosSettingsService().withdrawalDestinations());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.withdrawal-destinations", "   ")));
+            assertTrue(new PosSettingsService().withdrawalDestinations().isEmpty());
+        }
+    }
+
+    /**
      * {@code returnReasons} splits the administered list, trimming each entry
      * and dropping blank ones ({@code !isEmpty} both arms, LC-05-05-01), and
      * returns an empty list for a blank setting (isBlank true arm).
@@ -531,6 +553,160 @@ class PosSettingsServiceTest {
             ms.when(PanacheEntityBase::listAll)
                     .thenReturn(List.of(row("return.print-reason", "true")));
             assertTrue(new PosSettingsService().printReturnReason());
+        }
+    }
+
+    /**
+     * {@code returnForeignStoreAccepted} reads the administered flag in both
+     * arms, and falls back to the catalog default (refused) with no row
+     * (LC-05-02-07).
+     */
+    @Test
+    void returnForeignStoreAcceptedReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.foreign-store-accepted", "true")));
+            assertTrue(new PosSettingsService().returnForeignStoreAccepted());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.foreign-store-accepted", "false")));
+            assertFalse(new PosSettingsService().returnForeignStoreAccepted());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(new PosSettingsService().returnForeignStoreAccepted());
+        }
+    }
+
+    /**
+     * {@code returnTypes} parses a label alone as an IN-SALE type and a label
+     * followed by the TICKET marker as a dedicated-ticket one, keeping the
+     * administered order (LC-05-04-01).
+     */
+    @Test
+    void returnTypesParsesLabelsAndMarkers() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.types", "Contenant;Defectueux>TICKET")));
+            List<PosSettingsService.ReturnType> types = new PosSettingsService().returnTypes();
+            assertEquals(2, types.size());
+            assertEquals("Contenant", types.get(0).label());
+            assertFalse(types.get(0).dedicatedTicket());
+            assertEquals("Defectueux", types.get(1).label());
+            assertTrue(types.get(1).dedicatedTicket());
+        }
+    }
+
+    /**
+     * The TICKET marker is read without regard to case, and an unknown marker
+     * reads as the in-sale gesture: a typo offers a key that works
+     * (LC-05-04-01).
+     */
+    @Test
+    void returnTypesToleratesTheMarkerCaseAndUnknownMarkers() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.types", "A> ticket ;B>AUTRE")));
+            List<PosSettingsService.ReturnType> types = new PosSettingsService().returnTypes();
+            assertTrue(types.get(0).dedicatedTicket());
+            assertFalse(types.get(1).dedicatedTicket());
+        }
+    }
+
+    /**
+     * Blank entries and entries with no label before the marker are dropped
+     * (LC-05-04-01).
+     */
+    @Test
+    void returnTypesDropsBlankEntries() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.types", "Contenant;;  ; >TICKET")));
+            List<PosSettingsService.ReturnType> types = new PosSettingsService().returnTypes();
+            assertEquals(1, types.size());
+            assertEquals("Contenant", types.get(0).label());
+        }
+    }
+
+    /**
+     * An empty setting offers no type at all: only the two base gestures remain
+     * (LC-05-04-01, blank arm).
+     */
+    @Test
+    void returnTypesIsEmptyWhenNoneAreAdministered() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.types", "   ")));
+            assertTrue(new PosSettingsService().returnTypes().isEmpty());
+        }
+    }
+
+    /**
+     * {@code returnInSaleAllowed} reads the administered flag in both arms, and
+     * falls back to the catalog default (allowed) with no row (LC-05-01-01).
+     */
+    @Test
+    void returnInSaleAllowedReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.in-sale-allowed", "false")));
+            assertFalse(new PosSettingsService().returnInSaleAllowed());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.in-sale-allowed", "true")));
+            assertTrue(new PosSettingsService().returnInSaleAllowed());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(new PosSettingsService().returnInSaleAllowed());
+        }
+    }
+
+    /**
+     * {@code returnDedicatedRegister} reads the administered flag in both arms,
+     * and falls back to the catalog default (not dedicated) with no row
+     * (LC-05-01-03).
+     */
+    @Test
+    void returnDedicatedRegisterReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.dedicated-register", "true")));
+            assertTrue(new PosSettingsService().returnDedicatedRegister());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.dedicated-register", "false")));
+            assertFalse(new PosSettingsService().returnDedicatedRegister());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(new PosSettingsService().returnDedicatedRegister());
+        }
+    }
+
+    /**
+     * {@code returnWithoutOriginAllowed} reads the administered flag in both
+     * arms, and falls back to the catalog default (allowed) with no row
+     * (LC-05-02-09/14).
+     */
+    @Test
+    void returnWithoutOriginAllowedReadsAdministeredFlag() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.without-origin-allowed", "false")));
+            assertFalse(new PosSettingsService().returnWithoutOriginAllowed());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("return.without-origin-allowed", "true")));
+            assertTrue(new PosSettingsService().returnWithoutOriginAllowed());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertTrue(new PosSettingsService().returnWithoutOriginAllowed());
         }
     }
 
@@ -1614,6 +1790,54 @@ class PosSettingsServiceTest {
             ms.when(PanacheEntityBase::listAll)
                     .thenReturn(List.of(row("cash.float-mode", "FLOATING")));
             assertEquals("FLOATING", new PosSettingsService().floatMode());
+        }
+    }
+
+    /**
+     * {@code varianceAmountVisible} defaults to FALSE — the cashier is told that the
+     * gap crossed the threshold, not how much — and follows the stored row on both
+     * arms when the shop administers one.
+     */
+    @Test
+    void varianceAmountVisibleIsHiddenByDefault() {
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(new PosSettingsService().varianceAmountVisible());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.variance-amount-visible", "true")));
+            assertTrue(new PosSettingsService().varianceAmountVisible());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.variance-amount-visible", "false")));
+            assertFalse(new PosSettingsService().varianceAmountVisible());
+        }
+    }
+
+    /**
+     * {@code floatingFloat} answers on the mode's PREFIX: the two floating modes and
+     * the former {@code FLOATING} spelling all float, the fixed float does not. A
+     * mode nobody administered reads as the catalog default, which is fixed.
+     */
+    @Test
+    void floatingFloatAnswersOnEveryFloatingMode() {
+        for (String mode : List.of("FLOATING", "FLOATING_WEEK_MONTH", "FLOATING_MONTH")) {
+            try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+                ms.when(PanacheEntityBase::listAll)
+                        .thenReturn(List.of(row("cash.float-mode", mode)));
+                assertTrue(new PosSettingsService().floatingFloat(), mode);
+            }
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll)
+                    .thenReturn(List.of(row("cash.float-mode", "FIXED")));
+            assertFalse(new PosSettingsService().floatingFloat());
+        }
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertFalse(new PosSettingsService().floatingFloat());
         }
     }
 

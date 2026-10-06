@@ -136,6 +136,9 @@ class TicketServiceTest {
         // The sale-screen service, reached only by the cancel-by-scan interception
         // (EXP-36); a mock keeps the ordinary scan cases unchanged.
         service.homeService = mock(com.intermarche.pos.ui.home.HomeService.class);
+        // The return flow, reached only by the return-screen interception
+        // (LC-05-02-11); a mock keeps the ordinary scan cases unchanged.
+        service.refundService = mock(com.intermarche.pos.ui.returnprocess.RefundService.class);
         service.defaultVatRate = new BigDecimal("0.20");
     }
 
@@ -276,6 +279,38 @@ class TicketServiceTest {
         service.processScan("3560070123456");
         verify(service.homeService).cancelByScan("3560070123456");
         verify(scanHandlers, never()).spliterator();
+    }
+
+    /**
+     * {@code processScan} with a ticket selected on the RETURN screen routes the
+     * code to the return and SKIPS the add-handler chain entirely (LC-05-02-11):
+     * the scanned article designates the origin line to take back, never a sale.
+     */
+    @Test
+    void processScanOnTheReturnScreenInterceptsBeforeTheChain() {
+        state.auth.isLocked = false;
+        openSession();
+        state.refund.selectedTicket = new com.intermarche.pos.domain.sale.Ticket();
+        service.processScan("3560070123456");
+        verify(service.refundService).enterArticleByCode(state, "3560070123456");
+        verify(scanHandlers, never()).spliterator();
+    }
+
+    /**
+     * Without a ticket selected on the return screen the code goes down the
+     * ordinary chain (the other arm of the same interception): a return left
+     * behind must not swallow the next sale scan.
+     */
+    @Test
+    void processScanWithoutAReturnSelectionRunsTheChain() {
+        state.auth.isLocked = false;
+        openSession();
+        state.refund.selectedTicket = null;
+        when(scanHandlers.spliterator()).thenReturn(List.<ScanContext.ScanHandler>of().spliterator());
+        service.processScan("3560070123456");
+        verify(service.refundService, never()).enterArticleByCode(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        verify(scanHandlers).spliterator();
     }
 
     /**

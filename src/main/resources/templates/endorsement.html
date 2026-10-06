@@ -34,7 +34,7 @@
   <div class="endorse-panel">
     <div class="endorse-title">AUTORISATION REQUISE</div>
     <div id="endorseHint" class="endorse-hint">Identifiant Manager :</div>
-    <input type="text" id="endorseDisplay" class="endorse-display" readonly>
+    <div id="endorseDisplay" class="endorse-display pad-display"></div>
     <div id="endorseKeyboardArea" class="endorse-kb-area"></div>
     <div id="endorseError" class="endorse-error" style="display:none;"></div>
     <div style="display:flex; gap:10px; margin-top:5px;">
@@ -74,7 +74,8 @@
     function updateEndorseDisplay() {
       const display = document.getElementById('endorseDisplay');
       if (!display) return;
-      display.value = (endorseStep === 1) ? endorseStr.toLowerCase() : "*".repeat(endorseStr.length);
+      /* Afficheur de texte, pas un champ: on ecrit dans son contenu. */
+      display.textContent = (endorseStep === 1) ? endorseStr.toLowerCase() : "*".repeat(endorseStr.length);
     }
 
     window.endorseNext = function() {

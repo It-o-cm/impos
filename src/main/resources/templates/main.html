@@ -11,6 +11,14 @@
  ! manual fallbacks, ticket lifecycle, PIN. PRICE MODAL: server-rendered from
  ! state.priceModState (REMISE/DISCOUNT/FORCE_PRICE endorsed, QUANTITY direct);
  ! the page JS binds PosInput onto it only when .price-modal.active exists.
+ ! PRE-ENTRY: a pad lives in the BOTTOM-RIGHT CORNER — the last child of the
+ ! ACTION column, under the ten keys — and feeds the PosPrefill buffer. Its
+ ! display is a plain element, never an <input>: a till has no physical keyboard,
+ ! so a field with a caret waiting for keystrokes is a lie. A key marked
+ ! data-prefill applies what was typed at once (?value=) instead of opening its
+ ! modal; typed nothing, the key keeps its old gesture, so no habit is broken. The
+ ! OK key rings the typed code through the SCAN intake, which is the only path
+ ! that knows GS1, coupons and prefixes.
 !}
 <!DOCTYPE html>
 <html lang="fr">
@@ -35,7 +43,14 @@
         .main-area { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); overflow: hidden; }
 
         /* Colonne Ticket */
-        .receipt-area { background-color: var(--bg-dark); padding: 15px; border-right: 1px solid var(--border-color); overflow: hidden; display: flex; flex-direction: column; }
+        /* La colonne ticket porte désormais DEUX enfants : le fragment polled et
+           la zone de pré-saisie. Le cadre (fond, bordure, marge intérieure) passe
+           sur la colonne ; le fragment garde sa mise en page et prend la hauteur
+           restante. Il doit rester seul dans #ticket-container : le poll remplace
+           son contenu en bloc, et la zone de pré-saisie qui s'y trouverait
+           disparaîtrait au premier rafraîchissement. */
+        .receipt-column { background-color: var(--bg-dark); padding: 15px; border-right: 1px solid var(--border-color); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+        .receipt-area { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
         .receipt-empty { margin: auto; color: var(--text-muted); font-size: var(--fs-section); text-align: center; }
 
         /* Styles Lignes */
@@ -78,6 +93,23 @@
         .fid-icon.active { stroke: var(--success); fill: var(--success); filter: drop-shadow(0 0 4px rgba(0,200,83,0.6)); }
 
         /* Grille Boutons */
+        /* PRÉ-SAISIE. Le pavé vit au PIED DE LA COLONNE TICKET et non dans la
+           colonne d'action, qui tient exactement dix touches et pas une de plus
+           (voir la note ci-dessous). Le ticket y perd des lignes VISIBLES, pas
+           des lignes : il se pagine déjà. margin-top:auto le colle au bas de la
+           colonne, qui est une colonne flex. */
+        .prefill-zone { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-color); flex: 0 0 auto; }
+        /* L'afficheur prend toute la largeur de la zone: la consigne « tapez un
+           nombre puis une touche » qui l'accompagnait ne servait à rien — le geste
+           s'apprend en une fois, et la place est meilleure à montrer le nombre. */
+        .prefill-zone > .prefill-display { width: 100%; margin-bottom: 6px; }
+        /* Un AFFICHEUR, pas un champ: la borne n'a pas de clavier physique et un
+           <input> y afficherait un curseur attendant des frappes impossibles. Hauteur
+           fixee par la ligne pour que le cadre vide ne s'ecrase pas. */
+        .prefill-display { background-color: var(--bg-dark); color: var(--warning);
+                           border: 2px solid var(--border-strong); border-radius: 6px; padding: 3px 8px;
+                           font-size: var(--fs-amount); font-weight: bold; text-align: right;
+                           line-height: 1.4; min-height: 1.4em; overflow: hidden; }
         .grid-buttons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; flex: 1; align-content: end; }
         .grid-buttons .btn { height: 3.125rem; font-size: var(--fs-btn-sm); display: flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; padding: 0 4px; min-width: 0; overflow: hidden; }
         /* TEN BUTTONS, TWO COLUMNS, FIVE ROWS — and never more. The action column
@@ -135,7 +167,10 @@
      ! monetics for authorization must say so at every instant, not only on the
      ! screen where it was switched on. !}
     {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">*** MODE DÉGRADÉ MONÉTIQUE FORCÉ ***</div>{/if}
-    {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} ***</div>{/if}
+    {! Le bandeau de plafond d'assurance MENE au prelevement des billets: il demandait
+     ! un geste sans en donner le chemin, et la touche PRELEVEMENT est a deux menus de
+     ! la. Le lien ouvre l'ecran en mode billets seulement. !}
+    {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} *** — <a href="/withdrawal?method=CASH&amp;notes=1" style="color:#000;text-decoration:underline;">PRÉLEVER</a></div>{/if}
     {#if state.supervisorSessionBadge??}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">SUPERVISEUR {state.supervisorSessionBadge} — <a href="/action/supervisor-session/end" style="color:#fff;text-decoration:underline;">FIN SUPERVISEUR</a></div>{/if}
     {#if state.returnMode}<div class="overlay-banner overlay-monetics" style="background:var(--danger);color:#fff;">*** MODE RETOUR — LES ARTICLES SONT REPRIS *** — <a href="/action/return-mode" style="color:#fff;text-decoration:underline;">FIN MODE RETOUR</a></div>{/if}
     {! EXP-20 : message du back-office, non perturbant, écran caissier seul (absent
@@ -157,8 +192,10 @@
     </div>
 
     <div class="main-area">
-        <div class="receipt-area" id="ticket-container">
+        <div class="receipt-column">
+            <div class="receipt-area" id="ticket-container">
                 {#include ticket /}
+            </div>
         </div>
 
         <div class="action-area">
@@ -185,7 +222,7 @@
                     <a href="/action/cancel-by-scan"
                        class="btn {#if state.cancelByScanArmed}btn-warning{#else}btn-muted{/if}"
                        {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}ANNULER : SCANNEZ{#else}ANNULER PAR SCAN{/if}</a>
-                    <a href="/action/price-mod/quantity" class="btn btn-muted">QUANTITÉ</a>
+                    <a href="/action/price-mod/quantity" data-prefill class="btn btn-muted">QUANTITÉ</a>
                     <!-- LC-02-08-01 : une seule touche pour les deux gestes. -->
                     <a href="/action/collect"
                        class="btn {#if state.collectArmed}btn-warning{#else}btn-muted{/if}"
@@ -193,7 +230,11 @@
                     <a href="/action/repeat" class="btn btn-muted">RÉPÉTER ARTICLE</a>
                     <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS &amp; LÉGUMES</a>
                     <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
-                    <a href="/search" class="btn btn-muted">RECHERCHE</a>
+                    <!-- Un code tapé d'avance cherche DIRECTEMENT : l'écran de
+                         recherche ne s'ouvre que si le code ne désigne pas un
+                         article unique. -->
+                    <a href="/search" data-prefill data-prefill-href="/action/search/direct"
+                       data-prefill-param="q" class="btn btn-muted">RECHERCHE</a>
                     <!-- EXP-43 : le sous-total sépare la part de chacun ; il s'imprime. -->
                     <a href="/action/subtotal" class="btn btn-muted">SOUS-TOTAL</a>
                     <!-- EXP-93 : consultation article en lecture seule, aucun ajout. -->
@@ -211,8 +252,8 @@
                     <!-- RÈGLEMENT : l'encaissement et les gestes qui touchent au dû. -->
                     <!-- Une seule touche pour les trois façons de changer le prix d'une
                          ligne : elle ouvre la modale sur la remise, les trois modes s'y échangent. -->
-                    <a href="/action/price-mod/remise" class="btn btn-muted">REMISE / PRIX</a>
-                    <a href="/action/price-mod/global_remise" class="btn btn-warning">REMISE TICKET</a>
+                    <a href="/action/price-mod/remise" data-prefill class="btn btn-muted">REMISE / PRIX</a>
+                    <a href="/action/price-mod/global_remise" data-prefill class="btn btn-warning">REMISE TICKET</a>
                     {#if state.ticket.totalAmount > 0}
                         <a id="payBtn" href="/pay" class="btn btn-primary">ENCAISSER</a>
                     {#else}
@@ -249,6 +290,8 @@
                     <a href="/withdrawal" class="btn btn-success">PRÉLÈVEMENT</a>
                     <a href="/apport" class="btn btn-success">APPORT MONNAIE</a>
                     <a href="/transfer" class="btn btn-success">TRANSFERT RÈGLEMENT</a>
+                    <a href="/financial-movement" class="btn btn-success">MVT FINANCIER</a>
+                    <a href="/change-order" class="btn btn-muted">COMMANDE MONNAIE</a>
                     <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
 
                 {#else}
@@ -263,8 +306,21 @@
                     <a href="/badge-print" class="btn btn-muted">BADGE OPÉRATEUR</a>
                     <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
                     <a href="/theme-select" class="btn btn-muted">THÈME D'AFFICHAGE</a>
+                    {! LC-13-06-04 : changer la langue a tout moment, y compris pendant une
+                     ! transaction. Le parametre language.operator-change decide si le choix
+                     ! est pris ; l'ecran le dit plutot que de cacher la touche. !}
+                    <a href="/language-select" class="btn btn-muted">{inject:i18n.get('common.language')}</a>
                 {/if}
 
+            </div>
+
+            {! PRÉ-SAISIE : le pavé du COIN BAS DROIT. Il appartient à la colonne
+             ! d'action et non à la colonne ticket, parce que c'est le coin que la
+             ! main du caissier atteint sans quitter les touches. Il se tasse avec
+             ! la grille au-dessus (flex:1), qui garde ses dix touches. !}
+            <div class="prefill-zone">
+                <div id="prefillDisplay" class="prefill-display pad-display"></div>
+                <div class="pos-kb-compact" id="prefillPad"></div>
             </div>
         </div>
     </div>
@@ -314,7 +370,7 @@
             {/if}
             <form action="/action/entry/confirm" method="POST" id="entryForm">
                 <input type="hidden" name="rawValue" id="entryHidden" value="0">
-                <input type="text" id="entryDisplay" class="price-input-display" value="0" readonly>
+                <div id="entryDisplay" class="price-input-display pad-display"></div>
                 <div class="price-kb-area pos-kb-compact" id="entryKbArea"></div>
                 <div style="display:flex; gap:10px; margin-top:10px;">
                     <a href="/action/entry/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">ANNULER</a>
@@ -367,7 +423,7 @@
                     <input type="hidden" name="type" value="{state.priceModState.typeName}">
                     <input type="hidden" name="uid" value="{state.priceModState.targetUid}">
                     <input type="hidden" name="rawValue" id="priceHidden" value="0">
-                    <input type="text" id="priceDisplay" class="price-input-display" value="0" readonly>
+                    <div id="priceDisplay" class="price-input-display pad-display"></div>
                     <div class="price-kb-area pos-kb-compact" id="priceKbArea"></div>
                     <div style="display:flex; gap:10px; margin-top:10px;">
                         <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">ANNULER</a>
@@ -394,6 +450,45 @@
 
 <script>
     setInterval(function() { document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }, 1000);
+
+    // PRÉ-SAISIE. Le pavé reste à l'écran et le nombre se tape AVANT la touche :
+    // un geste au lieu de trois (ouvrir, taper, valider). Rien de tapé, la touche
+    // garde exactement son comportement d'avant — aucune habitude n'est cassée,
+    // et c'est ce qui permet de poser le mécanisme sur toutes les touches sans
+    // rien retirer.
+    PosPrefill.mount({
+        displayId: 'prefillDisplay',
+        containerId: 'prefillPad',
+        maxLength: 13,
+        onEnter: function(code) {
+            if (!code) return;
+            PosPrefill.clear();
+            // Le code tapé entre par l'ADMISSION DU SCAN et non par l'ajout au
+            // PLU : c'est le seul chemin qui connaît les EAN, les GS1, les bons
+            // et les codes à prix embarqué. Taper un code doit valoir le scanner.
+            fetch('/api/pos/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: code
+            });
+        }
+    });
+
+    // Une touche marquée data-prefill applique la valeur tapée au lieu d'ouvrir
+    // sa modale. La délégation plutôt qu'un écouteur par touche : le bloc de
+    // touches est rendu par le serveur et change avec le menu.
+    document.addEventListener('click', function(ev) {
+        const key = ev.target.closest('a[data-prefill]');
+        if (!key || PosPrefill.isEmpty()) return;
+        ev.preventDefault();
+        // Une touche peut nommer sa propre route et son propre paramètre : la
+        // recherche part sur /action/search/direct?q=, les gestes de prix sur
+        // leur route d'ouverture avec ?value=. Le défaut sert les seconds.
+        const target = key.getAttribute('data-prefill-href') || key.getAttribute('href');
+        const param = key.getAttribute('data-prefill-param') || 'value';
+        window.location.href = target + '?' + param + '='
+                + encodeURIComponent(PosPrefill.consume());
+    });
 
     let lastKnownVersion = 0;
 

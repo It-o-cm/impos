@@ -901,6 +901,157 @@ class TicketPrinterServiceTest {
     }
 
     /**
+     * A refund with no recalculation at all prints no recalculation block
+     * (LC-05-07-02): all three legs of the block guard false.
+     */
+    @Test
+    void printRefundPrintsNoRecalculationBlockWhenNoneApplied() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.recalculationStatus = "NOT_APPLICABLE";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("RECALCUL DES AVANTAGES"));
+        }
+    }
+
+    /**
+     * A recomputed recalculation prints the advantage withdrawn and the
+     * advantages the kept basket still earns, one per line (LC-05-07-02).
+     */
+    @Test
+    void printRefundPrintsTheWithdrawnAdvantageAndTheSurvivingOnes() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.recalculationStatus = "RECOMPUTED";
+        refund.withdrawnGenerosity = new BigDecimal("2.50");
+        refund.keptAdvantages = "REMISE PANIER | OFFRE-7";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("RECALCUL DES AVANTAGES"));
+            assertTrue(out.contains("AVANTAGE REPRIS"));
+            assertTrue(out.contains("2,50 E"));
+            assertTrue(out.contains("Avantages conserves"));
+            assertTrue(out.contains("- REMISE PANIER"));
+            assertTrue(out.contains("- OFFRE-7"));
+            assertFalse(out.contains("Cagnotte et coupons"));
+        }
+    }
+
+    /**
+     * A recomputed recalculation with no amount stored prints zero rather than
+     * nothing (nullity leg of the withdrawn amount), and a kept-advantage column
+     * left blank prints no list (both legs of that guard).
+     */
+    @Test
+    void printRefundPrintsZeroAndNoListOnAnEmptyRecalculation() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.recalculationStatus = "RECOMPUTED";
+        refund.keptAdvantages = "   ";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("AVANTAGE REPRIS"));
+            assertTrue(out.contains("0,00 E"));
+            assertFalse(out.contains("Avantages conserves"));
+        }
+    }
+
+    /**
+     * A recomputed recalculation whose kept-advantage column is null prints no
+     * list either (the other leg of that nullity guard).
+     */
+    @Test
+    void printRefundPrintsNoListWithoutKeptAdvantages() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.recalculationStatus = "RECOMPUTED";
+        refund.withdrawnGenerosity = new BigDecimal("1.00");
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("AVANTAGE REPRIS"));
+            assertFalse(out.contains("Avantages conserves"));
+        }
+    }
+
+    /**
+     * A surviving advantage whose label is wider than the paper is truncated to
+     * the paper, as every other printed label is (LC-05-07-02).
+     */
+    @Test
+    void printRefundTruncatesAWideSurvivingAdvantage() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.recalculationStatus = "RECOMPUTED";
+        refund.withdrawnGenerosity = new BigDecimal("1.00");
+        refund.keptAdvantages = "AVANTAGE AU LIBELLE BEAUCOUP TROP LARGE POUR LE PAPIER";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("- AVANTAGE AU LIBELLE"));
+            assertFalse(out.contains("POUR LE PAPIER"));
+        }
+    }
+
+    /**
+     * An engine that could not answer says so on the paper rather than printing
+     * silence: a customer who loses an advantage must read why (LC-05-07-02,
+     * degraded arm).
+     */
+    @Test
+    void printRefundSaysTheEngineWasUnavailable() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.recalculationStatus = "UNAVAILABLE";
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("RECALCUL DES AVANTAGES"));
+            assertTrue(out.contains("Moteur indisponible"));
+            assertTrue(out.contains("recalcul non effectue"));
+            assertFalse(out.contains("AVANTAGE REPRIS"));
+        }
+    }
+
+    /**
+     * A return on a card-bearing ticket states that the décagnottage was handed
+     * to the loyalty programme — never an amount the register did not compute
+     * (LC-05-07-02, third leg of the block guard, on its own).
+     */
+    @Test
+    void printRefundStatesTheLoyaltyRecalculationWasSent() {
+        TicketPrinterService service = newService();
+        Refund refund = refund(2L, Refund.RefundMethod.CASH, refundLine("PAIN", "1", "6.00"));
+        refund.loyaltyRecalculationSent = true;
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Refund.findById(5L)).thenReturn(refund);
+            mocked.when(() -> Ticket.findById(2L)).thenReturn(null);
+            service.printRefund(5L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("RECALCUL DES AVANTAGES"));
+            assertTrue(out.contains("Cagnotte et coupons"));
+            assertTrue(out.contains("recalcul transmis au programme"));
+            assertFalse(out.contains("AVANTAGE REPRIS"));
+        }
+    }
+
+    /**
      * With the VAT breakdown disabled (BO-10-06-04), the refund ticket carries
      * no per-rate ventilation line — the false arm of the refund-side gate.
      */
@@ -1871,6 +2022,49 @@ class TicketPrinterServiceTest {
         assertFalse(out.contains("Dont remontee fidelite"));
     }
 
+    /**
+     * A session report whose cashier DECLARED the drawer states the declared cash
+     * and its gap to the theoretical, right under it: the comparison is the whole
+     * reason for asking, and the declaration used to be written and never read.
+     */
+    @Test
+    void printSessionReportStatesTheDeclarationAndItsGap() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(null);
+        report.closing = false;
+        report.totalsByMethod = new LinkedHashMap<>();
+        report.theoreticalCash = new BigDecimal("300.00");
+        report.declaredCash = new BigDecimal("310.00");
+        report.declaredCashVariance = new BigDecimal("10.00");
+        report.totalRefunds = BigDecimal.ZERO;
+        service.printSessionReport(report);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("Especes declarees"));
+        assertTrue(out.contains("310,00 E"));
+        assertTrue(out.contains("Ecart declaration"));
+        assertTrue(out.contains("10,00 E"));
+    }
+
+    /**
+     * A session with no declaration prints neither line (the false arm): a nil gap
+     * would state a count nobody made.
+     */
+    @Test
+    void printSessionReportStaysSilentWithoutADeclaration() {
+        TicketPrinterService service = newService();
+        CashSessionService.SessionReport report = new CashSessionService.SessionReport();
+        report.session = session(null);
+        report.closing = false;
+        report.totalsByMethod = new LinkedHashMap<>();
+        report.theoreticalCash = new BigDecimal("300.00");
+        report.totalRefunds = BigDecimal.ZERO;
+        service.printSessionReport(report);
+        String out = captureReceipt(service);
+        assertFalse(out.contains("Especes declarees"));
+        assertFalse(out.contains("Ecart declaration"));
+    }
+
     // --------------------------------------------------
     // Administered document layouts (BO-03-03)
     // --------------------------------------------------
@@ -2337,6 +2531,46 @@ class TicketPrinterServiceTest {
     }
 
     /**
+     * The movement justificatif (recette) states the type, the reason, the tender,
+     * the amount and a signature line, with the register and the operator in the
+     * header: the paper an expense taken from the drawer leaves behind.
+     */
+    @Test
+    void printMovementBuildsTheJustificatif() {
+        TicketPrinterService service = newService();
+        service.printMovementTicket("Dépense", new BigDecimal("12.50"), "Achat de timbres",
+                "CHEQUE", "MARIE", "C04");
+        String out = captureReceipt(service);
+        assertTrue(out.contains("MOUVEMENT DE CAISSE"));
+        assertTrue(out.contains("Caisse : C04"));
+        assertTrue(out.contains("Operateur : MARIE"));
+        assertTrue(out.contains("Dépense"));
+        assertTrue(out.contains("Achat de timbres"));
+        assertTrue(out.contains("CHEQUE"));
+        assertTrue(out.contains("12,50 E"));
+        assertTrue(out.contains("Signature:"));
+    }
+
+    /**
+     * The same justificatif with NOTHING optional — no register, no operator, no
+     * reason, no tender (the false arm of all four guards) — keeps the amount and
+     * the signature line and prints no empty row.
+     */
+    @Test
+    void printMovementOmitsTheAbsentFields() {
+        TicketPrinterService service = newService();
+        service.printMovementTicket("Déclaration (comptage)", new BigDecimal("200.00"),
+                null, "   ", "  ", null);
+        String out = captureReceipt(service);
+        assertTrue(out.contains("Déclaration (comptage)"));
+        assertTrue(out.contains("200,00 E"));
+        assertFalse(out.contains("Caisse :"));
+        assertFalse(out.contains("Operateur :"));
+        assertFalse(out.contains("MOTIF"));
+        assertFalse(out.contains("MOYEN"));
+    }
+
+    /**
      * An administered layout replaces the withdrawal ticket, counts included,
      * and the transfer ticket, which names its two ends instead.
      */
@@ -2383,7 +2617,7 @@ class TicketPrinterServiceTest {
                 new String[] {"Pièce 0,20 €", "", ""},
                 new String[] {"UneDenominationBeaucoupTropLongue", "5,00", "1"},
                 new String[] {});
-        service.printChangeOrder("C04", "17", "Marie", rows);
+        service.printChangeOrder("C04", "17", "Marie", rows, new BigDecimal("105.00"));
         String out = captureReceipt(service);
         assertTrue(out.contains("COMMANDE DE MONNAIE"));
         assertTrue(out.contains("Caisse : C04"));
@@ -2393,22 +2627,29 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("100,00"));
         assertTrue(out.contains("Pièce 0,20 €"));
         assertTrue(out.contains("UneDenominationBea"));
+        // What the cashier hands over to be given the rolls, and a line to sign for it.
+        assertTrue(out.contains("TOTAL A REMETTRE"));
+        assertTrue(out.contains("105,00 E"));
+        assertTrue(out.contains("Signature:"));
     }
 
     /**
-     * The change-order slip tolerates a null register, a null operator and a
-     * null row list ({@code terminalId == null} skip arm, blank-operator skip
-     * arm, {@code rows == null} skip arm): the header still prints, the caisse
-     * and operator lines do not.
+     * The change-order slip tolerates a null register, a null operator, a null row
+     * list and a null total ({@code terminalId == null} skip arm, blank-operator skip
+     * arm, {@code rows == null} skip arm, {@code total == null} skip arm): the header
+     * still prints, and an EMPTY slip states no amount — a printed "TOTAL 0,00" on a
+     * sheet meant to be filled by hand is a figure the shop would have to cross out.
      */
     @Test
     void printChangeOrderToleratesNullOperatorAndRows() {
         TicketPrinterService service = newService();
-        service.printChangeOrder(null, null, null, null);
+        service.printChangeOrder(null, null, null, null, null);
         String out = captureReceipt(service);
         assertTrue(out.contains("COMMANDE DE MONNAIE"));
         assertFalse(out.contains("Caisse :"));
         assertFalse(out.contains("Operateur :"));
+        assertFalse(out.contains("TOTAL A REMETTRE"));
+        assertFalse(out.contains("Signature:"));
     }
 
     /**

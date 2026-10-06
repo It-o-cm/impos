@@ -263,3 +263,22 @@
             border-radius: 12px;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
         }
+
+        /* AFFICHEURS DE PAVÉ. Ce que le caissier tape sur un pavé tactile s'affiche
+           ici, et ce n'est JAMAIS un champ de saisie: la caisse n'a pas de clavier
+           physique, donc un <input> y montrerait un curseur attendant des frappes
+           impossibles — et inviterait à en brancher un. Ce sont des éléments de texte;
+           la valeur postée part dans un champ caché. La hauteur est tenue par la ligne
+           pour qu'un afficheur vide ne s'écrase pas, et le placeholder se rend par
+           ::before tant qu'il n'y a rien dedans. */
+        .pad-display {
+            line-height: 1.4;
+            min-height: 1.4em;
+            overflow: hidden;
+            white-space: nowrap;
+            box-sizing: border-box;
+        }
+        .pad-display:empty::before {
+            content: attr(data-placeholder);
+            color: var(--text-muted);
+        }

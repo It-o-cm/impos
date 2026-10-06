@@ -139,7 +139,7 @@
 
             <div class="price-section">
                 <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:var(--fs-section);">SAISIE QUANTITÉ</div>
-                <input type="text" id="displayValue" class="price-display" value="" placeholder="1" readonly>
+                <div id="displayValue" class="price-display pad-display" data-placeholder="1"></div>
 
                 <form action="/action/manual-add-known" method="POST" id="formKnown" style="display:none;">
                     <input type="hidden" name="ean" id="inputEan" value="">
@@ -159,12 +159,10 @@
                      ! pave de l'ecran — un clic le rebranche, un clic sur un produit
                      ! le rend a la quantite ou au prix. !}
                     <label style="color:var(--text-muted);">FAMILLE</label>
-                    <input type="text" id="dispFamily" placeholder="code" readonly
-                           onclick="bindFamilyField('family')" style="width:6rem;">
+                    <div id="dispFamily" class="pad-display" data-placeholder="code" onclick="bindFamilyField('family')" style="width:6rem;"></div>
                     <input type="hidden" name="familyCode" id="valFamily" value="">
                     <label style="color:var(--text-muted);">PRIX €</label>
-                    <input type="text" id="dispFamilyPrice" placeholder="0,00" readonly
-                           onclick="bindFamilyField('price')" style="width:7rem;">
+                    <div id="dispFamilyPrice" class="pad-display" data-placeholder="0,00" onclick="bindFamilyField('price')" style="width:7rem;"></div>
                     <input type="hidden" name="price" id="valFamilyPrice" value="">
                     <button type="submit" class="btn btn-success">VALIDER FAMILLE</button>
                 </form>
@@ -212,7 +210,35 @@
         });
     }
 
+    // PRÉ-SAISIE. Le pavé est déjà à demeure sur cet écran, mais il n'appartient
+    // à personne tant qu'aucun produit n'est choisi : il sert alors le tampon.
+    // Taper la quantité (ou le prix) PUIS le produit enregistre en un geste, au
+    // lieu de choisir, taper, valider. Le premier clic sur un produit ou sur une
+    // case famille rend le pavé à PosInput, qui le reprend sur le même conteneur.
+    PosPrefill.mount({
+        displayId: 'displayValue',
+        containerId: 'keyboardArea',
+        maxLength: 9,
+        onEnter: function() { /* la validation est le bouton du produit */ }
+    });
+
     function selectProduct(btn, label, ean) {
+        // Une valeur tapée d'avance enregistre directement : prix pour un produit
+        // non reconnu, quantité pour un produit connu. Rien de tapé, l'écran garde
+        // son geste en trois temps.
+        if (!PosPrefill.isEmpty()) {
+            const typed = PosPrefill.consume();
+            if (ean === null || ean === '') {
+                document.getElementById('inputLabel').value = label;
+                document.getElementById('inputPrice').value = typed;
+                document.getElementById('formUnknown').submit();
+            } else {
+                document.getElementById('inputEan').value = ean;
+                document.getElementById('inputQuantity').value = typed;
+                document.getElementById('formKnown').submit();
+            }
+            return;
+        }
         Object.values(FAMILY_FIELDS).forEach(f => {
             const el = document.getElementById(f.display);
             if (el) { el.classList.remove('pad-active'); }

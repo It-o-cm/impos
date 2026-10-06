@@ -1091,18 +1091,47 @@ public class PaymentService {
      * the bon settles the ticket and a compensation trace is recorded for the
      * supplier reimbursement — distinct from the generic GS1 coupon path.
      *
+     * <p>THE BON SETTLES ITS OWN FACE VALUE, never the remaining due. It used to
+     * settle the remainder whenever no amount reached it, and the screen sent none:
+     * a 20 € bon closed a 56,50 € ticket and the receipt came out paid in full by
+     * SOGEC. The value is the one the paper states — decoded from the bon's own
+     * barcode when it carries it ({@code (390n)}), keyed by the cashier otherwise —
+     * and a bon with no value settles NOTHING, because guessing it is exactly the
+     * bug.
+     *
+     * <p>A bon worth more than what is left to pay is CAPPED at the remainder and
+     * says so, like the meal-voucher allowance and the gift-card balance: the
+     * register never hands change back against a manufacturer's coupon.
+     *
      * @param state the current POS state
      * @param couponCode the SOGEC bon code
-     * @param amount the amount to pay, or zero/negative to use the remaining due
+     * @param amount the face value keyed by the cashier, ignored when the bon's own
+     *        barcode carries one
      */
     public void processSogec(PosState state, String couponCode, BigDecimal amount) {
         LOGGER.info("Entering method processSogec with amount: " + amount);
-        if (amount == null || amount.signum() <= 0) amount = state.getRemaining();
-        if (amount.signum() <= 0) { LOGGER.info("Exiting method processSogec"); return; }
+        BigDecimal faceValue = sogecCompensationService.faceValueOf(couponCode);
+        if (faceValue == null) {
+            faceValue = amount;
+        }
+        if (faceValue == null || faceValue.signum() <= 0) {
+            hardwareService.displayMessage("BON SOGEC: VALEUR REQUISE");
+            LOGGER.info("Exiting method processSogec: aucune valeur");
+            return;
+        }
         BigDecimal applied;
         synchronized (state) {
-            applied = amount.min(state.getRemaining());
-            if (!handlePaymentWithChange(state, "SOGEC", "BON SOGEC", amount)) {
+            BigDecimal remaining = state.getRemaining();
+            if (remaining.signum() <= 0) {
+                LOGGER.info("Exiting method processSogec: rien a payer");
+                return;
+            }
+            applied = faceValue.min(remaining);
+            if (applied.compareTo(faceValue) < 0) {
+                hardwareService.displayMessage(
+                        String.format("BON SOGEC PLAFONNE  %s E", df.format(applied)));
+            }
+            if (!handlePaymentWithChange(state, "SOGEC", "BON SOGEC", applied)) {
                 LOGGER.info("Exiting method processSogec");
                 return;
             }

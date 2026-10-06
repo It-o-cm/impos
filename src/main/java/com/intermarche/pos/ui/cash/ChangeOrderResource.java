@@ -162,8 +162,11 @@ public class ChangeOrderResource {
         for (CashItem item : allDenominations()) {
             rows.add(new String[] {item.label, "", ""});
         }
+        // An EMPTY slip states no amount: there is nothing dialed to pay for, and a
+        // printed "TOTAL 0,00" on a sheet meant to be filled by hand is a figure the
+        // shop would have to cross out.
         ticketPrinterService.printChangeOrder(ticketNumberService.getTerminalId(),
-                state.auth.operatorBadgeId, state.getOperatorName(), rows);
+                state.auth.operatorBadgeId, state.getOperatorName(), rows, null);
         LOGGER.info("Exiting method printEmpty");
         return redirect("/change-order?ok=empty");
     }
@@ -190,7 +193,8 @@ public class ChangeOrderResource {
                     state.changeOrder.getRollsFormatted(item.id)});
         }
         ticketPrinterService.printChangeOrder(ticketNumberService.getTerminalId(),
-                state.auth.operatorBadgeId, state.getOperatorName(), rows);
+                state.auth.operatorBadgeId, state.getOperatorName(), rows,
+                state.changeOrder.total());
         LOGGER.info("Exiting method print");
         return redirect("/change-order?ok=1");
     }
