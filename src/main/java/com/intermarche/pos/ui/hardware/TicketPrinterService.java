@@ -394,8 +394,10 @@ public class TicketPrinterService {
             // later this receipt is what the account is reconciled against, and an
             // amount owed by nobody cannot be reconciled against anything.
             if (payment instanceof com.intermarche.pos.domain.payment.CreditPayment credit) {
-                String saleDay = ticket.creationDate == null ? ""
-                        : ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+                // The sale date is always set here: renderTicket formats
+                // ticket.creationDate unconditionally in its header above, so a
+                // null date would have thrown before reaching this credit line.
+                String saleDay = ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
                 sb.append("  ").append(saleDay).append("  COMPTE ")
                         .append(credit.accountNumber == null ? "" : credit.accountNumber)
                         .append("\n");
