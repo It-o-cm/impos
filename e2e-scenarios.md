@@ -1392,60 +1392,38 @@ déjà en vol, apply de geste refusé) — les tester par ABSENCE d'effet, pas p
 ---
 ## Couverture — scénarios catalogués contre tests écrits
 
-Relevé sur `src/test/java/com/intermarche/e2e` : **157 scénarios catalogués, 118 portés
-par un test**. Une classe `Group<X>IT` par groupe, un `@Test` par scénario, l'identifiant
-dans le nom de la méthode. Le catalogue a été RÉ-AUDITÉ contre `src/main` (ressources UI,
-filtres, services de paiement, imports, sync).
-Le **Lot 1** (soudures des classes vertes) a livré A8, A9, C7, C8, D4→D8, G5, H6→H9
-(14 scénarios [S], + l'entrée A0 formalisée), tous verts ; A10 et G6 sont [N] et reportés,
-D4/D6 partiels (résidu imfid, voir la note du groupe D).
-Le **Lot 2** (vente &amp; paiement) a livré B15→B24 et F9→F19 (21 scénarios [S]), tous verts.
-F7 est [V] (reporté au Lot 5). Résidu documenté : B15 lignes-intégrées (nœud magasin
-requis), B16 rappel/retrait/lot + date-courte, B17 coupon expiré, F10 min/comptage/2ᵉ
-plafond/rendu/informatif, F11 pannes lecteur chèque, F15 QR/code scanné + RIEN A REGLER,
-F16 DÉJÀ INACTIF (inatteignable par la bascule unique). Deux rouges PRÉ-EXISTANTS dans
-`GroupBIT` (b02 VatRate transient dans le helper `insertPromoPrice` ; b14 avenant après
-ANNULER TICKET) — prouvés en échec à HEAD (avant le Lot 2), hors périmètre B15→B24.
+Relevé MESURÉ sur `src/test/java/com/intermarche/e2e` (identifiants normalisés — `b01` ≡ `B1`) :
+**272 scénarios catalogués, 124 portés par un test, 148 restants.** Une classe `Group<X>IT` par
+groupe, un `@Test` par scénario, l'identifiant dans le nom de la méthode. Le catalogue a été
+ré-audité contre `src/main` (ressources `ui/*`, filtres, services, imports, sync) ; les 13 entrées
+à identifiant partagé ont été dédoublonnées (T1), l'inventaire O numéroté (T2, 16 scénarios dont 6
+portés par `GroupOIT`), et les chantiers retours (H24–H29) et langues (T1–T8) ajoutés (T3).
 
-| Groupe | Catalogués | Testés | Reste |
-|---|---|---|---|
-| A. Prise de poste | 11 | 10 | A10 ([N]) |
-| B. Vente | 27 | 24 | B30–B32 (2e passe, catalogués non portés) · b02/b14 rouges pré-existants |
-| C. Gestes de prix | 10 | 8 | C13,C14 (2e passe, catalogués non portés) |
-| D. Fidélité | 8 | 8 | — (D4/D6 partiels, résidu imfid) |
-| E. Valorisation continue | 14 | 0 | E1–E14 |
-| F. Paiement & clôture | 19 | 18 | F7 ([V]) |
-| G. Après-vente | 6 | 5 | G6 ([N]) |
-| H. Retours | 12 | 12 | — (H10–H12 motif de retour LC-05-05) |
-| I. Session & clôture Z | 4 | 4 | — |
-| J. Mode formation | 3 | 3 | — |
-| K. Reprise & robustesse | 3 | 3 | — |
-| L. Consolidation magasin | 9 | 0 | L1–L9 |
-| M. Thèmes | 4 | 4 | — |
-| N. Compléments | 11 | 7 | N3,N4 ([V]) · N5,N9 ([N]) |
-| P. Facturation | 8 | 8 | — (P8 succès A4 = résidu réseau) |
-| Q. Mouvements de caisse | 3 | 3 | — (Q2 succès cash-count = résidu dénominations) |
-| R. Consommation & budgets | 7 | 3 | R1,R2,R4,R6 ([V]/[N]) |
-| S. Supervision locale | 1 | 1 | — (relance tirage succès = résidu [N]) |
-| **Total** | **157** | **118** | **39** |
+| Groupe | Catalogués | Testés | Reste | Non portés |
+|---|---|---|---|---|
+| A. Prise de poste | 17 | 10 | 7 | A10 ([N]) · A11–A16 ([S], EXP verrou/forçage/accueil/report) |
+| B. Vente | 37 | 24 | 13 | B25–B29 (tare LC-14) · B30–B32 (2e passe) · B33–B37 (prix embarqué/famille/F&L/répéter) |
+| C. Gestes de prix | 16 | 8 | 8 | C9–C14 · C15–C16 (pré-saisie) |
+| D. Fidélité | 16 | 8 | 8 | D9–D14 · D20–D21 |
+| E. Valorisation continue | 14 | 0 | 14 | E1–E14 ([V], moteur seedé miroir) |
+| F. Paiement & clôture | 29 | 18 | 11 | F7 ([V]) · F20–F22 · F30–F36 (îlot/arrondi/annulation) |
+| G. Après-vente | 12 | 5 | 7 | G6/G20–G23 ([N] rappel code) · G7 · G30 ([S] SMS) |
+| H. Retours | 29 | 9 | 20 | H10–H29 ([S] — motif, partiel, crédit, avoir, sous-total, mode retour, recalcul, saisie, types, PDV) |
+| I. Session & clôture Z | 10 | 4 | 6 | I5–I9, I6b ([S], EXP écart/fond/moyens/CA/bordereau) |
+| J. Mode formation | 3 | 3 | 0 | — |
+| K. Reprise & robustesse | 3 | 3 | 0 | — |
+| L. Consolidation magasin | 14 | 0 | 14 | L1–L14 ([N]/[C], pile magasin) |
+| M. Thèmes | 5 | 4 | 1 | M0 |
+| N. Compléments | 11 | 7 | 4 | N3,N4 ([V]) · N5,N9 ([N]) |
+| O. Inventaire messages/modales | 16 | 6 | 10 | OB1,OC1,OD1,OF1,OG1,OH1,OI1,OJ1,OK1,OL1 ([S]) |
+| P. Facturation | 8 | 8 | 0 | — |
+| Q. Mouvements de caisse | 12 | 3 | 9 | Q4–Q11, Q1b ([S], mouvement financier/bordereau/apport/calculatrice/plafond) |
+| R. Consommation & budgets | 7 | 3 | 4 | R1,R2,R4,R6 ([V]) |
+| S. Supervision locale | 5 | 1 | 4 | S2,S3 ([S]) · S4,S5 ([N]) |
+| T. Langues | 8 | 0 | 8 | T1–T8 ([S]) |
+| **Total** | **272** | **124** | **148** | |
 
-L'`a0_` de `GroupAIT` a désormais son entrée au catalogue (A0, sonde de santé publique).
-
-Ce que dit ce tableau. Le premier relevé (95 scénarios) ne couvrait que le tronc
-vente/paiement de base ; le ré-audit révélait 91 scénarios sans test. Après les Lots 1 à 4
-et le sous-ensemble [S] de R (R3, R5, R7) il en reste **34 sans test** — tous [V]/[N]/[C]
-(E1–E14, F7, R1/R2/R4/R6, L1–L9), qui exigent la pile de démo et sont reportés à une session
-avec la pile disponible, dont une majorité
-de moyens de paiement (chèque, TR, crédit client, devise, secours, dégradé monétique, règles
-de tender), de gestes de vente (GS1, ticket balance, répéter, à-enlever, contrôle d'âge,
-invite prix/quantité) et des chantiers entiers **jamais entamés** : facturation (P),
-mouvements de caisse (Q), consommation & budgets campagnes (R), supervision locale (S). La
-plupart sont marqués [S] et ne demandent QUE la caisse et son simulateur — c'est le travail
-le moins cher.
-
-Priorité d'exécution suggérée : d'abord tout le neuf [S] à infrastructure nulle — les moyens
-de paiement F9→F19, les gestes de vente B15→B24, la facturation P, les mouvements de caisse Q,
-la fidélité D4→D8, la supervision locale S1 — puis F7 et E (le moteur seedé miroir), R
-(consommation, [V]/[N]), enfin L, N et les [C] qui demandent la pile de démo à cinq services.
-Les scénarios [N] demandent le lancement biface ; les [V] demandent le moteur seedé miroir ;
-les [C] demandent la pile complète.
+Les 124 testés incluent les 6 scénarios O portés par `GroupOIT` (OA1–OA3, OE1–OE3), désormais
+catalogués. Le tag de chaque scénario fait foi pour la suite [S]/[V]/[N]/[C] : seuls les [S]
+s'écrivent caisse seule + simulateur ; les [V] demandent le valorisateur, les [N] le nœud magasin,
+les [C] la brique centrale.
