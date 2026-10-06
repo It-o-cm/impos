@@ -410,9 +410,8 @@ public class TicketService {
         }
         state.ticket.addItem(product.ean, null, product.saleLabel().toUpperCase(),
                 unitPrice, quantity, vatRate);
-        if (state.ticket.items.isEmpty()) {
-            return;
-        }
+        // addItem always leaves at least one line (it merges into an existing one
+        // or appends a new one), so the list is never empty here.
         TicketState.TicketItem line = state.ticket.items.get(state.ticket.items.size() - 1);
         // LC-02-03-02: the unit of measure travels WITH the line, so the register
         // display, the customer display and the receipt all state "2,36 x 4,99 €/m"
