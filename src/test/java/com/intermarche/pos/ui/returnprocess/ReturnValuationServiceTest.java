@@ -652,4 +652,54 @@ class ReturnValuationServiceTest {
         assertEquals(BigDecimal.ZERO, result.withdrawnGenerosity);
         assertTrue(result.keptAdvantages.isEmpty());
     }
+
+    // --------------------------------------------------
+    // Campaign 2 — retours added branches
+    // --------------------------------------------------
+
+    /**
+     * A null element in the origin's line list is counted as kept-ZERO (the
+     * {@code line == null} true leg of the kept-of guard): {@code keptOf} is
+     * reached first for each line, so a null slips through both passes without a
+     * dereference and the recomputation still completes.
+     *
+     * @throws Exception if the engine stub cannot be wired
+     */
+    @Test
+    void recomputeTreatsANullLineAsKeptZero() throws Exception {
+        ReturnValuationService service = newService();
+        Ticket origin = ticket("0001", null, line(1L, "111", "2", "5.00", "10.00"));
+        origin.lines.add(null);
+        when(service.valuationClient.valuate(any())).thenReturn(answer("3.00"));
+        ReturnValuationService.Recalculation result = service.recompute(origin, kept(1L, "1"));
+        assertEquals(ReturnValuationService.RecalculationStatus.RECOMPUTED, result.status);
+        assertTrue(result.keptAdvantages.isEmpty());
+    }
+
+    /**
+     * An advantage whose only label is a blank offer is dropped (the
+     * {@code !label.isBlank()} false leg of the label extraction): the label is
+     * non-null yet blank, so it never joins the surviving advantages.
+     *
+     * @throws Exception if the engine stub cannot be wired
+     */
+    @Test
+    void recomputeDropsAnAdvantageWhoseOfferIsBlank() throws Exception {
+        ReturnValuationService service = newService();
+        ValuationPayloads.ValuationResponseDto response =
+                new ValuationPayloads.ValuationResponseDto();
+        ValuationPayloads.AmountDto amount = new ValuationPayloads.AmountDto();
+        amount.amountIncludingTax = new BigDecimal("5.00");
+        response.totalPrice = amount;
+        ValuationPayloads.AdvantageDto real = new ValuationPayloads.AdvantageDto();
+        real.type = "REMISE PANIER";
+        ValuationPayloads.AdvantageDto blankOffer = new ValuationPayloads.AdvantageDto();
+        blankOffer.offer = "   ";
+        response.advantages.addAll(List.of(real, blankOffer));
+        when(service.valuationClient.valuate(any()))
+                .thenReturn(new ValuationClient.ValuationResult(response, "{}"));
+        ReturnValuationService.Recalculation result = service.recompute(
+                ticket("0001", null, line(1L, "111", "2", "5.00", "10.00")), kept(1L, "1"));
+        assertEquals(List.of("REMISE PANIER"), result.keptAdvantages);
+    }
 }
