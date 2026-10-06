@@ -1135,9 +1135,11 @@ Chantier LC-13-06, absent du catalogue jusqu'ici. Textes, routes et paramètres 
 - **T7 Langue inconnue ou bundle absent → français** [S] (LC-13-06-05/-10) : une langue choisie ou
   administrée hors bundles, ou un bundle introuvable, retombe sur le français — jamais une clé crue à
   l'écran (`bundle`/`load` rendent une map vide, `get` retombe sur la clé par défaut fr).
-- **T8 Écrans langue joignables hors session** [S] (LC-13-06-03) : `/language-select` et `/action/language`
-  sont dans `ALLOWED_PREFIXES` de `SessionCheckFilter` → joignables caisse verrouillée ou sans session ;
-  l'écran reste `@DrawerMustBeClosed` (tiroir fermé).
+- **T8 Routes langue et gardes session/verrou** [S] (LC-13-06-03) : `/language-select` et
+  `/action/language` sont hors du gate SESSION (`ALLOWED_PREFIXES` de `SessionCheckFilter`) → joignables
+  une fois connecté SANS session (écran session) comme en session. Ils ne sont PAS dans
+  `ALLOWED_PREFIXES` de `LockCheckFilter` : caisse VERROUILLÉE, `/language-select` est redirigé vers
+  `/lock`. ÉCART : `lock.html` offre un lien langue qui, verrouillé, retombe sur `/lock` (lien inopérant).
 
 ## O. Inventaire exhaustif — messages d'erreur & modales
 
