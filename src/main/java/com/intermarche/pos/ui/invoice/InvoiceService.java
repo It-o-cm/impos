@@ -43,6 +43,14 @@ public class InvoiceService {
     /** How many customers a search returns at most. */
     private static final int CUSTOMER_MATCHES = 12;
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The register state, whose invoice sub-state this service drives. */
     @Inject
     PosState state;
@@ -90,7 +98,7 @@ public class InvoiceService {
         if (administered != null) {
             return List.of(administered.split("\\n", -1));
         }
-        return InvoiceRenderer.render(laid);
+        return InvoiceRenderer.render(laid, i18n);
     }
 
     /**
@@ -152,7 +160,7 @@ public class InvoiceService {
                 parseDate(state.invoice.ticketDate),
                 blankToNull(state.invoice.ticketTerminal));
         if (found == null) {
-            state.invoice.error = "TICKET INTROUVABLE : " + state.invoice.ticketNumber;
+            state.invoice.error = i18n.format("op.ticketIntrouvable", state.invoice.ticketNumber);
             state.touch();
             LOGGER.info("Exiting method chooseTicket");
             return;
@@ -202,7 +210,7 @@ public class InvoiceService {
         state.invoice.error = "";
         DocumentType chosen = DocumentType.byName(typeName);
         if (chosen == null || !state.invoice.documentTypes.contains(chosen)) {
-            state.invoice.error = "TYPE DE DOCUMENT INDISPONIBLE";
+            state.invoice.error = i18n.get("op.typeDocumentIndisponible");
             state.touch();
             LOGGER.info("Exiting method chooseDocumentType");
             return;
@@ -272,14 +280,14 @@ public class InvoiceService {
         state.invoice.error = "";
         state.invoice.customerNumber = trimmed(accountNumber);
         if (state.invoice.customerNumber.isEmpty()) {
-            state.invoice.error = "NUMERO CLIENT VIDE";
+            state.invoice.error = i18n.get("op.numeroClientVide");
             state.touch();
             LOGGER.info("Exiting method chooseCustomerByNumber");
             return;
         }
         AccountCustomer found = repository.findCustomerByNumber(state.invoice.customerNumber);
         if (found == null) {
-            state.invoice.error = "CLIENT INTROUVABLE : " + state.invoice.customerNumber;
+            state.invoice.error = i18n.format("op.clientIntrouvable2", state.invoice.customerNumber);
             state.touch();
             LOGGER.info("Exiting method chooseCustomerByNumber");
             return;
@@ -301,7 +309,7 @@ public class InvoiceService {
         state.invoice.error = "";
         AccountCustomer found = repository.findCustomer(customerId);
         if (found == null) {
-            state.invoice.error = "CLIENT INTROUVABLE";
+            state.invoice.error = i18n.get("op.clientIntrouvable");
             state.touch();
             LOGGER.info("Exiting method chooseCustomer");
             return;
@@ -345,7 +353,7 @@ public class InvoiceService {
         // all. Refused here and not on the screen: a form can be hidden, a POST
         // cannot, and this is the only place the row would be written.
         if (!posSettingsService.volatileCustomerCreationEnabled()) {
-            state.invoice.error = "CREATION CLIENT NON AUTORISEE EN CAISSE";
+            state.invoice.error = i18n.get("op.creationClientNonAutorisee");
             state.touch();
             LOGGER.info("Exiting method createCustomer");
             return;
@@ -363,7 +371,7 @@ public class InvoiceService {
         typed.put("taxId", taxId);
         String missing = firstMissing(typed);
         if (missing != null) {
-            state.invoice.error = missing.toUpperCase() + " OBLIGATOIRE";
+            state.invoice.error = i18n.format("op.obligatoire", missing.toUpperCase());
             state.touch();
             LOGGER.info("Exiting method createCustomer");
             return;
@@ -371,7 +379,7 @@ public class InvoiceService {
         // The business name is what the document is addressed to: whatever the
         // administered mask says, a customer without one cannot be billed.
         if (companyName == null || companyName.isBlank()) {
-            state.invoice.error = "RAISON SOCIALE OBLIGATOIRE";
+            state.invoice.error = i18n.get("op.raisonSocialeObligatoire");
             state.touch();
             LOGGER.info("Exiting method createCustomer");
             return;
@@ -382,7 +390,7 @@ public class InvoiceService {
         // ambiguous ever after.
         String fiscal = fiscalIdentifier(taxId, taxCountry);
         if (fiscal != null && repository.findCustomerByTaxId(fiscal) != null) {
-            state.invoice.error = "N° FISCAL DEJA ENREGISTRE";
+            state.invoice.error = i18n.get("op.nFiscalDejaEnregistre");
             state.touch();
             LOGGER.info("Exiting method createCustomer");
             return;
@@ -431,13 +439,13 @@ public class InvoiceService {
         LOGGER.info("Entering method editCustomer");
         state.invoice.error = "";
         if (!posSettingsService.customerUpdateEnabled()) {
-            state.invoice.error = "MISE A JOUR CLIENT NON AUTORISEE EN CAISSE";
+            state.invoice.error = i18n.get("op.miseJourClientNon");
             state.touch();
             LOGGER.info("Exiting method editCustomer");
             return;
         }
         if (state.invoice.customer == null) {
-            state.invoice.error = "AUCUN CLIENT SELECTIONNE";
+            state.invoice.error = i18n.get("op.aucunClientSelectionne");
             state.touch();
             LOGGER.info("Exiting method editCustomer");
             return;
@@ -478,14 +486,14 @@ public class InvoiceService {
         LOGGER.info("Entering method updateCustomer with companyName: " + companyName + ", contactName: " + contactName + ", street: " + street + ", postalCode: " + postalCode + ", city: " + city + ", siret: " + siret + ", vatNumber: " + vatNumber + ", phone: " + phone + ", email: " + email);
         state.invoice.error = "";
         if (!posSettingsService.customerUpdateEnabled()) {
-            state.invoice.error = "MISE A JOUR CLIENT NON AUTORISEE EN CAISSE";
+            state.invoice.error = i18n.get("op.miseJourClientNon");
             state.touch();
             LOGGER.info("Exiting method updateCustomer");
             return;
         }
         AccountCustomer named = state.invoice.customer;
         if (named == null) {
-            state.invoice.error = "AUCUN CLIENT SELECTIONNE";
+            state.invoice.error = i18n.get("op.aucunClientSelectionne");
             state.touch();
             LOGGER.info("Exiting method updateCustomer");
             return;
@@ -503,13 +511,13 @@ public class InvoiceService {
         typed.put("taxId", taxId);
         String missing = firstMissing(typed);
         if (missing != null) {
-            state.invoice.error = missing.toUpperCase() + " OBLIGATOIRE";
+            state.invoice.error = i18n.format("op.obligatoire", missing.toUpperCase());
             state.touch();
             LOGGER.info("Exiting method updateCustomer");
             return;
         }
         if (companyName == null || companyName.isBlank()) {
-            state.invoice.error = "RAISON SOCIALE OBLIGATOIRE";
+            state.invoice.error = i18n.get("op.raisonSocialeObligatoire");
             state.touch();
             LOGGER.info("Exiting method updateCustomer");
             return;
@@ -521,7 +529,7 @@ public class InvoiceService {
         if (fiscal != null) {
             AccountCustomer holder = repository.findCustomerByTaxId(fiscal);
             if (holder != null && !holder.id.equals(named.id)) {
-                state.invoice.error = "N° FISCAL DEJA ENREGISTRE";
+                state.invoice.error = i18n.get("op.nFiscalDejaEnregistre");
                 state.touch();
                 LOGGER.info("Exiting method updateCustomer");
                 return;
@@ -529,7 +537,7 @@ public class InvoiceService {
         }
         AccountCustomer persisted = repository.findCustomer(named.id);
         if (persisted == null) {
-            state.invoice.error = "CLIENT INTROUVABLE";
+            state.invoice.error = i18n.get("op.clientIntrouvable");
             state.touch();
             LOGGER.info("Exiting method updateCustomer");
             return;
@@ -713,7 +721,7 @@ public class InvoiceService {
         }
         Invoice draft = build(ticket, customer, "");
         LOGGER.info("Exiting method preview");
-        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft));
+        return InvoiceDocument.of(draft, ticket, posSettingsService.showEan(), taxIdLabel(draft), i18n);
     }
 
     /**
@@ -731,13 +739,13 @@ public class InvoiceService {
         state.invoice.error = "";
         if (state.invoice.ticket == null || state.invoice.customer == null
                 || state.invoice.documentType == null) {
-            state.invoice.error = "TICKET OU CLIENT MANQUANT";
+            state.invoice.error = i18n.get("op.ticketClientManquant");
             state.touch();
             LOGGER.info("Exiting method issue");
             return null;
         }
         if (state.trainingMode) {
-            state.invoice.error = "FACTURE INDISPONIBLE EN FORMATION";
+            state.invoice.error = i18n.get("op.factureIndisponibleFormation");
             state.touch();
             LOGGER.info("Exiting method issue");
             return null;
@@ -782,7 +790,7 @@ public class InvoiceService {
             return null;
         }
         LOGGER.info("Exiting method issued");
-        return InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document));
+        return InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n);
     }
 
     /**
@@ -968,7 +976,7 @@ public class InvoiceService {
             Invoice document = build(ticket, customer,
                     ticketNumberService.nextDocumentNumber(kind), kind);
             InvoiceDocument laid =
-                    InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document));
+                    InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n);
             List<String> lines = renderLines(laid);
             if (outputFor(kind) != DocumentOutput.A4 || !networkPrinter.print(laid, lines)) {
                 hardwareService.printReceipt(String.join("\n", lines) + "\n");
@@ -1047,7 +1055,7 @@ public class InvoiceService {
      * @param ticket   the ticket it states
      */
     private void print(Invoice document, Ticket ticket) {
-        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document));
+        InvoiceDocument laid = InvoiceDocument.of(document, ticket, posSettingsService.showEan(), taxIdLabel(document), i18n);
         List<String> lines = renderLines(laid);
         DocumentOutput target = outputFor(document.documentType);
         if (target.needsInsertion()) {
@@ -1066,7 +1074,7 @@ public class InvoiceService {
             return;
         }
         if (target == DocumentOutput.A4) {
-            state.invoice.error = "IMPRIMANTE RESEAU INJOIGNABLE - DOCUMENT IMPRIME EN CAISSE";
+            state.invoice.error = i18n.get("op.imprimanteReseauInjoignableDocument");
         }
         hardwareService.printReceipt(String.join("\n", lines) + "\n");
         hardwareService.cutPaper();

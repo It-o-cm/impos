@@ -22,25 +22,32 @@ import java.util.List;
 public enum PosMenu {
 
     /** Article entry: scan, quantity, weighing, direct entry, search, subtotal, info. */
-    ARTICLES("articles", "ARTICLES"),
+    ARTICLES("articles", "menu.articles"),
 
     /** The post itself: lock, close, session, float calculator, training. */
-    CAISSE("caisse", "CAISSE"),
+    CAISSE("caisse", "menu.caisse"),
 
-    /** Settlement: pay, and the price/discount gestures that move the amount due. */
-    REGLEMENT("reglement", "RÈGLEMENT"),
+    /**
+     * Settlement: the key goes STRAIGHT to the payment screen.
+     *
+     * <p>It carries no button list of its own. Paying is the one gesture of the
+     * menu a cashier reaches twenty times an hour, and making it cost a tap on a
+     * menu and a tap on a button was a tax on the commonest act of the day. The
+     * two price gestures that used to sit beside it moved to {@link #GENEROSITE}.
+     */
+    REGLEMENT("reglement", "menu.reglement", "/pay"),
 
     /** The ticket's own life: parking, cancelling, printing, billing, return, recall. */
-    TICKET("ticket", "TICKET"),
+    TICKET("ticket", "menu.ticket"),
 
     /** Generosity: fidelity, loyalty balance. */
-    GENEROSITE("generosite", "GÉNÉROSITÉ"),
+    GENEROSITE("generosite", "menu.generosite"),
 
     /** The drawer's money: movements, withdrawal, coin supply, transfer, deposit-return. */
-    TIROIR("tiroir", "TIROIR"),
+    TIROIR("tiroir", "menu.tiroir"),
 
     /** Everything else: supervisor, degraded mode, badge, PIN, theme, recall. */
-    AUTRE("autre", "AUTRE");
+    AUTRE("autre", "menu.autre");
 
     /** The seven menus in tab order (the expert's nomenclature) — what the bottom bar renders. */
     public static final List<PosMenu> ALL = List.of(values());
@@ -48,18 +55,56 @@ public enum PosMenu {
     /** The key carried by the menu's URL. */
     private final String key;
 
-    /** The operator-facing label of the menu key. */
-    private final String label;
+    /** Bundle key of the operator-facing label of the menu key (LC-13-06). */
+    private final String labelKey;
 
     /**
-     * Builds a menu with its URL key and its label.
+     * The screen this key opens straight away, or null for a menu of buttons.
+     * <p>
+     * A key with a destination is NOT a menu: the bottom bar links it to that
+     * screen, and no button list is ever rendered for it.
+     */
+    private final String destination;
+
+    /**
+     * Builds a menu of buttons, with no destination of its own.
      *
      * @param key the key carried by the menu's URL
-     * @param label the operator-facing label
+     * @param labelKey the bundle key of the operator-facing label
      */
-    PosMenu(String key, String label) {
+    PosMenu(String key, String labelKey) {
+        this(key, labelKey, null);
+    }
+
+    /**
+     * Builds a menu key, with the screen it opens straight away when it has one.
+     *
+     * @param key the key carried by the menu's URL
+     * @param labelKey the bundle key of the operator-facing label
+     * @param destination the screen the key opens, or null for a menu of buttons
+     */
+    PosMenu(String key, String labelKey, String destination) {
         this.key = key;
-        this.label = label;
+        this.labelKey = labelKey;
+        this.destination = destination;
+    }
+
+    /**
+     * Returns the screen this key opens straight away.
+     *
+     * @return the path, or null when the key shows a menu of buttons
+     */
+    public String getDestination() {
+        return destination;
+    }
+
+    /**
+     * Tells whether this key opens a screen instead of showing buttons.
+     *
+     * @return true when the key carries a destination
+     */
+    public boolean isDirect() {
+        return destination != null;
     }
 
     /**
@@ -72,12 +117,16 @@ public enum PosMenu {
     }
 
     /**
-     * Returns the operator-facing label of the menu key.
+     * Returns the bundle key of the operator-facing label of the menu key.
      *
-     * @return the label
+     * <p>A KEY AND NOT THE SENTENCE: an enum constant is built once, at class
+     * loading, long before a request names an operator's language, so the
+     * bottom bar resolves what it renders (LC-13-06).
+     *
+     * @return the bundle key of the label
      */
-    public String getLabel() {
-        return label;
+    public String getLabelKey() {
+        return labelKey;
     }
 
     /**

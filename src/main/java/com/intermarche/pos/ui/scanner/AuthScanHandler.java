@@ -51,13 +51,29 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
                 state.touch();
                 ctx.handled = true;
             }
-            // 2. Sinon : Écran de verrouillage (Login Caissier)
+            // 2. Sinon : un ECRAN DEMANDE UNE IDENTIFICATION SUPERVISEUR (le
+            // volet partage de la fermeture, de l'ecart de comptage, de
+            // l'annulation d'un ticket paye, du deverrouillage force). Passer
+            // un badge et saisir son identifiant doivent TOUJOURS avoir le
+            // meme effet : la ou un identifiant se tape, un badge se presente.
+            // Ce cas passe AVANT le verrouillage parce que sur l'ecran
+            // verrouille les deux sont vrais a la fois, et c'est le volet
+            // ouvert qui a la main — l'identification de l'ouverture, elle,
+            // n'est pas affichee a ce moment-la. L'armement est porte par le
+            // volet lui-meme et expire des qu'il quitte l'ecran, donc un badge
+            // etranger reste ignore partout ailleurs.
+            else if (state.auth.supervisorBadgeArmed()) {
+                state.auth.setSupervisorBadge(ctx.code);
+                state.touch();
+                ctx.handled = true;
+            }
+            // 3. Sinon : Écran de verrouillage (Login Caissier)
             else if (state.isLocked()) {
                 state.auth.setScannedBadge(ctx.code);
                 state.touch();
                 ctx.handled = true;
             }
-            // 3. Sinon : le badge de l'opérateur EN POSTE ferme la caisse
+            // 4. Sinon : le badge de l'opérateur EN POSTE ferme la caisse
             // (LC-01-02-03). Le badge est la preuve d'identité, donc aucun mot
             // de passe n'est demandé ; la fermeture elle-même reste soumise à
             // ses propres contrôles (tickets en attente), que la page de
@@ -67,7 +83,7 @@ public class AuthScanHandler implements ScanContext.ScanHandler {
                 state.touch();
                 ctx.handled = true;
             }
-            // 4. Sinon on ignore le badge (pas de changement d'opérateur auto)
+            // 5. Sinon on ignore le badge (pas de changement d'opérateur auto)
         }
     }
 }

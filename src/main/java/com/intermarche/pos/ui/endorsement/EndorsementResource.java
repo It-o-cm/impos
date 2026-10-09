@@ -35,6 +35,14 @@ public class EndorsementResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(EndorsementResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject EndorsementService endorsementService;
     @Inject TicketService ticketService;
     @Inject RefundService refundService;
@@ -108,7 +116,7 @@ public class EndorsementResource {
             LOGGER.info("Exiting method validateEndorsement");
             return landingOf(own, landing);
         } else {
-            state.endorsement.error = "AUTORISATION REFUSÉE";
+            state.endorsement.error = i18n.get("op.autorisationRefusee2");
             state.touch();
             LOGGER.info("Exiting method validateEndorsement");
             return redirectHome();
@@ -183,7 +191,7 @@ public class EndorsementResource {
                     Refund.RefundMethod method = Refund.RefundMethod.valueOf(parts[1]);
                     refundService.performRefund(state, method);
                 } catch (IllegalArgumentException | ArrayIndexOutOfBoundsException e) {
-                    state.endorsement.error = "ACTION DE REMBOURSEMENT INCONNUE";
+                    state.endorsement.error = i18n.get("op.actionRemboursementInconnue");
                 } catch (IllegalStateException e) {
                     // Guard refusal: the message is already on the refund screen
                 }
@@ -278,7 +286,7 @@ public class EndorsementResource {
             return redirectHome();
         }
         if (!endorsementService.operatorIsSupervisor(state)) {
-            state.endorsement.error = "AUTORISATION REFUSÉE";
+            state.endorsement.error = i18n.get("op.autorisationRefusee2");
             state.touch();
             LOGGER.info("Exiting method selfEndorse");
             return redirectHome();

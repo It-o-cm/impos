@@ -16,7 +16,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fermeture de caisse</title>
+  <title>{inject:i18n.get('close.fermetureCaisse')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -42,7 +42,7 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="title">Fermeture de caisse — {state.auth.operatorName}</span>
+      <span class="title">{inject:i18n.get('close.fermetureCaisse')} — {state.auth.operatorName}</span>
     </div>
 
     <div class="work">
@@ -51,28 +51,21 @@
       {/if}
 
       {#if obstacle == 'IN_TRANSACTION'}
-      <div class="close-warn">
-        Une vente est en cours : impossible de fermer la caisse (EXP-11).
-        Terminez, mettez en attente ou abandonnez le ticket — ou verrouillez la
-        caisse si vous vous absentez un instant.
-      </div>
+      <div class="close-warn">{inject:i18n.get('close.venteCoursImpossibleFermer')}</div>
       {#else if obstacle == 'PENDING_TICKETS'}
-      <div class="close-warn">
-        {pending} ticket(s) en attente n'ont pas été repris sur cette caisse.
-        Une autorisation superviseur est nécessaire pour fermer la session.
-      </div>
+      <div class="close-warn">{inject:i18n.format('close.ticketsAttenteAutorisationSuperviseur', pending)}</div>
       {#else}
-      <div class="close-state">Saisissez votre code opérateur pour fermer la caisse.</div>
+      <div class="close-state">{inject:i18n.get('close.saisissezCodeOperateurFermer')}</div>
       {/if}
 
       {#if obstacle != 'IN_TRANSACTION'}
       {#if obstacle == 'PASSWORD'}
       <form class="close-form" method="post" action="/action/close">
-        <h2>Code opérateur</h2>
+        <h2>{inject:i18n.get('close.codeOperateur')}</h2>
         <div class="close-row">
           <div id="dispPassword" class="close-input pad-display" onclick="activateField('password')"></div>
           <input type="hidden" name="password" id="valPassword" value="">
-          <button class="btn btn-primary" type="submit">FERMER LA CAISSE</button>
+          <button class="btn btn-primary" type="submit">{inject:i18n.get('close.fermerCaisse')}</button>
         </div>
       </form>
       {/if}
@@ -80,15 +73,14 @@
       {! The forced close is offered in BOTH cases: a forgotten password and a
        ! cart left behind are the two situations the requirement names, and a
        ! supervisor answers for either. !}
-      <form class="close-form" method="post" action="/action/close">
-        <h2>Fermeture forcée — autorisation superviseur</h2>
-        <div class="close-row">
-          <div id="dispSupervisor" class="close-input pad-display" data-placeholder="Identifiant superviseur" onclick="activateField('supervisor')"></div>
-          <input type="hidden" name="supervisor" id="valSupervisor" value="">
-          <div id="dispSupervisorPin" class="close-input pad-display" data-placeholder="Code" onclick="activateField('supervisorPin')"></div>
-          <input type="hidden" name="supervisorPassword" id="valSupervisorPin" value="">
-          <button class="btn btn-danger" type="submit">FORCER LA FERMETURE</button>
-        </div>
+      <form class="close-form" method="post" action="/action/close" onsubmit="return SupAuth.fill(this)">
+        <h2>{inject:i18n.get('close.fermetureForceeAutorisationSuperviseur')}</h2>
+        {! Le superviseur s'identifie COMME A L'OUVERTURE, dans le volet
+         ! partage par les quatre ecrans qui le demandent. !}
+        {#include supervisor-auth padContainer='closeKbArea' displayClass='close-input' /}
+        <input type="hidden" name="supervisor">
+        <input type="hidden" name="supervisorPassword">
+        <button class="btn btn-danger" type="submit">{inject:i18n.get('close.forcerFermeture')}</button>
       </form>
       {/if}
 
@@ -101,7 +93,7 @@
       <div class="close-keyboard" id="closeKbArea"></div>
 
       <div class="close-actions">
-        <a class="btn btn-muted" href="/">RETOUR À LA VENTE</a>
+        <a class="btn btn-muted" href="/">{inject:i18n.get('close.retourVente')}</a>
       </div>
     </div>
   </div>
@@ -109,36 +101,38 @@
   {#include keyboard-lib /}
 
   <script>
-    /* Chaque champ dit quel pave il veut: l'identifiant se tape en lettres,
-       les codes en chiffres et masques. */
-    const CLOSE_FIELDS = {
-        password:      { display: 'dispPassword',      hidden: 'valPassword',      type: 'numpad', mode: 'pin',  max: 8 },
-        supervisor:    { display: 'dispSupervisor',    hidden: 'valSupervisor',    type: 'alpha',  mode: 'text', max: 32 },
-        supervisorPin: { display: 'dispSupervisorPin', hidden: 'valSupervisorPin', type: 'numpad', mode: 'pin',  max: 8 }
-    };
+    /* Deux cibles pour UN pave, et l'operateur n'en remplit qu'une a la fois:
+       son propre code, ou l'identification du superviseur — celle-ci tenue par
+       le volet partage, qui porte sa propre machine a etats. */
 
+    /* Rebranche le pave sur une cible.
+       @param name 'password' (le code operateur) ou 'supervisor' */
     function activateField(name) {
-        const field = CLOSE_FIELDS[name];
-        if (!field || !document.getElementById(field.hidden)) { return; }
-        Object.values(CLOSE_FIELDS).forEach(f => {
-            const el = document.getElementById(f.display);
-            if (el) { el.classList.remove('active'); }
-        });
-        document.getElementById(field.display).classList.add('active');
+        if (name === 'supervisor') {
+            if (!document.getElementById('supAuthLogin')) { return; }
+            const own = document.getElementById('dispPassword');
+            if (own) { own.classList.remove('active'); }
+            SupAuth.focus();
+            return;
+        }
+        if (!document.getElementById('valPassword')) { return; }
+        /* Le volet rend le pave: son lisere s'eteint, sinon deux afficheurs se
+           disputeraient visuellement un pave qui n'en sert qu'un. */
+        if (typeof SupAuth !== 'undefined') { SupAuth.blur(); }
+        document.getElementById('dispPassword').classList.add('active');
         PosInput.setup({
-            displayId: field.display,
-            hiddenId: field.hidden,
+            displayId: 'dispPassword',
+            hiddenId: 'valPassword',
             containerId: 'closeKbArea',
-            keyboardType: field.type,
-            mode: field.mode,
-            uppercase: false,
-            maxLength: field.max,
-            initialValue: document.getElementById(field.hidden).value || ''
+            keyboardType: 'numpad',
+            mode: 'pin',
+            maxLength: 8,
+            initialValue: document.getElementById('valPassword').value || ''
         });
     }
 
-    /* Le champ qui s'ouvre en premier est celui que la page demande: le code
-       operateur quand il est reclame, sinon l'identifiant du superviseur. */
+    /* La cible qui s'ouvre en premier est celle que la page demande: le code
+       operateur quand il est reclame, sinon l'identification du superviseur. */
     activateField(document.getElementById('valPassword') ? 'password' : 'supervisor');
   </script>
 </body>

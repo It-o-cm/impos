@@ -20,7 +20,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Recherche Produit</title>
+  <title>{inject:i18n.get('search.rechercheProduit')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -83,17 +83,17 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="title">Recherche produit — nom, EAN ou code article</span>
+      <span class="title">{inject:i18n.get('search.rechercheProduitNomEan')}</span>
     </div>
 
     <div class="work">
       <div class="pad-col">
         <div class="input-row">
-          <a href="/" class="btn btn-muted btn-back">RETOUR</a>
+          <a href="/" class="btn btn-muted btn-back">{inject:i18n.get('common.back')}</a>
           <form action="/search" method="GET" id="searchForm" class="input-search">
             <div id="searchDisplay" class="search-display pad-display"></div>
             <input type="hidden" name="q" id="searchHidden" value="{q}">
-            <button type="submit" class="btn-search">RECHERCHER</button>
+            <button type="submit" class="btn-search">{inject:i18n.get('search.rechercher')}</button>
           </form>
         </div>
         {! LC-06-01-01: a SECOND destination for the same buffer. The search only
@@ -104,7 +104,7 @@
          ! the two buttons cannot disagree about what the operator typed. !}
         <form action="/action/search/scan" method="POST" id="scanForm">
           <input type="hidden" name="q" id="scanHidden" value="{q}">
-          <button type="submit" class="btn btn-primary btn-scan">VALIDER CE CODE (COMME UN SCAN)</button>
+          <button type="submit" class="btn btn-primary btn-scan">{inject:i18n.get('search.validerCodeCommeScan')}</button>
         </form>
         <div id="alphaKbArea" class="kb-area"></div>
       </div>
@@ -114,7 +114,7 @@
           {#if q.length >= 2}
             <div class="results-empty">AUCUN PRODUIT POUR « {q} »</div>
           {#else}
-            <div class="results-empty">TAPEZ UN NOM, UN EAN OU UN CODE ARTICLE PUIS RECHERCHER</div>
+            <div class="results-empty">{inject:i18n.get('search.tapezNomEanCode')}</div>
           {/if}
         {#else}
           <div class="results-count">{hits.size} RÉSULTATS</div>
@@ -128,13 +128,13 @@
           </div>
           <div class="pos-pager">
             {#if hasPrev}
-              <a href="{pageUrl}{prevPage}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
+              <a href="{pageUrl}{prevPage}" class="btn btn-sm btn-muted">{inject:i18n.get('search.precedent')}</a>
             {#else}
               <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
             {/if}
             <span class="pos-pager-info">{page} / {pageCount}</span>
             {#if hasNext}
-              <a href="{pageUrl}{nextPage}" class="btn btn-sm btn-muted">SUIVANT</a>
+              <a href="{pageUrl}{nextPage}" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>
             {#else}
               <span class="btn btn-sm btn-muted off">SUIVANT</span>
             {/if}

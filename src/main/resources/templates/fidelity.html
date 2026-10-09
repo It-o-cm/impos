@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fidélité</title>
+    <title>{inject:i18n.get('fidelity.fidelite')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -54,8 +54,8 @@
 
 <div class="pos-terminal">
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
-        <span id="opInfo">CAISSE 04 | Opérateur : MARIE</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
+        <span id="opInfo">{inject:i18n.get('fidelity.caisse04OperateurMarie')}</span>
         <span id="clock">--:--:--</span>
     </div>
     <div class="main-area"></div>
@@ -64,7 +64,7 @@
     <div class="overlay active" id="fidScreen">
         <div class="overlay-panel">
         <div class="overlay-header">
-            <div class="overlay-title">PROGRAMME DE FIDÉLITÉ</div>
+            <div class="overlay-title">{inject:i18n.get('fidelity.programmeFidelite')}</div>
             
         </div>
 
@@ -79,11 +79,11 @@
             {/if}
 
             <div class="fid-modes">
-                <button class="fid-toggle active" id="btnCard" onclick="setFidMode('card', this)">N° CARTE</button>
-                <button class="fid-toggle" id="btnTel" onclick="setFidMode('tel', this)">TÉLÉPHONE</button>
-                <button class="fid-toggle" id="btnEmail" onclick="setFidMode('email', this)">E-MAIL</button>
-                <button class="fid-toggle" id="btnName" onclick="setFidMode('name', this)">NOM / PRÉNOM</button>
-                <button class="fid-toggle" id="btnVille" onclick="setFidMode('ville', this)">VILLE</button>
+                <button class="fid-toggle active" id="btnCard" onclick="setFidMode('card', this)">{inject:i18n.get('fidelity.nCarte')}</button>
+                <button class="fid-toggle" id="btnTel" onclick="setFidMode('tel', this)">{inject:i18n.get('fidelity.telephone')}</button>
+                <button class="fid-toggle" id="btnEmail" onclick="setFidMode('email', this)">{inject:i18n.get('fidelity.eMail')}</button>
+                <button class="fid-toggle" id="btnName" onclick="setFidMode('name', this)">{inject:i18n.get('fidelity.nomPrenom')}</button>
+                <button class="fid-toggle" id="btnVille" onclick="setFidMode('ville', this)">{inject:i18n.get('fidelity.ville')}</button>
             </div>
 
             <!-- Card mode ATTACHES directly (/action/fidelity) ; the three
@@ -101,9 +101,9 @@
                 <div class="fid-keyboard-area pos-kb-compact" id="fidKeyboardArea"></div>
 
                 <div class="fid-actions">
-                    <a href="/" class="btn btn-muted" style="width:11.25rem;">RETOUR</a>
-                    <button type="submit" class="btn btn-primary" style="width:11.25rem;" id="fidSubmit">VALIDER</button>
-                    <a href="/" class="btn btn-muted" style="width:11.25rem;">PASSER</a>
+                    <a href="/" class="btn btn-muted" style="width:11.25rem;">{inject:i18n.get('common.back')}</a>
+                    <button type="submit" class="btn btn-primary" style="width:11.25rem;" id="fidSubmit">{inject:i18n.get('common.validate')}</button>
+                    <a href="/" class="btn btn-muted" style="width:11.25rem;">{inject:i18n.get('fidelity.passer')}</a>
                 </div>
             </form>
 
@@ -118,10 +118,10 @@
             <div class="fid-results-wrap" id="fidResultsWrap">
             <table id="fidResults" style="width:100%; border-collapse:collapse; font-size:var(--fs-body);">
                 <tr style="color: var(--text-muted); text-align:left;">
-                    <th style="padding:4px 6px;">CARTE</th>
-                    <th style="padding:4px 6px;">PORTEUR</th>
+                    <th style="padding:4px 6px;">{inject:i18n.get('fidelity.carte')}</th>
+                    <th style="padding:4px 6px;">{inject:i18n.get('fidelity.porteur')}</th>
                     <th style="padding:4px 6px;">TÉLÉPHONE</th>
-                    <th style="padding:4px 6px;">STATUT</th>
+                    <th style="padding:4px 6px;">{inject:i18n.get('fidelity.statut')}</th>
                     <th style="padding:4px 6px;"></th>
                 </tr>
                 {#for m in state.fidelity.visibleMatches}
@@ -140,10 +140,10 @@
                             <input type="hidden" name="firstName" value="{m.firstName}">
                             <input type="hidden" name="status" value="{m.status}">
                             <input type="hidden" name="email" value="{m.email ?: ''}">
-                            <button type="submit" class="btn btn-sm btn-primary">SÉLECTIONNER</button>
+                            <button type="submit" class="btn btn-sm btn-primary">{inject:i18n.get('fidelity.selectionner')}</button>
                         </form>
                         {#else}
-                        <span style="color: var(--danger); font-weight:bold;">ACCUEIL</span>
+                        <span style="color: var(--danger); font-weight:bold;">{inject:i18n.get('fidelity.accueil')}</span>
                         {/if}
                     </td>
                 </tr>
@@ -152,13 +152,13 @@
             {#if state.fidelity.lookupPageCount > 1}
             <div class="pos-pager">
                 {#if state.fidelity.hasLookupPrev}
-                <a href="/fidelity/page/{state.fidelity.lastLookupPage - 1}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
+                <a href="/fidelity/page/{state.fidelity.lastLookupPage - 1}" class="btn btn-sm btn-muted">{inject:i18n.get('fidelity.precedent')}</a>
                 {#else}
                 <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
                 {/if}
                 <span class="pos-pager-info">PAGE {state.fidelity.lookupPageDisplay} / {state.fidelity.lookupPageCount}</span>
                 {#if state.fidelity.hasLookupNext}
-                <a href="/fidelity/page/{state.fidelity.lastLookupPage + 1}" class="btn btn-sm btn-muted">SUIVANT</a>
+                <a href="/fidelity/page/{state.fidelity.lastLookupPage + 1}" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>
                 {#else}
                 <span class="btn btn-sm btn-muted off">SUIVANT</span>
                 {/if}
@@ -172,16 +172,16 @@
             <div style="margin-top: 18px; border-top: 1px solid var(--border-strong); padding-top: 12px;">
                 {#if consultation.hasAccount}
                 <div style="display:flex; gap:18px; justify-content:center; font-size:var(--fs-body); margin-bottom:10px;">
-                    <div>STATUT&nbsp;: <b>{consultation.status}</b></div>
-                    <div>SOLDE&nbsp;: <b>{consultation.balance} €</b></div>
-                    <div>DISPONIBLE&nbsp;: <b style="color: var(--accent);">{consultation.available} €</b></div>
+                    <div>{inject:i18n.get('fidelity.statutNbsp')} <b>{consultation.status}</b></div>
+                    <div>{inject:i18n.get('fidelity.soldeNbsp')} <b>{consultation.balance} €</b></div>
+                    <div>{inject:i18n.get('fidelity.disponibleNbsp')} <b style="color: var(--accent);">{consultation.available} €</b></div>
                 </div>
                 {#if consultation.rows}
                 <table style="width:100%; border-collapse:collapse; font-size:var(--fs-body);">
                     <tr style="color: var(--text-muted); text-align:left;">
-                        <th style="padding:4px 6px;">DATE</th>
-                        <th style="padding:4px 6px;">OPÉRATION</th>
-                        <th style="padding:4px 6px; text-align:right;">MONTANT</th>
+                        <th style="padding:4px 6px;">{inject:i18n.get('fidelity.date')}</th>
+                        <th style="padding:4px 6px;">{inject:i18n.get('fidelity.operation')}</th>
+                        <th style="padding:4px 6px; text-align:right;">{inject:i18n.get('fidelity.montant')}</th>
                     </tr>
                     {#for row in consultation.rows}
                     <tr style="border-top:1px solid var(--border-color);">

@@ -15,7 +15,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Calculatrice de fond</title>
+  <title>{inject:i18n.get('cashcalculator.calculatriceFond')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -52,8 +52,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>CALCULATRICE DE FOND</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('cashcalculator.calculatriceFond2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -61,9 +61,9 @@
       <div class="count-area">
         <div class="count-list-area">
           <div class="tabs-container">
-            <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
-            <button type="button" class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
-            <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+            <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">{inject:i18n.get('cashcalculator.billets')}</button>
+            <button type="button" class="tab-btn" onclick="switchTab('coins', this)">{inject:i18n.get('cashcalculator.pieces')}</button>
+            <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">{inject:i18n.get('cashcalculator.rouleaux')}</button>
           </div>
           <div class="items-scroll">
             <div class="denom-list active" id="list-bills">
@@ -92,12 +92,12 @@
 
         <div class="action-area">
           <div class="total-box">
-            <div class="total-label">Total compté</div>
+            <div class="total-label">{inject:i18n.get('cashcalculator.totalCompte')}</div>
             <div class="total-amount" id="totalDisplay">0,00 €</div>
           </div>
-          <div class="calc-hint">Aide au comptage — rien n'est enregistré.</div>
+          <div class="calc-hint">{inject:i18n.get('cashcalculator.aideComptageRienN')}</div>
           {#if printed}
-            <div class="calc-printed">COMPTAGE IMPRIMÉ</div>
+            <div class="calc-printed">{inject:i18n.get('cashcalculator.comptageImprime')}</div>
           {/if}
           <div class="numpad-container" id="numpadArea"></div>
         </div>
@@ -105,8 +105,8 @@
     </div>
 
     <div class="bottom-nav">
-      <a class="btn btn-muted" href="/">RETOUR</a>
-      <button type="button" class="btn btn-primary" onclick="resetAll()">REMETTRE À ZÉRO</button>
+      <a class="btn btn-muted" href="/">{inject:i18n.get('common.back')}</a>
+      <button type="button" class="btn btn-primary" onclick="resetAll()">{inject:i18n.get('cashcalculator.remettreZero')}</button>
       {! Le comptage du matin se termine par un papier: c'est la seule trace qu'il
        ! laisse, et c'est ce que la caissiere montre a sa responsable quand le fond
        ! n'est pas juste. Imprimer n'est pas enregistrer — le total et le detail
@@ -114,7 +114,7 @@
       <form method="post" action="/action/cash-calculator/print" onsubmit="return prepareCount();">
         <input type="hidden" id="countAmount" name="amount" value="0">
         <input type="hidden" id="countDetail" name="detail" value="">
-        <button type="submit" class="btn btn-success">IMPRIMER LE COMPTAGE</button>
+        <button type="submit" class="btn btn-success">{inject:i18n.get('cashcalculator.imprimerComptage')}</button>
       </form>
     </div>
   </div>
@@ -157,8 +157,7 @@
           updateTotal();
         }
       });
-      PosInput.buffer = (countState[id] || 0).toString();
-      PosInput.updateDisplay();
+      PosInput.prefill((countState[id] || 0).toString());
     }
 
     function updateItemDisplay(element, qty, value) {

@@ -15,7 +15,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Thème d'affichage</title>
+    <title>{inject:i18n.get('themeselect.themeDAffichage')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -42,7 +42,7 @@
         </div>
 
         <div class="main-area">
-            <span class="lead">Le thème choisi s'applique dès l'écran suivant.</span>
+            <span class="lead">{inject:i18n.get('themeselect.themeChoisiSApplique')}</span>
             <div class="choices">
                 {#for t in themes}
                 <form method="post" action="/action/theme">
@@ -52,13 +52,13 @@
                 {/for}
                 <form method="post" action="/action/theme">
                     <input type="hidden" name="theme" value="">
-                    <button type="submit" class="choice">DÉFAUT MAGASIN</button>
+                    <button type="submit" class="choice">{inject:i18n.get('language.storeDefault')}</button>
                 </form>
             </div>
         </div>
 
         <div class="bottom-nav">
-            <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+            <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
         </div>
     </div>
 

@@ -78,6 +78,14 @@ public class DrawerOperationsResource {
      */
     public static final String SAFE_DESTINATION = "Coffre";
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The withdrawal screen. */
     @Inject @Location("withdrawal") Template withdrawal;
 
@@ -679,14 +687,14 @@ public class DrawerOperationsResource {
             return null;
         }
         return switch (error) {
-            case "no-session" -> "AUCUNE SESSION OUVERTE";
-            case "bad-method" -> "MOYEN DE PAIEMENT NON AUTORISÉ";
-            case "same-method" -> "SOURCE ET DESTINATION IDENTIQUES";
-            case "amount" -> "MONTANT INVALIDE";
-            case "insufficient" -> "MONTANT SUPÉRIEUR AU THÉORIQUE DU TIROIR";
-            case "destination" -> "DESTINATION OBLIGATOIRE";
-            case "endorsement" -> "AVAL MANAGER REFUSÉ OU MANQUANT";
-            case "training" -> "INDISPONIBLE EN FORMATION";
+            case "no-session" -> i18n.get("op.aucuneSessionOuverte");
+            case "bad-method" -> i18n.get("op.moyenPaiementNonAutorise");
+            case "same-method" -> i18n.get("op.sourceDestinationIdentiques");
+            case "amount" -> i18n.get("op.montantInvalide");
+            case "insufficient" -> i18n.get("op.montantSuperieurTheoriqueTiroir");
+            case "destination" -> i18n.get("op.destinationObligatoire");
+            case "endorsement" -> i18n.get("op.avalManagerRefuseManquant");
+            case "training" -> i18n.get("op.indisponibleFormation");
             default -> null;
         };
     }

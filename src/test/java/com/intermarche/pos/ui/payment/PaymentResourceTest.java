@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.qute.Template;
@@ -53,6 +54,10 @@ class PaymentResourceTest {
      */
     private PaymentResource newResource() {
         PaymentResource resource = new PaymentResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         resource.state.payment = mock(PaymentState.class);
         resource.paymentService = mock(PaymentService.class);

@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.auth;
 
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -30,6 +31,10 @@ class PinChangeResourceTest {
      */
     private PinChangeResource newResource() {
         PinChangeResource resource = new PinChangeResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         resource.authService = mock(AuthService.class);
         resource.pinChange = mock(Template.class);

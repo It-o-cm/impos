@@ -11,6 +11,7 @@ import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.VoucherService;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -67,6 +68,10 @@ class Gs1ScanHandlerTest {
      */
     private Gs1ScanHandler newHandler() {
         Gs1ScanHandler handler = new Gs1ScanHandler();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        handler.i18n = TestMessages.french();
         handler.defaultVatRate = new BigDecimal("0.20");
         handler.voucherService = mock(VoucherService.class);
         handler.technicalEventService = mock(TechnicalEventService.class);

@@ -43,20 +43,28 @@ public class BackupPaymentService {
 
     private static final Logger LOGGER = Logger.getLogger(BackupPaymentService.class);
 
-    /** Refusal shown when the scanned answer cannot be trusted. */
-    static final String REFUSED = "SECOURS MONETIQUE : CODE INVALIDE OU ETRANGER A CETTE VENTE";
+    /** Bundle key of the refusal shown when the scanned answer cannot be trusted. */
+    static final String REFUSED_KEY = "op.secoursMonetiqueCodeInvalide";
 
-    /** Refusal shown when no request has been emitted yet. */
-    static final String NO_REQUEST = "SECOURS MONETIQUE : AUCUNE DEMANDE EN COURS";
+    /** Bundle key of the refusal shown when no request has been emitted yet. */
+    static final String NO_REQUEST_KEY = "op.secoursMonetiqueAucuneDemande";
 
-    /** Refusal shown when the manual amount typed is unusable. */
-    static final String BAD_AMOUNT = "MONTANT ACCEPTE INVALIDE";
+    /** Bundle key of the refusal shown when the manual amount typed is unusable. */
+    static final String BAD_AMOUNT_KEY = "op.montantAccepteInvalide";
 
     /** The label a settlement carries when the scheme is not in the administered table. */
     static final String GENERIC_LABEL = "SECOURS MONETIQUE";
 
     /** The action code journalled when a supervisor allows a manual validation. */
     static final String MANUAL_ACTION = "BACKUP_PAYMENT_MANUAL";
+
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /** Registers the settlement once this service has accepted it. */
     @Inject
@@ -100,7 +108,7 @@ public class BackupPaymentService {
         state.payment.backupPanelOpen = true;
         BigDecimal remaining = state.getRemaining();
         if (remaining.signum() <= 0) {
-            state.payment.backupError = "RIEN A REGLER";
+            state.payment.backupError = i18n.get("op.rienRegler");
             state.touch();
             LOGGER.info("Exiting method openPanel");
             return;
@@ -142,7 +150,7 @@ public class BackupPaymentService {
         LOGGER.info("Entering method validateScanned with state: " + state + ", payload: " + payload);
         BackupPaymentTicket.Request request = state.payment.backupRequest;
         if (request == null) {
-            state.payment.backupError = NO_REQUEST;
+            state.payment.backupError = i18n.get(NO_REQUEST_KEY);
             state.touch();
             LOGGER.info("Exiting method validateScanned");
             return false;
@@ -154,7 +162,7 @@ public class BackupPaymentService {
             // the till next door and a code from the previous sale are all "this is
             // not the answer to what I asked", and telling them apart on screen would
             // only tell an attacker which part they got wrong.
-            state.payment.backupError = REFUSED;
+            state.payment.backupError = i18n.get(REFUSED_KEY);
             state.touch();
             LOGGER.warnf("Secours monétique refusé pour la transaction %s", request.transactionNumber());
             LOGGER.info("Exiting method validateScanned");
@@ -182,13 +190,13 @@ public class BackupPaymentService {
         LOGGER.info("Entering method validateManually with state: " + state + ", acceptedAmount: " + acceptedAmount + ", login: " + login + ", password: ***");
         BackupPaymentTicket.Request request = state.payment.backupRequest;
         if (request == null) {
-            state.payment.backupError = NO_REQUEST;
+            state.payment.backupError = i18n.get(NO_REQUEST_KEY);
             state.touch();
             LOGGER.info("Exiting method validateManually");
             return false;
         }
         if (acceptedAmount == null || acceptedAmount.signum() <= 0) {
-            state.payment.backupError = BAD_AMOUNT;
+            state.payment.backupError = i18n.get(BAD_AMOUNT_KEY);
             state.touch();
             LOGGER.info("Exiting method validateManually");
             return false;
@@ -196,7 +204,7 @@ public class BackupPaymentService {
         if (posSettingsService.backupManualEndorsement()
                 && !endorsementService.operatorIsSupervisor(state)
                 && !endorsementService.authorize(login, password, MANUAL_ACTION)) {
-            state.payment.backupError = "AUTORISATION REFUSEE";
+            state.payment.backupError = i18n.get("op.autorisationRefusee");
             state.touch();
             LOGGER.info("Exiting method validateManually");
             return false;

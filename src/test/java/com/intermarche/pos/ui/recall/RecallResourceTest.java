@@ -5,6 +5,7 @@ import com.intermarche.pos.service.CashMovementService;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -37,6 +38,10 @@ class RecallResourceTest {
      */
     private RecallResource newResource() {
         RecallResource resource = new RecallResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.documentClient = mock(BackOfficeDocumentClient.class);
         resource.ticketService = mock(TicketService.class);
         resource.cashSessionService = mock(CashSessionService.class);

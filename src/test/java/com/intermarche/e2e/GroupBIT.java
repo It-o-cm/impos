@@ -976,7 +976,8 @@ public class GroupBIT {
             Page page = freshSale();
             scan(EAN_MIEL);
             Assertions.assertTrue(posState.entryPrompt.active, "a price-to-enter product must open the entry prompt");
-            Assertions.assertEquals("PRIX À SAISIR", posState.entryPrompt.getTitle(), "the modal must ask for a price");
+            Assertions.assertEquals("op.prixSaisir", posState.entryPrompt.getTitleKey(),
+                    "the modal must ask for a price");
             submitEntry("0");
             Assertions.assertEquals("VALEUR INVALIDE", posState.ticket.transientError, "a price ≤ 0 must be refused");
             scan(EAN_MIEL);
@@ -998,7 +999,7 @@ public class GroupBIT {
             scan(EAN_MIEL);
             Assertions.assertTrue(posState.entryPrompt.active,
                     "a quantity-to-enter product must open the entry prompt");
-            Assertions.assertEquals("QUANTITÉ À SAISIR", posState.entryPrompt.getTitle(),
+            Assertions.assertEquals("op.quantiteSaisir", posState.entryPrompt.getTitleKey(),
                     "the modal must ask for a quantity");
             pageQ.close();
         } finally {

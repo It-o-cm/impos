@@ -156,9 +156,16 @@ panneau qu'il sert.
   et défaut ; consommée après une pesée (à re-sélectionner) ; `/tare/clear` la retire.
 - **B28 Scan tare contenant** (LC-14-01-05) : `/tare/scan/<code-barre>` d'un contenant
   administré arme la même tare ponctuelle que la sélection.
-- **B29 Tare et saisie manuelle du poids** (LC-14-01-08) : ligne pesée existante, tare résolue
-  0,100 kg, QUANTITÉ tapée 0,850 kg → la caisse DÉDUIT la tare (seul endroit où elle déduit) →
-  ligne à 0,750 kg ; une tare qui ne laisse rien (≥ poids saisi) → `POIDS INVALIDE (0,001-99,999 KG)`.
+- **B29 Quantité refusée sur une ligne pesée** (LC-02-13-15) : ligne pesée à 1,234 kg,
+  touche QUANTITÉ puis `3` (ou `0,850`) → `QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE`, la ligne
+  reste à 1,234 kg. Le poids d'une ligne pesée est une MESURE : ni la touche quantité, ni
+  l'armement avant article, ni la répétition ne la réécrivent. La saisie manuelle du poids est
+  une autre touche, avant l'article (LC-02-02-03), et c'est elle qui portera la déduction de
+  tare de LC-14-01-08 — sans cette touche, LC-14-01-08 n'a pas de point d'application.
+- **B29b Quantité décimale sur article « quantité décimale »** (LC-02-13-02/03) : ligne d'un
+  article portant l'attribut `QUANTITY_TO_ENTER` (tuyau au mètre, nappe au m²) → QUANTITÉ
+  `2,360` acceptée telle quelle, total recalculé ; sur une ligne unitaire ordinaire la même
+  saisie donne `QUANTITÉ INVALIDE (1-999)`. Bornes : > 0, au plus 3 décimales, 999 inclus.
 
 - **B33 Code-barres à prix embarqué → poids affiché** [S] (EXP-26, LC-02-05-01/04) : scan
   d'une étiquette à prix embarqué (préfixe 02/21/22/24/26/28, valeur digits 8–12) → ligne au

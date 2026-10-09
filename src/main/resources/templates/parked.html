@@ -8,7 +8,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tickets en Attente</title>
+  <title>{inject:i18n.get('parked.ticketsAttente')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -37,13 +37,13 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="title">Tickets en attente</span>
+      <span class="title">{inject:i18n.get('parked.ticketsAttente2')}</span>
       <span id="clock"></span>
     </div>
 
     <div class="list-area">
       {#if tickets.isEmpty}
-        <div class="pos-list-empty">AUCUN TICKET EN ATTENTE SUR CETTE CAISSE</div>
+        <div class="pos-list-empty">{inject:i18n.get('parked.aucunTicketAttenteCaisse')}</div>
       {#else}
         <div class="pos-list">
           {#for ticket in tickets}
@@ -58,13 +58,13 @@
         {#if pageCount > 1}
         <div class="pos-pager">
           {#if hasPrev}
-          <a href="/parked?page={prevPage}" class="btn btn-sm btn-muted">PRÉCÉDENT</a>
+          <a href="/parked?page={prevPage}" class="btn btn-sm btn-muted">{inject:i18n.get('parked.precedent')}</a>
           {#else}
           <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
           {/if}
           <span class="pos-pager-info">PAGE {page} / {pageCount}</span>
           {#if hasNext}
-          <a href="/parked?page={nextPage}" class="btn btn-sm btn-muted">SUIVANT</a>
+          <a href="/parked?page={nextPage}" class="btn btn-sm btn-muted">{inject:i18n.get('lock.next')}</a>
           {#else}
           <span class="btn btn-sm btn-muted off">SUIVANT</span>
           {/if}
@@ -74,7 +74,7 @@
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 

@@ -29,6 +29,14 @@ public class TenderRulesService {
     private final DecimalFormat df =
             new DecimalFormat("0.00", DecimalFormatSymbols.getInstance(Locale.FRENCH));
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /**
      * The administered parameters, read for the island-level change prohibition
      * (BO-03-10-04) that primes over the per-tender rule.
@@ -58,20 +66,20 @@ public class TenderRulesService {
         Verdict worst = Verdict.silent();
         if (tender.exceedsMaxAmount(amount)) {
             worst = worse(worst, tender.maxAmountControl,
-                    "MONTANT SUPERIEUR AU PLAFOND (" + df.format(tender.maxAmount) + " E)");
+                    i18n.format("op.montantSuperieurPlafond", df.format(tender.maxAmount)));
         }
         if (tender.exceedsSecondMaxAmount(amount)) {
             worst = worse(worst, tender.secondMaxAmountControl,
-                    "MONTANT SUPERIEUR AU SECOND PLAFOND ("
-                            + df.format(tender.secondMaxAmount) + " E)");
+                    i18n.format("op.montantSuperieurSecondPlafond",
+                            df.format(tender.secondMaxAmount)));
         }
         if (tender.belowMinAmount(amount)) {
             worst = worse(worst, tender.minAmountControl,
-                    "MONTANT INFERIEUR AU MINIMUM (" + df.format(tender.minAmount) + " E)");
+                    i18n.format("op.montantInferieurMinimum", df.format(tender.minAmount)));
         }
         if (tender.exceedsMaxCount(alreadyRegistered)) {
             worst = worse(worst, tender.maxCountControl,
-                    "NOMBRE MAXIMUM DE REGLEMENTS ATTEINT (" + tender.maxCount + ")");
+                    i18n.format("op.nombreMaximumReglementsAtteint", String.valueOf(tender.maxCount)));
         }
         return worst;
     }
@@ -90,7 +98,7 @@ public class TenderRulesService {
             return Verdict.silent();
         }
         return worse(Verdict.silent(), tender.maxChangeControl,
-                "RENDU SUPERIEUR AU PLAFOND (" + df.format(tender.maxChangeAmount) + " E)");
+                i18n.format("op.renduSuperieurPlafond", df.format(tender.maxChangeAmount)));
     }
 
     /**
@@ -268,11 +276,12 @@ public class TenderRulesService {
          *
          * @return the message, or null when nothing was violated
          */
-        public String displayMessage() {
+        public String displayMessage(com.intermarche.pos.ui.Messages i18n) {
             if (message == null) {
                 return null;
             }
-            return level.allowsOverride() ? message + " - APPELER UN SUPERVISEUR" : message;
+            return level.allowsOverride()
+                    ? i18n.format("op.appelerSuperviseur", message) : message;
         }
     }
 }

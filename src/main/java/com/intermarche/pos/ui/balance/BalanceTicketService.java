@@ -45,16 +45,23 @@ public class BalanceTicketService {
     private static final int CONSUMED_MEMORY_SIZE = 500;
 
     /** Answer given when the register itself already integrated this paper. */
-    static final String ALREADY_PICKED_HERE = "TICKET COMPTOIR DÉJÀ INTÉGRÉ";
+    static final String ALREADY_PICKED_HERE_KEY = "op.ticketComptoirDejaIntegre";
 
     /** Answer given when the shop no longer holds the paper (served elsewhere). */
-    static final String ALREADY_PICKED_ELSEWHERE = "TICKET COMPTOIR INCONNU OU DÉJÀ UTILISÉ - SAISIE MANUELLE";
+    static final String ALREADY_PICKED_ELSEWHERE_KEY = "op.ticketComptoirInconnuDeja";
 
     /** Answer given when this register knows no store node at all. */
-    static final String NO_STORE_NODE = "COMPTOIR NON RACCORDÉ - SAISIE MANUELLE";
+    static final String NO_STORE_NODE_KEY = "op.comptoirNonRaccorde";
 
     /** Answer given when the shop is configured but did not answer. */
-    static final String UNREACHABLE = "COMPTOIR INJOIGNABLE - SAISIE MANUELLE";
+    static final String UNREACHABLE_KEY = "op.comptoirInjoignable";
+
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /** Pulls the paper from the shop and consumes it there in the same call. */
     @Inject
@@ -90,7 +97,7 @@ public class BalanceTicketService {
     public boolean integrate(PosState state, String reference) {
         LOGGER.info("Entering method integrate with state: " + state + ", reference: " + reference);
         if (isAlreadyPickedHere(reference)) {
-            state.ticket.setError(ALREADY_PICKED_HERE);
+            state.ticket.setError(i18n.get(ALREADY_PICKED_HERE_KEY));
             LOGGER.info("Exiting method integrate");
             return false;
         }
@@ -98,15 +105,15 @@ public class BalanceTicketService {
                 balanceTicketClient.pickUp(reference, ticketNumberService.getTerminalId());
         switch (answer.outcome()) {
             case NO_STORE_NODE:
-                state.ticket.setError(NO_STORE_NODE);
+                state.ticket.setError(i18n.get(NO_STORE_NODE_KEY));
                 LOGGER.info("Exiting method integrate");
                 return false;
             case UNREACHABLE:
-                state.ticket.setError(UNREACHABLE);
+                state.ticket.setError(i18n.get(UNREACHABLE_KEY));
                 LOGGER.info("Exiting method integrate");
                 return false;
             case ALREADY_CONSUMED:
-                state.ticket.setError(ALREADY_PICKED_ELSEWHERE);
+                state.ticket.setError(i18n.get(ALREADY_PICKED_ELSEWHERE_KEY));
                 LOGGER.info("Exiting method integrate");
                 return false;
             default:
@@ -180,19 +187,19 @@ public class BalanceTicketService {
             added++;
         }
         if (added == 0) {
-            state.ticket.setError("TICKET COMPTOIR REFUSÉ : " + String.join(", ", refused));
+            state.ticket.setError(i18n.format("op.ticketComptoirRefuse", String.join(", ", refused)));
             return false;
         }
         if (!refused.isEmpty()) {
-            state.ticket.setError("ARTICLE RETIRÉ DU COMPTOIR : " + String.join(", ", refused)
-                    + recallSuffix(recalled));
+            state.ticket.setError(i18n.format("op.articleRetireComptoir",
+                    String.join(", ", refused), recallSuffix(recalled)));
             return true;
         }
         // LC-06-01-04: the reference is named back. The operator scanned a paper and
         // must be able to check, without touching anything, that the lines that just
         // appeared came from THAT paper and not from the one still on the counter.
-        state.ticket.setNotice("TICKET COMPTOIR " + reference
-                + " INTÉGRÉ (" + added + " LIGNE(S))" + recallSuffix(recalled));
+        state.ticket.setNotice(i18n.format("op.ticketComptoirIntegre",
+                reference, String.valueOf(added), recallSuffix(recalled)));
         return true;
     }
 
@@ -214,7 +221,7 @@ public class BalanceTicketService {
         if (recalled.isEmpty()) {
             return "";
         }
-        return " — RAPPEL : " + String.join(", ", recalled);
+        return i18n.format("op.rappel", String.join(", ", recalled));
     }
 
     /**

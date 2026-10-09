@@ -17,6 +17,7 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -62,6 +63,10 @@ class RefundServiceTest {
      */
     private RefundService newService() {
         RefundService s = new RefundService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        s.i18n = TestMessages.french();
         s.endorsementService = mock(EndorsementService.class);
         s.ticketPrinterService = mock(TicketPrinterService.class);
         s.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);

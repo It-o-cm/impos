@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
  */
 public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
 
+
     private static final Logger LOGGER = Logger.getLogger(HardwareBridgeTerminalClient.class);
 
     /** Cents in one unit of currency. */
@@ -57,7 +58,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     private static final String RESULT_KEY = "result";
 
     /** Operator-facing message of an exchange that never reached a decision. */
-    private static final String UNREACHABLE = "TERMINAL DE PAIEMENT INJOIGNABLE";
+    private static final String UNREACHABLE_KEY = "op.terminalPaiementInjoignable";
 
     /** The bridge in front of the payment client. */
     private final HardwareClient hardware;
@@ -79,16 +80,28 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     private volatile TerminalTransactionCallback callback;
 
     /**
+     * The localised operator messages (LC-13-06).
+     *
+     * <p>HANDED OVER AND NOT INJECTED: this client is built by
+     * {@link TerminalClientProducer}, not by the container, so an injected field
+     * would stay null. The producer is a bean and passes its own resolver.
+     */
+    private final com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * Builds the client over a hardware bridge.
      *
      * @param hardware       the bridge in front of the payment client
      * @param pollMillis     how long to wait between two readings
      * @param deadlineMillis how long to follow one payment before giving up
+     * @param i18n           the resolver of the operator-facing messages
      */
-    public HardwareBridgeTerminalClient(HardwareClient hardware, long pollMillis, long deadlineMillis) {
+    public HardwareBridgeTerminalClient(HardwareClient hardware, long pollMillis,
+            long deadlineMillis, com.intermarche.pos.ui.Messages i18n) {
         this.hardware = hardware;
         this.pollMillis = pollMillis;
         this.deadlineMillis = deadlineMillis;
+        this.i18n = i18n;
     }
 
     /** {@inheritDoc} */
@@ -100,7 +113,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
             hardware.startPayment(Long.toString(cents));
         } catch (RuntimeException e) {
             LOGGER.errorf(e, "Le pont materiel a refuse le demarrage du paiement de %s cts", cents);
-            fail(callback, UNREACHABLE);
+            fail(callback, i18n.get(UNREACHABLE_KEY));
             return;
         }
         follower.execute(() -> follow(amount, callback));
@@ -119,7 +132,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
     @Override
     public void requestCredit(BigDecimal amount, TerminalTransactionCallback callback) {
         LOGGER.warnf("Remboursement de %s demande: non supporte par le pont materiel", amount);
-        fail(callback, "REMBOURSEMENT NON SUPPORTE PAR LE TERMINAL");
+        fail(callback, i18n.get("op.remboursementNonSupporteTerminal"));
     }
 
     /**
@@ -171,7 +184,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
                 status = parse(hardware.getPaymentStatus());
             } catch (RuntimeException e) {
                 LOGGER.errorf(e, "Lecture de l'etat du paiement impossible");
-                fail(expected, UNREACHABLE);
+                fail(expected, i18n.get(UNREACHABLE_KEY));
                 return;
             }
             if (STATE_DONE.equals(status.get(STATE_KEY))) {
@@ -183,7 +196,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
             }
         }
         LOGGER.errorf("Aucune decision du terminal apres %d ms", deadlineMillis);
-        fail(expected, "PAS DE REPONSE DU TERMINAL");
+        fail(expected, i18n.get("op.pasReponseTerminal"));
     }
 
     /**
@@ -203,7 +216,7 @@ public class HardwareBridgeTerminalClient implements PaymentTerminalClient {
         // another mean when the terminal is simply out of service.
         if (failure != null && !failure.isBlank()) {
             LOGGER.errorf("Paiement impossible: %s", failure);
-            fail(expected, UNREACHABLE);
+            fail(expected, i18n.get(UNREACHABLE_KEY));
             return;
         }
         if (Boolean.parseBoolean(status.get(APPROVED_KEY))) {

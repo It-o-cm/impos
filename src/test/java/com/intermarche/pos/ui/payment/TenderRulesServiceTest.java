@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.payment.TenderDefinition;
 import com.intermarche.pos.domain.payment.PaymentTypes;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -107,6 +108,10 @@ class TenderRulesServiceTest {
     @Test
     void anUnadministeredTenderOpposesNothing() {
         TenderRulesService service = new TenderRulesService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
@@ -114,7 +119,7 @@ class TenderRulesServiceTest {
                     service.check("TR", new BigDecimal("999.00"), 99);
             assertFalse(verdict.refuses());
             assertFalse(verdict.speaks());
-            assertNull(verdict.displayMessage());
+            assertNull(verdict.displayMessage(TestMessages.french()));
         }
     }
 
@@ -125,6 +130,7 @@ class TenderRulesServiceTest {
     @Test
     void theAdministeredCeilingRefusesTheSettlement() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition tender = mealVoucher();
         tender.maxAmount = new BigDecimal("25.00");
         tender.maxAmountControl = TenderDefinition.ControlLevel.BLOCKING;
@@ -134,7 +140,7 @@ class TenderRulesServiceTest {
             wire(mocked, queries);
             TenderRulesService.Verdict refused = service.check("TR", new BigDecimal("25.01"), 0);
             assertTrue(refused.refuses());
-            assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", refused.displayMessage());
+            assertEquals("MONTANT SUPERIEUR AU PLAFOND (25,00 E)", refused.displayMessage(TestMessages.french()));
 
             TenderRulesService.Verdict allowed = service.check("TR", new BigDecimal("25.00"), 0);
             assertFalse(allowed.speaks());
@@ -148,6 +154,7 @@ class TenderRulesServiceTest {
     @Test
     void aSecondAdministeredCeilingMovesTheRefusal() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition tender = mealVoucher();
         tender.maxAmount = new BigDecimal("19.00");
         tender.maxAmountControl = TenderDefinition.ControlLevel.BLOCKING;
@@ -156,7 +163,7 @@ class TenderRulesServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
             assertEquals("MONTANT SUPERIEUR AU PLAFOND (19,00 E)",
-                    service.check("TR", new BigDecimal("19.01"), 0).displayMessage());
+                    service.check("TR", new BigDecimal("19.01"), 0).displayMessage(TestMessages.french()));
         }
     }
 
@@ -167,6 +174,7 @@ class TenderRulesServiceTest {
     @Test
     void eachAdministeredBoundSpeaksOnItsOwn() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition second = mealVoucher();
         second.secondMaxAmount = new BigDecimal("50.00");
         second.secondMaxAmountControl = TenderDefinition.ControlLevel.WARNING;
@@ -184,11 +192,11 @@ class TenderRulesServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
             assertEquals("MONTANT SUPERIEUR AU SECOND PLAFOND (50,00 E)",
-                    service.check("TR", new BigDecimal("50.01"), 0).displayMessage());
+                    service.check("TR", new BigDecimal("50.01"), 0).displayMessage(TestMessages.french()));
             assertEquals("MONTANT INFERIEUR AU MINIMUM (5,00 E)",
-                    service.check("CASH", new BigDecimal("4.99"), 0).displayMessage());
+                    service.check("CASH", new BigDecimal("4.99"), 0).displayMessage(TestMessages.french()));
             assertEquals("NOMBRE MAXIMUM DE REGLEMENTS ATTEINT (2) - APPELER UN SUPERVISEUR",
-                    service.check("CHEQUE", new BigDecimal("10.00"), 2).displayMessage());
+                    service.check("CHEQUE", new BigDecimal("10.00"), 2).displayMessage(TestMessages.french()));
         }
     }
 
@@ -199,6 +207,7 @@ class TenderRulesServiceTest {
     @Test
     void theStrictestViolatedRuleWins() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition blockingLast = mealVoucher();
         blockingLast.maxAmount = new BigDecimal("10.00");
         blockingLast.maxAmountControl = TenderDefinition.ControlLevel.INFO;
@@ -218,11 +227,11 @@ class TenderRulesServiceTest {
             wire(mocked, queries);
             TenderRulesService.Verdict last = service.check("TR", new BigDecimal("20.00"), 1);
             assertTrue(last.refuses());
-            assertEquals("NOMBRE MAXIMUM DE REGLEMENTS ATTEINT (1)", last.displayMessage());
+            assertEquals("NOMBRE MAXIMUM DE REGLEMENTS ATTEINT (1)", last.displayMessage(TestMessages.french()));
 
             TenderRulesService.Verdict first = service.check("CASH", new BigDecimal("20.00"), 1);
             assertTrue(first.refuses());
-            assertEquals("MONTANT SUPERIEUR AU PLAFOND (10,00 E)", first.displayMessage());
+            assertEquals("MONTANT SUPERIEUR AU PLAFOND (10,00 E)", first.displayMessage(TestMessages.french()));
         }
     }
 
@@ -233,6 +242,7 @@ class TenderRulesServiceTest {
     @Test
     void aBoundWithoutAControlLevelSaysNothing() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition tender = mealVoucher();
         tender.maxAmount = new BigDecimal("10.00");
         tender.maxAmountControl = null;
@@ -251,6 +261,7 @@ class TenderRulesServiceTest {
     @Test
     void theChangeCeilingIsOpposedToTheChange() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition tender = mealVoucher();
         tender.maxChangeAmount = new BigDecimal("8.00");
         tender.maxChangeControl = TenderDefinition.ControlLevel.BLOCKING;
@@ -259,7 +270,7 @@ class TenderRulesServiceTest {
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
             assertEquals("RENDU SUPERIEUR AU PLAFOND (8,00 E)",
-                    service.checkChange("TR", new BigDecimal("8.01")).displayMessage());
+                    service.checkChange("TR", new BigDecimal("8.01")).displayMessage(TestMessages.french()));
             assertFalse(service.checkChange("TR", new BigDecimal("8.00")).speaks());
             assertFalse(service.checkChange("CASH", new BigDecimal("999.00")).speaks());
         }
@@ -272,6 +283,7 @@ class TenderRulesServiceTest {
     @Test
     void theReferentialDecidesWhichTendersAreOffered() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition stopped = mealVoucher();
         stopped.active = false;
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
@@ -292,6 +304,7 @@ class TenderRulesServiceTest {
     @Test
     void anEmptyReferentialOffersEverything() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
@@ -309,6 +322,7 @@ class TenderRulesServiceTest {
     @Test
     void thePreFillMapCarriesTheAdministeredRowsOnly() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition prefilled = mealVoucher();
         prefilled.defaultsToTotal = true;
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
@@ -331,23 +345,23 @@ class TenderRulesServiceTest {
         TenderRulesService.Verdict silent = TenderRulesService.Verdict.silent();
         assertFalse(silent.refuses());
         assertFalse(silent.speaks());
-        assertNull(silent.displayMessage());
+        assertNull(silent.displayMessage(TestMessages.french()));
 
         TenderRulesService.Verdict info = new TenderRulesService.Verdict(
                 TenderDefinition.ControlLevel.INFO, "TROP HAUT");
         assertFalse(info.refuses());
         assertTrue(info.speaks());
-        assertEquals("TROP HAUT", info.displayMessage());
+        assertEquals("TROP HAUT", info.displayMessage(TestMessages.french()));
 
         TenderRulesService.Verdict blocking = new TenderRulesService.Verdict(
                 TenderDefinition.ControlLevel.BLOCKING, "TROP HAUT");
         assertTrue(blocking.refuses());
-        assertEquals("TROP HAUT", blocking.displayMessage());
+        assertEquals("TROP HAUT", blocking.displayMessage(TestMessages.french()));
 
         TenderRulesService.Verdict supervisor = new TenderRulesService.Verdict(
                 TenderDefinition.ControlLevel.SUPERVISOR, "TROP HAUT");
         assertTrue(supervisor.refuses());
-        assertEquals("TROP HAUT - APPELER UN SUPERVISEUR", supervisor.displayMessage());
+        assertEquals("TROP HAUT - APPELER UN SUPERVISEUR", supervisor.displayMessage(TestMessages.french()));
     }
 
 
@@ -404,6 +418,7 @@ class TenderRulesServiceTest {
      */
     private TenderRulesService serviceWithIslandChange(boolean islandAllows) {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
         when(service.posSettingsService.islandChangeAllowed()).thenReturn(islandAllows);
         return service;
@@ -448,6 +463,7 @@ class TenderRulesServiceTest {
     @Test
     void changeTenderEchoesTheKeyWhenUnadministered() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
@@ -462,6 +478,7 @@ class TenderRulesServiceTest {
     @Test
     void changeTenderReadsTheAdministeredRow() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition tender = mealVoucher();
         tender.changeTenderCode = "CASH";
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
@@ -480,6 +497,7 @@ class TenderRulesServiceTest {
     @Test
     void opensDrawerKeepsTheFallbackWhenUnadministered() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();
         try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
             wire(mocked, queries);
@@ -495,6 +513,7 @@ class TenderRulesServiceTest {
     @Test
     void opensDrawerReadsTheAdministeredRow() {
         TenderRulesService service = new TenderRulesService();
+        service.i18n = TestMessages.french();
         TenderDefinition tender = mealVoucher();
         tender.drawerOpening = TenderDefinition.DrawerOpening.AFTER_RECEIPT;
         Map<String, PanacheQuery<TenderDefinition>> queries = emptyQueries();

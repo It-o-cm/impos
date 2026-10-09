@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.cash;
 
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -44,6 +45,7 @@ class CashCalculatorResourceTest {
     private CashCalculatorResource newResource(Map<String, Object> sink) {
         CashCalculatorResource resource = new CashCalculatorResource();
         resource.cashCountService = new CashCountService();
+        resource.cashCountService.i18n = TestMessages.french();
         TemplateInstance instance = mock(TemplateInstance.class);
         when(instance.data(anyString(), any())).thenAnswer(invocation -> {
             sink.put(invocation.getArgument(0), invocation.getArgument(1));

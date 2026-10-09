@@ -40,6 +40,25 @@ public class TicketState implements Serializable {
     public List<TicketItem> items = new ArrayList<>();
 
     /**
+     * The lines CANCELLED during this sale, kept aside for the screen.
+     *
+     * <p>A CANCELLATION IS A FACT OF THE SALE, not an erasure of it. The draft
+     * already keeps it — {@code cancelItemById} marks the persisted line before
+     * the cart lets go of it (lot C4, {@code BO-04-01-16}) — but the register
+     * dropped it from its own state, so the operator and the customer saw the
+     * line vanish and had nothing left to point at. It now stays on the screen,
+     * struck through.
+     *
+     * <p>HELD IN A LIST OF ITS OWN, and that is the whole design. Left in
+     * {@link #items} a cancelled line would be counted by the total, reached by
+     * the merge, selectable, targetable by the price gestures, pushed to the
+     * store node and printed on the receipt — six behaviours to teach about a
+     * seventh state. Parked here it is invisible to every one of them by
+     * construction, and visible to the one surface that asked for it.
+     */
+    public List<TicketItem> cancelledItems = new ArrayList<>();
+
+    /**
      * Price-embedded scale-label codes already scanned on this ticket, to
      * refuse the accidental double scan of one physical sticker (in-memory
      * only: cleared with the ticket, empty again after a restart recovery).
@@ -192,7 +211,16 @@ public class TicketState implements Serializable {
         }
 
         if (mergeable) {
-            for (TicketItem item : items) {
+            // A MERGE NEVER CROSSES A SUB-TOTAL. The sub-total is a PRINTED and
+            // ANNOUNCED figure: the operator pressed the key, the customer read
+            // the amount, and the lines above it are settled as far as the two of
+            // them are concerned. Folding a new scan into a line that sits above
+            // that frontier raises a quantity the sub-total already counted, so
+            // the figure on the paper stops matching the lines it totalled —
+            // found by the field expert, and visible on the first scan of an
+            // article the customer had already taken before asking for a
+            // sub-total. The search therefore starts AFTER the last frontier.
+            for (TicketItem item : items.subList(mergeFloor(), items.size())) {
                 boolean sameEan = item.ean != null && item.ean.equals(ean)
                         && (item.plu == null || item.plu.isEmpty());
                 if (!sameEan) continue;
@@ -245,6 +273,69 @@ public class TicketState implements Serializable {
 
 
     /**
+     * CANCELS the line identified by its uid: it leaves the cart and stays on
+     * the screen, struck through at the rank it occupied.
+     *
+     * <p>Distinct from {@link #removeItemById(String)}, which erases a line that
+     * was never sold — the solidarity-rounding line withdrawn at payment. A
+     * cancellation is remembered; a withdrawal is not.
+     *
+     * <p>The sub-total frontier does NOT travel with it: the marker belongs to
+     * the group of lines, not to the line that happened to be last when the key
+     * was pressed, and a cancelled line carrying it would draw a second,
+     * amountless sub-total on the screen.
+     *
+     * @param uid the unique identifier of the line to cancel
+     * @return true when a line was cancelled
+     */
+    public boolean cancelLine(String uid) {
+        if (uid == null) {
+            return false;
+        }
+        for (int i = 0; i < items.size(); i++) {
+            TicketItem item = items.get(i);
+            if (!item.uid.equals(uid)) {
+                continue;
+            }
+            item.cancelled = true;
+            item.subtotalBoundary = false;
+            item.subtotalAmount = null;
+            item.displayIndex = i;
+            items.remove(i);
+            cancelledItems.add(item);
+            recomputeTotal();
+            onChange();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * The lines the screen shows: the live ones, with the cancelled ones put back
+     * at the rank they held.
+     *
+     * <p>A cancelled line's recorded rank can drift — lines entered or cancelled
+     * after it move the list under it — so the insertion is clamped to the end
+     * rather than trusted. The order is for the eye, not for arithmetic.
+     *
+     * @return the display sequence, live and cancelled lines together
+     */
+    public List<TicketItem> displayItems() {
+        if (cancelledItems.isEmpty()) {
+            return items;
+        }
+        List<TicketItem> out = new ArrayList<>(items);
+        for (TicketItem cancelled : cancelledItems) {
+            int at = cancelled.displayIndex;
+            if (at < 0 || at > out.size()) {
+                at = out.size();
+            }
+            out.add(at, cancelled);
+        }
+        return out;
+    }
+
+    /**
      * Removes the line identified by its uid, if present, and recomputes the total.
      *
      * @param uid the unique identifier of the line to remove
@@ -284,6 +375,21 @@ public class TicketState implements Serializable {
             }
         }
         this.totalAmount = total;
+    }
+
+    /**
+     * Index of the first line a merge may reach: just after the last line
+     * carrying a sub-total frontier, or zero when the ticket has none.
+     *
+     * @return the lowest index a merge may consider
+     */
+    private int mergeFloor() {
+        for (int index = items.size() - 1; index >= 0; index--) {
+            if (items.get(index).subtotalBoundary) {
+                return index + 1;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -408,6 +514,7 @@ public class TicketState implements Serializable {
      */
     public void clear() {
         items.clear();
+        cancelledItems.clear();
         scannedStickerCodes.clear();
         totalAmount = BigDecimal.ZERO;
         currentWeight = 0.0;
@@ -502,9 +609,10 @@ public class TicketState implements Serializable {
     public String getGlobalDiscountLabel() {
         if (globalDiscountApplied == null) return null;
         if ("PERCENT".equals(globalDiscountType)) {
-            return "REMISE TICKET (" + globalDiscountValue.stripTrailingZeros().toPlainString() + " %)";
+            return parent.messages().format("paper.remiseTicketTaux",
+                    globalDiscountValue.stripTrailingZeros().toPlainString());
         }
-        return "REMISE TICKET";
+        return parent.messages().get("paper.remiseTicket");
     }
 
     /**
@@ -811,6 +919,23 @@ public class TicketState implements Serializable {
         public boolean returnLine = false;
 
         /**
+         * True when the line was CANCELLED during the sale and is kept on the
+         * screen as a witness, struck through.
+         *
+         * <p>Only a line parked in {@link TicketState#cancelledItems} carries it:
+         * a line in the cart is never cancelled, which is what lets every other
+         * behaviour ignore the state entirely.
+         */
+        public boolean cancelled = false;
+
+        /**
+         * The rank this line held in the cart when it was cancelled, so the
+         * screen can put it back where the operator saw it. Meaningless on a live
+         * line.
+         */
+        public int displayIndex = -1;
+
+        /**
          * The running sum of the line totals since the previous subtotal marker,
          * set on a boundary line at each {@link #recomputeTotal()} (EXP-43). Transient
          * display value: it is recomputed from the lines, never persisted.
@@ -851,6 +976,18 @@ public class TicketState implements Serializable {
          * without any of them reading the referential back.
          */
         public String unitName = null;
+
+        /**
+         * Whether the article is of the DECIMAL-QUANTITY type ({@code LC-02-13-02},
+         * referential attribute {@code BO-02-03-23}) — sold by the metre, the square
+         * metre or the litre, so its quantity legitimately carries decimals.
+         * <p>
+         * Carried by the line for the same reason as {@link #unitName}: the quantity
+         * key must know whether the decimals it is handed are legitimate, and asking
+         * the referential again at that moment would make the answer depend on a
+         * catalog that may have been purged since the article was rung.
+         */
+        public boolean decimalQuantity = false;
 
         /**
          * Every identifier the GS1 code that rang this line carried, as the

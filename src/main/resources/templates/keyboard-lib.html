@@ -4,9 +4,21 @@
  ! minimum width) and the PosInput SINGLETON. CONTRACTS: PosInput.setup wires
  ! ONE input at a time (a second setup steals the buffer — one active binding
  ! per page); external pads can feed the same buffer through
- ! PosInput.handleKey(k); initialValue is the supported prefill (never poke
- ! .buffer directly). defaultValue quirks and modes: 'integer'/'decimal'/'text'
- ! govern what keys append.
+ ! PosInput.handleKey(k); initialValue at setup and PosInput.prefill(v) later
+ ! are the supported prefills (never poke .buffer directly). modes:
+ ! 'integer'/'decimal'/'cents'/'text' govern what keys append.
+ ! EVERY AMOUNT IS KEYED IN CENTS ('cents' mode), EVERYWHERE. The cashier keys
+ ! 1 2 3 4 and the display reads 12,34: the comma is placed by the application,
+ ! two digits from the right, and is never keyed. The buffer holds the digits of
+ ! the cents, the display shows the euros and the hidden input posts the euros
+ ! with a dot, so no server parses anything new. 'decimal' stays for the figures
+ ! that are NOT amounts — a weight, a decimal quantity, a percentage — where the
+ ! comma is part of what the cashier means.
+ ! A PREFILLED VALUE IS A PROPOSAL, NOT A STARTED ENTRY. It is used only if
+ ! the cashier validates it straight away: the first key of the pad takes the
+ ! whole of it away. A till has no caret and no selection, so nobody can place
+ ! themselves at the end of a default to extend it, and appending is what
+ ! turned a 20 typed over a 45,30 due into 45,3020.
  ! THE DISPLAY IS NOT A FIELD. A till has no physical keyboard, so a visible
  ! <input> there shows a caret waiting for keystrokes that never come — and
  ! invites someone to plug one in. Every display is a text element carrying the
@@ -16,6 +28,88 @@
  ! inputs, and padText(el) reads a display back whichever it is.
 !}
 <script>
+    /**
+     * THE one place where a keyed amount becomes a comma and a figure.
+     * <p>
+     * An amount is keyed in CENTS, everywhere, and the application places the comma:
+     * {@code 1} reads 0,01, then {@code 0} reads 0,10, then {@code 00} reads 10,00.
+     * The rule is written HERE and nowhere else — the pad's display, the pre-entry
+     * display and the value posted to the server all come through these three
+     * functions, so there is one implementation and not one per screen.
+     */
+    window.PosAmount = {
+
+        /**
+         * The digits of the cents behind a value a screen speaks in euros.
+         * <p>
+         * Screens hold euros — a hidden field, the amount due, a counted total — and
+         * the buffer holds cents. Without this the next key would append to "45.30"
+         * and the dot would travel into the figure.
+         *
+         * @param value the amount in euros, with a comma or a dot
+         * @return the digits of the cents, '' when there is no amount
+         */
+        digitsOf: function(value) {
+            const text = String(value === undefined || value === null ? '' : value)
+                    .trim().replace(',', '.');
+            if (text === '') {
+                return '';
+            }
+            const amount = Number(text);
+            if (!isFinite(amount)) {
+                return '';
+            }
+            return String(Math.round(Math.abs(amount) * 100));
+        },
+
+        /**
+         * Splits a string of cents into its euros and its cents.
+         *
+         * @param digits the keyed digits, anything else being ignored
+         * @return {{euros: string, cents: string}} the two halves, euros never empty
+         */
+        split: function(digits) {
+            const kept = String(digits || '').replace(/[^0-9]/g, '');
+            // THREE zeros and not two: an EMPTY buffer must still read 0,00, and
+            // "00" + "" is two characters, which left the euros side blank.
+            const padded = kept.length < 3 ? ('000' + kept).slice(-3) : kept;
+            return {
+                euros: padded.slice(0, -2).replace(/^0+(?=\d)/, ''),
+                cents: padded.slice(-2)
+            };
+        },
+
+        /**
+         * What the cashier reads while keying.
+         * <p>
+         * THE COMMA IS ALWAYS THERE, from the first key and even before it: an
+         * amount display that showed bare digits for a moment would invite the
+         * cashier to look for a decimal key.
+         *
+         * @param digits the keyed digits
+         * @return the amount with the French comma, {@code 0,00} for nothing keyed
+         */
+        display: function(digits) {
+            const parts = this.split(digits);
+            return parts.euros + ',' + parts.cents;
+        },
+
+        /**
+         * What the form posts, in the form every server here parses.
+         *
+         * @param digits the keyed digits
+         * @return the amount in euros with a dot, '' when nothing was keyed
+         */
+        value: function(digits) {
+            const kept = String(digits || '').replace(/[^0-9]/g, '');
+            if (kept.length === 0) {
+                return '';
+            }
+            const parts = this.split(kept);
+            return parts.euros + '.' + parts.cents;
+        }
+    };
+
     window.PosKeyboards = {
 
         /**
@@ -143,6 +237,51 @@
             const pad = this._makeGrid('pos-keyboard--cols3');
             const keys = ['7','8','9','4','5','6','1','2','3','C','0',','];
             keys.forEach(k => pad.appendChild(this._makeKey(k, onKey)));
+            container.appendChild(pad);
+        },
+
+        /**
+         * Renders the 3-column CENTS numpad: the price pad without its comma.
+         * <p>
+         * Amounts are keyed in cents and the application places the comma, so the
+         * decimal key has nothing left to do. Its slot goes to the correction key,
+         * which the price pad did not carry — the pad gains a key instead of keeping
+         * a dead one. ADDITIVE variant: the canonical .pos-key metrics are untouched
+         * and the comma pads keep serving the figures that need a comma.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderCentsNumpad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols3');
+            const keys = ['7','8','9','4','5','6','1','2','3','C','0','\u232b'];
+            keys.forEach(k => pad.appendChild(this._makeKey(k, onKey)));
+            container.appendChild(pad);
+        },
+
+        /**
+         * Renders the 4-column CENTS payment numpad: the payment pad without its
+         * decimal point, its last row sharing the four columns between the zero and
+         * the double zero.
+         *
+         * @param container the host element to render into
+         * @param onKey the key press callback
+         */
+        renderCentsPaymentNumpad: function(container, onKey) {
+            if (!container) return;
+            this._injectStyles();
+            container.innerHTML = '';
+            const pad = this._makeGrid('pos-keyboard--cols4');
+            const keys = [
+                ['7', null], ['8', null], ['9', null], ['\u232b', null],
+                ['4', null], ['5', null], ['6', null], ['C', null],
+                ['1', null], ['2', null], ['3', null], ['OK', null],
+                ['0', 'pos-key--wide'], ['00', 'pos-key--wide']
+            ];
+            keys.forEach(def => pad.appendChild(this._makeKey(def[0], onKey, def[1])));
             container.appendChild(pad);
         },
 
@@ -410,21 +549,38 @@
         buffer: "",
         config: {},
 
+        /**
+         * True while the buffer still holds a PREFILLED value nobody has typed
+         * over. The first key press consumes it whole — see handleKey.
+         */
+        pristine: false,
+
         setup: function(cfg) {
             this.config = cfg;
 
-            if(cfg.initialValue !== undefined) {
-                this.buffer = cfg.initialValue;
+            if(cfg.initialValue !== undefined && cfg.initialValue !== null) {
+                this.buffer = String(cfg.initialValue);
             } else {
                 this.buffer = "";
             }
+            this.buffer = this._normalize(this.buffer);
+            this.pristine = this.buffer.length > 0;
 
             const container = document.getElementById(cfg.containerId);
             if (!container) return;
 
             const handler = (k) => this.handleKey(k);
 
-            switch(cfg.keyboardType) {
+            // AN AMOUNT PAD IS SERVED BY ITS CENTS VARIANT. The mode decides, not
+            // the screen: a screen says "this field is an amount" by asking for the
+            // cents mode, and the pad that carries no comma follows from it.
+            const keyboard = cfg.mode === 'cents'
+                    ? (cfg.keyboardType === 'payment' ? 'centsPayment' : 'cents')
+                    : cfg.keyboardType;
+
+            switch(keyboard) {
+                case 'cents': PosKeyboards.renderCentsNumpad(container, handler); break;
+                case 'centsPayment': PosKeyboards.renderCentsPaymentNumpad(container, handler); break;
                 case 'alpha': PosKeyboards.renderAlphaKeyboard(container, handler); break;
                 case 'email': PosKeyboards.renderEmailKeyboard(container, handler); break;
                 case 'price': PosKeyboards.renderPriceNumpad(container, handler); break;
@@ -438,9 +594,38 @@
             this.updateDisplay();
         },
 
+        /**
+         * Turns a value a screen proposes into what the buffer must hold.
+         * <p>
+         * Screens speak euros — a hidden field, the amount due, a counted total —
+         * and in cents mode the buffer holds the DIGITS OF THE CENTS. Without this
+         * the next key would append to "45.30" and the dot would travel into the
+         * figure. Every other mode takes the value as it is.
+         *
+         * @param value the value proposed by the screen
+         * @return what the buffer must hold
+         */
+        _normalize: function(value) {
+            if (this.config.mode !== 'cents') {
+                return value;
+            }
+            return PosAmount.digitsOf(value);
+        },
+
         handleKey: function(k) {
             const cfg = this.config;
             const maxLen = cfg.maxLength || 20;
+
+            // THE PREFILLED VALUE IS A PROPOSAL. It holds only as long as
+            // nobody touches the pad: validating straight away accepts it, and
+            // any other key replaces it ENTIRELY, with nothing to erase first.
+            // The erase key is in the same boat on purpose — the default counts
+            // as one selected block, so a correction key empties it rather than
+            // nibbling at a figure the cashier never typed.
+            if (this.pristine && k !== 'OK') {
+                this.pristine = false;
+                this.buffer = "";
+            }
 
             if (k === 'DEL' || k === '\u232b') {
                 this.buffer = this.buffer.slice(0, -1);
@@ -471,7 +656,19 @@
                     this.buffer = "";
                 }
 
-                if (cfg.mode === 'integer') {
+                if (cfg.mode === 'cents') {
+                    // DIGITS ONLY. The comma is placed by updateDisplay, two digits
+                    // from the right; a separator key would fight it, so it is
+                    // refused here rather than quietly swallowed further down.
+                    if (k === '.' || k === ',') return;
+                    if (k === '00') {
+                        if (this.buffer.length + 2 > maxLen) return;
+                        this.buffer += '00';
+                    } else {
+                        this.buffer += k;
+                    }
+                }
+                else if (cfg.mode === 'integer') {
                     if (k === '.' || k === ',') return;
                     if (k === '00') this.buffer += '00';
                     else this.buffer += k;
@@ -514,7 +711,14 @@
             let visual = this.buffer;
             let value = this.buffer;
 
-            if (cfg.mode === 'pin') {
+            if (cfg.mode === 'cents') {
+                // THE APPLICATION PLACES THE COMMA, through PosAmount and nowhere
+                // else. The display always carries it, even on an empty buffer; the
+                // posted value stays EMPTY until something is keyed, so the server
+                // keeps telling "nothing typed" from "zero typed".
+                visual = PosAmount.display(this.buffer);
+                value = PosAmount.value(this.buffer);
+            } else if (cfg.mode === 'pin') {
                 visual = "*".repeat(this.buffer.length);
             } else if (cfg.mode === 'decimal' || cfg.mode === 'payment') {
                 visual = this.buffer.replace('.', ',');
@@ -536,8 +740,45 @@
             if (hiddenEl) hiddenEl.value = value;
         },
 
+        /**
+         * Proposes a value in the buffer AFTER setup, as a prefill and not as a
+         * started entry: the first key press replaces it whole.
+         * <p>
+         * The supported way to fill the buffer from a screen. Poking
+         * {@code .buffer} directly bypasses the pristine flag, and the default
+         * then behaves as a figure the cashier typed — which is how a 20 keyed
+         * over an amount due of 45,30 used to post 45,3020.
+         *
+         * @param value the value proposed, null or empty for none
+         */
+        prefill: function(value) {
+            this.buffer = (value === undefined || value === null)
+                    ? "" : this._normalize(String(value));
+            this.pristine = this.buffer.length > 0;
+            this.updateDisplay();
+        },
+
+        /**
+         * Re-seats in the buffer an entry the cashier TYPED, carried across a
+         * reload of the page — the opposite case to {@link #prefill}.
+         * <p>
+         * A live-search screen posts itself at every key and comes back with the
+         * pattern it searched on. That pattern is the cashier's own entry, not a
+         * proposal: treating it as one would make the next key erase it, and a
+         * search could never grow past its first character.
+         *
+         * @param value the entry carried over, null or empty for none
+         */
+        resume: function(value) {
+            this.buffer = (value === undefined || value === null)
+                    ? "" : this._normalize(String(value));
+            this.pristine = false;
+            this.updateDisplay();
+        },
+
         clear: function() {
             this.buffer = "";
+            this.pristine = false;
             this.updateDisplay();
         }
     };
@@ -579,6 +820,16 @@
         onEnter: null,
 
         /**
+         * Whether what this buffer holds is an AMOUNT, and must therefore read with
+         * its comma while it is keyed.
+         * <p>
+         * The payment screen's pad is an amount and nothing else. The sale screen's
+         * is a code or a quantity, and the manual screen's is one or the other
+         * depending on the key that consumes it, so they stay raw.
+         */
+        amount: false,
+
+        /**
          * Mounts the pad and its display on a page.
          *
          * @param opts displayId, containerId, hintId (optional), maxLength
@@ -589,6 +840,7 @@
             this.hintEl = opts.hintId ? document.getElementById(opts.hintId) : null;
             if (opts.maxLength) this.maxLength = opts.maxLength;
             this.onEnter = opts.onEnter || null;
+            this.amount = opts.amount === true;
             const container = document.getElementById(opts.containerId);
             const self = this;
             PosKeyboards.renderPrefillPad(container, function(k) { self.handleKey(k); });
@@ -660,6 +912,26 @@
         },
 
         /**
+         * Returns what was typed READ AS CENTS, and empties the buffer.
+         * <p>
+         * THE PRE-ENTRY PAD IS THE OTHER DOOR INTO AN AMOUNT, and it must obey the
+         * same rule as the modals: 1000 keyed before the ESPÈCES key is ten euros,
+         * not a thousand. The pad carries a comma because quantities need one, so a
+         * separator is DROPPED rather than honoured — 10,00 and 1000 are the same
+         * amount, and nothing a cashier keys on an amount places its own comma.
+         *
+         * <p>Used by the keys that consume the buffer as a sum; the keys that
+         * consume it as a quantity or a code use {@link #consume} instead.
+         *
+         * @return the amount in euros with a dot, '' when nothing was typed
+         */
+        consumeAmount: function() {
+            const taken = PosAmount.value(this.buffer);
+            this.clear();
+            return taken;
+        },
+
+        /**
          * Returns what was typed AND empties the buffer.
          * <p>
          * One call, one use: a key that consumes the figure must not leave it
@@ -694,11 +966,12 @@
                simple element de texte, et on ecrit dans son contenu. Les ecrans qui
                portent encore un <input> (la saisie PosInput, elle, a des champs
                caches a poster) continuent de recevoir .value. */
+            const shown = this.amount ? PosAmount.display(this.buffer) : this.buffer;
             if (this.displayEl) {
                 if ('value' in this.displayEl) {
-                    this.displayEl.value = this.buffer;
+                    this.displayEl.value = shown;
                 } else {
-                    this.displayEl.textContent = this.buffer;
+                    this.displayEl.textContent = shown;
                 }
             }
             if (this.hintEl) this.hintEl.style.visibility = this.isEmpty() ? 'visible' : 'hidden';

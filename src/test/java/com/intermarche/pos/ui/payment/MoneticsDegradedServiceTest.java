@@ -5,6 +5,7 @@ import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -36,6 +37,10 @@ class MoneticsDegradedServiceTest {
      */
     private MoneticsDegradedService newService() {
         MoneticsDegradedService service = new MoneticsDegradedService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.posSettingsService = mock(PosSettingsService.class);
         service.endorsementService = mock(EndorsementService.class);
         service.technicalEventService = mock(TechnicalEventService.class);

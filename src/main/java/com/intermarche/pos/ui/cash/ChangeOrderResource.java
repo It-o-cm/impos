@@ -43,6 +43,14 @@ public class ChangeOrderResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(ChangeOrderResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject @Location("change-order") Template changeOrder;
     @Inject CashCountService cashCountService;
     @Inject PosSettingsService posSettingsService;
@@ -257,11 +265,11 @@ public class ChangeOrderResource {
      */
     private String messageOf(String error) {
         if ("bad-denom".equals(error)) {
-            return "DÉNOMINATION INCONNUE";
+            return i18n.get("op.denominationInconnue");
         } else if ("bad-type".equals(error)) {
-            return "TYPE DE SAISIE INVALIDE";
+            return i18n.get("op.typeSaisieInvalide");
         } else if ("print-disabled".equals(error)) {
-            return "IMPRESSION DU BORDEREAU DÉSACTIVÉE";
+            return i18n.get("op.impressionBordereauDesactivee");
         }
         return null;
     }

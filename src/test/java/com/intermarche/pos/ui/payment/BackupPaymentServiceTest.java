@@ -8,6 +8,7 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.customer.QrCodeService;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,10 @@ class BackupPaymentServiceTest {
      */
     private BackupPaymentService newService() {
         BackupPaymentService service = new BackupPaymentService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.paymentService = mock(PaymentService.class);
         service.ticketNumberService = mock(TicketNumberService.class);
         service.posSettingsService = mock(PosSettingsService.class);
@@ -290,7 +295,7 @@ class BackupPaymentServiceTest {
         PosState state = new PosState();
         state.payment.backupRequest = null;
         assertFalse(service.validateScanned(state, response("2462", "20", TRANSACTION, "")));
-        assertEquals(BackupPaymentService.NO_REQUEST, state.payment.backupError);
+        assertEquals("SECOURS MONETIQUE : AUCUNE DEMANDE EN COURS", state.payment.backupError);
         verify(service.paymentService, never()).processBackupPayment(any(), any(), any(), any(),
                 anyBoolean());
     }
@@ -305,7 +310,7 @@ class BackupPaymentServiceTest {
         PosState state = new PosState();
         state.payment.backupRequest = request();
         assertFalse(service.validateScanned(state, "not-a-valid-payload"));
-        assertEquals(BackupPaymentService.REFUSED, state.payment.backupError);
+        assertEquals("SECOURS MONETIQUE : CODE INVALIDE OU ETRANGER A CETTE VENTE", state.payment.backupError);
         verify(service.paymentService, never()).processBackupPayment(any(), any(), any(), any(),
                 anyBoolean());
     }
@@ -320,7 +325,7 @@ class BackupPaymentServiceTest {
         PosState state = new PosState();
         state.payment.backupRequest = request();
         assertFalse(service.validateScanned(state, response("2462", "20", "T-9999", "")));
-        assertEquals(BackupPaymentService.REFUSED, state.payment.backupError);
+        assertEquals("SECOURS MONETIQUE : CODE INVALIDE OU ETRANGER A CETTE VENTE", state.payment.backupError);
         verify(service.paymentService, never()).processBackupPayment(any(), any(), any(), any(),
                 anyBoolean());
     }
@@ -393,7 +398,7 @@ class BackupPaymentServiceTest {
         PosState state = new PosState();
         state.payment.backupRequest = null;
         assertFalse(service.validateManually(state, new BigDecimal("10.00"), "chef", "mdp"));
-        assertEquals(BackupPaymentService.NO_REQUEST, state.payment.backupError);
+        assertEquals("SECOURS MONETIQUE : AUCUNE DEMANDE EN COURS", state.payment.backupError);
         verify(service.paymentService, never()).processBackupPayment(any(), any(), any(), any(),
                 anyBoolean());
     }
@@ -408,7 +413,7 @@ class BackupPaymentServiceTest {
         PosState state = new PosState();
         state.payment.backupRequest = request();
         assertFalse(service.validateManually(state, null, "chef", "mdp"));
-        assertEquals(BackupPaymentService.BAD_AMOUNT, state.payment.backupError);
+        assertEquals("MONTANT ACCEPTE INVALIDE", state.payment.backupError);
         verify(service.paymentService, never()).processBackupPayment(any(), any(), any(), any(),
                 anyBoolean());
     }
@@ -423,7 +428,7 @@ class BackupPaymentServiceTest {
         PosState state = new PosState();
         state.payment.backupRequest = request();
         assertFalse(service.validateManually(state, BigDecimal.ZERO, "chef", "mdp"));
-        assertEquals(BackupPaymentService.BAD_AMOUNT, state.payment.backupError);
+        assertEquals("MONTANT ACCEPTE INVALIDE", state.payment.backupError);
         verify(service.paymentService, never()).processBackupPayment(any(), any(), any(), any(),
                 anyBoolean());
     }

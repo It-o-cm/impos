@@ -39,6 +39,13 @@ public class MoneticsDegradedService {
     /** The action code journalled when a supervisor allows the release. */
     static final String DEACTIVATE_ACTION = "MONETICS_DEGRADED_OFF";
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The administered endorsement rule and expiry delay. */
     @Inject
     PosSettingsService posSettingsService;
@@ -63,7 +70,7 @@ public class MoneticsDegradedService {
     public boolean activate(PosState state, String login, String password) {
         LOGGER.info("Entering method activate with state: " + state + ", login: " + login + ", password: ***");
         if (!granted(state, login, password, ACTIVATE_ACTION)) {
-            state.ticket.setError("AUTORISATION REFUSEE");
+            state.ticket.setError(i18n.get("op.autorisationRefusee"));
             LOGGER.info("Exiting method activate");
             return false;
         }
@@ -73,7 +80,7 @@ public class MoneticsDegradedService {
                 "Mode dégradé monétique forcé pour " + minutes + " min par "
                         + state.auth.operatorName);
         LOGGER.infof("Mode dégradé monétique forcé jusqu'à %s", state.moneticsDegradedUntil);
-        state.ticket.setNotice("MODE DÉGRADÉ MONÉTIQUE ACTIVÉ (" + minutes + " MIN)");
+        state.ticket.setNotice(i18n.format("op.modeDegradeMonetiqueActive", String.valueOf(minutes)));
         LOGGER.info("Exiting method activate");
         return true;
     }
@@ -91,19 +98,19 @@ public class MoneticsDegradedService {
         if (!state.isMoneticsDegradedForced()) {
             // Already off — expired on its own, or never on. Saying so beats an
             // authorization prompt for a state that does not exist.
-            state.ticket.setNotice("MODE DÉGRADÉ MONÉTIQUE DÉJÀ INACTIF");
+            state.ticket.setNotice(i18n.get("op.modeDegradeMonetiqueDeja"));
             LOGGER.info("Exiting method deactivate");
             return false;
         }
         if (!granted(state, login, password, DEACTIVATE_ACTION)) {
-            state.ticket.setError("AUTORISATION REFUSEE");
+            state.ticket.setError(i18n.get("op.autorisationRefusee"));
             LOGGER.info("Exiting method deactivate");
             return false;
         }
         state.moneticsDegradedUntil = null;
         technicalEventService.log(TechnicalEvent.EventType.ENDORSEMENT_GRANTED,
                 "Mode dégradé monétique levé par " + state.auth.operatorName);
-        state.ticket.setNotice("MODE DÉGRADÉ MONÉTIQUE DÉSACTIVÉ");
+        state.ticket.setNotice(i18n.get("op.modeDegradeMonetiqueDesactive"));
         LOGGER.info("Exiting method deactivate");
         return true;
     }

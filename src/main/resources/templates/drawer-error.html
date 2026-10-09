@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Erreur Tiroir</title>
+  <title>{inject:i18n.get('drawererror.erreurTiroir')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -45,7 +45,7 @@
 
 <div class="pos-terminal">
   <div class="top-bar">
-    <span class="store-name">INTERMARCHÉ</span>
+    <span class="store-name">{inject:i18n.get('common.store')}</span>
     <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
     <span id="clock">--:--:--</span>
   </div>
@@ -55,14 +55,14 @@
 
   <div class="error-screen">
     <div class="error-icon">⚠️</div>
-    <div class="error-title">TIROIR CAISSE<br>OUVERT</div>
+    <div class="error-title">{inject:i18n.get('drawererror.tiroirCaisse')}<br>{inject:i18n.get('drawererror.ouvert')}</div>
     <div class="error-sub">
-      Aucune action n'est autorisée tant que le tiroir est ouvert.<br>
-      Veuillez le fermer pour poursuivre.
+      {inject:i18n.get('drawererror.aucuneActionNAutorisee')}<br>
+      {inject:i18n.get('drawererror.veuillezFermerPoursuivre')}
     </div>
 
     <!-- On garde le bouton manuel en solution de secours -->
-    <a href="/action/resume-after-drawer" class="btn btn-warning">REPRENDRE</a>
+    <a href="/action/resume-after-drawer" class="btn btn-warning">{inject:i18n.get('drawererror.reprendre')}</a>
   </div>
 </div>
 

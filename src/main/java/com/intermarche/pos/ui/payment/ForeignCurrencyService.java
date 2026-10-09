@@ -34,13 +34,21 @@ public class ForeignCurrencyService {
     private static final Logger LOGGER = Logger.getLogger(ForeignCurrencyService.class);
 
     /** Refusal shown when the till offers no currency at all. */
-    static final String NO_CURRENCY = "AUCUNE DEVISE PARAMETREE";
+    static final String NO_CURRENCY_KEY = "op.aucuneDeviseParametree";
 
     /** Refusal shown when no currency has been selected yet. */
-    static final String NO_SELECTION = "DEVISE NON SELECTIONNEE";
+    static final String NO_SELECTION_KEY = "op.deviseNonSelectionnee";
 
     /** Refusal shown when the amount typed is not a usable amount. */
-    static final String BAD_AMOUNT = "MONTANT EN DEVISE INVALIDE";
+    static final String BAD_AMOUNT_KEY = "op.montantDeviseInvalide";
+
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /** Registers the settlement once this service has converted it. */
     @Inject
@@ -59,7 +67,7 @@ public class ForeignCurrencyService {
         state.payment.clearCurrencyPanel();
         state.payment.currencyPanelOpen = true;
         if (listCurrencies().isEmpty()) {
-            state.payment.currencyError = NO_CURRENCY;
+            state.payment.currencyError = i18n.get(NO_CURRENCY_KEY);
         }
         state.touch();
         LOGGER.info("Exiting method openPanel");
@@ -102,7 +110,7 @@ public class ForeignCurrencyService {
                 ? null : Currency.findActiveByCode(code.trim().toUpperCase());
         if (currency == null) {
             state.payment.selectedCurrency = null;
-            state.payment.currencyError = NO_SELECTION;
+            state.payment.currencyError = i18n.get(NO_SELECTION_KEY);
             state.touch();
             LOGGER.info("Exiting method selectCurrency");
             return;
@@ -124,13 +132,13 @@ public class ForeignCurrencyService {
         LOGGER.info("Entering method processCurrency with state: " + state + ", foreignAmount: " + foreignAmount);
         Currency currency = state.payment.selectedCurrency;
         if (currency == null) {
-            state.payment.currencyError = NO_SELECTION;
+            state.payment.currencyError = i18n.get(NO_SELECTION_KEY);
             state.touch();
             LOGGER.info("Exiting method processCurrency");
             return false;
         }
         if (foreignAmount == null || foreignAmount.signum() <= 0) {
-            state.payment.currencyError = BAD_AMOUNT;
+            state.payment.currencyError = i18n.get(BAD_AMOUNT_KEY);
             state.touch();
             LOGGER.info("Exiting method processCurrency");
             return false;
@@ -140,7 +148,7 @@ public class ForeignCurrencyService {
             // A rate so small that the notes handed over are worth less than a cent
             // is a misconfigured rate, not a payment: refusing says so, whereas
             // registering a zero would silently swallow the customer's money.
-            state.payment.currencyError = BAD_AMOUNT;
+            state.payment.currencyError = i18n.get(BAD_AMOUNT_KEY);
             state.touch();
             LOGGER.info("Exiting method processCurrency");
             return false;

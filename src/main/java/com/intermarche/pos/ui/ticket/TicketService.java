@@ -52,6 +52,13 @@ public class TicketService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(TicketService.class);
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The back-office parameters (discount caps — LC-03-02). */
     @jakarta.inject.Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
@@ -144,9 +151,9 @@ public class TicketService {
                 || entered.unitPrice.compareTo(threshold) <= 0) {
             return;
         }
-        state.ticket.setWarning("PRIX ÉLEVÉ : " + entered.label + " "
-                + entered.unitPrice.setScale(2, java.math.RoundingMode.HALF_UP)
-                        .toPlainString().replace('.', ',') + " €");
+        state.ticket.setWarning(i18n.format("op.prixEleve", entered.label,
+                entered.unitPrice.setScale(2, java.math.RoundingMode.HALF_UP)
+                        .toPlainString().replace('.', ',')));
     }
 
     /**
@@ -218,7 +225,7 @@ public class TicketService {
     public void applyGlobalDiscount(PosState state, PriceModType type, BigDecimal value) {
         LOGGER.info("Entering method applyGlobalDiscount with state: " + state + ", type: " + type + ", value: " + value);
         if (state.payment.paymentInProgress) {
-            state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+            state.ticket.setError(i18n.get("op.terminezAnnulezTicketAbord"));
             LOGGER.info("Exiting method applyGlobalDiscount");
             return;
         }
@@ -228,7 +235,7 @@ public class TicketService {
         if (value == null || value.signum() < 0
                 || (type == PriceModType.GLOBAL_DISCOUNT
                         && value.compareTo(BigDecimal.valueOf(cap)) > 0)) {
-            state.ticket.setError("VALEUR INVALIDE");
+            state.ticket.setError(i18n.get("op.valeurInvalide"));
             LOGGER.info("Exiting method applyGlobalDiscount");
             return;
         }
@@ -238,7 +245,7 @@ public class TicketService {
         BigDecimal amountCap = posSettingsService.globalMaxDiscountAmount();
         if (type == PriceModType.GLOBAL_REMISE && amountCap.signum() > 0
                 && value.compareTo(amountCap) > 0) {
-            state.ticket.setError("REMISE SUPERIEURE AU PLAFOND");
+            state.ticket.setError(i18n.get("op.remiseSuperieurePlafond"));
             LOGGER.info("Exiting method applyGlobalDiscount");
             return;
         }
@@ -276,7 +283,7 @@ public class TicketService {
         state.ageCheck.kind = kind;
         state.ageCheck.code = code;
         state.ageCheck.quantity = quantity;
-        hardwareService.displayMessage("CONTROLE D'AGE EN COURS");
+        hardwareService.displayMessage(i18n.both("display.controleAgeCours"));
         state.touch();
         LOGGER.info("Exiting method suspendForAgeCheck");
         return true;
@@ -343,7 +350,7 @@ public class TicketService {
             return;
         }
         if (value == null || value.signum() <= 0) {
-            state.ticket.setError("VALEUR INVALIDE");
+            state.ticket.setError(i18n.get("op.valeurInvalide"));
             state.touch();
             LOGGER.info("Exiting method confirmEntry");
             return;
@@ -351,7 +358,7 @@ public class TicketService {
         Product product = Product.findActiveByEan(state.entryPrompt.ean);
         if (product == null) {
             state.entryPrompt.clear();
-            state.ticket.setError("PRODUIT INTROUVABLE");
+            state.ticket.setError(i18n.get("op.produitIntrouvable"));
             state.touch();
             LOGGER.info("Exiting method confirmEntry");
             return;
@@ -384,7 +391,7 @@ public class TicketService {
     public void cancelEntry(PosState state) {
         LOGGER.info("Entering method cancelEntry with state: " + state);
         state.entryPrompt.clear();
-        state.ticket.setError("SAISIE ABANDONNÉE");
+        state.ticket.setError(i18n.get("op.saisieAbandonnee"));
         state.touch();
         LOGGER.info("Exiting method cancelEntry");
     }
@@ -417,6 +424,10 @@ public class TicketService {
         // display, the customer display and the receipt all state "2,36 x 4,99 €/m"
         // without any of them going back to the referential.
         line.unitName = product.unitName;
+        // LC-02-13-02: the DECIMAL-QUANTITY type travels with the line too, so the
+        // quantity key knows that decimals are legitimate on this one without
+        // reading the referential back.
+        line.decimalQuantity = ProductAttributes.quantityToEnter(product);
         if (product.giftCardAmount != null) {
             line.moneyProduct = true;
         }
@@ -479,7 +490,7 @@ public class TicketService {
                 pending.productLabel + " (" + pending.threshold + "+) - vente refusée par "
                         + state.auth.operatorName);
         pending.clear();
-        state.ticket.setError("VENTE REFUSÉE - CONTRÔLE D'ÂGE");
+        state.ticket.setError(i18n.get("op.venteRefuseeControleAge"));
         state.touch();
         LOGGER.info("Exiting method refuseAgeCheck");
     }
@@ -580,7 +591,7 @@ public class TicketService {
     private boolean requireOpenSession(PosState state) {
         if (state.trainingMode) return true; // training sells without a session
         if (cashSessionService.getOpenSession() != null) return true;
-        state.ticket.setError("AUCUNE SESSION OUVERTE - MENU CAISSE");
+        state.ticket.setError(i18n.get("op.aucuneSessionOuverteMenu"));
         return false;
     }
 
@@ -593,7 +604,7 @@ public class TicketService {
      */
     private void displayItem(TicketState.TicketItem item) {
         if (item == null) {
-            hardwareService.displayMessage("INTERMARCHE");
+            hardwareService.displayMessage(i18n.get("paper.intermarche"));
             return;
         }
         String label = item.label;
@@ -610,7 +621,7 @@ public class TicketService {
      */
     private void displayLastItemOrWelcome(PosState state) {
         if (state.ticket.items.isEmpty()) {
-            hardwareService.displayMessage("INTERMARCHE");
+            hardwareService.displayMessage(i18n.get("paper.intermarche"));
         } else {
             displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
         }
@@ -756,12 +767,12 @@ public class TicketService {
         }
         if (p != null) {
             if (p.forbiddenToSale) {
-                state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+                state.ticket.setError(i18n.get("op.produitInterditVente"));
                 LOGGER.info("Exiting method addItemByEan");
                 return;
             }
             if (ProductAttributes.recall(p)) {
-                state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                state.ticket.setError(i18n.get("op.articleRetraitRappel"));
                 LOGGER.info("Exiting method addItemByEan");
                 return;
             }
@@ -804,7 +815,7 @@ public class TicketService {
             // lots are listed and the cashier reads the one printed on the pack.
             noticeRecalledLots(state, p);
         } else {
-            state.ticket.setError("PRODUIT INTROUVABLE");
+            state.ticket.setError(i18n.get("op.produitIntrouvable"));
         }
         LOGGER.info("Exiting method addItemByEan");
     }
@@ -841,12 +852,12 @@ public class TicketService {
         Product p = Product.findActiveByPlu(pluCode);
         if (p != null) {
             if (p.forbiddenToSale) {
-                state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+                state.ticket.setError(i18n.get("op.produitInterditVente"));
                 LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
             if (ProductAttributes.recall(p)) {
-                state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                state.ticket.setError(i18n.get("op.articleRetraitRappel"));
                 LOGGER.info("Exiting method addItemByPlu");
                 return;
             }
@@ -862,10 +873,13 @@ public class TicketService {
             // register never re-deducts (non-cumulation). The punctual
             // container tare is consumed straight away: it arms one weighing.
             BigDecimal tare = tareService.resolve(p, state);
-            double weight = hardwareService.requestWeighing(tare);
+            // The article is chosen, the plate may still be empty: wait for it to
+            // be loaded instead of refusing the weighing outright. Choosing then
+            // laying down is the order the screen asks for, and it did not work.
+            double weight = hardwareService.awaitWeighing(tare);
             tareService.consume(state);
-            if (weight <= 0) { state.ticket.setError("POIDS INVALIDE"); LOGGER.info("Exiting method addItemByPlu"); return; }
-            if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError("ERREUR POIDS IDENTIQUE"); LOGGER.info("Exiting method addItemByPlu"); return; }
+            if (weight <= 0) { state.ticket.setError(i18n.get("op.poidsInvalide")); LOGGER.info("Exiting method addItemByPlu"); return; }
+            if (!Double.isNaN(state.ticket.lastRecordedWeight) && Double.compare(weight, state.ticket.lastRecordedWeight) == 0) { state.ticket.setError(i18n.get("op.erreurPoidsIdentique")); LOGGER.info("Exiting method addItemByPlu"); return; }
 
             state.ticket.lastRecordedWeight = weight;
             Price price = Price.findCurrentPrice(p.id);
@@ -898,7 +912,7 @@ public class TicketService {
             // LC-02-03-13: a PLU names no lot either.
             noticeRecalledLots(state, p);
         } else {
-            state.ticket.setError("PLU INTROUVABLE");
+            state.ticket.setError(i18n.get("op.pluIntrouvable"));
         }
         LOGGER.info("Exiting method addItemByPlu");
     }
@@ -924,7 +938,7 @@ public class TicketService {
                 syncAndRevalue(state);
             }
         } catch (Exception e) {
-            state.ticket.setError("ERREUR PRIX SAISI");
+            state.ticket.setError(i18n.get("op.erreurPrixSaisi"));
         }
         LOGGER.info("Exiting method addUnknownItem");
     }
@@ -950,7 +964,7 @@ public class TicketService {
                 (familyCode == null || familyCode.isBlank())
                         ? null : com.intermarche.pos.domain.catalog.ProductFamily.findByCode(familyCode.trim());
         if (family == null) {
-            state.ticket.setError("FAMILLE INCONNUE");
+            state.ticket.setError(i18n.get("op.familleInconnue"));
             state.touch();
             LOGGER.info("Exiting method addFamilyPricedItem");
             return;
@@ -964,10 +978,10 @@ public class TicketService {
                 displayItem(state.ticket.items.get(state.ticket.items.size() - 1));
                 syncAndRevalue(state);
             } else {
-                state.ticket.setError("ERREUR PRIX SAISI");
+                state.ticket.setError(i18n.get("op.erreurPrixSaisi"));
             }
         } catch (Exception e) {
-            state.ticket.setError("ERREUR PRIX SAISI");
+            state.ticket.setError(i18n.get("op.erreurPrixSaisi"));
         }
         LOGGER.info("Exiting method addFamilyPricedItem");
     }
@@ -1007,13 +1021,13 @@ public class TicketService {
         LOGGER.info("Entering method loadRecalledDocument");
         if (!requireOpenSession(state)) { LOGGER.info("Exiting method loadRecalledDocument"); return; }
         if (doc == null) {
-            state.ticket.setError("DOCUMENT INTROUVABLE");
+            state.ticket.setError(i18n.get("op.documentIntrouvable"));
             state.touch();
             LOGGER.info("Exiting method loadRecalledDocument");
             return;
         }
         if (doc.lines == null || doc.lines.isEmpty()) {
-            state.ticket.setError("DOCUMENT VIDE");
+            state.ticket.setError(i18n.get("op.documentVide"));
             state.touch();
             LOGGER.info("Exiting method loadRecalledDocument");
             return;
@@ -1030,7 +1044,8 @@ public class TicketService {
         }
         recalculateTotal(state);
         displayLastItemOrWelcome(state);
-        state.ticket.setNotice(doc.getKindLabel() + " " + (doc.code == null ? "" : doc.code) + " CHARGÉ");
+        state.ticket.setNotice(i18n.format("op.documentCharge",
+                doc.getKindLabel(), (doc.code == null ? "" : doc.code)));
         syncAndRevalue(state);
         LOGGER.info("Exiting method loadRecalledDocument");
     }
@@ -1051,7 +1066,10 @@ public class TicketService {
             ticketPersistenceService.markLineCancelled(
                     state.payment.ticketDbId, uid, state.auth.operatorBadgeId);
         }
-        state.ticket.removeItemById(uid);
+        // The line LEAVES THE CART AND STAYS ON THE SCREEN, struck through: what
+        // was cancelled is a fact of the sale the operator and the customer must
+        // still be able to point at.
+        state.ticket.cancelLine(uid);
         recalculateTotal(state);
         state.selectedTicketIndex = -1;
         displayLastItemOrWelcome(state);
@@ -1086,7 +1104,7 @@ public class TicketService {
                 state.abandonReason == null || state.abandonReason.isBlank()
                         ? "Abandon ticket" : "Abandon ticket : " + state.abandonReason);
         state.clearTicket();
-        hardwareService.displayMessage("INTERMARCHE");
+        hardwareService.displayMessage(i18n.get("paper.intermarche"));
         LOGGER.info("Exiting method cancelTicket");
     }
 

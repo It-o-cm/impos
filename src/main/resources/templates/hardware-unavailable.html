@@ -14,7 +14,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matériel indisponible</title>
+    <title>{inject:i18n.get('hardwareunavailable.materielIndisponible')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -42,29 +42,29 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>CONTRÔLE DU MATÉRIEL</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('hardwareunavailable.controleMateriel')}</span>
       <span id="clock"></span>
     </div>
 
     <div class="main-area">
       <div class="panel{#if allAvailable} all-ok{/if}">
         {#if allAvailable}
-          <h2>Matériel disponible</h2>
-          <p class="hint">Tout le matériel de cette caisse répond.</p>
+          <h2>{inject:i18n.get('hardwareunavailable.materielDisponible')}</h2>
+          <p class="hint">{inject:i18n.get('hardwareunavailable.toutMaterielCaisseRepond')}</p>
         {#else}
           <h2>Matériel indisponible</h2>
-          <p class="hint">Rétablissez le matériel, ou ouvrez la caisse malgré la panne.</p>
+          <p class="hint">{inject:i18n.get('hardwareunavailable.retablissezMaterielOuvrezCaisse')}</p>
         {/if}
         {#for device in devices}
           <div class="device-row">
             <span>{device.name}</span>
             {#if device.failed}
-              <span class="device-state-ko">INDISPONIBLE</span>
+              <span class="device-state-ko">{inject:i18n.get('hardwareunavailable.indisponible')}</span>
             {#else if device.absent}
-              <span class="device-state-absent">NON ÉQUIPÉ</span>
+              <span class="device-state-absent">{inject:i18n.get('hardwareunavailable.nonEquipe')}</span>
             {#else}
-              <span class="device-state-ok">DISPONIBLE</span>
+              <span class="device-state-ok">{inject:i18n.get('hardwareunavailable.disponible')}</span>
             {/if}
           </div>
         {/for}
@@ -73,9 +73,9 @@
 
     <div class="bottom-nav">
       <form method="post" action="/action/hardware-override" class="override-form">
-        <button type="submit" class="btn-override{#if allAvailable} all-ok{/if}">Continuer</button>
+        <button type="submit" class="btn-override{#if allAvailable} all-ok{/if}">{inject:i18n.get('hardwareunavailable.continuer')}</button>
       </form>
-      {#if !allAvailable}<a href="/lock" class="btn-retry">Réessayer</a>{/if}
+      {#if !allAvailable}<a href="/lock" class="btn-retry">{inject:i18n.get('hardwareunavailable.reessayer')}</a>{/if}
     </div>
   </div>
   <script>

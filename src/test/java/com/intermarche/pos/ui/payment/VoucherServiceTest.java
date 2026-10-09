@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.domain.payment.StoredValue;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,6 +50,10 @@ class VoucherServiceTest {
     @BeforeEach
     void setUp() {
         service = new VoucherService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.paymentService = paymentService;
         service.couponCheckService = couponCheckService;
     }

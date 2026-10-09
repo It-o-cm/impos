@@ -180,6 +180,7 @@ public class TicketRecoveryService {
             // the sale survive a restart instead of falling back to zero.
             item.restrictedTenders = line.restrictedTenders;
             item.unitName = line.unitName;
+            item.decimalQuantity = line.decimalQuantity;
             state.ticket.items.add(item);
         }
         state.ticket.recomputeTotal();

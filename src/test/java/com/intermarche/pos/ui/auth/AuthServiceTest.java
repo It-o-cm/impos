@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -54,6 +55,10 @@ class AuthServiceTest {
      */
     private AuthService newService() {
         AuthService service = new AuthService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.technicalEventService = mock(TechnicalEventService.class);
         // The back-office parameters at their catalog defaults: a sign-in reads
         // the dedicated-return-register flag (LC-05-01-03), so the collaborator
@@ -342,6 +347,37 @@ class AuthServiceTest {
         verify(state.auth).logout();
         verify(state).clearTicket();
         verify(service.technicalEventService, never()).log(any(), any(), any());
+    }
+
+    /**
+     * A logout with NOBODY signed in keeps the chosen language (LC-13-06-03).
+     *
+     * <p>{@code GET /lock} logs out at every render to reset a free register, so a
+     * language dropped unconditionally here was erased a millisecond after the
+     * operator chose it — on the one screen where an operator who cannot read the
+     * till's language is able to choose one.
+     */
+    @Test
+    void logoutKeepsTheChosenLanguageWhenNobodyWasSignedIn() {
+        AuthService service = newService();
+        PosState state = newState();
+        state.language = "nl";
+        service.logout(state);
+        assertEquals("nl", state.language);
+    }
+
+    /**
+     * A logout of a SIGNED-IN operator drops the chosen language: it belonged to
+     * that operator, not to the register (LC-13-06-02).
+     */
+    @Test
+    void logoutDropsTheChosenLanguageOfTheOperator() {
+        AuthService service = newService();
+        PosState state = newState();
+        state.auth.operatorBadgeId = "12341234";
+        state.language = "nl";
+        service.logout(state);
+        assertNull(state.language);
     }
 
     /**

@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -48,6 +49,10 @@ class DepositVoucherScanHandlerTest {
      */
     private DepositVoucherScanHandler newHandler() {
         DepositVoucherScanHandler handler = new DepositVoucherScanHandler();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        handler.i18n = TestMessages.french();
         handler.couponCheckService =
                 org.mockito.Mockito.mock(com.intermarche.pos.service.CouponCheckService.class);
         org.mockito.Mockito.when(handler.couponCheckService

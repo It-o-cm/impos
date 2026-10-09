@@ -209,7 +209,7 @@ class PriceModStateTest {
     void getTypeLabelRemise() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.REMISE;
-        Assertions.assertEquals("SAISIE REMISE (€)", state.getTypeLabel());
+        Assertions.assertEquals("pricemod.remise", state.getTypeLabelKey());
     }
 
     /**
@@ -219,7 +219,7 @@ class PriceModStateTest {
     void getTypeLabelDiscount() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.DISCOUNT;
-        Assertions.assertEquals("SAISIE DISCOUNT (%)", state.getTypeLabel());
+        Assertions.assertEquals("pricemod.discount", state.getTypeLabelKey());
     }
 
     /**
@@ -229,7 +229,7 @@ class PriceModStateTest {
     void getTypeLabelForcePrice() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.FORCE_PRICE;
-        Assertions.assertEquals("NOUVEAU PRIX (€)", state.getTypeLabel());
+        Assertions.assertEquals("pricemod.forcePrice", state.getTypeLabelKey());
     }
 
     /**
@@ -239,7 +239,7 @@ class PriceModStateTest {
     void getTypeLabelQuantity() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.QUANTITY;
-        Assertions.assertEquals("QUANTITÉ ARTICLE", state.getTypeLabel());
+        Assertions.assertEquals("pricemod.quantity", state.getTypeLabelKey());
     }
 
     /**
@@ -251,7 +251,7 @@ class PriceModStateTest {
     void getTypeLabelGlobalRemise() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.GLOBAL_REMISE;
-        Assertions.assertEquals("REMISE TICKET (€)", state.getTypeLabel());
+        Assertions.assertEquals("pricemod.globalRemise", state.getTypeLabelKey());
     }
 
     /**
@@ -262,7 +262,7 @@ class PriceModStateTest {
     void getTypeLabelGlobalDiscount() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.GLOBAL_DISCOUNT;
-        Assertions.assertEquals("REMISE TICKET (%)", state.getTypeLabel());
+        Assertions.assertEquals("pricemod.globalDiscount", state.getTypeLabelKey());
     }
 
     /**
@@ -276,8 +276,8 @@ class PriceModStateTest {
         java.util.Set<String> titles = new java.util.HashSet<>();
         for (PriceModType type : PriceModType.values()) {
             state.type = type;
-            Assertions.assertTrue(titles.add(state.getTypeLabel()),
-                    "titre en doublon pour " + type + ": " + state.getTypeLabel());
+            Assertions.assertTrue(titles.add(state.getTypeLabelKey()),
+                    "titre en doublon pour " + type + ": " + state.getTypeLabelKey());
         }
     }
 
@@ -290,7 +290,7 @@ class PriceModStateTest {
     void getTypeLabelUnknownWordFallsBack() {
         PriceModState state = new PriceModState();
         state.type = PriceModType.of("SOMETHING_ELSE");
-        Assertions.assertEquals("MODIFICATION", state.getTypeLabel());
+        Assertions.assertEquals("op.modification", state.getTypeLabelKey());
     }
 
     /**
@@ -301,7 +301,7 @@ class PriceModStateTest {
     void getTypeLabelNullFallsBack() {
         PriceModState state = new PriceModState();
         Assertions.assertNull(state.type);
-        Assertions.assertEquals("MODIFICATION", state.getTypeLabel());
+        Assertions.assertEquals("op.modification", state.getTypeLabelKey());
     }
 
     /**

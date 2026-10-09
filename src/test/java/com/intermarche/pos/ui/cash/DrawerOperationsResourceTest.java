@@ -10,6 +10,7 @@ import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -392,6 +393,10 @@ class DrawerOperationsResourceTest {
     @BeforeEach
     void setUp() {
         resource = new DrawerOperationsResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         state = new PosState();
         settings = new FakeSettings();
         sessions = new FakeSessions();
@@ -409,6 +414,7 @@ class DrawerOperationsResourceTest {
         resource.ticketPrinterService = printer;
         resource.ticketNumberService = new FakeNumbers();
         resource.cashCountService = new CashCountService();
+        resource.cashCountService.i18n = TestMessages.french();
         settingsList("CASH:Espèces;CHEQUE:Chèques", "");
     }
 

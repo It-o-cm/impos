@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import jakarta.mail.Transport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,10 @@ class TicketMailServiceTest {
     @BeforeEach
     void setUp() {
         service = new TicketMailService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         printer = new FakePrinter();
         posSettingsService = Mockito.mock(PosSettingsService.class);
         technicalEventService = Mockito.mock(TechnicalEventService.class);

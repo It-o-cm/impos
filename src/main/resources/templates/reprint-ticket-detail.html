@@ -7,7 +7,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Détail Ticket</title>
+  <title>{inject:i18n.get('reprintticketdetail.detailTicket')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -68,14 +68,14 @@
 
 <div class="pos-terminal">
   <div class="top-bar">
-    <span class="store-name">INTERMARCHÉ</span>
+    <span class="store-name">{inject:i18n.get('common.store')}</span>
     <span id="opInfo">TICKET {state.reprint.viewedTicket.ticketNumber}</span>
     <span id="clock">--:--:--</span>
   </div>
 
   <div class="main-area">
     <div class="ticket-header">
-      <div class="ticket-title">DÉTAIL DU TICKET</div>
+      <div class="ticket-title">{inject:i18n.get('reprintticketdetail.detailTicket2')}</div>
       <div class="ticket-date">{state.reprint.viewedTicket.creationDate.format('dd/MM/yyyy HH:mm')}</div>
     </div>
 
@@ -95,7 +95,7 @@
           <div class="item-label total-label">
             {#if state.reprint.wholeTicketExchange}TOUT LE TICKET{#else}ARTICLES CHOISIS : {state.reprint.exchangeSelection.size}{/if}
           </div>
-          <span class="item-price exchange-note">aucun montant sur le bon</span>
+          <span class="item-price exchange-note">{inject:i18n.get('reprintticketdetail.aucunMontantBon')}</span>
         </div>
       {#else}
         {#for line in state.reprint.visibleLines}
@@ -109,7 +109,7 @@
         {/for}
 
         <div class="receipt-item total-line">
-          <div class="item-label total-label">TOTAL TTC</div>
+          <div class="item-label total-label">{inject:i18n.get('reprintticketdetail.totalTtc')}</div>
           <span class="item-price total-price">{state.reprint.viewedTicket.totalFormatted} €</span>
         </div>
       {/if}
@@ -118,7 +118,7 @@
 
   <div class="ticket-nav">
     {#if state.reprint.hasDetailPrev}
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/prev" class="btn btn-muted nav-btn">{inject:i18n.get('reprintticketdetail.precedent')}</a>
     {#else}
       <button class="btn btn-muted nav-btn" disabled>PRÉCÉDENT</button>
     {/if}
@@ -126,7 +126,7 @@
     <span class="nav-info">Page {state.reprint.detailPageDisplay} / {state.reprint.detailTotalPages}</span>
 
     {#if state.reprint.hasDetailNext}
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/next" class="btn btn-muted nav-btn">SUIVANT</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/next" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>
     {#else}
       <button class="btn btn-muted nav-btn" disabled>SUIVANT</button>
     {/if}
@@ -134,12 +134,12 @@
 
   <div class="bottom-nav">
     {#if state.reprint.exchangeMode}
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/cancel" class="btn btn-muted">ANNULER</a>
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/print" class="btn btn-success">IMPRIMER LE BON</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/cancel" class="btn btn-muted">{inject:i18n.get('common.cancel')}</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange/print" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimerBon')}</a>
     {#else}
-      <a href="/reprint" class="btn btn-muted">RETOUR LISTE</a>
-      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange" class="btn btn-muted">BON POUR ÉCHANGE</a>
-      <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">IMPRIMER</a>
+      <a href="/reprint" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.retourListe')}</a>
+      <a href="/reprint/view/{state.reprint.viewedTicket.id}/exchange" class="btn btn-muted">{inject:i18n.get('reprintticketdetail.bonEchange')}</a>
+      <a href="/reprint/print/{state.reprint.viewedTicket.id}" class="btn btn-success">{inject:i18n.get('reprintticketdetail.imprimer')}</a>
     {/if}
   </div>
 </div>

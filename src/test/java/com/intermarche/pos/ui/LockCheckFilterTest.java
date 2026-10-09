@@ -281,4 +281,43 @@ class LockCheckFilterTest {
             verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
         }
     }
+
+    /**
+     * The shared supervisor panel's badge poll must answer while the register is
+     * LOCKED: the panel lives on the paused lock screen too, and a poll bounced
+     * back to {@code /lock} would arm nothing — the supervisor's badge would go
+     * on being thrown away on the very screen that fixed it first.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedSupervisorBadgePollPasses() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        ContainerRequestContext ctx = ctxFor("/supervisor-badge-data");
+        filter.filter(ctx);
+        verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
+     * The LANGUAGE screen and its action answer on a LOCKED register
+     * ({@code LC-13-06-03}).
+     *
+     * <p>The one cashier screen that must: an operator who cannot read the till's
+     * language changes it BEFORE signing in, and the lock screen is the only screen
+     * they ever see. Bounced back to {@code /lock} by this filter, the key looked
+     * dead — which is exactly what happened on the till.
+     *
+     * @throws Exception never in practice
+     */
+    @Test
+    void lockedLanguageChoicePasses() throws Exception {
+        PosState state = new PosState();
+        LockCheckFilter filter = newFilter(state, 0);
+        for (String path : java.util.List.of("/language-select", "/action/language")) {
+            ContainerRequestContext ctx = ctxFor(path);
+            filter.filter(ctx);
+            verify(ctx, never()).abortWith(org.mockito.ArgumentMatchers.any());
+        }
+    }
 }

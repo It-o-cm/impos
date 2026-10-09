@@ -36,6 +36,13 @@ import java.util.List;
 @Priority(1)
 public class DepositVoucherScanHandler implements ScanContext.ScanHandler {
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The administered controls of the barcode ranges (BO-03-06). */
     @Inject
     CouponCheckService couponCheckService;
@@ -60,7 +67,7 @@ public class DepositVoucherScanHandler implements ScanContext.ScanHandler {
 
             BigDecimal amount = type.extractAmount(ctx.code);
             if (amount == null || amount.signum() <= 0) {
-                state.ticket.setError("BON DE CONSIGNE ILLISIBLE");
+                state.ticket.setError(i18n.get("op.bonConsigneIllisible"));
                 ctx.handled = true;
                 return;
             }

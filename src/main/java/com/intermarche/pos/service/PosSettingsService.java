@@ -121,6 +121,34 @@ public class PosSettingsService {
                 "Ordre des articles sur le ticket",
                 "Ordre d'impression des articles sur le ticket de caisse : ENTRY (ordre d'enregistrement, défaut), LABEL (alphabétique par libellé) ou FAMILY (regroupés sous le libellé de leur famille). Une valeur inconnue retombe sur ENTRY (LC-08-01-07).",
                 "ENTRY", null),
+        new Def("ticket.family-alphabetical", Type.BOOL, "TICKETS",
+                "Familles triées alphabétiquement",
+                "Quand les articles sont regroupés par famille (ordre FAMILY), les intitulés de famille sortent dans l'ordre alphabétique, qui est le comportement par défaut. Désactivé : les familles sortent dans l'ordre d'apparition de leur premier article (BO-03-03-17).",
+                "true", null),
+        new Def("ticket.line-attribute", Type.TEXT, "TICKETS",
+                "Attribut article de tri du ticket",
+                "Code de l'attribut article servant à trier ou isoler les lignes du ticket. Vide : aucun tri par attribut (BO-03-03-18).",
+                "", null),
+        new Def("ticket.line-attribute-isolate", Type.TEXT, "TICKETS",
+                "Isolement des lignes portant l'attribut",
+                "Où sortent les lignes portant l'attribut de tri : NONE (tri seul, défaut), START (isolées en début de ticket) ou END (isolées en fin). Une valeur inconnue retombe sur NONE (BO-03-03-18).",
+                "NONE", null),
+        new Def("ticket.line-discount-print", Type.BOOL, "TICKETS",
+                "Imprimer les remises de ligne",
+                "La remise, le rabais ou le prix forcé d'une ligne sort sous l'article concerné. Désactivé : seule la remise ticket sort sous les totaux (BO-03-03-22).",
+                "false", null),
+        new Def("ticket.immediate-discount-total", Type.BOOL, "TICKETS",
+                "Imprimer le total des remises immédiates",
+                "Une ligne de cumul des remises immédiates — remises de ligne et remise ticket — sort sous les totaux. Désactivé : aucune ligne de cumul (BO-03-03-24).",
+                "false", null),
+        new Def("print.logo-width-dots", Type.INT, "TICKETS",
+                "Largeur du logo imprimé, en points",
+                "Largeur à laquelle le logo est imprimé, en points de la tête thermique : 384 points soit 48 mm par défaut, jusqu'à 576 points pour toute la largeur d'un rouleau 80 mm (Epson TMH6000 IV et V). Une valeur hors de l'intervalle 8-576 retombe sur 384 (BO-03-03-14).",
+                "384", null),
+        new Def("credit-note.print-expiry", Type.BOOL, "TICKETS",
+                "Imprimer la date de validité de l'avoir",
+                "La date de fin de validité de l'avoir sort sur le bon. Désactivé : le bon ne porte que son numéro et son montant (BO-03-03-08).",
+                "false", null),
         new Def("print.conditional-enabled", Type.BOOL, "IMPRESSION CONDITIONNELLE",
                 "Choix d'impression en fin de transaction",
                 "La caisse propose au caissier quels documents imprimer : tous, ticket de caisse, ticket carte bancaire, bon d'achat ou aucun. Désactivé : la caisse imprime comme aujourd'hui, sans écran de choix (LC-08-03-01).",
@@ -185,6 +213,14 @@ public class PosSettingsService {
                 "Prix du ticket comptoir : celui du comptoir",
                 "Les lignes d'un ticket unique balance sont enregistrées au prix calculé par le comptoir. Désactivé : chaque ligne est revalorisée au prix du référentiel, le poids pesé faisant foi et le comptoir n'étant plus qu'un peseur (LC-06-01-04).",
                 "true", null),
+        new Def("collect.point-label", Type.TEXT, "ARTICLES A ENLEVER",
+                "Nom du point de retrait",
+                "Le lieu ou le client va retirer les articles marques A ENLEVER, imprime sur le bon d'enlevement : le client quitte la caisse et s'y rend en vehicule, donc le bon doit le nommer. Un seul point de retrait par magasin (le BATI en bricolage, le DRIVE en alimentaire). Vide : le bon n'en nomme aucun (LC-02-08-05).",
+                "", null),
+        new Def("collect.voucher-copies", Type.INT, "ARTICLES A ENLEVER",
+                "Nombre d'exemplaires du bon d'enlevement",
+                "Le bon n'est pas un document fiscal : c'est une preuve de sortie de marchandise. Deux exemplaires permettent au client de LAISSER le sien au point de retrait, que le responsable releve le soir, et d'en GARDER un portant le reste a enlever. 1 : un seul bon, celui que le client garde (LC-02-08-05).",
+                "2", null),
         new Def("cash.rounding-step-cents", Type.INT, "ARRONDI ESPECES",
                 "Pas d'arrondi du règlement espèces (centimes)",
                 "Le montant réglable en espèces est arrondi au multiple le plus proche de ce pas, et l'écart est enregistré sur le moyen de paiement ARRONDI. 0 ou 1 : aucun arrondi (France). 5 : obligation légale belge depuis le 01/12/2019 (LC-07-03-01).",
@@ -395,7 +431,7 @@ public class PosSettingsService {
                 "fr", null),
         new Def("language.available", Type.TEXT, "LANGUE",
                 "Langues proposées en caisse",
-                "Langues que l'opérateur peut choisir, séparées par des points-virgules, parmi fr, nl et pt. Une langue sans bundle livré est ignorée ; liste vide : seul le français est proposé (LC-13-06-03/04).",
+                "Langues que l'opérateur peut choisir, séparées par des points-virgules, par exemple fr;nl;pt. La liste des langues disponibles n'est pas figée dans le logiciel : elle est découverte des fichiers de messages livrés, et de ceux déposés dans le répertoire pos.messages.dir. Une langue sans fichier de messages est ignorée ; liste vide : seul le français est proposé (LC-13-06-03/04).",
                 "fr;nl;pt", null),
         new Def("language.operator-change", Type.BOOL, "LANGUE",
                 "Changement de langue pendant la session",
@@ -517,6 +553,22 @@ public class PosSettingsService {
                 "Ventilation TVA sur le ticket",
                 "Le detail de la TVA par taux (HT / TVA) est imprime sur le ticket de caisse et le ticket de retour. Desactive : aucune ventilation TVA n'est imprimee (BO-10-06-04).",
                 "true", null),
+        new Def("fidelity.print-card-number", Type.BOOL, "FIDÉLITÉ",
+                "Imprimer le numéro de carte fidélité",
+                "La mention carte fidélité et son numéro sortent en zone d'avantage carte du ticket. Désactivé : le ticket ne nomme pas la carte (BO-03-03-32).",
+                "false", null),
+        new Def("fidelity.print-balances", Type.BOOL, "FIDÉLITÉ",
+                "Imprimer les soldes de la carte fidélité",
+                "La zone soldes carte sort en fin de section fidélité : solde disponible, total des avantages du jour, montant utilisé et nouveau solde après transaction. Désactivé : aucune zone soldes (BO-03-03-31, BO-03-03-34).",
+                "false", null),
+        new Def("fidelity.advantage-grouping", Type.TEXT, "FIDÉLITÉ",
+                "Regroupement des avantages fidélité",
+                "Comment les lignes d'avantage sont regroupées sous la cagnotte du jour : TYPE (par type d'avantage, défaut), CATEGORY (par catégorie) ou NONE (liste à plat). Une valeur inconnue retombe sur TYPE (BO-03-03-25, BO-03-03-33).",
+                "TYPE", null),
+        new Def("fidelity.non-holder-message", Type.TEXT, "FIDÉLITÉ",
+                "Message fidélité pour les non porteurs",
+                "Texte imprimé sur le ticket d'un client sans carte de fidélité, quand le service fidélité a répondu. Vide : rien n'est imprimé (BO-03-03-28).",
+                "", null),
         new Def("fidelity.external-enabled", Type.BOOL, "FIDÉLITÉ",
                 "Service fidelite externe actif",
                 "L'interrogation du service fidelite imfid (cagnotte, avantages, paiement fidelite) est active. Desactive : la caisse se comporte comme si aucun service fidelite n'etait configure, meme si son URL est renseignee (BO-10-03-07).",
@@ -862,6 +914,42 @@ public class PosSettingsService {
         LOGGER.info("Entering method globalMaxDiscountPercent");
         LOGGER.info("Exiting method globalMaxDiscountPercent");
         return intValue("discount.global-max-percent");
+    }
+
+    /**
+     * The name of the place the customer collects the marked articles at.
+     *
+     * <p>ONE PLACE PER STORE, and its name changes with the format: the BATI
+     * counter in a hardware store, the DRIVE in a food store. The customer pays
+     * at the till and DRIVES there, so the slip that proves what is owed to them
+     * has to say where to go. Blank when the store administered none, and the
+     * slip then names no place rather than inventing one.
+     *
+     * @return the collection point's name, blank when none is administered
+     */
+    public String collectPointLabel() {
+        LOGGER.info("Entering method collectPointLabel");
+        LOGGER.info("Exiting method collectPointLabel");
+        return value("collect.point-label");
+    }
+
+    /**
+     * How many copies of the handover slip the till prints.
+     *
+     * <p>TWO BY DEFAULT, because the slip has two readers and they keep
+     * different halves of the same fact: the collection desk keeps one as the
+     * proof that goods left the shop — the manager collects them in the evening
+     * — and the customer keeps one carrying what is left to collect. A single
+     * copy cannot do both, and the per-article "retiré / reste" boxes are
+     * designed for the one the customer keeps.
+     *
+     * @return the number of copies, never below one
+     */
+    public int collectVoucherCopies() {
+        LOGGER.info("Entering method collectVoucherCopies");
+        int copies = intValue("collect.voucher-copies");
+        LOGGER.info("Exiting method collectVoucherCopies");
+        return Math.max(1, copies);
     }
 
     /**
@@ -2725,5 +2813,151 @@ public class PosSettingsService {
         LOGGER.info("Entering method ticketEmailEditable");
         LOGGER.info("Exiting method ticketEmailEditable");
         return boolValue("ticket.email-editable");
+    }
+
+    /**
+     * Whether family headings print in alphabetical order (BO-03-03-17).
+     *
+     * <p>Read only when the articles are grouped by family: with any other
+     * print order there is no heading to order.
+     *
+     * @return true when the family headings are ordered alphabetically
+     */
+    public boolean ticketFamilyAlphabetical() {
+        LOGGER.info("Entering method ticketFamilyAlphabetical");
+        LOGGER.info("Exiting method ticketFamilyAlphabetical");
+        return boolValue("ticket.family-alphabetical");
+    }
+
+    /**
+     * The article attribute the receipt lines are sorted or separated on
+     * (BO-03-03-18).
+     *
+     * @return the attribute code, blank when no attribute sorting is wanted
+     */
+    public String ticketLineAttribute() {
+        LOGGER.info("Entering method ticketLineAttribute");
+        LOGGER.info("Exiting method ticketLineAttribute");
+        return value("ticket.line-attribute");
+    }
+
+    /**
+     * Where the lines carrying the sorting attribute are isolated
+     * (BO-03-03-18), as administered. The renderer normalizes it, so this stays
+     * a plain read.
+     *
+     * @return NONE, START or END as administered, never null
+     */
+    public String ticketLineAttributeIsolate() {
+        LOGGER.info("Entering method ticketLineAttributeIsolate");
+        LOGGER.info("Exiting method ticketLineAttributeIsolate");
+        return value("ticket.line-attribute-isolate");
+    }
+
+    /**
+     * Whether a line's discount, rebate or forced price prints under its
+     * article (BO-03-03-22).
+     *
+     * @return true when the line-level discounts are printed
+     */
+    public boolean ticketLineDiscountPrint() {
+        LOGGER.info("Entering method ticketLineDiscountPrint");
+        LOGGER.info("Exiting method ticketLineDiscountPrint");
+        return boolValue("ticket.line-discount-print");
+    }
+
+    /**
+     * Whether the cumulated immediate discounts print under the totals
+     * (BO-03-03-24).
+     *
+     * @return true when the immediate-discount total is printed
+     */
+    public boolean ticketImmediateDiscountTotal() {
+        LOGGER.info("Entering method ticketImmediateDiscountTotal");
+        LOGGER.info("Exiting method ticketImmediateDiscountTotal");
+        return boolValue("ticket.immediate-discount-total");
+    }
+
+    /**
+     * The width the store logo is printed at, in thermal-head dots
+     * (BO-03-03-14).
+     *
+     * <p>Bounded here rather than at the printer: a value a paramétreur mistyped
+     * must cost the default header and never a logo wider than the paper, which
+     * the head would clip mid-raster. Eight dots is one packed byte, the
+     * smallest width that can be packed at all; 576 dots is an 80 mm roll edge
+     * to edge.
+     *
+     * @return the print width in dots, always between 8 and 576
+     */
+    public int logoWidthDots() {
+        LOGGER.info("Entering method logoWidthDots");
+        int dots = intValue("print.logo-width-dots");
+        LOGGER.info("Exiting method logoWidthDots");
+        return dots < 8 || dots > 576 ? 384 : dots;
+    }
+
+    /**
+     * Whether the credit note states its end of validity (BO-03-03-08).
+     *
+     * @return true when the expiry date is printed on the voucher
+     */
+    public boolean creditNotePrintExpiry() {
+        LOGGER.info("Entering method creditNotePrintExpiry");
+        LOGGER.info("Exiting method creditNotePrintExpiry");
+        return boolValue("credit-note.print-expiry");
+    }
+
+    /**
+     * Whether the receipt names the loyalty card it was attached to
+     * (BO-03-03-32).
+     *
+     * @return true when the card mention and number are printed
+     */
+    public boolean fidelityPrintCardNumber() {
+        LOGGER.info("Entering method fidelityPrintCardNumber");
+        LOGGER.info("Exiting method fidelityPrintCardNumber");
+        return boolValue("fidelity.print-card-number");
+    }
+
+    /**
+     * Whether the receipt carries the card's balance zone (BO-03-03-31,
+     * BO-03-03-34).
+     *
+     * @return true when the balances are printed
+     */
+    public boolean fidelityPrintBalances() {
+        LOGGER.info("Entering method fidelityPrintBalances");
+        LOGGER.info("Exiting method fidelityPrintBalances");
+        return boolValue("fidelity.print-balances");
+    }
+
+    /**
+     * How the advantage lines are grouped under the day's earn (BO-03-03-25,
+     * BO-03-03-33), as administered. The printer normalizes it, so this stays a
+     * plain read.
+     *
+     * @return TYPE, CATEGORY or NONE as administered, never null
+     */
+    public String fidelityAdvantageGrouping() {
+        LOGGER.info("Entering method fidelityAdvantageGrouping");
+        LOGGER.info("Exiting method fidelityAdvantageGrouping");
+        return value("fidelity.advantage-grouping");
+    }
+
+    /**
+     * The message printed for a customer who presented no loyalty card
+     * (BO-03-03-28).
+     *
+     * <p>Distinct from {@link #fidelityOfflineMessageNoCard()}, which answers
+     * for a non-holder the service could not be asked about: this one is said
+     * when the programme DID answer and the customer simply has no card.
+     *
+     * @return the administered text, blank when the shop says nothing
+     */
+    public String fidelityNonHolderMessage() {
+        LOGGER.info("Entering method fidelityNonHolderMessage");
+        LOGGER.info("Exiting method fidelityNonHolderMessage");
+        return value("fidelity.non-holder-message");
     }
 }

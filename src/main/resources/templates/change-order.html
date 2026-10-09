@@ -11,7 +11,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Commande de Monnaie</title>
+  <title>{inject:i18n.get('changeorder.commandeMonnaie')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -40,8 +40,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>COMMANDE DE MONNAIE</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('changeorder.commandeMonnaie2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -51,13 +51,13 @@
           <div class="error-box">{error}</div>
         {/if}
         {#if saved}
-          <div class="ok-box">BORDEREAU IMPRIMÉ</div>
+          <div class="ok-box">{inject:i18n.get('changeorder.bordereauImprime')}</div>
         {/if}
 
-        <h2>Bordereau de commande de monnaie</h2>
+        <h2>{inject:i18n.get('changeorder.bordereauCommandeMonnaie')}</h2>
         <table>
           <thead>
-            <tr><th>Dénomination</th><th>Montant €</th><th>Nbr. rouleaux</th></tr>
+            <tr><th>{inject:i18n.get('changeorder.denomination')}</th><th>{inject:i18n.get('changeorder.montant')}</th><th>{inject:i18n.get('changeorder.nbrRouleaux')}</th></tr>
           </thead>
           <tbody>
             {#for denom in denominations}
@@ -67,7 +67,7 @@
                 <form class="denom-form" method="post" action="/action/change-order/entry">
                   <input type="hidden" name="id" value="{denom.id}">
                   <input type="hidden" name="type" value="AMOUNT">
-                  <div id="dispAmount-{denom.id}" class="pad-display" onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'decimal')"></div>
+                  <div id="dispAmount-{denom.id}" class="pad-display" onclick="bindDenom('dispAmount-{denom.id}', 'valAmount-{denom.id}', 'price', 'cents')"></div>
                   <input type="hidden" name="value" id="valAmount-{denom.id}" value="{denom.amount}">
                   <button type="submit" class="btn btn-sm btn-muted">€</button>
                 </form>
@@ -79,7 +79,7 @@
                   <input type="hidden" name="type" value="ROLLS">
                   <div id="dispRolls-{denom.id}" class="pad-display" onclick="bindDenom('dispRolls-{denom.id}', 'valRolls-{denom.id}', 'numpad', 'integer')"></div>
                   <input type="hidden" name="value" id="valRolls-{denom.id}" value="{denom.rolls}">
-                  <button type="submit" class="btn btn-sm btn-muted">rl</button>
+                  <button type="submit" class="btn btn-sm btn-muted">{inject:i18n.get('changeorder.rl')}</button>
                 </form>
                 {#else}
                 <span class="val">{denom.rolls}</span>
@@ -98,20 +98,20 @@
 
         <div class="actions">
           <form method="post" action="/action/change-order/print-empty">
-            <button type="submit" class="btn btn-muted">IMPRIMER BORDEREAU VIERGE</button>
+            <button type="submit" class="btn btn-muted">{inject:i18n.get('changeorder.imprimerBordereauVierge')}</button>
           </form>
           <form method="post" action="/action/change-order/print">
-            <button type="submit" class="btn btn-success">IMPRIMER LE BORDEREAU</button>
+            <button type="submit" class="btn btn-success">{inject:i18n.get('changeorder.imprimerBordereau')}</button>
           </form>
           <form method="post" action="/action/change-order/clear">
-            <button type="submit" class="btn btn-warning">EFFACER</button>
+            <button type="submit" class="btn btn-warning">{inject:i18n.get('changeorder.effacer')}</button>
           </form>
         </div>
       </div>
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 

@@ -41,6 +41,9 @@ class PosStateTest {
         state.fidelity = mock(FidelityState.class);
         state.auth = mock(AuthState.class);
         state.priceModState = mock(PriceModState.class);
+        // The two refusals this state posts itself read the French bundle, so
+        // the assertions keep the literal sentence the register shows (LC-13-06).
+        state.i18n = TestMessages.french();
         return state;
     }
 
@@ -253,13 +256,13 @@ class PosStateTest {
         PosState.EntryPromptState prompt = new PosState.EntryPromptState();
         prompt.kind = PosState.EntryPromptState.PRICE;
         assertTrue(prompt.isPriceKind());
-        assertEquals("PRIX À SAISIR", prompt.getTitle());
+        assertEquals("op.prixSaisir", prompt.getTitleKey());
         prompt.kind = PosState.EntryPromptState.QUANTITY;
         assertFalse(prompt.isPriceKind());
-        assertEquals("QUANTITÉ À SAISIR", prompt.getTitle());
+        assertEquals("op.quantiteSaisir", prompt.getTitleKey());
         prompt.kind = null;
         assertFalse(prompt.isPriceKind());
-        assertEquals("QUANTITÉ À SAISIR", prompt.getTitle());
+        assertEquals("op.quantiteSaisir", prompt.getTitleKey());
     }
 
     /**
@@ -614,6 +617,9 @@ class PosStateTest {
     void getVisibleItemsEmptyWhenNoLines() {
         PosState state = newState();
         state.ticket.items = items(0);
+        // The DISPLAY sequence is what the page reads. A real TicketState with no
+        // cancelled line answers its own item list; the mock has to say so.
+        when(state.ticket.displayItems()).thenReturn(state.ticket.items);
         assertTrue(state.getVisibleItems().isEmpty());
     }
 
@@ -626,6 +632,7 @@ class PosStateTest {
         PosState state = newState();
         List<TicketState.TicketItem> list = items(3);
         state.ticket.items = list;
+        when(state.ticket.displayItems()).thenReturn(list);
         state.ticketCurrentPage = 0;
         List<TicketState.TicketItem> visible = state.getVisibleItems();
         assertEquals(3, visible.size());
@@ -641,6 +648,7 @@ class PosStateTest {
         PosState state = newState();
         List<TicketState.TicketItem> list = items(3);
         state.ticket.items = list;
+        when(state.ticket.displayItems()).thenReturn(list);
         state.ticketCurrentPage = 5;
         List<TicketState.TicketItem> visible = state.getVisibleItems();
         assertEquals(0, state.ticketCurrentPage);
@@ -844,7 +852,7 @@ class PosStateTest {
         state.trainingMode = true;
         state.lastClosedTicketId = 42L;
         assertFalse(state.requireLastClosedTicket());
-        verify(state.ticket).setError(PosState.TRAINING_FORBIDDEN);
+        verify(state.ticket).setError("FONCTION INDISPONIBLE EN FORMATION");
         assertEquals(1, state.version);
     }
 
@@ -859,7 +867,7 @@ class PosStateTest {
         state.trainingMode = false;
         state.lastClosedTicketId = null;
         assertFalse(state.requireLastClosedTicket());
-        verify(state.ticket).setError(PosState.NO_LAST_TICKET);
+        verify(state.ticket).setError("AUCUN TICKET");
         assertEquals(1, state.version);
     }
 

@@ -11,7 +11,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Solde bon / carte cadeau</title>
+    <title>{inject:i18n.get('voucherbalance.soldeBonCarteCadeau')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -53,7 +53,7 @@
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">SOLDE BON / CARTE CADEAU</span>
+        <span class="store-name">{inject:i18n.get('voucherbalance.soldeBonCarteCadeau2')}</span>
         <span id="clock"></span>
     </div>
 
@@ -64,8 +64,8 @@
                 {#if result}
                     {#if result.blank}
                     <div class="answer unknown">
-                        <div class="answer-unknown">AUCUN NUMÉRO SAISI</div>
-                        <div class="answer-status">Tapez le numéro du bon sur le pavé, puis CONSULTER.</div>
+                        <div class="answer-unknown">{inject:i18n.get('voucherbalance.aucunNumeroSaisi')}</div>
+                        <div class="answer-status">{inject:i18n.get('voucherbalance.tapezNumeroBonPave')}</div>
                     </div>
                     {#else if result.found}
                     <div class="answer found">
@@ -76,20 +76,20 @@
                     </div>
                     {#else}
                     <div class="answer unknown">
-                        <div class="answer-unknown">BON INCONNU AU REGISTRE</div>
-                        <div class="answer-status">Vérifiez le numéro saisi.</div>
+                        <div class="answer-unknown">{inject:i18n.get('voucherbalance.bonInconnuRegistre')}</div>
+                        <div class="answer-status">{inject:i18n.get('voucherbalance.verifiezNumeroSaisi')}</div>
                     </div>
                     {/if}
                 {/if}
             </div>
 
             <div class="entry">
-                <div class="entry-title">Numéro du bon</div>
+                <div class="entry-title">{inject:i18n.get('voucherbalance.numeroBon')}</div>
                 <div id="vbDisplay" class="display pad-display"></div>
                 <input type="hidden" name="number" id="vbHidden" value="{number}">
                 <div class="keyboard pos-kb-compact" id="vbKbArea"></div>
                 <div class="actions">
-                    <button type="submit" class="btn btn-primary">CONSULTER</button>
+                    <button type="submit" class="btn btn-primary">{inject:i18n.get('voucherbalance.consulter')}</button>
                 </div>
             </div>
 
@@ -97,7 +97,7 @@
     </div>
 
     <div class="bottom-nav">
-        <a href="/" class="btn btn-muted">RETOUR</a>
+        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 

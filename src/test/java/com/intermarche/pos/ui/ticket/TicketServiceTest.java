@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import com.intermarche.pos.domain.session.TechnicalEvent;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -94,6 +95,10 @@ class TicketServiceTest {
     @BeforeEach
     void setUp() {
         service = new TicketService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         // Back-office parameters: caps at their catalog defaults, so every
         // historical assertion (the 100 % ceiling included) is unchanged.
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
@@ -1177,7 +1182,7 @@ class TicketServiceTest {
     void addItemByPluInvalidWeight() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(0.0);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(0.0);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
             service.addItemByPlu(state, "1234");
@@ -1194,7 +1199,7 @@ class TicketServiceTest {
         openSession();
         Product p = product("APPLE", "111", "1234");
         state.ticket.lastRecordedWeight = 1.5;
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
             service.addItemByPlu(state, "1234");
@@ -1214,7 +1219,7 @@ class TicketServiceTest {
         state.ticket.lastRecordedWeight = 2.0;
         Product p = product("APPLE", "111", "1234");
         Price pr = price("3.00", "0.055");
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1246,7 +1251,7 @@ class TicketServiceTest {
         Price pr = price("3.00", "0.055");
         when(service.tareService.resolve(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any())).thenReturn(new BigDecimal("0.010"));
-        when(hardwareService.requestWeighing(new BigDecimal("0.010"))).thenReturn(0.290);
+        when(hardwareService.awaitWeighing(new BigDecimal("0.010"))).thenReturn(0.290);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1256,7 +1261,7 @@ class TicketServiceTest {
         TicketState.TicketItem added = state.ticket.items.get(0);
         assertEquals(0, new BigDecimal("0.290").compareTo(added.quantity));
         assertEquals(0, new BigDecimal("0.010").compareTo(added.tareKg));
-        verify(hardwareService).requestWeighing(new BigDecimal("0.010"));
+        verify(hardwareService).awaitWeighing(new BigDecimal("0.010"));
         verify(service.tareService).consume(state);
     }
 
@@ -1269,7 +1274,7 @@ class TicketServiceTest {
     void addItemByPluFirstWeighingWithoutPriceUsesDefaults() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1297,7 +1302,7 @@ class TicketServiceTest {
         }
         assertTrue(state.ticket.items.isEmpty());
         assertEquals("ARTICLE EN RETRAIT/RAPPEL", state.ticket.transientError);
-        verify(hardwareService, never()).requestWeighing(org.mockito.ArgumentMatchers.any());
+        verify(hardwareService, never()).awaitWeighing(org.mockito.ArgumentMatchers.any());
     }
 
     /**
@@ -1310,7 +1315,7 @@ class TicketServiceTest {
         openSession();
         Product p = product("APPLE", "111", "1234");
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.VAT_EXEMPT, "true");
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1332,7 +1337,7 @@ class TicketServiceTest {
         openSession();
         Product p = product("APPLE", "111", "1234");
         p.attributes.put(com.intermarche.pos.domain.catalog.attribute.ProductAttributeCatalog.DISCOUNT_FORBIDDEN, "true");
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);
@@ -1836,7 +1841,7 @@ class TicketServiceTest {
         assertEquals("99", state.ageCheck.code);
         assertNull(state.ageCheck.quantity);
         assertTrue(state.ticket.items.isEmpty());
-        verify(hardwareService, never()).requestWeighing(org.mockito.ArgumentMatchers.any());
+        verify(hardwareService, never()).awaitWeighing(org.mockito.ArgumentMatchers.any());
     }
 
     // --- money products are never discounted ---
@@ -1928,6 +1933,25 @@ class TicketServiceTest {
         service.cancelItemById(state, only.uid);
         verify(ticketPersistenceService).markLineCancelled(5L, only.uid, "12341234");
         assertTrue(state.ticket.items.isEmpty());
+    }
+
+    /**
+     * {@code cancelItemById} PARKS the line for the screen instead of erasing
+     * it: it leaves the cart and the total, and stays available struck through
+     * at the rank it held, so the operator and the customer can still point at
+     * what was cancelled.
+     */
+    @Test
+    void cancelItemByIdParksTheLineForTheScreen() {
+        TicketState.TicketItem first = line("A", new BigDecimal("1.00"), BigDecimal.ONE);
+        TicketState.TicketItem second = line("B", new BigDecimal("2.00"), BigDecimal.ONE);
+        state.ticket.items.add(first);
+        state.ticket.items.add(second);
+        service.cancelItemById(state, first.uid);
+        assertEquals(1, state.ticket.items.size());
+        assertEquals(1, state.ticket.cancelledItems.size());
+        assertTrue(state.ticket.cancelledItems.get(0).cancelled);
+        assertEquals(2, state.ticket.displayItems().size());
     }
 
     /**
@@ -2759,7 +2783,7 @@ class TicketServiceTest {
     void addItemByPluPriceWithNullVatUsesDefault() {
         openSession();
         Product p = product("APPLE", "111", "1234");
-        when(hardwareService.requestWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
+        when(hardwareService.awaitWeighing(org.mockito.ArgumentMatchers.any())).thenReturn(1.5);
         try (MockedStatic<Product> productStatic = mockStatic(Product.class);
              MockedStatic<Price> priceStatic = mockStatic(Price.class)) {
             productStatic.when(() -> Product.findActiveByPlu("1234")).thenReturn(p);

@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.invoice;
 
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.domain.payment.CashPayment;
 import com.intermarche.pos.domain.sale.Invoice;
 import com.intermarche.pos.domain.sale.Ticket;
@@ -47,6 +48,10 @@ class NetworkDocumentPrinterTest {
      */
     private NetworkDocumentPrinter withRenderer() {
         NetworkDocumentPrinter printer = new NetworkDocumentPrinter();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        printer.i18n = TestMessages.french();
         printer.documentTemplateService = new com.intermarche.pos.service.DocumentTemplateService(
                 Engine.builder().addDefaults().build());
         return printer;
@@ -74,7 +79,7 @@ class NetworkDocumentPrinterTest {
         invoice.issueDate = LocalDateTime.of(2026, 9, 15, 11, 24);
         invoice.customerName = "SARL DUPONT";
         invoice.customerDueDate = java.time.LocalDate.of(2026, 10, 31);
-        return InvoiceDocument.of(invoice, ticket, false);
+        return InvoiceDocument.of(invoice, ticket, false, TestMessages.french());
     }
 
     /**
@@ -96,7 +101,7 @@ class NetworkDocumentPrinterTest {
         invoice.documentNumber = "C04-F000042";
         invoice.issueDate = LocalDateTime.of(2026, 9, 15, 11, 24);
         invoice.customerName = "SARL DUPONT";
-        return InvoiceDocument.of(invoice, ticket, false);
+        return InvoiceDocument.of(invoice, ticket, false, TestMessages.french());
     }
 
     /**
@@ -150,7 +155,7 @@ class NetworkDocumentPrinterTest {
                             "active = true and documentType = ?1 order by priority, code",
                             DocumentTemplate.DocumentType.INVOICE_A4))
                     .thenReturn(List.of());
-            assertEquals(NetworkDocumentPrinter.html(document), printer.page(document));
+            assertEquals(NetworkDocumentPrinter.html(document, TestMessages.french()), printer.page(document));
         }
     }
 
@@ -161,9 +166,10 @@ class NetworkDocumentPrinterTest {
     @Test
     void aPrinterWithoutARendererKeepsTheHandBuiltPage() {
         NetworkDocumentPrinter printer = new NetworkDocumentPrinter();
+        printer.i18n = TestMessages.french();
         InvoiceDocument document = laidOut();
         String page = printer.page(document);
-        assertEquals(NetworkDocumentPrinter.html(document), page);
+        assertEquals(NetworkDocumentPrinter.html(document, TestMessages.french()), page);
         assertTrue(page.startsWith("<!DOCTYPE html>"));
     }
 
@@ -174,10 +180,10 @@ class NetworkDocumentPrinterTest {
      */
     @Test
     void theHandBuiltPageCarriesTheDueDateOnlyWhenThereIsOne() {
-        String withTerms = NetworkDocumentPrinter.html(laidOut());
+        String withTerms = NetworkDocumentPrinter.html(laidOut(), TestMessages.french());
         assertTrue(withTerms.contains("Échéance : 31/10/2026"),
                 () -> "no due date on the page: " + withTerms);
-        String without = NetworkDocumentPrinter.html(withoutDueDate());
+        String without = NetworkDocumentPrinter.html(withoutDueDate(), TestMessages.french());
         assertFalse(without.contains("Échéance"),
                 () -> "a due date was printed for a customer without terms: " + without);
     }
@@ -257,7 +263,7 @@ class NetworkDocumentPrinterTest {
         invoice.totalExcludingTax = new BigDecimal("2.84");
         invoice.totalVat = new BigDecimal("0.16");
         invoice.totalIncludingTax = new BigDecimal("3.00");
-        return InvoiceDocument.of(invoice, ticket, true);
+        return InvoiceDocument.of(invoice, ticket, true, TestMessages.french());
     }
 
     /**
@@ -270,7 +276,7 @@ class NetworkDocumentPrinterTest {
      */
     @Test
     void theHandBuiltPageDrawsEveryOptionalSection() {
-        String html = NetworkDocumentPrinter.html(fullyPopulated());
+        String html = NetworkDocumentPrinter.html(fullyPopulated(), TestMessages.french());
         assertTrue(html.contains("DUPLICATA N°"));
         assertTrue(html.contains("N° compte : CPT-9"));
         assertTrue(html.contains("INTERMARCHE SAS"));
@@ -297,6 +303,7 @@ class NetworkDocumentPrinterTest {
      */
     private NetworkDocumentPrinter networkPrinter(String url, HttpClient client) throws Exception {
         NetworkDocumentPrinter printer = new NetworkDocumentPrinter();
+        printer.i18n = TestMessages.french();
         printer.printUrl = url == null ? Optional.empty() : Optional.of(url);
         Field field = NetworkDocumentPrinter.class.getDeclaredField("httpClient");
         field.setAccessible(true);
@@ -428,7 +435,7 @@ class NetworkDocumentPrinterTest {
         ticket.ticketNumber = "C04-000123";
         ticket.terminalId = "C04";
         ticket.creationDate = LocalDateTime.of(2026, 9, 15, 11, 24);
-        InvoiceDocument document = InvoiceDocument.of(invoice, ticket, false);
+        InvoiceDocument document = InvoiceDocument.of(invoice, ticket, false, TestMessages.french());
         assertTrue(printer.print(document, null));
     }
 
@@ -472,7 +479,7 @@ class NetworkDocumentPrinterTest {
         invoice.documentNumber = "C04-F000042";
         invoice.issueDate = LocalDateTime.of(2026, 9, 15, 11, 24);
         invoice.customerName = "SARL DUPONT";
-        String html = NetworkDocumentPrinter.html(InvoiceDocument.of(invoice, ticket, false));
+        String html = NetworkDocumentPrinter.html(InvoiceDocument.of(invoice, ticket, false, TestMessages.french()), TestMessages.french());
         assertTrue(html.contains("POMMES"));
         assertFalse(html.contains("class=\"attr\""));
     }

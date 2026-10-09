@@ -33,6 +33,14 @@ public class RefundResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(RefundResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject
     PosState state;
     @Inject RefundService refundService;
@@ -121,7 +129,7 @@ public class RefundResource {
         if (endorsementService.authorize(supervisor, supervisorPassword, "CANCEL_PAID_TICKET")) {
             refundService.cancelPaidTicket(state, Refund.RefundMethod.CASH, supervisor);
         } else {
-            state.refund.errorMessage = "AUTORISATION SUPERVISEUR REFUSÉE";
+            state.refund.errorMessage = i18n.get("op.autorisationSuperviseurRefusee");
             state.touch();
         }
         LOGGER.info("Exiting method cancelPaidTicket");

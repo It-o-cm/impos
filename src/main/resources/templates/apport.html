@@ -11,7 +11,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Apport de monnaie</title>
+  <title>{inject:i18n.get('apport.apportMonnaie')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -50,8 +50,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>APPORT DE MONNAIE</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('apport.apportMonnaie2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -61,7 +61,7 @@
           <div class="error-box">{error}</div>
         {/if}
         {#if saved}
-          <div class="ok-box">APPORT ENREGISTRÉ</div>
+          <div class="ok-box">{inject:i18n.get('apport.apportEnregistre')}</div>
         {/if}
       </div>
 
@@ -72,9 +72,9 @@
 
         <div class="count-list-area">
           <div class="tabs-container">
-            <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
-            <button type="button" class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
-            <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+            <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">{inject:i18n.get('apport.billets')}</button>
+            <button type="button" class="tab-btn" onclick="switchTab('coins', this)">{inject:i18n.get('apport.pieces')}</button>
+            <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">{inject:i18n.get('apport.rouleaux')}</button>
           </div>
           <div class="items-scroll" id="listContainer">
             {#for item in bills}
@@ -89,7 +89,7 @@
 
         <div class="action-area">
           <div class="total-box">
-            <div class="total-label">À apporter</div>
+            <div class="total-label">{inject:i18n.get('apport.apporter')}</div>
             <div class="total-amount" id="totalDisplay">0,00 €</div>
           </div>
           <div class="manager-block" id="managerBlock" style="display:none;">
@@ -101,8 +101,8 @@
     </div>
 
     <div class="bottom-nav">
-      <a class="btn btn-muted" href="/">RETOUR</a>
-      <button type="submit" form="apportForm" class="btn btn-success">VALIDER L'APPORT</button>
+      <a class="btn btn-muted" href="/">{inject:i18n.get('common.back')}</a>
+      <button type="submit" form="apportForm" class="btn btn-success">{inject:i18n.get('apport.validerLApport')}</button>
     </div>
   </div>
 
@@ -152,8 +152,7 @@
           updateTotal();
         }
       });
-      PosInput.buffer = (countState[id] || 0).toString();
-      PosInput.updateDisplay();
+      PosInput.prefill((countState[id] || 0).toString());
     }
 
     function updateItemDisplay(element, qty, value) {

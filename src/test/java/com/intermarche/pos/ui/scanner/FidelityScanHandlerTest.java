@@ -5,6 +5,7 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.fidelity.FidelityService;
 import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,6 +57,10 @@ class FidelityScanHandlerTest {
      */
     private FidelityScanHandler newHandler(FidelityService fidelityService, boolean allowMultiple) {
         FidelityScanHandler handler = new FidelityScanHandler();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        handler.i18n = TestMessages.french();
         handler.fidelityPattern = FIDELITY_PATTERN;
         handler.fidelityService = fidelityService;
         PosSettingsService settings = mock(PosSettingsService.class);

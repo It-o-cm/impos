@@ -7,6 +7,7 @@ import com.intermarche.pos.ui.home.HomeService;
 import com.intermarche.pos.ui.returnprocess.RefundService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 
@@ -51,6 +52,10 @@ class EndorsementResourceTest {
      */
     private EndorsementResource newResource() {
         EndorsementResource resource = new EndorsementResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         resource.state.endorsement = new EndorsementState();
         resource.state.ticket = new TicketState();

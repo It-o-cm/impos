@@ -8,6 +8,13 @@ import jakarta.enterprise.context.ApplicationScoped;
 public class UnknownScanHandler implements ScanContext.ScanHandler {
 
     /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * Stamps the "unknown code" error onto the ticket when no earlier link of
      * the chain recognized the scanned code.
      *
@@ -25,7 +32,7 @@ public class UnknownScanHandler implements ScanContext.ScanHandler {
         // calls onChange(), which bumps the polling version. Assigning the
         // field left the version untouched, /ticket-fragment answered
         // "changed: false" and the message never reached the screen.
-        ctx.state.ticket.setError("CODE INCONNU: " + ctx.code);
+        ctx.state.ticket.setError(i18n.format("op.codeInconnu", ctx.code));
         ctx.handled = true;
     }
 }

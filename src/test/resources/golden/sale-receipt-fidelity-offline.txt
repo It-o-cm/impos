@@ -21,7 +21,9 @@ Dont TVA                            0,77 E
   TVA 20,00%             HT 3,85  TVA 0,77
 
                 REGLEMENT
-CASH                                4,62 E
+ESPECES                             4,62 E
+DONNE                               5,00 E
+RENDU MONNAIE                       0,38 E
 
           MERCI DE VOTRE VISITE
                 A BIENTOT

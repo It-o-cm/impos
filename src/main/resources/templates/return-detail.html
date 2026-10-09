@@ -7,7 +7,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Retour Client - Détail</title>
+  <title>{inject:i18n.get('returndetail.retourClientDetail')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -77,6 +77,9 @@
     .sub-display.manual { border-color: var(--warning); color: var(--warning); }
     /* Le champ qui tient le pave: un seul a la fois, et il se voit. */
     .pad-active { border-color: var(--success) !important; box-shadow: 0 0 0 2px var(--success) inset; }
+    /* L'afficheur du volet superviseur partage, dans la bordure du geste
+       fiscal auquel il appartient (annulation d'un ticket paye). */
+    .cancel-sup-field { padding: 6px; background: var(--bg-page); color: var(--text-main); border: 1px solid var(--danger); border-radius: 6px; }
 
     #numpadContainer { width: 100%; margin-bottom: 8px; flex-shrink: 0; min-height: 0; }
 
@@ -97,17 +100,17 @@
 
 <div class="pos-terminal">
   <div class="top-bar">
-    <span class="store-name">INTERMARCHÉ</span>
-    <span id="screenTitle">RETOUR CLIENT</span>
+    <span class="store-name">{inject:i18n.get('common.store')}</span>
+    <span id="screenTitle">{inject:i18n.get('returndetail.retourClient')}</span>
     <span id="clock">--:--:--</span>
   </div>
 
   <div class="main-area">
     <div class="list-panel">
       <div class="search-ticket-bar">
-        <div class="search-info" id="searchInfo">Saisissez le N° de ticket</div>
+        <div class="search-info" id="searchInfo">{inject:i18n.get('returndetail.saisissezNTicket')}</div>
         <div class="active-ticket-display" id="activeTicketDisplay">
-          <a href="/return" class="btn btn-sm btn-primary">CHERCHER</a>
+          <a href="/return" class="btn btn-sm btn-primary">{inject:i18n.get('returndetail.chercher')}</a>
           <span class="ticket-name-label" id="currentTicketName">{state.refund.selectedTicket.ticketNumber}</span>
         </div>
       </div>
@@ -162,7 +165,7 @@
 
           <div class="ticket-nav" id="ticketNav">
             {#if state.refund.hasDetailPrev}
-            <a href="/return/page/{state.refund.detailPage - 1}" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+            <a href="/return/page/{state.refund.detailPage - 1}" class="btn btn-muted nav-btn">{inject:i18n.get('returndetail.precedent')}</a>
             {#else}
             <button class="btn btn-muted nav-btn" disabled>PRÉCÉDENT</button>
             {/if}
@@ -170,7 +173,7 @@
             <span class="nav-info">Page {state.refund.detailPageDisplay}</span>
 
             {#if state.refund.hasDetailNext}
-            <a href="/return/page/{state.refund.detailPage + 1}" class="btn btn-muted nav-btn">SUIVANT</a>
+            <a href="/return/page/{state.refund.detailPage + 1}" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>
             {#else}
             <button class="btn btn-muted nav-btn" disabled>SUIVANT</button>
             {/if}
@@ -181,7 +184,7 @@
 
     <div class="action-panel">
       <div id="ticketActionsZone">
-        <div class="overlay-title">Montant Retour</div>
+        <div class="overlay-title">{inject:i18n.get('returndetail.montantRetour')}</div>
         <div class="total-zone">
 
           {#if state.refund.selectedLineId}
@@ -198,7 +201,7 @@
           </form>
           {/if}
 
-          <div style="color:var(--text-muted); font-size:var(--fs-label); height:1.2em;" id="helperText">&nbsp;</div>
+          <div style="color:var(--text-muted); font-size:var(--fs-label); height:1.2em;" id="helperText">{inject:i18n.get('returndetail.nbsp')}</div>
         </div>
 
         <div id="numpadContainer"></div>
@@ -209,9 +212,9 @@
          ! champ au toucher, la borne n'ayant pas de clavier. Un article SCANNE
          ! passe par le meme service, cote serveur. !}
         <form action="/return/enter-article" method="POST" style="display:flex; gap:6px; margin-bottom:8px;">
-          <div id="articleCodeDisplay" class="pad-display" data-placeholder="Code article" onclick="bindTextField('article')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;"></div>
+          <div id="articleCodeDisplay" class="pad-display" data-placeholder="{inject:i18n.get('returndetail.codeArticle')}" onclick="bindTextField('article')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;"></div>
           <input type="hidden" name="rawValue" id="articleCodeValue" value="">
-          <button type="submit" class="btn btn-muted">ARTICLE</button>
+          <button type="submit" class="btn btn-muted">{inject:i18n.get('returndetail.article')}</button>
         </form>
 
         {#if reasons && !reasons.isEmpty()}
@@ -233,10 +236,10 @@
           {#if state.refund.errorMessage??}
             <div style="grid-column: 1 / -1; background: rgba(211,47,47,0.15); border: 1px solid var(--danger); color: var(--danger); padding: 8px; font-weight: bold; font-size: var(--fs-label); text-align: center; border-radius: 6px;">{state.refund.errorMessage}</div>
           {/if}
-          <a href="/return/pay/cash" class="btn btn-success" onclick="return submitAction(this);">ESPÈCES</a>
-          <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">CARTE BANCAIRE</a>
-          <a href="/return/pay/voucher" class="btn btn-muted" onclick="return submitAction(this);">BON D'ACHAT</a>
-          <a href="/return/pay/loyalty" class="btn btn-warning" onclick="return submitAction(this);">CAGNOTTE</a>
+          <a href="/return/pay/cash" class="btn btn-success" onclick="return submitAction(this);">{inject:i18n.get('returndetail.especes')}</a>
+          <a href="/return/pay/card" class="btn btn-primary" onclick="return submitAction(this);">{inject:i18n.get('returndetail.carteBancaire')}</a>
+          <a href="/return/pay/voucher" class="btn btn-muted" onclick="return submitAction(this);">{inject:i18n.get('returndetail.bonDAchat')}</a>
+          <a href="/return/pay/loyalty" class="btn btn-warning" onclick="return submitAction(this);">{inject:i18n.get('returndetail.cagnotte')}</a>
           {! LC-05-06-05 credit-client refund: name the in-account customer, then
            ! hand the amount back onto their account. The partial-amount form
            ! above lets one return be split across several of these means
@@ -247,19 +250,22 @@
            ! empruntent desormais le pave du montant: un clic le rebranche sur le
            ! champ touche, un clic sur le montant le rend au montant. !}
           <form action="/return/credit-account" method="GET" style="grid-column: 1 / -1; display:flex; gap:6px;">
-            <div id="creditNumberDisplay" class="pad-display" data-placeholder="N° compte client" onclick="bindTextField('number')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;"></div>
+            <div id="creditNumberDisplay" class="pad-display" data-placeholder="{inject:i18n.get('returndetail.nCompteClient')}" onclick="bindTextField('number')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-strong); border-radius:6px;"></div>
             <input type="hidden" name="number" id="creditNumberValue" value="{state.refund.creditAccountNumber ?: ''}">
-            <button type="submit" class="btn btn-muted">CLIENT</button>
+            <button type="submit" class="btn btn-muted">{inject:i18n.get('returndetail.client')}</button>
           </form>
           {! EXP-49 : annulation d'un ticket PAYÉ — geste fiscal sous aval
            ! superviseur, laissant deux documents (l'original intact + le reversal).
            ! Distinct d'un retour client : reprend TOUTES les lignes en espèces. !}
-          <form action="/return/cancel-paid" method="POST" style="grid-column: 1 / -1; display:flex; gap:6px; border-top:1px solid var(--danger); padding-top:8px; margin-top:4px;">
-            <div id="cancelSupervisorDisplay" class="pad-display" data-placeholder="Superviseur" onclick="bindTextField('supervisor')" style="flex:1; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;"></div>
-            <input type="hidden" name="supervisor" id="cancelSupervisorValue" value="">
-            <div id="cancelPasswordDisplay" class="pad-display" data-placeholder="Code" onclick="bindTextField('supervisorPassword')" style="width:6rem; padding:6px; background:var(--bg-page); color:var(--text-main); border:1px solid var(--danger); border-radius:6px;"></div>
-            <input type="hidden" name="supervisorPassword" id="cancelPasswordValue" value="">
-            <button type="submit" class="btn btn-danger">ANNULER CE TICKET PAYÉ</button>
+          {! Les deux champs superviseur de ce panneau etaient a eux: c'est
+           ! maintenant le volet d'identification de l'ouverture, partage par
+           ! les quatre ecrans qui demandent un superviseur. Il emprunte le pave
+           ! du montant, comme les autres champs texte d'ici. !}
+          <form action="/return/cancel-paid" method="POST" onsubmit="return SupAuth.fill(this)" style="grid-column: 1 / -1; display:flex; flex-direction:column; gap:6px; border-top:1px solid var(--danger); padding-top:8px; margin-top:4px;">
+            {#include supervisor-auth padContainer='numpadContainer' displayClass='cancel-sup-field' /}
+            <input type="hidden" name="supervisor">
+            <input type="hidden" name="supervisorPassword">
+            <button type="submit" class="btn btn-danger">{inject:i18n.get('returndetail.annulerTicketPaye')}</button>
           </form>
         </div>
       </div>
@@ -267,7 +273,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/return/leave" class="btn-back">RETOUR</a>
+    <a href="/return/leave" class="btn-back">{inject:i18n.get('common.back')}</a>
   </div>
 </div>
 
@@ -294,7 +300,7 @@
 
     var displayId = 'mainInput';
     var kbdType = 'payment';
-    var mode = 'decimal';
+    var mode = 'cents';
     var initialValue = "0";
 
     var mainInputEl = document.getElementById('mainInput');
@@ -324,13 +330,13 @@
     });
   }
 
-  /* Les champs texte du panneau de droite: code de l'article repris, numéro de
-     compte client, identifiant et code du superviseur qui annule un ticket payé. */
+  /* Les champs texte du panneau de droite: code de l'article repris et numéro
+     de compte client. L'identification du superviseur qui annule un ticket payé
+     n'est plus ici: elle est tenue par le volet partagé, qui emprunte le même
+     pavé et le rend par SupAuth.blur(). */
   var RETURN_TEXT_FIELDS = {
     article:            { display: 'articleCodeDisplay',      hidden: 'articleCodeValue',      type: 'numpad', mode: 'text', max: 14 },
-    number:             { display: 'creditNumberDisplay',     hidden: 'creditNumberValue',     type: 'numpad', mode: 'text', max: 20 },
-    supervisor:         { display: 'cancelSupervisorDisplay', hidden: 'cancelSupervisorValue', type: 'alpha',  mode: 'text', max: 32 },
-    supervisorPassword: { display: 'cancelPasswordDisplay',   hidden: 'cancelPasswordValue',   type: 'numpad', mode: 'pin',  max: 8 }
+    number:             { display: 'creditNumberDisplay',     hidden: 'creditNumberValue',     type: 'numpad', mode: 'text', max: 20 }
   };
 
   /* Retire le liseré du champ qui tenait le pavé — un seul le porte à la fois. */
@@ -347,6 +353,9 @@
     var field = RETURN_TEXT_FIELDS[name];
     if (!field || !document.getElementById(field.hidden)) { return; }
     clearPadMarks();
+    /* Le volet superviseur rend le pavé: son liseré s'éteint, sinon deux
+       afficheurs se disputeraient visuellement un pavé qui n'en sert qu'un. */
+    if (typeof SupAuth !== 'undefined') { SupAuth.blur(); }
     document.getElementById(field.display).classList.add('pad-active');
     PosInput.setup({
       containerId: 'numpadContainer',

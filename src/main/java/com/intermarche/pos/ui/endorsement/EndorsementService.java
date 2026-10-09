@@ -136,7 +136,32 @@ public class EndorsementService {
      */
     public boolean authorize(String login, String password, String actionCode) {
         LOGGER.info("Entering method authorize with login: " + login + ", password: ***" + ", actionCode: " + actionCode);
-        boolean granted = isManager(login, password);
+        boolean granted = authorizeOutcome(login, password, actionCode)
+                == AuthService.CheckOutcome.GRANTED;
+        LOGGER.info("Exiting method authorize");
+        return granted;
+    }
+
+    /**
+     * Verifies the credentials for an endorsement and journals the outcome,
+     * telling a REFUSAL from a LOCKOUT.
+     *
+     * <p>Same check and same journal entry as {@link #authorize}, which delegates
+     * here: this form exists for the screens that must name the lockout instead of
+     * answering "autorisation refusée" to a supervisor whose account is blocked —
+     * the refusal that cannot be acted upon by retyping.
+     *
+     * @param login the badge id or login name
+     * @param password the raw PIN
+     * @param actionCode the action code requiring authorization
+     * @return which of the three outcomes the presented credentials got
+     */
+    public AuthService.CheckOutcome authorizeOutcome(String login, String password, String actionCode) {
+        LOGGER.info("Entering method authorizeOutcome with login: " + login + ", password: ***" + ", actionCode: " + actionCode);
+        AuthService.CredentialStatus status = authService.checkCredentials(login, password);
+        boolean granted = status.isSuccess()
+                && (status.employee.role == Employee.EmployeeRole.MANAGER
+                    || status.employee.role == Employee.EmployeeRole.ADMIN);
         // BO-04-01-39: name the endorsing operator in the first-class badge
         // column, not only inside the free-text detail — otherwise the journal's
         // "N° caissière" range filter (matched on operatorBadgeId) never returns
@@ -147,8 +172,15 @@ public class EndorsementService {
                         : TechnicalEvent.EventType.ENDORSEMENT_DENIED,
                 actionCode + " par " + (login != null ? login : "?"),
                 login);
-        LOGGER.info("Exiting method authorize");
-        return granted;
+        LOGGER.info("Exiting method authorizeOutcome");
+        if (granted) {
+            return AuthService.CheckOutcome.GRANTED;
+        }
+        // A LOCKED account that presents the right PIN is still locked: the
+        // lockout wins over the credential, and over the role — an account under
+        // lockout is not told whether it would have been manager enough.
+        return status.locked
+                ? AuthService.CheckOutcome.LOCKED : AuthService.CheckOutcome.DENIED;
     }
 
     /**

@@ -9,7 +9,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Ticket par email</title>
+    <title>{inject:i18n.get('ticketemail.ticketEmail')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -51,7 +51,7 @@
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">TICKET PAR EMAIL</span>
+        <span class="store-name">{inject:i18n.get('ticketemail.ticketEmail2')}</span>
         <span id="clock"></span>
     </div>
 
@@ -60,27 +60,27 @@
         {#if error}<div class="error">{error}</div>{/if}
         {#if sent}<div class="sent">TICKET ENVOYÉ À {address}</div>{/if}
         {#if smsSent}<div class="sent">TICKET ENVOYÉ PAR SMS AU {phone}</div>{/if}
-        {#if !relayConfigured}<div class="note">Aucun relais de messagerie configuré sur cette caisse : la demande est journalisée, le message ne part pas.</div>{/if}
+        {#if !relayConfigured}<div class="note">{inject:i18n.get('ticketemail.aucunRelaisMessagerieConfigure')}</div>{/if}
 
         <form class="work" method="post" action="/ticket-email">
             <div class="side">
-                <h2>Envoi du dernier ticket</h2>
+                <h2>{inject:i18n.get('ticketemail.envoiDernierTicket')}</h2>
                 {#if known}
-                    <p>Adresse connue du programme de fidélité :</p>
+                    <p>{inject:i18n.get('ticketemail.adresseConnueProgrammeFidelite')}</p>
                     <p class="holder">{state.fidelity.holderEmail}</p>
-                    {#if !editable}<p>Cette adresse ne peut pas être modifiée en caisse.</p>{/if}
+                    {#if !editable}<p>{inject:i18n.get('ticketemail.adresseNePeutPas')}</p>{/if}
                 {#else}
-                    <p>Aucune adresse connue pour ce client.<br>Saisissez celle qu'il vous donne.</p>
+                    <p>{inject:i18n.get('ticketemail.aucuneAdresseConnueClient')}<br>{inject:i18n.get('ticketemail.saisissezCelleQuVous')}</p>
                 {/if}
             </div>
 
             {#if editable}
             <div class="entry">
-                <div class="entry-title">Adresse email</div>
+                <div class="entry-title">{inject:i18n.get('ticketemail.adresseEmail')}</div>
                 <div id="kbDisplay" class="display pad-display" onclick="activateField('email')"></div>
                 <input type="hidden" id="kbHidden" name="email" value="{address}">
                 <div class="actions">
-                    <button class="btn btn-success" type="submit">ENVOYER</button>
+                    <button class="btn btn-success" type="submit">{inject:i18n.get('ticketemail.envoyer')}</button>
                 </div>
             </div>
             {#else}
@@ -95,13 +95,13 @@
         {! EXP-48 : ticket dématérialisé par téléphone — même geste, canal SMS. !}
         <form class="work" method="post" action="/ticket-email/sms">
             <div class="entry">
-                <div class="entry-title">Numéro de téléphone (SMS)</div>
+                <div class="entry-title">{inject:i18n.get('ticketemail.numeroTelephoneSms')}</div>
                 <div id="phoneDisplay" class="display pad-display" data-placeholder="06 12 34 56 78" onclick="activateField('phone')"></div>
                 <input type="hidden" name="phone" id="phoneHidden" value="{phone}">
                 <div class="actions">
-                    <button class="btn btn-primary" type="submit">ENVOYER PAR SMS</button>
+                    <button class="btn btn-primary" type="submit">{inject:i18n.get('ticketemail.envoyerSms')}</button>
                 </div>
-                {#if !smsRelayConfigured}<div class="note">Aucune passerelle SMS configurée : la demande est journalisée, le message ne part pas.</div>{/if}
+                {#if !smsRelayConfigured}<div class="note">{inject:i18n.get('ticketemail.aucunePasserelleSmsConfiguree')}</div>{/if}
             </div>
         </form>
 
@@ -114,7 +114,7 @@
     </div>
 
     <div class="bottom-nav">
-        <a href="/" class="btn btn-muted">RETOUR</a>
+        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 

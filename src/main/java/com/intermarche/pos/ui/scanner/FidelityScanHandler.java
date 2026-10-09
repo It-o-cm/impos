@@ -17,6 +17,13 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 public class FidelityScanHandler implements ScanContext.ScanHandler {
 
     /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * Recognition regex of fidelity cards, as the deployment states it. The
      * ADMINISTERED range wins over it (BO-03-06-54); this stays the fallback
      * for a node administering none.
@@ -45,7 +52,7 @@ public class FidelityScanHandler implements ScanContext.ScanHandler {
             // BO-10-03-02: a card already attached blocks any further scan
             // unless the back office allows multiple scans (last one wins).
             if (!posSettingsService.fidelityAllowMultipleScan() && ctx.state.fidelity.active) {
-                ctx.state.ticket.setError("CARTE FIDÉLITÉ DÉJÀ SCANNÉE");
+                ctx.state.ticket.setError(i18n.get("op.carteFideliteDejaScannee"));
                 ctx.handled = true;
                 return;
             }

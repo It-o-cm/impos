@@ -56,6 +56,14 @@ public class RefundService {
     /** Maximum amount encodable on a printed store voucher (4 cent digits). */
     private static final BigDecimal MAX_ENCODED_VOUCHER = new BigDecimal("99.99");
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject
     EndorsementService endorsementService;
 
@@ -153,7 +161,7 @@ public class RefundService {
         if (t != null && isForeignStoreTicket(t)
                 && !posSettingsService.returnForeignStoreAccepted()) {
             state.refund.clearSelection();
-            state.refund.errorMessage = "TICKET D'UN AUTRE MAGASIN";
+            state.refund.errorMessage = i18n.get("op.ticketAutreMagasin");
             state.touch();
             LOGGER.info("Exiting method selectTicket");
             return;
@@ -224,7 +232,7 @@ public class RefundService {
         if (typed.isEmpty()) {
             state.refund.creditAccountNumber = null;
             state.refund.creditAccountName = null;
-            state.refund.errorMessage = "CLIENT INTROUVABLE";
+            state.refund.errorMessage = i18n.get("op.clientIntrouvable");
             state.touch();
             LOGGER.info("Exiting method selectCreditAccount");
             return;
@@ -236,7 +244,7 @@ public class RefundService {
         if (account == null) {
             state.refund.creditAccountNumber = null;
             state.refund.creditAccountName = null;
-            state.refund.errorMessage = "CLIENT INTROUVABLE";
+            state.refund.errorMessage = i18n.get("op.clientIntrouvable");
             state.touch();
             LOGGER.info("Exiting method selectCreditAccount");
             return;
@@ -362,7 +370,7 @@ public class RefundService {
                 com.intermarche.pos.domain.catalog.Product product =
                         com.intermarche.pos.domain.catalog.Product.find("ean", line.ean).firstResult();
                 if (product != null && product.giftCardAmount != null) {
-                    state.refund.errorMessage = "RETOUR INTERDIT SUR CARTE CADEAU";
+                    state.refund.errorMessage = i18n.get("op.retourInterditCarteCadeau");
                     state.touch();
                     LOGGER.info("Exiting method setReturnQuantity");
                     return;
@@ -409,7 +417,7 @@ public class RefundService {
         }
         String typed = code == null ? "" : code.trim();
         if (typed.isEmpty()) {
-            state.refund.errorMessage = "AUCUN CODE SAISI";
+            state.refund.errorMessage = i18n.get("op.aucunCodeSaisi");
             state.touch();
             LOGGER.info("Exiting method enterArticleByCode");
             return;
@@ -435,9 +443,7 @@ public class RefundService {
             LOGGER.info("Exiting method enterArticleByCode");
             return;
         }
-        state.refund.errorMessage = codeOnTicket
-                ? "ARTICLE DÉJÀ ENTIÈREMENT RETOURNÉ"
-                : "ARTICLE ABSENT DU TICKET D'ORIGINE";
+        state.refund.errorMessage = i18n.get(codeOnTicket ? "op.articleDejaEntierementRetourne" : "op.articleAbsentTicketOrigine");
         state.touch();
         LOGGER.info("Exiting method enterArticleByCode");
     }
@@ -492,14 +498,14 @@ public class RefundService {
     public void requestRefund(PosState state, Refund.RefundMethod method) {
         LOGGER.info("Entering method requestRefund with state: " + state + ", method: " + method);
         if (state.trainingMode) {
-            state.refund.errorMessage = "RETOURS INDISPONIBLES EN FORMATION";
+            state.refund.errorMessage = i18n.get("op.retoursIndisponiblesFormation");
             state.touch();
             LOGGER.info("Exiting method requestRefund");
             return;
         }
         if (state.refund.selectedTicket == null) { LOGGER.info("Exiting method requestRefund"); return; }
         if (state.refund.getTotalRefundAmount().signum() <= 0) {
-            state.refund.errorMessage = "RIEN À REMBOURSER";
+            state.refund.errorMessage = i18n.get("op.rienRembourser");
             state.touch();
             LOGGER.info("Exiting method requestRefund");
             return;
@@ -508,7 +514,7 @@ public class RefundService {
         // refused here, before the endorsement is even asked for — a manager
         // must not be made to authorize something the store forbids outright.
         if (!isRefundAllowed(method)) {
-            state.refund.errorMessage = "MOYEN NON AUTORISE AU REMBOURSEMENT";
+            state.refund.errorMessage = i18n.get("op.moyenNonAutoriseRemboursement");
             state.touch();
             LOGGER.info("Exiting method requestRefund");
             return;
@@ -516,7 +522,7 @@ public class RefundService {
         // LC-05-06-05: a credit refund needs an in-account customer to credit;
         // without one, refuse before any endorsement is asked.
         if (method == Refund.RefundMethod.CREDIT && state.refund.creditAccountNumber == null) {
-            state.refund.errorMessage = "AUCUN CLIENT EN COMPTE SÉLECTIONNÉ";
+            state.refund.errorMessage = i18n.get("op.aucunClientCompteSelectionne");
             state.touch();
             LOGGER.info("Exiting method requestRefund");
             return;
@@ -597,7 +603,7 @@ public class RefundService {
         // is built — a refusal must leave NOTHING behind (no persisted
         // refund, no outbox row): the cashier simply picks another method.
         if (method == Refund.RefundMethod.LOYALTY && original.fidelityCard == null) {
-            state.refund.errorMessage = "AUCUNE CARTE FIDÉLITÉ SUR LE TICKET D'ORIGINE";
+            state.refund.errorMessage = i18n.get("op.aucuneCarteFideliteTicket");
             state.touch();
             LOGGER.info("Exiting method performRefund");
             return;
@@ -607,7 +613,7 @@ public class RefundService {
         // requires that customer to be selected. Checked HERE, before the
         // refund is built — a refusal leaves NOTHING behind.
         if (method == Refund.RefundMethod.CREDIT && state.refund.creditAccountNumber == null) {
-            state.refund.errorMessage = "AUCUN CLIENT EN COMPTE SÉLECTIONNÉ";
+            state.refund.errorMessage = i18n.get("op.aucunClientCompteSelectionne");
             state.touch();
             LOGGER.info("Exiting method performRefund");
             return;
@@ -647,7 +653,7 @@ public class RefundService {
             // Transactional re-check of the double-refund cap
             BigDecimal refundable = orig.quantity.subtract(alreadyRefunded(lineId));
             if (qty.compareTo(refundable) > 0) {
-                state.refund.errorMessage = "QUANTITÉ DÉJÀ REMBOURSÉE (" + orig.productLabel + ")";
+                state.refund.errorMessage = i18n.format("op.quantiteDejaRemboursee", orig.productLabel);
                 state.touch();
                 throw new IllegalStateException("Double remboursement refusé sur la ligne " + lineId);
             }
@@ -677,8 +683,7 @@ public class RefundService {
         // Ticket-level cap: past refunds plus this one never exceed the ticket
         BigDecimal alreadyRefundedTotal = totalRefundedFor(original.id);
         if (alreadyRefundedTotal.add(refund.totalAmount).compareTo(original.totalIncludingTax) > 0) {
-            state.refund.errorMessage = "PLAFOND DU TICKET DÉPASSÉ (DÉJÀ REMBOURSÉ : "
-                    + alreadyRefundedTotal.setScale(2, RoundingMode.HALF_UP).toPlainString() + " €)";
+            state.refund.errorMessage = i18n.format("op.plafondTicketDepasseDeja", alreadyRefundedTotal.setScale(2, RoundingMode.HALF_UP).toPlainString());
             state.touch();
             throw new IllegalStateException("Plafond de remboursement du ticket dépassé");
         }
@@ -771,8 +776,7 @@ public class RefundService {
             state.refund.isEditingAmount = false;
             state.refund.creditAccountNumber = null;
             state.refund.creditAccountName = null;
-            state.refund.errorMessage = "REMBOURSEMENT PARTIEL - RESTE "
-                    + remaining.setScale(2, RoundingMode.HALF_UP).toPlainString() + " €";
+            state.refund.errorMessage = i18n.format("op.remboursementPartielReste", remaining.setScale(2, RoundingMode.HALF_UP).toPlainString());
         } else {
             state.refund.clear();
         }
@@ -888,7 +892,7 @@ public class RefundService {
                 // The credit itself is born at imfid's ingestion of the
                 // ticket-return event (REFUND_CREDIT); the till hands the
                 // customer a printed proof and announces it.
-                hardwareService.displayMessage(String.format("CREDIT FIDELITE %s E",
+                hardwareService.displayMessage(String.format(i18n.get("display.creditFidelite"),
                         refund.totalAmount.toPlainString().replace('.', ',')));
                 ticketPrinterService.printLoyaltyCredit(refund.totalAmount);
             }

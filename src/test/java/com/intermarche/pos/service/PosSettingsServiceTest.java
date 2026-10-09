@@ -2040,4 +2040,81 @@ class PosSettingsServiceTest {
             assertEquals("BQS", containers.get(1).code());
         }
     }
+
+    // --------------------------------------------------
+    // Articles a enlever — point de retrait et exemplaires du bon
+    // --------------------------------------------------
+
+    /**
+     * {@code collectPointLabel} returns the administered collection point: one
+     * place per store, named on the handover slip because the customer drives
+     * there after paying (LC-02-08-05).
+     */
+    @Test
+    void collectPointLabelReadsAdministeredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("collect.point-label", "BATI")));
+            assertEquals("BATI", service.collectPointLabel());
+        }
+    }
+
+    /**
+     * {@code collectPointLabel} answers the catalog default — blank — when the
+     * store administered none, and the slip then names no place.
+     */
+    @Test
+    void collectPointLabelDefaultsToBlank() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals("", service.collectPointLabel());
+        }
+    }
+
+    /**
+     * {@code collectVoucherCopies} returns the administered count — the two
+     * copies the process needs, one kept by the collection desk and one by the
+     * customer.
+     */
+    @Test
+    void collectVoucherCopiesReadsAdministeredValue() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("collect.voucher-copies", "3")));
+            assertEquals(3, service.collectVoucherCopies());
+        }
+    }
+
+    /**
+     * {@code collectVoucherCopies} never answers below one: a count administered
+     * at zero or in the negative would print no slip at all, and the articles
+     * would leave the shop with nothing proving it — the clamp arm.
+     */
+    @Test
+    void collectVoucherCopiesNeverFallsBelowOne() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("collect.voucher-copies", "0")));
+            assertEquals(1, service.collectVoucherCopies());
+        }
+        PosSettingsService negative = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of(row("collect.voucher-copies", "-2")));
+            assertEquals(1, negative.collectVoucherCopies());
+        }
+    }
+
+    /**
+     * {@code collectVoucherCopies} answers the catalog default of two when the
+     * store administered nothing — the process the field expert described.
+     */
+    @Test
+    void collectVoucherCopiesDefaultsToTwo() {
+        PosSettingsService service = new PosSettingsService();
+        try (MockedStatic<PanacheEntityBase> ms = mockStatic(PanacheEntityBase.class)) {
+            ms.when(PanacheEntityBase::listAll).thenReturn(List.of());
+            assertEquals(2, service.collectVoucherCopies());
+        }
+    }
 }

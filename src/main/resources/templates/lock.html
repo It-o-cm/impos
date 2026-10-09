@@ -117,29 +117,25 @@
             <div class="overlay-title">{inject:i18n.get('lock.supervisorAuth')}</div>
         </div>
         <div class="resume-container">
-            <div class="hint-text">
-                Mot de passe oublié : le superviseur déverrouille, la caissière garde
-                sa session et son tiroir et changera son code à la reprise (EXP-14).
-                Poste abandonné : le superviseur force la fin de journée (EXP-96).
-            </div>
-            {! Les deux champs etaient libres: sur une borne sans clavier, le
-             ! volet superviseur etait decoratif. Ils sont desormais en lecture
-             ! seule et alimentes par le pave ci-dessous, qui se rebranche sur
-             ! le champ touche — PosInput ne cable qu'un champ a la fois. !}
-            <div id="supLogin" class="resume-display pad-display" data-placeholder="Identifiant superviseur" onclick="activateSup('login')"></div>
-            <input type="hidden" id="supLoginValue" value="">
-            <div id="supPass" class="resume-display pad-display" data-placeholder="Code superviseur" onclick="activateSup('password')"></div>
-            <input type="hidden" id="supPassValue" value="">
+            {! Le texte etait en dur dans le gabarit alors que sa cle existait
+             ! deja et dormait dans les bundles. !}
+            <div class="hint-text">{inject:i18n.get('lock.motPasseOublieSuperviseur')}</div>
+            {! Le superviseur s'identifie COMME A L'OUVERTURE, et le volet qui
+             ! le lui demande est maintenant le meme sur les quatre ecrans qui
+             ! le demandent. Cet ecran est le seul a pouvoir lui passer un
+             ! badge: la chaine de scan n'alimente la boite aux lettres que
+             ! caisse verrouillee. !}
+            {#include supervisor-auth padContainer='supKeyboardArea' displayClass='resume-display' /}
             <div id="supKeyboardArea" class="pos-kb-compact"></div>
-            <form method="POST" action="/action/force-unlock" onsubmit="return fillSup(this)">
+            <form method="POST" action="/action/force-unlock" onsubmit="return SupAuth.fill(this)">
                 <input type="hidden" name="supervisor">
                 <input type="hidden" name="supervisorPassword">
-                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">DÉVERROUILLER (mot de passe oublié)</button>
+                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">{inject:i18n.get('lock.deverrouillerMotPasseOublie')}</button>
             </form>
-            <form method="POST" action="/action/force-close" onsubmit="return fillSup(this)">
+            <form method="POST" action="/action/force-close" onsubmit="return SupAuth.fill(this)">
                 <input type="hidden" name="supervisor">
                 <input type="hidden" name="supervisorPassword">
-                <button type="submit" class="btn btn-danger" style="width:100%;margin-top:8px;">FORCER LA FIN DE JOURNÉE</button>
+                <button type="submit" class="btn btn-danger" style="width:100%;margin-top:8px;">{inject:i18n.get('lock.forcerFinJournee')}</button>
             </form>
         </div>
         </div>
@@ -186,6 +182,9 @@
             .then(r => r.json())
             .then(data => {
                 if (data.scannedBadge && data.scannedBadge !== "") {
+                    /* Le volet superviseur, lui, s'alimente par sa propre
+                       boite aux lettres : quand il est ouvert, la chaine de
+                       scan y envoie le badge et celui-ci n'arrive jamais ici. */
                     /* LC-01-01-03 : quand le back-office n'exige pas de mot de
                        passe, le badge scanné ouvre la caisse à lui seul. Le
                        serveur revérifie la règle ET que le badge a bien été
@@ -227,48 +226,22 @@
         handleBadgeDetection("{lockedBadge}");
     }
     // Ouvre le volet superviseur (mot de passe oublié / poste abandonné).
+    // Il PREND la main sur le volet d'identification : un seul volet à la fois
+    // est ouvert, sinon le badge présenté ne saurait plus lequel il nomme.
     function showSupervisor() {
+        document.getElementById('resumeScreen').classList.remove('active');
         const s = document.getElementById('supervisorScreen');
         s.style.zIndex = '60';
         s.classList.add('active');
-        activateSup('login');
-    }
-    // Chaque champ du volet superviseur dit quel pavé il veut : l'identifiant
-    // se tape en lettres, le code en chiffres et masqué.
-    const SUP_FIELDS = {
-        login:    { display: 'supLogin', hidden: 'supLoginValue', type: 'alpha',  mode: 'text', max: 32 },
-        password: { display: 'supPass',  hidden: 'supPassValue',  type: 'numpad', mode: 'pin',  max: 8 }
-    };
-
-    // Rebranche le pavé du volet superviseur sur l'un de ses deux champs, en
-    // restaurant ce qui y avait déjà été saisi.
-    function activateSup(name) {
-        const field = SUP_FIELDS[name];
-        if (!field || !document.getElementById(field.hidden)) { return; }
-        PosInput.setup({
-            displayId: field.display,
-            hiddenId: field.hidden,
-            containerId: 'supKeyboardArea',
-            keyboardType: field.type,
-            mode: field.mode,
-            uppercase: false,
-            maxLength: field.max,
-            initialValue: document.getElementById(field.hidden).value || ''
-        });
-    }
-
-    // Recopie identifiant et code dans les champs cachés du formulaire soumis.
-    // Les valeurs viennent des champs cachés du pavé et non des afficheurs : le
-    // code y est masqué par des étoiles.
-    function fillSup(form) {
-        form.querySelector('input[name=supervisor]').value = document.getElementById('supLoginValue').value;
-        form.querySelector('input[name=supervisorPassword]').value = document.getElementById('supPassValue').value;
-        return true;
+        SupAuth.setMode('pin', document.getElementById('supAuthPinMode'));
     }
     {/if}
 
     function showResume() {
         storedLogin = ""; currentStep = 1;
+        // Symétrique de showSupervisor() : un seul volet ouvert à la fois.
+        const supPanel = document.getElementById('supervisorScreen');
+        if (supPanel) { supPanel.classList.remove('active'); }
         const screen = document.getElementById('resumeScreen');
         screen.style.zIndex = '60';
         screen.classList.add('active');

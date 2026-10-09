@@ -6,7 +6,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Réimpression</title>
+    <title>{inject:i18n.get('reprintticket.reimpression')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -71,26 +71,26 @@
 
 <div class="pos-terminal">
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
-        <span id="opInfo">RÉIMPRESSION TICKET</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
+        <span id="opInfo">{inject:i18n.get('reprintticket.reimpressionTicket')}</span>
         <span id="clock">--:--:--</span>
     </div>
 
     <div class="main-area">
         <div class="list-header">
-            Sélectionner un ticket
+            {inject:i18n.get('reprintticket.selectionnerTicket')}
         </div>
         <!-- EXP-47 : recherche par numéro, date (jj/mm/aaaa) ou montant (0,00) —
              le moteur de recherche partagé avec le retour. -->
         <form method="post" action="/reprint/search" style="display:flex; gap:8px; padding:8px 12px;">
-            <div id="patternDisplay" class="search-display pad-display" data-placeholder="N° ticket, date jj/mm/aaaa ou montant" onclick="openSearchPad()"></div>
+            <div id="patternDisplay" class="search-display pad-display" data-placeholder="{inject:i18n.get('reprintticket.nTicketDateJj')}" onclick="openSearchPad()"></div>
             <input type="hidden" name="pattern" id="patternHidden" value="">
-            <button type="submit" class="btn btn-primary">RECHERCHER</button>
+            <button type="submit" class="btn btn-primary">{inject:i18n.get('reprintticket.rechercher')}</button>
         </form>
 
         <div class="items-scroll">
             {#if state.reprint.tickets.empty}
-                <div style="margin: 50px auto; text-align: center; color:var(--text-muted);">AUCUN TICKET DISPONIBLE</div>
+                <div style="margin: 50px auto; text-align: center; color:var(--text-muted);">{inject:i18n.get('reprintticket.aucunTicketDisponible')}</div>
             {#else}
                 {#for t in state.reprint.visibleTickets}
                     <a href="/reprint/view/{t.id}" class="receipt-item-link">
@@ -109,7 +109,7 @@
 
     <div class="ticket-nav">
         {#if state.reprint.hasListPrev}
-            <a href="/reprint/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+            <a href="/reprint/prev" class="btn btn-muted nav-btn">{inject:i18n.get('reprintticket.precedent')}</a>
         {#else}
             <button class="btn btn-muted nav-btn" disabled>PRÉCÉDENT</button>
         {/if}
@@ -117,20 +117,20 @@
         <span class="nav-info">Page {state.reprint.listPageDisplay}</span>
 
         {#if state.reprint.hasListNext}
-            <a href="/reprint/next" class="btn btn-muted nav-btn">SUIVANT</a>
+            <a href="/reprint/next" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>
         {#else}
             <button class="btn btn-muted nav-btn" disabled>SUIVANT</button>
         {/if}
     </div>
 
     <div class="bottom-nav" style="gap:20px;">
-        <a href="/" class="btn btn-muted">RETOUR</a>
-        <a href="/reprint/foreign" class="btn btn-muted">TICKET D'UNE AUTRE CAISSE</a>
+        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
+        <a href="/reprint/foreign" class="btn btn-muted">{inject:i18n.get('reprintticket.ticketDAutreCaisse')}</a>
     </div>
 
     <div class="search-pad" id="searchPad">
         <div id="searchPadArea" class="pos-kb-compact"></div>
-        <button type="button" class="btn btn-sm btn-muted" onclick="closeSearchPad()">FERMER</button>
+        <button type="button" class="btn btn-sm btn-muted" onclick="closeSearchPad()">{inject:i18n.get('reprintticket.fermer')}</button>
     </div>
 </div>
 

@@ -224,4 +224,105 @@ class AuthScanHandlerTest {
         verifyNoInteractions(auth);
         verify(state, never()).touch();
     }
+
+    /**
+     * A matching badge, no endorsement, register in use, but a screen ASKING for
+     * a supervisor identification: the badge lands in the supervisor mailbox,
+     * touches the state and marks the context handled. Presenting a badge and
+     * keying an identifier have the same effect wherever an identifier is asked
+     * for — this is the leg that used to fall through and be thrown away.
+     */
+    @Test
+    void matchingBadgeGoesToAnArmedSupervisorPanel() {
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = false;
+        AuthState auth = mock(AuthState.class);
+        when(auth.supervisorBadgeArmed()).thenReturn(true);
+        PosState state = newState(endorsement, auth);
+        when(state.isLocked()).thenReturn(false);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        newHandler().handle(ctx);
+        verify(auth).setSupervisorBadge(BADGE_CODE);
+        verify(state).touch();
+        assertTrue(ctx.handled);
+        verify(endorsement, never()).setScannedBadge(BADGE_CODE);
+        verify(auth, never()).setScannedBadge(BADGE_CODE);
+    }
+
+    /**
+     * On the LOCKED register both the armed panel and the lock screen want the
+     * badge, and the armed panel wins: the supervisor panel is the one actually
+     * on screen at that moment, while the opening's own identification sits
+     * behind it. The lock mailbox is never written.
+     */
+    @Test
+    void anArmedSupervisorPanelOutranksTheLockScreen() {
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = false;
+        AuthState auth = mock(AuthState.class);
+        when(auth.supervisorBadgeArmed()).thenReturn(true);
+        PosState state = newState(endorsement, auth);
+        when(state.isLocked()).thenReturn(true);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        newHandler().handle(ctx);
+        verify(auth).setSupervisorBadge(BADGE_CODE);
+        verify(auth, never()).setScannedBadge(BADGE_CODE);
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * An ACTIVE ENDORSEMENT still outranks an armed supervisor panel: the shared
+     * modal is the gesture in progress, and the panel is only a screen waiting.
+     */
+    @Test
+    void anActiveEndorsementOutranksAnArmedSupervisorPanel() {
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = true;
+        AuthState auth = mock(AuthState.class);
+        when(auth.supervisorBadgeArmed()).thenReturn(true);
+        PosState state = newState(endorsement, auth);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        newHandler().handle(ctx);
+        verify(endorsement).setScannedBadge(BADGE_CODE);
+        verify(auth, never()).setSupervisorBadge(BADGE_CODE);
+        assertTrue(ctx.handled);
+    }
+
+    /**
+     * With badge scanning deactivated at the back office (BO-10-02-29/30), an
+     * armed supervisor panel receives nothing either: the badge walks on and the
+     * supervisor keys their identifier, which is the whole point of that
+     * parameter.
+     */
+    @Test
+    void disabledBadgeScanLeavesAnArmedSupervisorPanelEmpty() {
+        AuthScanHandler handler = newHandler();
+        when(handler.posSettingsService.badgeScanEnabled()).thenReturn(false);
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = false;
+        AuthState auth = mock(AuthState.class);
+        when(auth.supervisorBadgeArmed()).thenReturn(true);
+        PosState state = newState(endorsement, auth);
+        ScanContext ctx = new ScanContext(BADGE_CODE, state);
+        handler.handle(ctx);
+        assertFalse(ctx.handled);
+        verify(auth, never()).setSupervisorBadge(BADGE_CODE);
+    }
+
+    /**
+     * A code that is NOT a badge is not routed to an armed panel either: the
+     * arming says who may identify themselves, not what counts as a badge.
+     */
+    @Test
+    void aNonBadgeCodeIsNotRoutedToAnArmedSupervisorPanel() {
+        EndorsementState endorsement = mock(EndorsementState.class);
+        endorsement.active = false;
+        AuthState auth = mock(AuthState.class);
+        when(auth.supervisorBadgeArmed()).thenReturn(true);
+        PosState state = newState(endorsement, auth);
+        ScanContext ctx = new ScanContext(NON_BADGE_CODE, state);
+        newHandler().handle(ctx);
+        assertFalse(ctx.handled);
+        verify(auth, never()).setSupervisorBadge(NON_BADGE_CODE);
+    }
 }

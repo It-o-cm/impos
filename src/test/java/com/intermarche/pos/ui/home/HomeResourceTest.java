@@ -8,6 +8,7 @@ import com.intermarche.pos.ui.hardware.HardwareService;
 import com.intermarche.pos.ui.payment.MoneticsDegradedService;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -57,6 +58,10 @@ class HomeResourceTest {
      */
     private HomeResource newResource() {
         HomeResource resource = new HomeResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         resource.state.ticket = mock(TicketState.class);
         resource.state.fidelity = mock(FidelityState.class);

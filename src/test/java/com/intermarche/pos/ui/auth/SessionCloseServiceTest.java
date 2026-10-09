@@ -147,6 +147,103 @@ class SessionCloseServiceTest {
     }
 
     /**
+     * Builds a real {@link AuthService.CredentialStatus} through its private
+     * constructor, so the lockout flag — a final field no mock can stub — is
+     * the one the service will read.
+     *
+     * @param success true for an authenticated check
+     * @param locked true for an account under PIN lockout
+     * @return a credential status carrying those two answers
+     */
+    private AuthService.CredentialStatus status(boolean success, boolean locked) {
+        try {
+            java.lang.reflect.Constructor<AuthService.CredentialStatus> ctor =
+                    AuthService.CredentialStatus.class.getDeclaredConstructor(
+                            com.intermarche.pos.domain.people.Employee.class, boolean.class);
+            ctor.setAccessible(true);
+            return ctor.newInstance(
+                    success ? new com.intermarche.pos.domain.people.Employee() : null, locked);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    // --- passwordOutcome ---
+
+    /**
+     * {@code passwordOutcome()} answers DENIED on a locked register, with no
+     * operator to check a password against (first guard, badge-null arm).
+     */
+    @Test
+    void passwordOutcomeDeniesOnALockedRegister() {
+        SessionCloseService service = newService();
+        assertEquals(AuthService.CheckOutcome.DENIED,
+                service.passwordOutcome(state(null), "1234"));
+        verify(service.authService, never()).checkCredentials(anyString(), anyString());
+    }
+
+    /**
+     * {@code passwordOutcome()} answers DENIED on a null and on a blank
+     * password, without reaching the credential check (the two other guards).
+     */
+    @Test
+    void passwordOutcomeDeniesAnEmptyField() {
+        SessionCloseService service = newService();
+        assertEquals(AuthService.CheckOutcome.DENIED, service.passwordOutcome(state("007"), null));
+        assertEquals(AuthService.CheckOutcome.DENIED, service.passwordOutcome(state("007"), "   "));
+        verify(service.authService, never()).checkCredentials(anyString(), anyString());
+    }
+
+    /**
+     * {@code passwordOutcome()} answers GRANTED on a right password
+     * (isSuccess true arm).
+     */
+    @Test
+    void passwordOutcomeGrantsARightCode() {
+        SessionCloseService service = newService();
+        when(service.authService.checkCredentials("007", "1234")).thenReturn(status(true, false));
+        assertEquals(AuthService.CheckOutcome.GRANTED,
+                service.passwordOutcome(state("007"), "1234"));
+    }
+
+    /**
+     * {@code passwordOutcome()} answers DENIED on a wrong password that is not
+     * a lockout (isSuccess false, locked false).
+     */
+    @Test
+    void passwordOutcomeDeniesAWrongCode() {
+        SessionCloseService service = newService();
+        when(service.authService.checkCredentials("007", "9999")).thenReturn(status(false, false));
+        assertEquals(AuthService.CheckOutcome.DENIED,
+                service.passwordOutcome(state("007"), "9999"));
+    }
+
+    /**
+     * {@code passwordOutcome()} answers LOCKED when the operator's own account
+     * is under PIN lockout (isSuccess false, locked true). This is the case the
+     * closing screen used to call "code opérateur incorrect", which sent the
+     * operator retyping a code that was right.
+     */
+    @Test
+    void passwordOutcomeNamesTheLockout() {
+        SessionCloseService service = newService();
+        when(service.authService.checkCredentials("007", "1234")).thenReturn(status(false, true));
+        assertEquals(AuthService.CheckOutcome.LOCKED,
+                service.passwordOutcome(state("007"), "1234"));
+    }
+
+    /**
+     * The boolean {@code passwordMatches()} is GRANTED and nothing else: a
+     * LOCKED outcome answers false, like a wrong code.
+     */
+    @Test
+    void passwordMatchesIsFalseOnALockout() {
+        SessionCloseService service = newService();
+        when(service.authService.checkCredentials("007", "1234")).thenReturn(status(false, true));
+        assertFalse(service.passwordMatches(state("007"), "1234"));
+    }
+
+    /**
      * A locked register matches no password: there is no operator to check one
      * against.
      */

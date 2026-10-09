@@ -30,6 +30,13 @@ public class VoucherService {
 
     private static final Logger LOGGER = Logger.getLogger(VoucherService.class);
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     @Inject
     PaymentService paymentService;
 
@@ -130,14 +137,14 @@ public class VoucherService {
         com.intermarche.pos.domain.payment.StoredValue instrument =
                 com.intermarche.pos.domain.payment.StoredValue.findByNumber(number);
         if (instrument == null) {
-            state.ticket.setError("BON INCONNU AU REGISTRE");
+            state.ticket.setError(i18n.get("voucherbalance.bonInconnuRegistre"));
             state.touch();
             LOGGER.info("Exiting method applyRegistryVoucher");
             return;
         }
         if (instrument.status == com.intermarche.pos.domain.payment.StoredValue.Status.EXHAUSTED
                 || instrument.balance.signum() <= 0) {
-            state.ticket.setError("BON DÉJÀ UTILISÉ - SOLDE ÉPUISÉ");
+            state.ticket.setError(i18n.get("op.bonDejaUtiliseSolde"));
             state.touch();
             LOGGER.info("Exiting method applyRegistryVoucher");
             return;
@@ -145,7 +152,7 @@ public class VoucherService {
         boolean alreadyScanned = state.payment.payments.stream()
                 .anyMatch(p -> number.equals(p.voucherNumber));
         if (alreadyScanned) {
-            state.ticket.setError("BON DÉJÀ SCANNÉ SUR CETTE VENTE");
+            state.ticket.setError(i18n.get("op.bonDejaScanneVente"));
             state.touch();
             LOGGER.info("Exiting method applyRegistryVoucher");
             return;

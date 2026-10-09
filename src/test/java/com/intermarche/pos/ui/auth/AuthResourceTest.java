@@ -4,6 +4,7 @@ import com.intermarche.pos.domain.session.CashSession;
 import com.intermarche.pos.service.CashSessionService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.MediaType;
@@ -14,6 +15,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -48,6 +50,10 @@ class AuthResourceTest {
      */
     private AuthResource newResource() {
         AuthResource resource = new AuthResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         resource.state.auth = mock(AuthState.class);
         resource.authService = mock(AuthService.class);
@@ -481,8 +487,9 @@ class AuthResourceTest {
         resource.state.auth.operatorBadgeId = "007";
         when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
-        when(resource.endorsementService.authorize("mcurie", "1111",
-                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(true);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.GRANTED);
         Response response = resource.closeRegister(null, "mcurie", "1111");
         assertEquals("/lock", response.getLocation().toString());
         verify(resource.sessionCloseService).close(resource.state, "superviseur en caisse");
@@ -499,8 +506,9 @@ class AuthResourceTest {
         resource.state.auth.operatorBadgeId = "007";
         when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
-        when(resource.endorsementService.authorize("mcurie", "bad",
-                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(false);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "bad",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.DENIED);
         TemplateInstance view = stubClose(resource);
         Response response = resource.closeRegister(null, "mcurie", "bad");
         assertEquals(200, response.getStatus());
@@ -519,7 +527,8 @@ class AuthResourceTest {
         resource.state.auth.operatorBadgeId = "007";
         when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PASSWORD);
-        when(resource.sessionCloseService.passwordMatches(resource.state, "1234")).thenReturn(true);
+        when(resource.sessionCloseService.passwordOutcome(resource.state, "1234"))
+                .thenReturn(AuthService.CheckOutcome.GRANTED);
         Response response = resource.closeRegister("1234", null, null);
         assertEquals("/lock", response.getLocation().toString());
         verify(resource.sessionCloseService).close(resource.state, null);
@@ -537,7 +546,8 @@ class AuthResourceTest {
         resource.state.auth.operatorBadgeId = "007";
         when(resource.sessionCloseService.obstacle(any()))
                 .thenReturn(SessionCloseService.Obstacle.PASSWORD);
-        when(resource.sessionCloseService.passwordMatches(resource.state, "wrong")).thenReturn(false);
+        when(resource.sessionCloseService.passwordOutcome(resource.state, "wrong"))
+                .thenReturn(AuthService.CheckOutcome.DENIED);
         TemplateInstance view = stubClose(resource);
         Response response = resource.closeRegister("wrong", "   ", null);
         assertEquals(200, response.getStatus());
@@ -561,7 +571,85 @@ class AuthResourceTest {
         assertEquals(200, response.getStatus());
         assertSame(view, response.getEntity());
         verify(resource.sessionCloseService, never()).close(any(), any());
-        verify(resource.sessionCloseService, never()).passwordMatches(any(), any());
+        verify(resource.sessionCloseService, never()).passwordOutcome(any(), any());
+    }
+
+    /**
+     * {@code closeRegister(...)} names the LOCKOUT when the supervisor's own
+     * account is blocked, instead of answering "autorisation refusée" — the
+     * refusal a supervisor cannot act on by retyping (outcome LOCKED arm).
+     */
+    @Test
+    void closeRegisterNamesALockedSupervisorAccount() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle(any()))
+                .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.LOCKED);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closeRegister(null, "mcurie", "1111");
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(view).data("error", "COMPTE VERROUILLÉ - RÉESSAYEZ PLUS TARD");
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code closeRegister(...)} names the LOCKOUT when the OPERATOR's own
+     * account is blocked. This is the definitive block: the shift is over, the
+     * code is right, and the register used to answer "code opérateur incorrect"
+     * for the whole lockout window (outcome LOCKED arm of the password branch).
+     */
+    @Test
+    void closeRegisterNamesALockedOperatorAccount() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle(any()))
+                .thenReturn(SessionCloseService.Obstacle.PASSWORD);
+        when(resource.sessionCloseService.passwordOutcome(resource.state, "1234"))
+                .thenReturn(AuthService.CheckOutcome.LOCKED);
+        TemplateInstance view = stubClose(resource);
+        Response response = resource.closeRegister("1234", null, null);
+        assertEquals(200, response.getStatus());
+        assertSame(view, response.getEntity());
+        verify(view).data("error", "COMPTE VERROUILLÉ - RÉESSAYEZ PLUS TARD");
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * A DENIED operator code still shows the ordinary refusal: the lockout
+     * message is for the lockout only (outcome DENIED arm of the same branch).
+     */
+    @Test
+    void closeRegisterStillBlamesTheCodeOnAPlainRefusal() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle(any()))
+                .thenReturn(SessionCloseService.Obstacle.PASSWORD);
+        when(resource.sessionCloseService.passwordOutcome(resource.state, "9999"))
+                .thenReturn(AuthService.CheckOutcome.DENIED);
+        TemplateInstance view = stubClose(resource);
+        resource.closeRegister("9999", null, null);
+        verify(view).data("error", "Code opérateur incorrect.");
+    }
+
+    /**
+     * A DENIED supervisor still shows the ordinary authorization refusal.
+     */
+    @Test
+    void closeRegisterStillRefusesAPlainSupervisorRefusal() {
+        AuthResource resource = newResource();
+        resource.state.auth.operatorBadgeId = "007";
+        when(resource.sessionCloseService.obstacle(any()))
+                .thenReturn(SessionCloseService.Obstacle.PENDING_TICKETS);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "bad",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.DENIED);
+        TemplateInstance view = stubClose(resource);
+        resource.closeRegister(null, "mcurie", "bad");
+        verify(view).data("error", "Autorisation superviseur refusée.");
     }
 
     // --- lockRegister (verrouillage) ---
@@ -627,8 +715,9 @@ class AuthResourceTest {
     @Test
     void forceUnlockRefusedWhenSupervisorDenied() {
         AuthResource resource = newResource();
-        when(resource.endorsementService.authorize("mcurie", "bad",
-                AuthService.FORCE_UNLOCK_ACTION)).thenReturn(false);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "bad",
+                AuthService.FORCE_UNLOCK_ACTION))
+                .thenReturn(AuthService.CheckOutcome.DENIED);
         Response response = resource.forceUnlock("mcurie", "bad");
         assertEquals("/lock?error=supervisor", response.getLocation().toString());
         verify(resource.authService, never()).forceResume(any());
@@ -641,8 +730,9 @@ class AuthResourceTest {
     @Test
     void forceUnlockRefusedWhenNotPaused() {
         AuthResource resource = newResource();
-        when(resource.endorsementService.authorize("mcurie", "1111",
-                AuthService.FORCE_UNLOCK_ACTION)).thenReturn(true);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                AuthService.FORCE_UNLOCK_ACTION))
+                .thenReturn(AuthService.CheckOutcome.GRANTED);
         when(resource.authService.forceResume(resource.state)).thenReturn(false);
         Response response = resource.forceUnlock("mcurie", "1111");
         assertEquals("/lock?error=supervisor", response.getLocation().toString());
@@ -655,12 +745,29 @@ class AuthResourceTest {
     @Test
     void forceUnlockSucceedsRedirectsToPinChange() {
         AuthResource resource = newResource();
-        when(resource.endorsementService.authorize("mcurie", "1111",
-                AuthService.FORCE_UNLOCK_ACTION)).thenReturn(true);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                AuthService.FORCE_UNLOCK_ACTION))
+                .thenReturn(AuthService.CheckOutcome.GRANTED);
         when(resource.authService.forceResume(resource.state)).thenReturn(true);
         Response response = resource.forceUnlock("mcurie", "1111");
         assertEquals("/pin-change", response.getLocation().toString());
         verify(resource.state).touch();
+    }
+
+    /**
+     * A supervisor under PIN lockout is sent to the lock screen with the
+     * LOCKOUT code, not the refusal code: the screen then names the block
+     * instead of suggesting the credentials were wrong (outcome LOCKED arm).
+     */
+    @Test
+    void forceUnlockNamesALockedSupervisorAccount() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                AuthService.FORCE_UNLOCK_ACTION))
+                .thenReturn(AuthService.CheckOutcome.LOCKED);
+        Response response = resource.forceUnlock("mcurie", "1111");
+        assertEquals("/lock?error=locked", response.getLocation().toString());
+        verify(resource.authService, never()).forceResume(any());
     }
 
     // --- forceCloseAbandoned (EXP-96) ---
@@ -672,8 +779,9 @@ class AuthResourceTest {
     @Test
     void forceCloseAbandonedClosesOnEndorsement() {
         AuthResource resource = newResource();
-        when(resource.endorsementService.authorize("mcurie", "1111",
-                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(true);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.GRANTED);
         Response response = resource.forceCloseAbandoned("mcurie", "1111");
         assertEquals("/lock", response.getLocation().toString());
         verify(resource.sessionCloseService).close(resource.state, "poste abandonné — superviseur");
@@ -687,8 +795,9 @@ class AuthResourceTest {
     @Test
     void forceCloseAbandonedRefusedOnBadSupervisor() {
         AuthResource resource = newResource();
-        when(resource.endorsementService.authorize("mcurie", "bad",
-                SessionCloseService.FORCE_CLOSE_ACTION)).thenReturn(false);
+        when(resource.endorsementService.authorizeOutcome("mcurie", "bad",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.DENIED);
         Response response = resource.forceCloseAbandoned("mcurie", "bad");
         assertEquals("/lock?error=supervisor", response.getLocation().toString());
         verify(resource.sessionCloseService, never()).close(any(), any());
@@ -751,5 +860,52 @@ class AuthResourceTest {
         TemplateInstance view = stubLock(resource,
                 "CAISSE HORS SERVICE - POINT DE CONTACT DÉSACTIVÉ AU BACK OFFICE");
         assertSame(view, resource.lockPage("deactivated"));
+    }
+
+    /**
+     * A supervisor under PIN lockout forcing the fin de journée of an abandoned
+     * post is sent back with the LOCKOUT code, and nothing is closed
+     * (outcome LOCKED arm).
+     */
+    @Test
+    void forceCloseAbandonedNamesALockedSupervisorAccount() {
+        AuthResource resource = newResource();
+        when(resource.endorsementService.authorizeOutcome("mcurie", "1111",
+                SessionCloseService.FORCE_CLOSE_ACTION))
+                .thenReturn(AuthService.CheckOutcome.LOCKED);
+        Response response = resource.forceCloseAbandoned("mcurie", "1111");
+        assertEquals("/lock?error=locked", response.getLocation().toString());
+        verify(resource.sessionCloseService, never()).close(any(), any());
+    }
+
+    /**
+     * {@code /supervisor-badge-data} ARMS the supervisor mailbox and returns
+     * nothing when no badge was presented: the arming is what the poll is for,
+     * the collection is a bonus.
+     */
+    @Test
+    void supervisorBadgeDataArmsTheMailbox() {
+        AuthResource resource = newResource();
+        // A REAL auth state here: the arming and the one-shot mailbox are the
+        // behaviour under test, and a mock of AuthState has neither.
+        resource.state.auth = new AuthState();
+        java.util.Map<String, Object> data = resource.getSupervisorBadgeData();
+        assertEquals("", data.get("scannedBadge"));
+        assertTrue(resource.state.auth.supervisorBadgeArmed());
+    }
+
+    /**
+     * {@code /supervisor-badge-data} hands over a presented badge and empties
+     * the mailbox, so the next poll does not replay it — while leaving the
+     * arming standing for a second attempt.
+     */
+    @Test
+    void supervisorBadgeDataHandsOverThePresentedBadgeOnce() {
+        AuthResource resource = newResource();
+        resource.state.auth = new AuthState();
+        resource.state.auth.setSupervisorBadge("BADGE-9");
+        assertEquals("BADGE-9", resource.getSupervisorBadgeData().get("scannedBadge"));
+        assertEquals("", resource.getSupervisorBadgeData().get("scannedBadge"));
+        assertTrue(resource.state.auth.supervisorBadgeArmed());
     }
 }

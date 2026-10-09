@@ -138,13 +138,43 @@ public class SessionCloseService {
      */
     public boolean passwordMatches(PosState state, String password) {
         LOGGER.info("Entering method passwordMatches");
-        if (state.auth.operatorBadgeId == null || password == null || password.isBlank()) {
-            LOGGER.info("Exiting method passwordMatches with false");
-            return false;
-        }
-        boolean ok = authService.checkCredentials(state.auth.operatorBadgeId, password).isSuccess();
+        boolean ok = passwordOutcome(state, password) == AuthService.CheckOutcome.GRANTED;
         LOGGER.info("Exiting method passwordMatches with " + ok);
         return ok;
+    }
+
+    /**
+     * Checks the password the operator keyed to close, telling a WRONG CODE from
+     * a LOCKED ACCOUNT.
+     *
+     * <p>THE CLOSING IS WHERE THE LOCKOUT HURTS MOST. The operator is signed in,
+     * their shift is over, and the only thing between them and the end of the day
+     * is their own code. Answering "code opérateur incorrect" to an account under
+     * PIN lockout sends them retyping a code that is right, at a register that
+     * will keep refusing it for the whole lockout window — a definitive block as
+     * far as they can tell. Naming the lockout is what turns it back into a wait,
+     * or a reason to call the supervisor.
+     *
+     * @param state the current register state, read for the operator
+     * @param password the keyed password
+     * @return which of the three outcomes the keyed password got
+     */
+    public AuthService.CheckOutcome passwordOutcome(PosState state, String password) {
+        LOGGER.info("Entering method passwordOutcome");
+        if (state.auth.operatorBadgeId == null || password == null || password.isBlank()) {
+            // Nothing was presented, so nothing is locked: an empty field is a
+            // refusal the operator can act on by filling it.
+            LOGGER.info("Exiting method passwordOutcome with DENIED");
+            return AuthService.CheckOutcome.DENIED;
+        }
+        AuthService.CredentialStatus status =
+                authService.checkCredentials(state.auth.operatorBadgeId, password);
+        AuthService.CheckOutcome outcome = status.isSuccess()
+                ? AuthService.CheckOutcome.GRANTED
+                : (status.locked ? AuthService.CheckOutcome.LOCKED
+                                 : AuthService.CheckOutcome.DENIED);
+        LOGGER.info("Exiting method passwordOutcome with " + outcome);
+        return outcome;
     }
 
     /**

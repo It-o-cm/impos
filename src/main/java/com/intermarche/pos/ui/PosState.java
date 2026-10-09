@@ -36,6 +36,13 @@ import java.util.List;
  */
 @Singleton
 public class PosState implements Serializable {
+
+    /**
+     * The localised operator messages: the two refusals this state posts itself
+     * are bundle keys, never French literals (LC-13-06).
+     */
+    @jakarta.inject.Inject
+    Messages i18n;
     private static final long serialVersionUID = 1L;
 
     /** The ticket being built. */
@@ -165,12 +172,16 @@ public class PosState implements Serializable {
         }
 
         /**
-         * Returns the title the prompt shows.
+         * Returns the bundle key of the title the prompt shows.
          *
-         * @return the operator-facing title
+         * <p>A KEY AND NOT THE SENTENCE: this holder is a nested value class
+         * with no resolver injected, so the screen resolves what it displays
+         * (LC-13-06).
+         *
+         * @return the key of the operator-facing title
          */
-        public String getTitle() {
-            return isPriceKind() ? "PRIX À SAISIR" : "QUANTITÉ À SAISIR";
+        public String getTitleKey() {
+            return isPriceKind() ? "op.prixSaisir" : "op.quantiteSaisir";
         }
     }
 
@@ -408,11 +419,30 @@ public class PosState implements Serializable {
         }
     }
 
-    /** The one answer the register gives when a function needs a closed ticket and there is none. */
-    public static final String NO_LAST_TICKET = "AUCUN TICKET";
+    /**
+     * Returns the resolver of the localised labels, for the sub-states.
+     *
+     * <p>A sub-state such as {@link com.intermarche.pos.ui.ticket.TicketState}
+     * is a value object held in a field, not a bean, so it has no resolver of
+     * its own; it reaches this one through its parent (LC-13-06).
+     *
+     * @return the resolver, or null in a unit test that wired none
+     */
+    public Messages messages() {
+        return i18n;
+    }
 
-    /** The one answer the register gives when training mode forbids a real document. */
-    public static final String TRAINING_FORBIDDEN = "FONCTION INDISPONIBLE EN FORMATION";
+    /**
+     * Bundle key of the one answer the register gives when a function needs a
+     * closed ticket and there is none (LC-13-06).
+     */
+    public static final String NO_LAST_TICKET_KEY = "op.aucunTicket";
+
+    /**
+     * Bundle key of the one answer the register gives when training mode forbids
+     * a real document (LC-13-06).
+     */
+    public static final String TRAINING_FORBIDDEN_KEY = "op.fonctionIndisponibleFormation";
 
     /**
      * THE gate of every function that works on the last closed ticket —
@@ -434,12 +464,12 @@ public class PosState implements Serializable {
         if (trainingMode) {
             // Training touches no real document: no duplicata, no counter bump,
             // and no number that could name a sale that never happened.
-            ticket.setError(TRAINING_FORBIDDEN);
+            ticket.setError(i18n.get(TRAINING_FORBIDDEN_KEY));
             touch();
             return false;
         }
         if (lastClosedTicketId == null) {
-            ticket.setError(NO_LAST_TICKET);
+            ticket.setError(i18n.get(NO_LAST_TICKET_KEY));
             touch();
             return false;
         }
@@ -738,16 +768,21 @@ public class PosState implements Serializable {
      * @return the sublist of lines for the current page
      */
     public List<TicketState.TicketItem> getVisibleItems() {
-        if (ticket.items.isEmpty()) return Collections.emptyList();
-        int maxPage = Math.max(0, (ticket.items.size() - 1) / PAGE_SIZE);
+        // The DISPLAY sequence, not the cart: the cancelled lines are shown
+        // struck through at the rank they held. Paging counts them, because the
+        // operator counts them too — a page that hid them would renumber itself
+        // under the eye at each cancellation.
+        List<TicketState.TicketItem> shown = ticket.displayItems();
+        if (shown.isEmpty()) return Collections.emptyList();
+        int maxPage = Math.max(0, (shown.size() - 1) / PAGE_SIZE);
         if (ticketCurrentPage > maxPage) ticketCurrentPage = maxPage;
         // The clamp above is what keeps the window inside the list: with a
         // non-empty ticket, fromIndex = page * PAGE_SIZE <= maxPage *
         // PAGE_SIZE <= size - 1. No further bound check is reachable — one
         // used to sit here and could never fire.
         int fromIndex = ticketCurrentPage * PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PAGE_SIZE, ticket.items.size());
-        return ticket.items.subList(fromIndex, toIndex);
+        int toIndex = Math.min(fromIndex + PAGE_SIZE, shown.size());
+        return shown.subList(fromIndex, toIndex);
     }
 
     /**

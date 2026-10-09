@@ -42,6 +42,14 @@ public class ExchangeHealthResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(ExchangeHealthResource.class);
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The supervisor page template, whose fragments this resource renders. */
     @Inject
     Template supervisor;
@@ -152,9 +160,9 @@ public class ExchangeHealthResource {
         String error = refPullService.triggerPull();
         LOGGER.info("Exiting method replayPull");
         if (error == null) {
-            return redirect("Tirage des référentiels relancé.", true);
+            return redirect(i18n.get("op.tirageReferentielsRelance"), true);
         }
-        return redirect("Tirage des référentiels en échec : " + error, false);
+        return redirect(i18n.format("op.tirageReferentielsEchec", error), false);
     }
 
     /**

@@ -38,6 +38,13 @@ import java.net.URI;
  * which the new language becomes visible immediately — every label is resolved
  * at render time.
  *
+ * <p>OUTSIDE THE DRAWER GUARD, unlike the theme screen. The lock screen is
+ * reachable drawer-open on purpose, and it is the screen that carries this key:
+ * guarding the language choice would divert it to the drawer-error screen, which
+ * a locked register sends back to the lock screen — the key would look dead
+ * exactly where the requirement needs it most. Choosing a language moves no money
+ * and touches nothing the drawer protects.
+ *
  * <p>Package placement: cross-screen ui concern, ui root like
  * {@link ThemeResource} and {@link Messages}.
  */
@@ -72,6 +79,7 @@ public class LanguageResource {
      */
     @GET
     @Path("/language-select")
+    @DrawerMayBeOpen
     public TemplateInstance languageSelectPage() {
         LOGGER.info("Entering method languageSelectPage");
         LOGGER.info("Exiting method languageSelectPage");
@@ -93,6 +101,7 @@ public class LanguageResource {
     @POST
     @Path("/action/language")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @DrawerMayBeOpen
     public Response chooseLanguage(@FormParam("language") String language) {
         LOGGER.info("Entering method chooseLanguage with language: " + language);
         if (!changeAllowed()) {

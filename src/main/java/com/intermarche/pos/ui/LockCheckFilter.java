@@ -38,7 +38,12 @@ import java.util.List;
  *       {@code /endorsement-data}): they must keep answering so the client
  *       can LEARN that the register locked — the fragment carries a
  *       {@code locked} flag and the page navigates to {@code /lock} itself;</li>
- *   <li>the CSV import endpoints (back-office machine surface).</li>
+ *   <li>the CSV import endpoints (back-office machine surface);</li>
+ *   <li>the LANGUAGE selection and its action ({@code LC-13-06-03}): the one
+ *       cashier screen that must answer on a LOCKED register, because an
+ *       operator who cannot read the till's language has to change it BEFORE
+ *       signing in — the lock screen is the only screen they ever see. Letting
+ *       the filter bounce it back to {@code /lock} made the key look dead.</li>
  * </ul>
  */
 @Provider
@@ -59,12 +64,15 @@ public class LockCheckFilter implements ContainerRequestFilter {
             "/admin",
             "/ticket-fragment",
             "/endorsement-data",
+            "/supervisor-badge-data",
             "/products/import",
             "/prices/import",
             "/product-families/import",
             "/stores/import",
             "/employees/import",
-            "/feeds/import");
+            "/feeds/import",
+            "/language-select",
+            "/action/language");
 
     @Inject
     PosState state;

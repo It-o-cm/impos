@@ -21,6 +21,13 @@ public class ReprintService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(ReprintService.class);
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     @Inject
     PosState state;
 
@@ -75,7 +82,7 @@ public class ReprintService {
     public void print(Long ticketId) {
         LOGGER.info("Entering method print with ticketId: " + ticketId);
         if (state.trainingMode) {
-            state.ticket.setError("RÉIMPRESSION INDISPONIBLE EN FORMATION");
+            state.ticket.setError(i18n.get("op.reimpressionIndisponibleFormation"));
             state.touch();
             LOGGER.info("Exiting method print");
             return;
@@ -133,7 +140,7 @@ public class ReprintService {
     public void printExchange(Long ticketId) {
         LOGGER.info("Entering method printExchange with ticketId: " + ticketId);
         if (state.trainingMode) {
-            state.ticket.setError("IMPRESSION INDISPONIBLE EN FORMATION");
+            state.ticket.setError(i18n.get("op.impressionIndisponibleFormation"));
             state.touch();
             LOGGER.info("Exiting method printExchange");
             return;
@@ -172,19 +179,19 @@ public class ReprintService {
         state.reprint.foreignTicketNumber = ticketNumber == null ? "" : ticketNumber.trim();
         state.reprint.foreignError = "";
         if (state.trainingMode) {
-            state.reprint.foreignError = "RÉIMPRESSION INDISPONIBLE EN FORMATION";
+            state.reprint.foreignError = i18n.get("op.reimpressionIndisponibleFormation");
             state.touch();
             LOGGER.info("Exiting method printForeign");
             return;
         }
         if (state.reprint.foreignTicketNumber.isEmpty()) {
-            state.reprint.foreignError = "NUMÉRO DE TICKET VIDE";
+            state.reprint.foreignError = i18n.get("op.numeroTicketVide");
             state.touch();
             LOGGER.info("Exiting method printForeign");
             return;
         }
         if (!storeTicketClient.isAvailable()) {
-            state.reprint.foreignError = "AUCUN NŒUD MAGASIN CONFIGURÉ";
+            state.reprint.foreignError = i18n.get("op.aucunNUdMagasin");
             state.touch();
             LOGGER.info("Exiting method printForeign");
             return;
@@ -192,8 +199,8 @@ public class ReprintService {
         java.util.Optional<String> rendered =
                 storeTicketClient.fetchDuplicate(state.reprint.foreignTicketNumber);
         if (rendered.isEmpty()) {
-            state.reprint.foreignError =
-                    "TICKET INTROUVABLE AU MAGASIN : " + state.reprint.foreignTicketNumber;
+            state.reprint.foreignError = i18n.format("op.ticketIntrouvableMagasin",
+                    state.reprint.foreignTicketNumber);
             state.touch();
             LOGGER.info("Exiting method printForeign");
             return;

@@ -10,7 +10,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Rapport X</title>
+    <title>{inject:i18n.get('sessionreport.rapportX')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -43,58 +43,56 @@
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">RAPPORT X — LECTURE</span>
+        <span class="store-name">{inject:i18n.get('sessionreport.rapportXLecture')}</span>
         <span id="clock"></span>
     </div>
 
     <div class="main-area">
         <div class="lead">
-            Où en est la session à cet instant. Une lecture ne clôt rien et ne remet aucun
-            compteur à zéro : on peut la reprendre autant de fois qu'on veut. La clôture,
-            c'est le rapport Z.
+            {inject:i18n.get('sessionreport.sessionCetInstantLecture')}
         </div>
 
         <div class="work">
             <div class="col">
-                <div class="col-title">Session</div>
+                <div class="col-title">{inject:i18n.get('sessionreport.session')}</div>
                 <div class="rows">
-                    <div class="row"><span class="label">Numéro</span><span class="value">{report.session.sessionNumber}</span></div>
-                    <div class="row"><span class="label">Caisse</span><span class="value">{report.session.terminalId}</span></div>
-                    <div class="row"><span class="label">Ouverte le</span><span class="value">{report.session.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
-                    <div class="row"><span class="label">Tickets clos</span><span class="value">{report.ticketCount}</span></div>
-                    <div class="row strong"><span class="label">CA TTC</span><span class="value">{report.totalIncludingTaxFormatted} €</span></div>
-                    <div class="row"><span class="label">Remboursements</span><span class="value">{report.totalRefundsFormatted} €</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.numero')}</span><span class="value">{report.session.sessionNumber}</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.caisse')}</span><span class="value">{report.session.terminalId}</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.ouverte')}</span><span class="value">{report.session.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.ticketsClos')}</span><span class="value">{report.ticketCount}</span></div>
+                    <div class="row strong"><span class="label">{inject:i18n.get('sessionreport.caTtc')}</span><span class="value">{report.totalIncludingTaxFormatted} €</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.remboursements')}</span><span class="value">{report.totalRefundsFormatted} €</span></div>
                 </div>
             </div>
 
             <div class="col">
-                <div class="col-title">Règlements</div>
+                <div class="col-title">{inject:i18n.get('sessionreport.reglements')}</div>
                 <div class="rows">
                     {#if report.methodRows.isEmpty()}
-                        <div class="empty">Aucun règlement encaissé depuis l'ouverture.</div>
+                        <div class="empty">{inject:i18n.get('sessionreport.aucunReglementEncaisseDepuis')}</div>
                     {#else}
                         {#for row in report.methodRows}
                         <div class="row"><span class="label">{row.method}</span><span class="value">{row.amountFormatted} €</span></div>
                         {/for}
                     {/if}
-                    <div class="row"><span class="label">Fond de caisse</span><span class="value">{report.session.openingFloatFormatted} €</span></div>
-                    <div class="row"><span class="label">Mouvements nets</span><span class="value">{report.netCashMovementsFormatted} €</span></div>
-                    <div class="row cash"><span class="label">Espèces théoriques</span><span class="value">{report.theoreticalCashFormatted} €</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.fondCaisse')}</span><span class="value">{report.session.openingFloatFormatted} €</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.mouvementsNets')}</span><span class="value">{report.netCashMovementsFormatted} €</span></div>
+                    <div class="row cash"><span class="label">{inject:i18n.get('sessionreport.especesTheoriques')}</span><span class="value">{report.theoreticalCashFormatted} €</span></div>
                     {! La declaration de comptage n'est enoncee que si le caissier en a
                      ! faite une: elle ne valait rien tant que rien ne la comparait au
                      ! theorique, et une ligne a zero dirait un comptage inexistant. !}
                     {#if report.declared}
-                    <div class="row"><span class="label">Espèces déclarées</span><span class="value">{report.declaredCashFormatted} €</span></div>
-                    <div class="row"><span class="label">Écart déclaration</span><span class="value">{report.declaredCashVarianceFormatted} €</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.especesDeclarees')}</span><span class="value">{report.declaredCashFormatted} €</span></div>
+                    <div class="row"><span class="label">{inject:i18n.get('sessionreport.ecartDeclaration')}</span><span class="value">{report.declaredCashVarianceFormatted} €</span></div>
                     {/if}
                 </div>
             </div>
 
             <div class="col">
-                <div class="col-title">CA par caissier</div>
+                <div class="col-title">{inject:i18n.get('sessionreport.caCaissier')}</div>
                 <div class="rows">
                     {#if report.cashierRows.isEmpty()}
-                        <div class="empty">Aucun ticket clos depuis l'ouverture.</div>
+                        <div class="empty">{inject:i18n.get('sessionreport.aucunTicketClosDepuis')}</div>
                     {#else}
                         {#for c in report.cashierRows}
                         <div class="row"><span class="label">{c.cashier} ({c.ticketCount})</span><span class="value">{c.totalFormatted} €</span></div>
@@ -106,8 +104,8 @@
     </div>
 
     <div class="bottom-nav">
-        <a href="/session" class="btn btn-muted">RETOUR SESSION</a>
-        <a href="/action/session/x-report" class="btn btn-primary">IMPRIMER LE RAPPORT X</a>
+        <a href="/session" class="btn btn-muted">{inject:i18n.get('sessionreport.retourSession')}</a>
+        <a href="/action/session/x-report" class="btn btn-primary">{inject:i18n.get('sessionreport.imprimerRapportX')}</a>
     </div>
 </div>
 

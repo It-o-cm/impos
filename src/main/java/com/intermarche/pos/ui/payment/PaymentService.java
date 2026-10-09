@@ -41,6 +41,13 @@ public class PaymentService {
     private static final Logger LOGGER = Logger.getLogger(PaymentService.class);
 
     /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * The payment terminal port (virtual simulator, auto-accept or Verifone
      * skeleton — selected by {@code pos.tpe.mode}); the card path only ever
      * talks to this interface.
@@ -166,7 +173,7 @@ public class PaymentService {
         // with a payment registration or the terminal callback, which made
         // two transactions race on the same draft row (optimistic-lock).
         synchronized (state) {
-            hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+            hardwareService.displayMessage(String.format(i18n.get("display.total"), df.format(state.ticket.totalAmount)));
             state.payment.paymentInProgress = true;
             // LC-07-03-01: the rounding step is read once, at payment entry, and
             // held on the state — the screen, the customer display and the printer
@@ -184,7 +191,7 @@ public class PaymentService {
             // meal-voucher base and upsell hints.
             if (!state.trainingMode) {
                 valuationService.revalueForPayment(state);
-                hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+                hardwareService.displayMessage(String.format(i18n.get("display.total"), df.format(state.ticket.totalAmount)));
             } else {
                 state.payment.valuationStatus = "LOCAL";
             }
@@ -220,7 +227,7 @@ public class PaymentService {
             state.donationLineUid = state.lastEnteredItemId;
         }
         ticketPersistenceService.syncDraft(state);
-        hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+        hardwareService.displayMessage(String.format(i18n.get("display.total"), df.format(state.ticket.totalAmount)));
         state.touch();
         LOGGER.info("Exiting method toggleDonationRoundup");
     }
@@ -337,7 +344,7 @@ public class PaymentService {
                 if (verdict.level.allowsOverride()) {
                     holdForSupervisor(state, methodKey, displayName, tendered, verdict);
                 } else {
-                    state.ticket.setError(verdict.displayMessage());
+                    state.ticket.setError(verdict.displayMessage(i18n));
                 }
                 state.touch();
                 return false;
@@ -356,7 +363,7 @@ public class PaymentService {
             }
             TenderRulesService.Verdict changeVerdict = tenderRulesService.checkChange(methodKey, change);
             if (changeVerdict.refuses()) {
-                state.ticket.setError(changeVerdict.displayMessage());
+                state.ticket.setError(changeVerdict.displayMessage(i18n));
                 state.touch();
                 return false;
             }
@@ -397,9 +404,9 @@ public class PaymentService {
 
             // Hardware display
             if (changeAsNote) {
-                hardwareService.displayMessage(String.format("RENDU EN AVOIR %s E", df.format(change)));
+                hardwareService.displayMessage(String.format(i18n.get("display.renduAvoir"), df.format(change)));
             } else if (change.signum() > 0) {
-                hardwareService.displayMessage(String.format("DONNE %s RENDU %s", df.format(tendered), df.format(change)));
+                hardwareService.displayMessage(String.format(i18n.get("display.donneRendu"), df.format(tendered), df.format(change)));
             } else {
                 hardwareService.displayMessage(String.format("%-10s%s E", displayName, df.format(amountToPay)));
             }
@@ -408,9 +415,9 @@ public class PaymentService {
             // settlement is registered: the cashier is told what happened, not
             // stopped from doing it.
             if (verdict.speaks()) {
-                state.ticket.setError(verdict.displayMessage());
+                state.ticket.setError(verdict.displayMessage(i18n));
             } else if (changeVerdict.speaks()) {
-                state.ticket.setError(changeVerdict.displayMessage());
+                state.ticket.setError(changeVerdict.displayMessage(i18n));
             }
 
             checkCompletion(state);
@@ -507,7 +514,7 @@ public class PaymentService {
         boolean granted = endorsementService.operatorIsSupervisor(state)
                 || endorsementService.authorize(login, password, TENDER_OVERRIDE_ACTION);
         if (!granted) {
-            state.payment.tenderHeldMessage = "AUTORISATION REFUSEE";
+            state.payment.tenderHeldMessage = i18n.get("op.autorisationRefusee");
             state.touch();
             LOGGER.info("Exiting method authorizeHeldTender");
             return false;
@@ -573,8 +580,8 @@ public class PaymentService {
         // handed over. Refused rather than silently rounded: the cashier is telling
         // the register what is in their hand, and the register does not know better.
         if (!CashRounding.isTenderable(tendered, state.cashRoundingStepCents)) {
-            state.ticket.setError("MONTANT NON MULTIPLE DE "
-                    + df.format(BigDecimal.valueOf(state.cashRoundingStepCents, 2)) + " E");
+            state.ticket.setError(i18n.format("op.montantNonMultipleE",
+                    df.format(BigDecimal.valueOf(state.cashRoundingStepCents, 2))));
             state.touch();
             LOGGER.info("Exiting method processCash");
             return;
@@ -631,7 +638,7 @@ public class PaymentService {
             state.payment.addBackupPayment(amountToPay, methodLabel, transactionNumber, manual);
             state.touch();
             savePayment(state, "SECOURS");
-            hardwareService.displayMessage(String.format("SECOURS  %s E", df.format(amountToPay)));
+            hardwareService.displayMessage(String.format(i18n.get("display.secours"), df.format(amountToPay)));
 
             // Rule: backup monetics = no drawer opening (nothing physical).
 
@@ -680,7 +687,7 @@ public class PaymentService {
             hardwareService.displayMessage(String.format("%s %s = %s E",
                     df.format(foreignAmount), currency.displayUnit(), df.format(euroValue)));
             if (change.signum() > 0) {
-                hardwareService.displayMessage(String.format("RENDU %s E", df.format(change)));
+                hardwareService.displayMessage(String.format(i18n.get("display.rendu"), df.format(change)));
             }
 
             if (!state.trainingMode && opensDrawerFor(state, "DEVISE")) {
@@ -720,7 +727,7 @@ public class PaymentService {
         state.payment.addPayment("ARRONDI", difference);
         state.touch();
         savePayment(state, "ARRONDI");
-        hardwareService.displayMessage(String.format("ARRONDI  %s E", df.format(difference.negate())));
+        hardwareService.displayMessage(String.format(i18n.get("display.arrondi"), df.format(difference.negate())));
     }
 
     /**
@@ -739,7 +746,7 @@ public class PaymentService {
         if (state.payment.pendingCardAmount != null) { LOGGER.info("Exiting method processCard"); return; }
         BigDecimal requested = amount.setScale(2, RoundingMode.HALF_UP);
         state.payment.pendingCardAmount = requested;
-        hardwareService.displayMessage(String.format("CARTE   %s E", df.format(requested)));
+        hardwareService.displayMessage(String.format(i18n.get("display.carte"), df.format(requested)));
         state.touch();
 
         // The decision arrives asynchronously on the callback: the virtual
@@ -771,7 +778,7 @@ public class PaymentService {
                 if (outcome != null && printPolicy.isTnaReceiptForced()) {
                     ticketPrinterService.printCardTnaReceipt(outcome.amount, outcome.tnaFrame);
                 }
-                dropPendingCard(state, "PAIEMENT REFUSÉ PAR LE TPE");
+                dropPendingCard(state, i18n.get("op.paiementRefuseTpe"));
             }
 
             /**
@@ -833,7 +840,7 @@ public class PaymentService {
         if (state.payment.pendingCardAmount == null) return;
         state.payment.pendingCardAmount = null;
         state.ticket.setError(message);
-        hardwareService.displayMessage("PAIEMENT REFUSE");
+        hardwareService.displayMessage(i18n.both("display.paiementRefuse"));
         state.touch();
     }
 
@@ -848,7 +855,7 @@ public class PaymentService {
         if (state.payment.pendingCardAmount == null) { LOGGER.info("Exiting method cancelPendingCard"); return; }
         state.payment.pendingCardAmount = null;
         terminal.abort();
-        hardwareService.displayMessage(String.format("TOTAL   %s E", df.format(state.ticket.totalAmount)));
+        hardwareService.displayMessage(String.format(i18n.get("display.total"), df.format(state.ticket.totalAmount)));
         state.touch();
         LOGGER.info("Exiting method cancelPendingCard");
     }
@@ -892,14 +899,14 @@ public class PaymentService {
                 }
                 allowed = allowed.subtract(registeredMealTicketTotal(state)).max(BigDecimal.ZERO);
                 if (allowed.signum() <= 0) {
-                    hardwareService.displayMessage("TR: AUCUN ARTICLE ELIGIBLE");
+                    hardwareService.displayMessage(i18n.both("display.trAucunArticleEligible"));
                     LOGGER.infof("Paiement TR refusé: assiette éligible épuisée");
                     LOGGER.info("Exiting method processTicketResto");
                     return;
                 }
                 if (amount.compareTo(allowed) > 0) {
                     amount = allowed;
-                    hardwareService.displayMessage(String.format("TR PLAFONNE  %s E", df.format(allowed)));
+                    hardwareService.displayMessage(String.format(i18n.get("display.trPlafonne"), df.format(allowed)));
                     LOGGER.infof("Paiement TR plafonné à %s (assiette moteur)", allowed);
                 }
             }
@@ -986,19 +993,19 @@ public class PaymentService {
             BigDecimal allowance = mealVoucherAllowance(state);
             if (allowance != null) {
                 if (allowance.signum() <= 0) {
-                    hardwareService.displayMessage("TRD: AUCUN ARTICLE ELIGIBLE");
+                    hardwareService.displayMessage(i18n.both("display.trdAucunArticleEligible"));
                     LOGGER.info("Exiting method processTrdCard");
                     return;
                 }
                 if (amount.compareTo(allowance) > 0) {
                     amount = allowance;
-                    hardwareService.displayMessage(String.format("TRD PLAFONNE  %s E", df.format(amount)));
+                    hardwareService.displayMessage(String.format(i18n.get("display.trdPlafonne"), df.format(amount)));
                 }
             }
             BigDecimal cap = posSettingsService.trdCardCap();
             if (cap != null && cap.signum() > 0 && amount.compareTo(cap) > 0) {
                 amount = cap;
-                hardwareService.displayMessage(String.format("TRD PLAFONNE  %s E", df.format(amount)));
+                hardwareService.displayMessage(String.format(i18n.get("display.trdPlafonne"), df.format(amount)));
             }
             if (!handlePaymentWithChange(state, "TRD", "CARTE TRD", amount)) {
                 LOGGER.info("Exiting method processTrdCard");
@@ -1026,17 +1033,17 @@ public class PaymentService {
             BigDecimal allowance = mealVoucherAllowance(state);
             if (allowance != null) {
                 if (allowance.signum() <= 0) {
-                    hardwareService.displayMessage("RESTO FLASH: AUCUN ARTICLE ELIGIBLE");
+                    hardwareService.displayMessage(i18n.both("display.restoFlashAucunArticle"));
                     LOGGER.info("Exiting method processRestoFlash");
                     return;
                 }
                 if (amount.compareTo(allowance) > 0) {
                     amount = allowance;
-                    hardwareService.displayMessage(String.format("RESTO FLASH PLAFONNE  %s E", df.format(amount)));
+                    hardwareService.displayMessage(String.format(i18n.get("display.restoFlashPlafonne"), df.format(amount)));
                 }
             }
             if (!restoFlashClient.confirm(token, amount)) {
-                hardwareService.displayMessage("RESTO FLASH REFUSE");
+                hardwareService.displayMessage(i18n.both("display.restoFlashRefuse"));
                 LOGGER.info("Exiting method processRestoFlash");
                 return;
             }
@@ -1065,16 +1072,16 @@ public class PaymentService {
         synchronized (state) {
             GiftCardIssuerClient.IssuerVerdict verdict = giftCardIssuerClient.query(cardNumber);
             if (!verdict.valid()) {
-                hardwareService.displayMessage("CARTE CADEAU REFUSEE");
+                hardwareService.displayMessage(i18n.both("display.carteCadeauRefusee"));
                 LOGGER.info("Exiting method processSupplierGiftCard");
                 return;
             }
             BigDecimal balance = verdict.balance();
             if (balance != null && balance.signum() > 0 && amount.compareTo(balance) > 0) {
                 amount = balance;
-                hardwareService.displayMessage(String.format("CARTE CADEAU  %s E", df.format(amount)));
+                hardwareService.displayMessage(String.format(i18n.get("display.carteCadeauMontant"), df.format(amount)));
             } else if (balance == null || balance.signum() <= 0) {
-                hardwareService.displayMessage("CARTE CADEAU: SOLDE NUL");
+                hardwareService.displayMessage(i18n.both("display.carteCadeauSoldeNul"));
                 LOGGER.info("Exiting method processSupplierGiftCard");
                 return;
             }
@@ -1115,7 +1122,7 @@ public class PaymentService {
             faceValue = amount;
         }
         if (faceValue == null || faceValue.signum() <= 0) {
-            hardwareService.displayMessage("BON SOGEC: VALEUR REQUISE");
+            hardwareService.displayMessage(i18n.both("display.bonSogecValeurRequise"));
             LOGGER.info("Exiting method processSogec: aucune valeur");
             return;
         }
@@ -1129,7 +1136,7 @@ public class PaymentService {
             applied = faceValue.min(remaining);
             if (applied.compareTo(faceValue) < 0) {
                 hardwareService.displayMessage(
-                        String.format("BON SOGEC PLAFONNE  %s E", df.format(applied)));
+                        String.format(i18n.get("display.bonSogecPlafonne"), df.format(applied)));
             }
             if (!handlePaymentWithChange(state, "SOGEC", "BON SOGEC", applied)) {
                 LOGGER.info("Exiting method processSogec");
@@ -1385,7 +1392,7 @@ public class PaymentService {
             state.payment.addPayment("FIDELITY", amountToPay);
             state.touch();
             savePayment(state, "FIDELITY");
-            hardwareService.displayMessage(String.format("FIDELITE  %s E", df.format(amountToPay)));
+            hardwareService.displayMessage(String.format(i18n.get("display.fidelite"), df.format(amountToPay)));
 
             // Rule: fidelity = no drawer opening (virtual)
 
@@ -1424,7 +1431,7 @@ public class PaymentService {
             state.touch();
             savePayment(state, "CREDIT");
             hardwareService.displayMessage(
-                    String.format("CREDIT CLIENT  %s E", df.format(amountToPay)));
+                    String.format(i18n.get("display.creditClient"), df.format(amountToPay)));
 
             // Rule: customer credit = no drawer opening (nothing physical).
 
@@ -1452,7 +1459,7 @@ public class PaymentService {
             state.payment.addVoucherPayment(label, number, amount);
             state.touch();
             saveVoucherPayment(state);
-            hardwareService.displayMessage(String.format("%-10s%s E", "BON", df.format(amount)));
+            hardwareService.displayMessage(String.format("%-10s%s E", i18n.both("display.bon"), df.format(amount)));
 
             // Rule: voucher = no drawer opening (virtual)
 
@@ -1645,7 +1652,7 @@ public class PaymentService {
                 issueChangeCreditNote(state, ticketId);
             }
 
-            hardwareService.displayMessage("MERCI A BIENTOT");
+            hardwareService.displayMessage(i18n.both("display.merciBientot"));
             state.clearTicket();
         }
         LOGGER.info("Exiting method finalizeTransaction");
@@ -1783,7 +1790,7 @@ public class PaymentService {
             // down to the (negative) total, i.e. remaining to zero.
             state.payment.addPayment(methodKey, remaining);
             savePayment(state, methodKey);
-            hardwareService.displayMessage(String.format("REMBOURSEMENT %s E", df.format(remaining.abs())));
+            hardwareService.displayMessage(String.format(i18n.get("display.remboursement"), df.format(remaining.abs())));
             checkCompletion(state);
             state.touch();
             LOGGER.info("Exiting method processNetRefund");

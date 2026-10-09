@@ -35,6 +35,17 @@ public class NetworkDocumentPrinter {
     private static final Logger LOGGER = Logger.getLogger(NetworkDocumentPrinter.class);
 
     /**
+     * The localised labels of the A4 document (LC-13-06-11).
+     *
+     * <p>Handed to the static layout rather than read from it: the layout is a
+     * pure function of the document, and the page it writes must carry the
+     * language the operator chose, including in its {@code <html lang>}.
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
+    /**
      * The store's print service, absent on a register that has none.
      * <p>
      * It is an ordinary HTTP endpoint receiving an HTML page — a print server, the
@@ -80,7 +91,7 @@ public class NetworkDocumentPrinter {
                 : documentTemplateService.render(
                         com.intermarche.pos.domain.setting.DocumentTemplate
                                 .DocumentType.INVOICE_A4, document.asDocumentData());
-        return administered != null ? administered : html(document);
+        return administered != null ? administered : html(document, i18n);
     }
 
     /**
@@ -136,9 +147,10 @@ public class NetworkDocumentPrinter {
      * @param document the laid-out document
      * @return the page, as HTML
      */
-    public static String html(InvoiceDocument document) {
+    public static String html(InvoiceDocument document, com.intermarche.pos.ui.Messages i18n) {
         StringBuilder page = new StringBuilder();
-        page.append("<!DOCTYPE html><html lang=\"fr\"><head><meta charset=\"utf-8\">")
+        page.append("<!DOCTYPE html><html lang=\"").append(i18n.getLang())
+                .append("\"><head><meta charset=\"utf-8\">")
                 .append("<title>").append(escape(document.title)).append(' ')
                 .append(escape(document.number)).append("</title><style>")
                 .append("@page { size: A4; margin: 14mm; }")
@@ -159,25 +171,25 @@ public class NetworkDocumentPrinter {
         page.append("<h1>").append(escape(document.title)).append(' ')
                 .append(escape(document.number)).append("</h1>");
         if (document.isDuplicate()) {
-            page.append("<p class=\"dup\">DUPLICATA N°")
+            page.append("<p class=\"dup\">").append(escape(i18n.get("doc.duplicata")))
                     .append(document.duplicateNumber).append("</p>");
         }
-        page.append("<p>Date : ").append(escape(document.issueDate))
-                .append(" — Ticket : ").append(escape(document.ticketNumber))
-                .append(" — Caisse : ").append(escape(document.terminal));
+        page.append("<p>").append(escape(i18n.get("doc.date"))).append(escape(document.issueDate))
+                .append(escape(i18n.get("doc.ticket"))).append(escape(document.ticketNumber))
+                .append(escape(i18n.get("doc.caisse"))).append(escape(document.terminal));
         // BO-02-04-08: l'échéance figure obligatoirement sur le document.
         if (document.hasDueDate()) {
-            page.append(" — Échéance : ").append(escape(document.dueDate));
+            page.append(escape(i18n.get("doc.echeance"))).append(escape(document.dueDate));
         }
         page.append("</p>");
         page.append("<div class=\"parties\">");
-        party(page, "Vendeur", document.seller);
-        party(page, "Client", document.customer);
+        party(page, i18n.get("doc.vendeur"), document.seller, i18n);
+        party(page, i18n.get("doc.client"), document.customer, i18n);
         page.append("</div>");
-        articles(page, document.lines);
-        vat(page, document.vatRows);
-        totals(page, document);
-        tenders(page, document.tenders);
+        articles(page, document.lines, i18n);
+        vat(page, document.vatRows, i18n);
+        totals(page, document, i18n);
+        tenders(page, document.tenders, i18n);
         page.append("<footer>").append(escape(document.legalFooter)).append("<br>")
                 .append(escape(document.getLegalMentions())).append("</footer>");
         page.append("</body></html>");
@@ -191,10 +203,12 @@ public class NetworkDocumentPrinter {
      * @param title the block's heading
      * @param party the party to write
      */
-    private static void party(StringBuilder page, String title, InvoiceDocument.Party party) {
+    private static void party(StringBuilder page, String title, InvoiceDocument.Party party,
+            com.intermarche.pos.ui.Messages i18n) {
         page.append("<div class=\"box\"><h2>").append(escape(title)).append("</h2>");
         if (!party.accountNumber().isEmpty()) {
-            page.append("N° compte : ").append(escape(party.accountNumber())).append("<br>");
+            page.append(escape(i18n.get("doc.numeroCompte"))).append(escape(party.accountNumber()))
+                    .append("<br>");
         }
         page.append("<strong>").append(escape(party.name())).append("</strong><br>");
         if (!party.legalName().isEmpty()) {
@@ -207,13 +221,14 @@ public class NetworkDocumentPrinter {
             page.append(escape(line)).append("<br>");
         }
         if (!party.phone().isEmpty()) {
-            page.append("Tél. ").append(escape(party.phone())).append("<br>");
+            page.append(escape(i18n.get("doc.tel"))).append(escape(party.phone())).append("<br>");
         }
         if (!party.siret().isEmpty()) {
-            page.append("SIRET ").append(escape(party.siret())).append("<br>");
+            page.append(escape(i18n.get("doc.siret"))).append(escape(party.siret())).append("<br>");
         }
         if (!party.vatNumber().isEmpty()) {
-            page.append("TVA ").append(escape(party.vatNumber())).append("<br>");
+            page.append(escape(i18n.get("doc.tvaNumero"))).append(escape(party.vatNumber()))
+                    .append("<br>");
         }
         page.append("</div>");
     }
@@ -225,11 +240,15 @@ public class NetworkDocumentPrinter {
      * @param page  the page being built
      * @param lines the article rows
      */
-    private static void articles(StringBuilder page, List<InvoiceDocument.Line> lines) {
-        page.append("<table><thead><tr><th>Désignation</th><th class=\"num\">Qté</th>")
-                .append("<th class=\"num\">TVA</th><th class=\"num\">PU HT</th>")
-                .append("<th class=\"num\">PU TTC</th><th class=\"num\">Total TTC</th>")
-                .append("</tr></thead><tbody>");
+    private static void articles(StringBuilder page, List<InvoiceDocument.Line> lines,
+            com.intermarche.pos.ui.Messages i18n) {
+        page.append("<table><thead><tr><th>").append(escape(i18n.get("doc.designation")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.qte")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.tvaCourt")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.puHt")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.puTtc")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.totalTtc")))
+                .append("</th></tr></thead><tbody>");
         for (InvoiceDocument.Line line : lines) {
             page.append("<tr><td>").append(escape(line.label()));
             if (!line.attributes().isEmpty()) {
@@ -256,10 +275,13 @@ public class NetworkDocumentPrinter {
      * @param page the page being built
      * @param rows the VAT rows
      */
-    private static void vat(StringBuilder page, List<InvoiceDocument.VatRow> rows) {
-        page.append("<table><thead><tr><th>Taux</th><th class=\"num\">Base HT</th>")
-                .append("<th class=\"num\">TVA</th><th class=\"num\">Total TTC</th>")
-                .append("</tr></thead><tbody>");
+    private static void vat(StringBuilder page, List<InvoiceDocument.VatRow> rows,
+            com.intermarche.pos.ui.Messages i18n) {
+        page.append("<table><thead><tr><th>").append(escape(i18n.get("doc.taux")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.baseHt")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.tvaCourt")))
+                .append("</th><th class=\"num\">").append(escape(i18n.get("doc.totalTtc")))
+                .append("</th></tr></thead><tbody>");
         for (InvoiceDocument.VatRow row : rows) {
             page.append("<tr><td>").append(escape(row.rate()))
                     .append("</td><td class=\"num\">").append(escape(row.excludingTax()))
@@ -276,13 +298,15 @@ public class NetworkDocumentPrinter {
      * @param page     the page being built
      * @param document the document whose totals are written
      */
-    private static void totals(StringBuilder page, InvoiceDocument document) {
+    private static void totals(StringBuilder page, InvoiceDocument document,
+            com.intermarche.pos.ui.Messages i18n) {
         page.append("<table class=\"totals\"><tbody>")
-                .append("<tr><td>Total HT</td><td class=\"num\">")
+                .append("<tr><td>").append(escape(i18n.get("doc.totalHt"))).append("</td><td class=\"num\">")
                 .append(escape(document.totalExcludingTax)).append(" €</td></tr>")
-                .append("<tr><td>Total TVA</td><td class=\"num\">")
+                .append("<tr><td>").append(escape(i18n.get("doc.totalTva"))).append("</td><td class=\"num\">")
                 .append(escape(document.totalVat)).append(" €</td></tr>")
-                .append("<tr><td><strong>Total TTC</strong></td><td class=\"num\"><strong>")
+                .append("<tr><td><strong>").append(escape(i18n.get("doc.totalTtc")))
+                .append("</strong></td><td class=\"num\"><strong>")
                 .append(escape(document.totalIncludingTax)).append(" €</strong></td></tr>")
                 .append("</tbody></table>");
     }
@@ -294,12 +318,13 @@ public class NetworkDocumentPrinter {
      * @param page    the page being built
      * @param tenders the settlement rows
      */
-    private static void tenders(StringBuilder page, List<InvoiceDocument.Tender> tenders) {
+    private static void tenders(StringBuilder page, List<InvoiceDocument.Tender> tenders,
+            com.intermarche.pos.ui.Messages i18n) {
         if (tenders.isEmpty()) {
             return;
         }
-        page.append("<table class=\"totals\"><thead><tr><th colspan=\"2\">Règlement</th>")
-                .append("</tr></thead><tbody>");
+        page.append("<table class=\"totals\"><thead><tr><th colspan=\"2\">")
+                .append(escape(i18n.get("doc.reglement"))).append("</th></tr></thead><tbody>");
         for (InvoiceDocument.Tender tender : tenders) {
             page.append("<tr><td>").append(escape(tender.label()))
                     .append("</td><td class=\"num\">").append(escape(tender.amount()))

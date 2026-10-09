@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.returnprocess;
 import com.intermarche.pos.domain.sale.Refund;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -41,6 +42,10 @@ class RefundResourceTest {
      */
     private RefundResource newResource() {
         RefundResource resource = new RefundResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         resource.state.refund = mock(RefundState.class);
         resource.refundService = mock(RefundService.class);

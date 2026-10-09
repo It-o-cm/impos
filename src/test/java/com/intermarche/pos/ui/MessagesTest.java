@@ -214,16 +214,59 @@ class MessagesTest {
     }
 
     /**
-     * The resolution is computed ONCE per request: a language changed after the
-     * first read does not move the labels mid-render.
+     * The resolution FOLLOWS the register state: a language chosen on the
+     * language screen moves the very next label, and not the next instance.
+     *
+     * <p>It is the opposite of what a request-scoped resolver did, and it is why
+     * the scope changed: the resolver now outlives the request — the printer
+     * reaches it from the terminal's follower thread — so there is no render to
+     * freeze the choice for.
      */
     @Test
-    void theLanguageIsResolvedOncePerRequest() {
+    void theLanguageFollowsTheRegisterState() {
         Messages messages = newMessages();
         messages.state.language = "nl";
         assertEquals("nl", messages.getLang());
         messages.state.language = "pt";
-        assertEquals("nl", messages.getLang());
+        assertEquals("pt", messages.getLang());
+    }
+
+    /**
+     * The operator leg is read ONCE per sign-in and not once per label: the
+     * employee row is asked for again only when the signed-in operator changes.
+     *
+     * <p>The memo is what keeps a hundred-label screen from asking the database
+     * a hundred times for the same answer.
+     */
+    @Test
+    void theOperatorLegIsReadOncePerSignIn() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.systemLanguage()).thenReturn("fr");
+        messages.state.auth.operatorId = 7L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Employee.findById(7L)).thenReturn(employee("nl"));
+            assertEquals("nl", messages.getLang());
+            assertEquals("nl", messages.getLang());
+            assertEquals("nl", messages.getLang());
+            panache.verify(() -> Employee.findById(7L), org.mockito.Mockito.times(1));
+        }
+    }
+
+    /**
+     * An employee row that cannot be read where the label is resolved — the
+     * printer's follower thread has no persistence context — falls through to
+     * the store's language instead of propagating.
+     */
+    @Test
+    void anUnreadableEmployeeRowFallsThroughToTheStore() {
+        Messages messages = newMessages();
+        when(messages.posSettingsService.systemLanguage()).thenReturn("nl");
+        messages.state.auth.operatorId = 7L;
+        try (MockedStatic<PanacheEntityBase> panache = mockStatic(PanacheEntityBase.class)) {
+            panache.when(() -> Employee.findById(7L))
+                    .thenThrow(new IllegalStateException("no persistence context"));
+            assertEquals("nl", messages.getLang());
+        }
     }
 
     // --- get, format, both ---
@@ -372,28 +415,35 @@ class MessagesTest {
     }
 
     /**
-     * A language's name is rendered in the language being shown — "Néerlandais"
-     * in French, "Nederlands" in Dutch.
+     * A language NAMES ITSELF, in its own bundle and in its own language:
+     * "Nederlands" whatever the screen is rendered in, never "Néerlandais".
+     *
+     * <p>Two reasons, and the second is the structural one. Whoever looks for
+     * Dutch on that screen does not read French. And a name held by the OTHER
+     * bundles meant that adding a language forced an edit of every language
+     * already shipped — the coupling that kept the list hard-coded.
      */
     @Test
-    void languageNameIsRenderedInTheShownLanguage() {
+    void aLanguageNamesItselfInItsOwnLanguage() {
         Messages messages = newMessages();
-        assertEquals("Néerlandais", messages.languageName("nl"));
+        assertEquals("Nederlands", messages.languageName("nl"));
         Messages dutch = newMessages();
         dutch.state.language = "nl";
         assertEquals("Nederlands", dutch.languageName("nl"));
+        assertEquals("Français", dutch.languageName("fr"));
     }
 
     /**
-     * A null or blank tag names nothing (the nullity guard), and an unknown tag
-     * renders its key so the gap is visible.
+     * A null or blank tag names nothing (the nullity guard), and a tag no bundle
+     * ships names itself by its own tag, upper-cased: the screen stays readable
+     * and the gap stays visible.
      */
     @Test
     void languageNameToleratesABlankOrUnknownTag() {
         Messages messages = newMessages();
         assertEquals("", messages.languageName(null));
         assertEquals("", messages.languageName("  "));
-        assertEquals("language.de", messages.languageName("de"));
+        assertEquals("DE", messages.languageName("de"));
     }
 
     /**
@@ -402,7 +452,7 @@ class MessagesTest {
      */
     @Test
     void everyBundledLanguageIsReadable() {
-        for (String language : Messages.BUNDLED_LANGUAGES) {
+        for (String language : Messages.bundledLanguages()) {
             Messages messages = newMessages();
             messages.state.language = language;
             assertEquals(language, messages.getLang());

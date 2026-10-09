@@ -27,6 +27,14 @@ public class PinChangeResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(PinChangeResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject
     @Location("pin-change")
     Template pinChange;
@@ -82,7 +90,7 @@ public class PinChangeResource {
             return Response.seeOther(URI.create("/pin-change?error=" + encode(error))).build();
         }
         LOGGER.info("Exiting method changePin");
-        return Response.seeOther(URI.create("/pin-change?success=" + encode("Code PIN modifié"))).build();
+        return Response.seeOther(URI.create("/pin-change?success=" + encode(i18n.get("op.codePinModifie")))).build();
     }
 
     /**

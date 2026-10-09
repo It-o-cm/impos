@@ -756,6 +756,7 @@ public class TicketPersistenceService {
         line.restrictedTenders = item.restrictedTenders;
         // LC-02-03-02: the unit of measure the article was sold in.
         line.unitName = item.unitName;
+        line.decimalQuantity = item.decimalQuantity;
         // LC-11-03-02: the identifiers a GS1 code carried are transactional data of the
         // line, kept whether or not this version has a rule for any of them.
         line.gs1Data = item.gs1Data;

@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.cash;
 
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,7 +19,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class CashCountServiceTest {
 
     /** The service under test; stateless, so a single fresh instance is enough. */
-    private final CashCountService service = new CashCountService();
+    private final CashCountService service = newService();
+
+    /**
+     * Builds the service with a resolver reading the French bundle: the
+     * denomination labels are bundle keys, so the assertions below keep the
+     * literal wording the screen and the count slip show (LC-13-06).
+     *
+     * @return the service under test
+     */
+    private static CashCountService newService() {
+        CashCountService built = new CashCountService();
+        built.i18n = TestMessages.french();
+        return built;
+    }
 
     /**
      * Asserts that a denomination entry carries the expected id, label and value.

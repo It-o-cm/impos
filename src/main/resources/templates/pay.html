@@ -13,7 +13,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Règlement</title>
+    <title>{inject:i18n.get('pay.reglement')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -176,18 +176,18 @@
 <div class="pos-terminal">
     {#if !state.payment.valuationUpsells.isEmpty()}<div class="overlay-banner overlay-suggestion">SUGGESTION : {state.payment.valuationUpsells.get(0)}</div>{/if}
     {#if state.payment.valuationAdjustment??}{#if state.payment.valuationAdjustment.signum() < 0}<div class="overlay-banner overlay-advantage">AVANTAGES APPLIQUÉS : {state.payment.valuationAdjustment.abs()} €</div>{/if}{/if}
-    {#if state.payment.valuationStatus == 'DEGRADED'}<div class="overlay-banner overlay-degraded">VALORISATION INDISPONIBLE — PRIX CATALOGUE APPLIQUÉS</div>{/if}
-    {#if state.trainingMode}<div class="overlay-banner overlay-training">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
+    {#if state.payment.valuationStatus == 'DEGRADED'}<div class="overlay-banner overlay-degraded">{inject:i18n.get('pay.valorisationIndisponiblePrixCatalogue')}</div>{/if}
+    {#if state.trainingMode}<div class="overlay-banner overlay-training">{inject:i18n.get('pay.modeFormationRienN')}</div>{/if}
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
 
     <div class="main-area"></div>
     <div class="bottom-nav">
-        <a href="/action/cancel" class="btn btn-danger">ANNULER</a>
-        <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
+        <a href="/action/cancel" class="btn btn-danger">{inject:i18n.get('common.cancel')}</a>
+        <a href="/abandon" class="btn btn-danger">{inject:i18n.get('pay.annulerTicket')}</a>
     </div>
 
     <!-- Overlay Principal Paiement -->
@@ -198,7 +198,7 @@
             <div class="pay-top-row">
                 <div class="overlay-title">Règlement</div>
                 <div class="total-display">
-                    <div class="total-label">RESTANT DU</div>
+                    <div class="total-label">{inject:i18n.get('pay.restant')}</div>
                     <div class="total-amount">{state.remainingFormatted} €</div>
                 </div>
             </div>
@@ -208,11 +208,11 @@
                  bascule vers le remboursement. La caisse rend la différence au
                  client dans le moyen choisi ; un seul document, le total signé. -->
             <div class="pay-top-row" style="border:2px solid var(--danger); border-radius:8px; padding:10px; margin-bottom:10px;">
-                <div class="total-label" style="color:var(--danger);">MONTANT À REMBOURSER</div>
+                <div class="total-label" style="color:var(--danger);">{inject:i18n.get('pay.montantRembourser')}</div>
                 <div class="total-amount" style="color:var(--danger);">{state.refundDueFormatted} €</div>
                 <form action="/action/pay-net-refund" method="POST" style="margin-left:auto;">
                     <input type="hidden" name="method" value="CASH">
-                    <button type="submit" class="btn btn-danger">REMBOURSER EN ESPÈCES</button>
+                    <button type="submit" class="btn btn-danger">{inject:i18n.get('pay.rembourserEspeces')}</button>
                 </form>
             </div>
             {/if}
@@ -220,17 +220,17 @@
             <div class="pay-body">
                 <div class="pay-main">
                     <div class="pay-history" id="payHistory">
-                        <div class="pay-history-title">PAIEMENTS EFFECTUÉS</div>
+                        <div class="pay-history-title">{inject:i18n.get('pay.paiementsEffectues')}</div>
                         <div class="pay-history-list" id="payHistoryList">
                             {#if state.payment.payments.empty}
-                                <div class="pay-history-empty">Aucun paiement</div>
+                                <div class="pay-history-empty">{inject:i18n.get('pay.aucunPaiement')}</div>
                             {#else}
                                 {#for p in state.payment.payments}
                                     <div class="pay-history-entry{#if state.payment.isOnCurrentPage(p_index)} on-page{/if}{#if state.payment.isAmongLastTwo(p_index)} recent-two{/if}">
                                         <span class="phe-method">{p.method}{#if p.voucher && p.voucherNumber}<span class="phe-sub">N° {p.voucherNumber}</span>{/if}</span>
                                         <span class="phe-amount">{p.formattedAmount} €</span>
                                         <!-- EXP-63 : annuler CE règlement sans purger les autres. -->
-                                        <a href="/action/payment-cancel/{p_index}" class="phe-cancel" title="Annuler ce règlement" style="margin-left:10px;color:var(--danger);text-decoration:none;font-weight:bold;">✕</a>
+                                        <a href="/action/payment-cancel/{p_index}" class="phe-cancel" title="{inject:i18n.get('pay.annulerReglement')}" style="margin-left:10px;color:var(--danger);text-decoration:none;font-weight:bold;">✕</a>
                                     </div>
                                 {/for}
                             {/if}
@@ -238,13 +238,13 @@
                         {#if !state.payment.payments.empty}
                             <div class="pay-history-nav" id="payHistoryNav">
                                 {#if state.payment.hasPreviousPage}
-                                    <a href="/action/payments/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+                                    <a href="/action/payments/prev" class="btn btn-muted nav-btn">{inject:i18n.get('pay.precedent')}</a>
                                 {#else}
                                     <div></div>
                                 {/if}
                                 <span class="nav-info">Page {state.payment.currentPageDisplay} / {state.payment.totalPages}</span>
                                 {#if state.payment.hasNextPage}
-                                    <a href="/action/payments/next" class="btn btn-muted nav-btn">SUIVANT</a>
+                                    <a href="/action/payments/next" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>
                                 {#else}
                                     <div></div>
                                 {/if}
@@ -269,7 +269,7 @@
                                  préremplie du reste dû. -->
                             <div class="pay-no-selection" id="payNoSelection">
                                 <div id="prefillDisplay" class="prefill-display pad-display"></div>
-                                <div id="prefillHint">Choisissez un moyen<br>de paiement<br><span class="prefill-hint">ou tapez le montant puis le moyen</span></div>
+                                <div id="prefillHint">{inject:i18n.get('pay.choisissezMoyen')}<br>{inject:i18n.get('pay.paiement')}<br><span class="prefill-hint">{inject:i18n.get('pay.tapezMontantPuisMoyen')}</span></div>
                             </div>
 
                             <!-- Panneau de saisie d'un bon piloté par le serveur (numéro / montant) -->
@@ -281,24 +281,24 @@
                                         {#if state.payment.pendingVoucherNumber}
                                             <div class="sub-info">N° : {state.payment.pendingVoucherNumber}</div>
                                         {#else}
-                                            <div class="sub-info">Coupon sans numéro</div>
+                                            <div class="sub-info">{inject:i18n.get('pay.couponSansNumero')}</div>
                                         {/if}
                                         <form action="/action/voucher-amount" method="POST" id="voucherAmountForm">
                                             <div id="voucherAmountDisplay" class="sub-display voucher pad-display" style="color:var(--success);border-color:var(--success);letter-spacing:0;"></div>
                                             <input type="hidden" name="amount" id="voucherAmountValue" value="0">
-                                            <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">VALIDER LE BON</button>
+                                            <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">{inject:i18n.get('pay.validerBon')}</button>
                                         </form>
                                     {#else if state.payment.pendingVoucherTypeCode}
                                         <!-- Saisie du numéro -->
                                         <div class="pay-mode-label">{state.payment.pendingVoucherLabel} — n° du bon</div>
-                                        <div class="sub-info">Tapez le numéro inscrit sur le bon</div>
+                                        <div class="sub-info">{inject:i18n.get('pay.tapezNumeroInscritBon')}</div>
                                         {#if state.payment.voucherError}
                                             <div class="voucher-error">{state.payment.voucherError}</div>
                                         {/if}
                                         <form action="/action/voucher-number" method="POST" id="voucherNumberForm">
                                             <div id="voucherNumberDisplay" class="sub-display voucher pad-display"></div>
                                             <input type="hidden" name="number" id="voucherNumberValue" value="">
-                                            <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">VALIDER LE N°</button>
+                                            <button type="submit" class="btn btn-voucher" style="width:100%;margin-top:8px;">{inject:i18n.get('pay.validerN')}</button>
                                         </form>
                                     {/if}
                                 </div>
@@ -310,7 +310,7 @@
                                     <form action="/action/voucher-select" method="POST">
                                         <input type="hidden" name="code" value="{ct.code}">
                                         <button type="submit" class="btn voucher-type-btn">{ct.label}
-                                            {#if ct.requiresManualAmount}<span class="vt-sub">{#if ct.hasNumber}numéro + montant{#else}montant seul{/if}</span>{#else}<span class="vt-sub">numéro requis</span>{/if}
+                                            {#if ct.requiresManualAmount}<span class="vt-sub">{#if ct.hasNumber}numéro + montant{#else}montant seul{/if}</span>{#else}<span class="vt-sub">{inject:i18n.get('pay.numeroRequis')}</span>{/if}
                                         </button>
                                     </form>
                                 {/for}
@@ -319,29 +319,29 @@
 
                             <!-- Formulaire Carte Bancaire -->
                             <form action="/action/pay-card" method="POST" class="sub-input-area" id="cardForm">
-                                <div class="pay-mode-label">CARTE BANCAIRE</div>
-                                <div class="sub-info">Montant à débiter :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.carteBancaire')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.montantDebiter')}</div>
                                 <div id="cardDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="cardValue" value="0">
-                                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">VALIDER</button>
+                                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">{inject:i18n.get('common.validate')}</button>
                             </form>
 
                             <!-- Formulaire Espèces -->
                             <form action="/action/pay-cash" method="POST" class="sub-input-area" id="cashForm">
-                                <div class="pay-mode-label">ESPÈCES</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.especes')}</div>
                                 {#if state.cashRoundingVisible}
                                 <div class="sub-info">Dû {state.remainingFormatted} € — arrondi à {state.cashRoundedRemainingFormatted} €</div>
                                 {/if}
-                                <div class="sub-info">Montant donné par le client :</div>
+                                <div class="sub-info">{inject:i18n.get('pay.montantDonneClient')}</div>
                                 <div id="cashDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="given" id="cashValue" value="0">
-                                <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">VALIDER ESPÈCES</button>
+                                <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">{inject:i18n.get('pay.validerEspeces')}</button>
                             </form>
 
                             <!-- Formulaire Ticket Resto -->
                             <form action="/action/pay-tr" method="POST" class="sub-input-area" id="trForm">
-                                <div class="pay-mode-label">TICKET RESTO</div>
-                                <div class="sub-info">Montant du ticket :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.ticketResto')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.montantTicket')}</div>
                                 <div id="trDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="trValue" value="0">
                                 <button type="submit" class="btn btn-success" style="width:100%;margin-top:8px;">VALIDER</button>
@@ -349,8 +349,8 @@
 
                             <!-- Formulaire Chèque -->
                             <form action="/action/pay-cheque" method="POST" class="sub-input-area" id="chequeForm">
-                                <div class="pay-mode-label">CHÈQUE</div>
-                                <div class="sub-info">Montant du chèque :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.cheque')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.montantCheque')}</div>
                                 <div id="chequeDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="chequeValue" value="0">
                                 <button type="submit" class="btn btn-muted" style="width:100%;margin-top:8px;">VALIDER</button>
@@ -358,33 +358,33 @@
 
                             <!-- Formulaire Fidélité -->
                             <form action="/action/pay-fid" method="POST" class="sub-input-area" id="fidForm">
-                                <div class="pay-mode-label">CAGNOTTE</div>
-                                <div class="sub-info">Montant à utiliser :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.cagnotte')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.montantUtiliser')}</div>
                                 <div id="fidDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="fidValue" value="0">
-                                <button type="submit" class="btn btn-warning" style="width:100%;margin-top:8px;color:black;">UTILISER</button>
+                                <button type="submit" class="btn btn-warning" style="width:100%;margin-top:8px;color:black;">{inject:i18n.get('pay.utiliser')}</button>
                             </form>
 
                             <form action="/action/pay-trd" method="POST" class="sub-input-area" id="trdForm">
-                                <div class="pay-mode-label">CARTE TRD</div>
-                                <div class="sub-info">Montant imputé sur l'assiette titres-restaurant :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.carteTrd')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.montantImputeLAssiette')}</div>
                                 <div id="trdDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="amount" id="trdValue" value="0">
                                 <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">VALIDER</button>
                             </form>
                             <form action="/action/pay-restoflash" method="POST" class="sub-input-area" id="restoflashForm">
-                                <div class="pay-mode-label">RESTO FLASH</div>
-                                <div class="sub-info">Jeton, scanné ou saisi :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.restoFlash')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.jetonScanneSaisi')}</div>
                                 <div id="restoflashDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="token" id="restoflashValue" value="">
-                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">VALIDER LE JETON</button>
+                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#EF6C00;">{inject:i18n.get('pay.validerJeton')}</button>
                             </form>
                             <form action="/action/pay-giftcard" method="POST" class="sub-input-area" id="giftcardForm">
-                                <div class="pay-mode-label">CARTE CADEAU</div>
-                                <div class="sub-info">Numéro de carte, scanné ou saisi :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.carteCadeau')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.numeroCarteScanneSaisi')}</div>
                                 <div id="giftcardDisplay" class="sub-display pad-display"></div>
                                 <input type="hidden" name="cardNumber" id="giftcardValue" value="">
-                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">VALIDER LA CARTE</button>
+                                <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">{inject:i18n.get('pay.validerCarte')}</button>
                             </form>
                             {! Le bon SOGEC se saisit en DEUX champs: son code, et sa VALEUR
                              ! FACIALE. Sans ce second champ le serveur n'avait aucun montant et
@@ -394,11 +394,11 @@
                              ! code-barres porte sa valeur (390n) la voit decodee cote serveur,
                              ! quoi qu'il y ait ici. !}
                             <form action="/action/pay-sogec" method="POST" class="sub-input-area" id="sogecForm">
-                                <div class="pay-mode-label">BON SOGEC</div>
-                                <div class="sub-info">Code du bon, scanné ou saisi :</div>
+                                <div class="pay-mode-label">{inject:i18n.get('pay.bonSogec')}</div>
+                                <div class="sub-info">{inject:i18n.get('pay.codeBonScanneSaisi')}</div>
                                 <div id="sogecDisplay" class="sub-display pad-display" onclick="sogecFocus('code')"></div>
                                 <input type="hidden" name="couponCode" id="sogecValue" value="">
-                                <div class="sub-info">Valeur du bon :</div>
+                                <div class="sub-info">{inject:i18n.get('pay.valeurBon')}</div>
                                 <div id="sogecAmountDisplay" class="sub-display pad-display" onclick="sogecFocus('amount')"></div>
                                 <input type="hidden" name="amount" id="sogecAmountValue" value="">
                                 <button type="submit" class="btn" style="width:100%;margin-top:8px;background-color:#6D4C41;">VALIDER LE BON</button>
@@ -425,21 +425,21 @@
                     <button class="btn btn-muted" onclick="payWith('cheque')">CHÈQUE</button>
                     {/if}
                     {#if offeredTenders.contains('VOUCHER')}
-                    <button class="btn btn-voucher" onclick="openVoucher()">BONS D'ACHAT</button>
+                    <button class="btn btn-voucher" onclick="openVoucher()">{inject:i18n.get('pay.bonsDAchat')}</button>
                     {/if}
                     {#if offeredTenders.contains('CREDIT')}
                     <form action="/action/credit-open" method="POST" style="display:contents;">
-                        <button type="submit" class="btn" style="background-color:#5C6BC0;">CRÉDIT CLIENT</button>
+                        <button type="submit" class="btn" style="background-color:#5C6BC0;">{inject:i18n.get('pay.creditClient')}</button>
                     </form>
                     {/if}
                     {#if offeredTenders.contains('DEVISE')}
                     <form action="/action/currency-open" method="POST" style="display:contents;">
-                        <button type="submit" class="btn" style="background-color:#00695C;">DEVISES</button>
+                        <button type="submit" class="btn" style="background-color:#00695C;">{inject:i18n.get('pay.devises')}</button>
                     </form>
                     {/if}
                     {#if offeredTenders.contains('SECOURS')}
                     <form action="/action/backup-open" method="POST" style="display:contents;">
-                        <button type="submit" class="btn" style="background-color:#8D6E63;">SECOURS MONÉTIQUE</button>
+                        <button type="submit" class="btn" style="background-color:#8D6E63;">{inject:i18n.get('pay.secoursMonetique')}</button>
                     </form>
                     {/if}
                     {#if offeredTenders.contains('FIDELITY')}
@@ -456,7 +456,7 @@
                     <button class="btn" style="background-color:#EF6C00;" onclick="openInput('restoflash')">RESTO FLASH</button>
                     <button class="btn" style="background-color:#6D4C41;" onclick="openInput('giftcard')">CARTE CADEAU</button>
                     <button class="btn" style="background-color:#6D4C41;" onclick="openInput('sogec')">BON SOGEC</button>
-                    <a href="/action/donation" class="btn" style="background-color:#00897B;">ARRONDI SOLIDAIRE</a>
+                    <a href="/action/donation" class="btn" style="background-color:#00897B;">{inject:i18n.get('pay.arrondiSolidaire')}</a>
                 </div>
             </div>
         </div>
@@ -468,31 +468,31 @@
         <div class="confirm-panel">
             <div class="confirm-header">
                 <span class="confirm-header-icon">✓</span>
-                <span class="confirm-header-text">TRANSACTION TERMINÉE</span>
+                <span class="confirm-header-text">{inject:i18n.get('pay.transactionTerminee')}</span>
             </div>
             <div class="confirm-body">
                 {#if state.payment.lastChangeAmount != null && state.payment.lastChangeAmount > 0}
                     <div class="change-section">
-                        <div class="change-label">Rendu Client</div>
+                        <div class="change-label">{inject:i18n.get('pay.renduClient')}</div>
                         <div class="change-amount">{state.payment.lastChangeAmount} €</div>
                     </div>
                 {/if}
                 <!-- Section détail supprimée -->
                 {#if digitalPath??}
                     <div style="text-align:center; color:var(--text-muted); font-size:var(--fs-body); margin-top:10px;">
-                        Ticket en ligne : <span style="color:var(--primary); font-weight:bold;">{digitalPath}</span>
+                        {inject:i18n.get('pay.ticketLigne')} <span style="color:var(--primary); font-weight:bold;">{digitalPath}</span>
                     </div>
                 {/if}
             </div>
             <div class="confirm-footer">
-                <a href="/action/finish" class="btn btn-lg btn-primary" style="width:100%;">NOUVELLE VENTE</a>
+                <a href="/action/finish" class="btn btn-lg btn-primary" style="width:100%;">{inject:i18n.get('pay.nouvelleVente')}</a>
                 {#if printConditional}
                     {#if state.payment.printApplied}
                         <div class="print-choice-done">
                             IMPRESSION EFFECTUÉE{#if state.payment.printChoice} — {state.payment.printChoice.label}{/if}
                         </div>
                     {#else}
-                        <div class="print-choice-title">Documents à imprimer</div>
+                        <div class="print-choice-title">{inject:i18n.get('pay.documentsImprimer')}</div>
                         <form action="/action/print-choice" method="POST" class="print-choice-grid">
                             {#for choice in printChoices}
                                 <button type="submit" name="choice" value="{choice}"
@@ -502,7 +502,7 @@
                     {/if}
                 {#else}
                     <form action="/action/print" method="POST" style="width:100%;">
-                        <button type="submit" class="btn btn-muted" style="width:100%;">🖨️ IMPRIMER TICKET</button>
+                        <button type="submit" class="btn btn-muted" style="width:100%;">{inject:i18n.get('pay.imprimerTicket')}</button>
                     </form>
                 {/if}
             </div>
@@ -525,9 +525,9 @@
          one-second version poll lifts it when the reading ends. -->
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:80; display:flex; justify-content:center; align-items:center;">
       <div class="pos-modal-panel" style="display:flex; flex-direction:column; align-items:center; gap:20px; padding:32px 44px;">
-        <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">LECTURE DU CHEQUE</div>
+        <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">{inject:i18n.get('pay.lectureCheque')}</div>
         <div style="color:var(--text-main); font-size:var(--fs-total-xl); font-weight:bold;">{state.payment.pendingChequeAmount} €</div>
-        <div style="color:var(--text-muted); font-size:var(--fs-body);">Insérez le chèque dans l'imprimante</div>
+        <div style="color:var(--text-muted); font-size:var(--fs-body);">{inject:i18n.get('pay.inserezChequeLImprimante')}</div>
         <a href="/action/cheque-cancel" class="btn btn-danger" style="width:16.25rem;">ANNULER</a>
     </div>
     </div>
@@ -537,9 +537,9 @@
     <!-- VIRTUAL TPE: waiting overlay -->
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:80; display:flex; justify-content:center; align-items:center;">
       <div class="pos-modal-panel" style="display:flex; flex-direction:column; align-items:center; gap:20px; padding:32px 44px;">
-        <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">PAIEMENT CARTE EN COURS</div>
+        <div style="color:var(--warning); font-size:var(--fs-title); font-weight:bold; letter-spacing:1px;">{inject:i18n.get('pay.paiementCarteCours')}</div>
         <div style="color:var(--text-main); font-size:var(--fs-total-xl); font-weight:bold;">{state.payment.pendingCardAmount} €</div>
-        <div style="color:var(--text-muted); font-size:var(--fs-body);">Suivez les instructions du terminal de paiement</div>
+        <div style="color:var(--text-muted); font-size:var(--fs-body);">{inject:i18n.get('pay.suivezInstructionsTerminalPaiement')}</div>
         <a href="/action/card-cancel" class="btn btn-danger" style="width:16.25rem;">ANNULER</a>
     </div>
     </div>
@@ -565,7 +565,7 @@
                 <div style="width:13.125rem; height:13.125rem; background:#FFFFFF; padding:4px; border-radius:4px;">
                     {state.payment.backupRequestSvg.raw}
                 </div>
-                <div class="pos-row-sub">Scannez ce code sur le terminal mobile</div>
+                <div class="pos-row-sub">{inject:i18n.get('pay.scannezCodeTerminalMobile')}</div>
                 <div class="pos-total">{state.remainingFormatted} €</div>
             </div>
             <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:8px;">
@@ -575,32 +575,32 @@
                  ! typed rather than assumed. !}
                 <form action="/action/pay-backup" method="POST" id="backupAmountForm"
                       style="display:flex; flex-direction:column; gap:6px;">
-                    <div class="pos-label">Montant accepté par le terminal</div>
+                    <div class="pos-label">{inject:i18n.get('pay.montantAccepteTerminal')}</div>
                     <div id="backupAmountDisplay" class="sub-display pad-display"></div>
                     <input type="hidden" name="amount" id="backupAmountValue" value="0">
                     {#if backupEndorsement}
-                    <div id="backupLoginDisplay" class="sub-display pad-display" data-placeholder="Identifiant superviseur" onclick="payBindPad('backup', 'login')"></div>
+                    <div id="backupLoginDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.identifiantSuperviseur')}" onclick="payBindPad('backup', 'login')"></div>
                     <input type="hidden" name="login" id="backupLoginValue" value="">
-                    <div id="backupPasswordDisplay" class="sub-display pad-display" data-placeholder="Mot de passe" onclick="payBindPad('backup', 'password')"></div>
+                    <div id="backupPasswordDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.motPasse')}" onclick="payBindPad('backup', 'password')"></div>
                     <input type="hidden" name="password" id="backupPasswordValue" value="">
                     {/if}
                     <div id="backupKeypad" class="pos-kb-compact"></div>
-                    <button type="submit" class="btn btn-success">VALIDER LE PAIEMENT</button>
+                    <button type="submit" class="btn btn-success">{inject:i18n.get('pay.validerPaiement')}</button>
                 </form>
                 {#else}
                 <form action="/action/backup-scan" method="POST" style="display:flex; flex-direction:column; gap:8px;">
-                    <div class="pos-label">Code de retour du terminal mobile</div>
+                    <div class="pos-label">{inject:i18n.get('pay.codeRetourTerminalMobile')}</div>
                     {! Le code se lit a la douchette, mais il doit aussi pouvoir se
                      ! taper quand elle ne le lit pas — c'est le cas meme que ce
                      ! panneau existe pour traiter. Un <input> libre ne le permettait
                      ! pas sur une borne sans clavier. !}
-                    <div id="backupScanDisplay" class="sub-display pad-display" data-placeholder="Scannez ou saisissez le code" onclick="payBindPad('backupScan', 'payload')"></div>
+                    <div id="backupScanDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.scannezSaisissezCode')}" onclick="payBindPad('backupScan', 'payload')"></div>
                     <input type="hidden" name="payload" id="backupScanValue" value="">
                     <div id="backupScanKeypad" class="pos-kb-compact"></div>
-                    <button type="submit" class="btn btn-success">VALIDER LE RETOUR</button>
+                    <button type="submit" class="btn btn-success">{inject:i18n.get('pay.validerRetour')}</button>
                 </form>
                 <form action="/action/backup-manual" method="POST">
-                    <button type="submit" class="btn btn-muted" style="width:100%;">SAISIE MANUELLE</button>
+                    <button type="submit" class="btn btn-muted" style="width:100%;">{inject:i18n.get('pay.saisieManuelle')}</button>
                 </form>
                 {/if}
             </div>
@@ -608,7 +608,7 @@
         {/if}
 
         <form action="/action/backup-cancel" method="POST">
-            <button type="submit" class="btn btn-danger" style="width:100%;">ABANDONNER</button>
+            <button type="submit" class="btn btn-danger" style="width:100%;">{inject:i18n.get('pay.abandonner')}</button>
         </form>
       </div>
     </div>
@@ -623,7 +623,7 @@
     !}
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:85; display:flex; justify-content:center; align-items:center;">
       <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:42.5rem;">
-        <div class="pos-title" style="text-align:center;">PAIEMENT EN DEVISE</div>
+        <div class="pos-title" style="text-align:center;">{inject:i18n.get('pay.paiementDevise')}</div>
 
         {#if state.payment.currencyError??}
         <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.currencyError}</div>
@@ -639,7 +639,7 @@
                     soit {state.payment.selectedCurrency.fromEuro(state.remaining)} {state.payment.selectedCurrency.displayUnit}
                 </div>
                 <form action="/action/currency-open" method="POST" style="margin-top:8px;">
-                    <button type="submit" class="btn btn-sm btn-muted" style="width:100%;">CHANGER DE DEVISE</button>
+                    <button type="submit" class="btn btn-sm btn-muted" style="width:100%;">{inject:i18n.get('pay.changerDevise')}</button>
                 </form>
             </div>
             <form action="/action/pay-currency" method="POST" id="currencyAmountForm"
@@ -667,7 +667,7 @@
         {/if}
 
         <form action="/action/currency-cancel" method="POST">
-            <button type="submit" class="btn btn-danger" style="width:100%;">FERMER</button>
+            <button type="submit" class="btn btn-danger" style="width:100%;">{inject:i18n.get('pay.fermer')}</button>
         </form>
       </div>
     </div>
@@ -683,18 +683,18 @@
     !}
     <div class="pos-glass" style="position:absolute; top:0; left:0; right:0; bottom:0; z-index:86; display:flex; justify-content:center; align-items:center;">
       <div class="pos-modal-panel" style="display:flex; flex-direction:column; gap:10px; padding:16px 20px; width:42.5rem;">
-        <div class="pos-title" style="text-align:center;">AUTORISATION SUPERVISEUR</div>
+        <div class="pos-title" style="text-align:center;">{inject:i18n.get('lock.supervisorAuth')}</div>
         <div class="pos-row-sub" style="color:var(--danger); text-align:center; font-weight:bold;">{state.payment.tenderHeldMessage}</div>
         <div class="pos-row-sub" style="text-align:center;">{state.payment.tenderHeldLabel}</div>
         <div class="pos-total" style="text-align:center;">{state.payment.tenderHeldAmount} €</div>
         <form action="/action/tender-authorize" method="POST"
               style="display:flex; flex-direction:column; gap:8px;">
-            <div id="tenderLoginDisplay" class="sub-display pad-display" data-placeholder="Identifiant" onclick="payBindPad('tender', 'login')"></div>
+            <div id="tenderLoginDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.identifiant')}" onclick="payBindPad('tender', 'login')"></div>
             <input type="hidden" name="login" id="tenderLoginValue" value="">
-            <div id="tenderPasswordDisplay" class="sub-display pad-display" data-placeholder="Mot de passe" onclick="payBindPad('tender', 'password')"></div>
+            <div id="tenderPasswordDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.motPasse2')}" onclick="payBindPad('tender', 'password')"></div>
             <input type="hidden" name="password" id="tenderPasswordValue" value="">
             <div id="tenderKeypad" class="pos-kb-compact"></div>
-            <button type="submit" class="btn btn-success">AUTORISER LE RÈGLEMENT</button>
+            <button type="submit" class="btn btn-success">{inject:i18n.get('pay.autoriserReglement')}</button>
         </form>
         <form action="/action/tender-authorize-cancel" method="POST">
             <button type="submit" class="btn btn-muted" style="width:100%;">ABANDONNER</button>
@@ -728,15 +728,15 @@
         <div class="pos-total" style="text-align:center;">{state.payment.creditPendingAmount} €</div>
         <form action="/action/credit-authorize" method="POST" id="creditAuthForm"
               style="display:flex; flex-direction:column; gap:8px;">
-            <div id="creditLoginDisplay" class="sub-display pad-display" data-placeholder="Identifiant" onclick="payBindPad('creditAuth', 'login')"></div>
+            <div id="creditLoginDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.identifiant2')}" onclick="payBindPad('creditAuth', 'login')"></div>
             <input type="hidden" name="login" id="creditLoginValue" value="">
             <div id="creditPasswordDisplay" class="sub-display pad-display" data-placeholder="Mot de passe" onclick="payBindPad('creditAuth', 'password')"></div>
             <input type="hidden" name="password" id="creditPasswordValue" value="">
             <div id="creditAuthKeypad" class="pos-kb-compact"></div>
-            <button type="submit" class="btn btn-success">AUTORISER LE DÉPASSEMENT</button>
+            <button type="submit" class="btn btn-success">{inject:i18n.get('pay.autoriserDepassement')}</button>
         </form>
         <form action="/action/credit-authorize-cancel" method="POST">
-            <button type="submit" class="btn btn-muted" style="width:100%;">SAISIR UN AUTRE MONTANT</button>
+            <button type="submit" class="btn btn-muted" style="width:100%;">{inject:i18n.get('pay.saisirAutreMontant')}</button>
         </form>
 
         {#else if state.payment.creditCustomer}
@@ -769,17 +769,17 @@
                 <div class="pos-row-sub" style="color:var(--success); font-weight:bold;">Disponible {state.payment.creditCustomer.creditAvailable} €</div>
                 {/if}
                 <form action="/action/credit-open" method="POST" style="margin-top:8px;">
-                    <button type="submit" class="btn btn-sm btn-muted" style="width:100%;">CHANGER DE COMPTE</button>
+                    <button type="submit" class="btn btn-sm btn-muted" style="width:100%;">{inject:i18n.get('pay.changerCompte')}</button>
                 </form>
             </div>
             {#if state.payment.creditCustomer.creditAllowed}
             <form action="/action/pay-credit" method="POST" id="creditAmountForm"
                   style="width:18.75rem; display:flex; flex-direction:column; gap:6px;">
-                <div class="pos-label">Montant à porter au compte</div>
+                <div class="pos-label">{inject:i18n.get('pay.montantPorterCompte')}</div>
                 <div id="creditAmountDisplay" class="sub-display pad-display"></div>
                 <input type="hidden" name="amount" id="creditAmountValue" value="0">
                 <div id="creditKeypad" class="pos-kb-compact"></div>
-                <button type="submit" class="btn btn-success">PORTER AU COMPTE</button>
+                <button type="submit" class="btn btn-success">{inject:i18n.get('pay.porterCompte')}</button>
             </form>
             {/if}
         </div>
@@ -787,18 +787,18 @@
         {#else}
         {! LC-07-09-02 and -07: by number when it is known, by name when it is not. !}
         <form action="/action/credit-number" method="POST" style="display:flex; gap:8px;">
-            <div id="creditNumberDisplay" class="sub-display pad-display" data-placeholder="N° de compte" onclick="payBindPad('creditLookup', 'number')" style="flex:1;"></div>
+            <div id="creditNumberDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.nCompte')}" onclick="payBindPad('creditLookup', 'number')" style="flex:1;"></div>
             <input type="hidden" name="number" id="creditNumberValue" value="">
             <button type="submit" class="btn btn-primary" style="width:9.375rem;">VALIDER</button>
         </form>
         <form action="/action/credit-search" method="POST" style="display:flex; gap:8px;">
-            <div id="creditSearchDisplay" class="sub-display pad-display" data-placeholder="Nom du client" onclick="payBindPad('creditLookup', 'search')" style="flex:1;"></div>
+            <div id="creditSearchDisplay" class="sub-display pad-display" data-placeholder="{inject:i18n.get('pay.nomClient')}" onclick="payBindPad('creditLookup', 'search')" style="flex:1;"></div>
             <input type="hidden" name="search" id="creditSearchValue" value="{state.payment.creditSearch}">
-            <button type="submit" class="btn btn-primary" style="width:9.375rem;">RECHERCHER</button>
+            <button type="submit" class="btn btn-primary" style="width:9.375rem;">{inject:i18n.get('pay.rechercher')}</button>
         </form>
         <div id="creditLookupKeypad" class="pos-kb-compact"></div>
         {#if state.payment.creditSearchWithoutMatch}
-        <div class="pos-list-empty">AUCUN COMPTE POUR CETTE RECHERCHE</div>
+        <div class="pos-list-empty">{inject:i18n.get('pay.aucunCompteRecherche')}</div>
         {#else}
         <div class="pos-list">
             {#for c in state.payment.visibleCreditCustomers}
@@ -881,7 +881,9 @@
             const hidden = document.getElementById(mode + 'Value');
             const form = document.getElementById(mode + 'Form');
             if (hidden && form) {
-                hidden.value = PosPrefill.consume();
+                // Le montant tapé d'avance est en CENTIMES comme partout
+                // ailleurs : 1000 puis ESPÈCES règle dix euros.
+                hidden.value = PosPrefill.consumeAmount();
                 form.submit();
                 return;
             }
@@ -912,7 +914,7 @@
             hiddenId: mode + 'Value',
             containerId: 'payNumpadZone',
             keyboardType: codeMode ? 'numpad' : 'payment',
-            mode: codeMode ? 'integer' : 'payment',
+            mode: codeMode ? 'integer' : 'cents',
             placeholder: codeMode ? "" : "0,00",
             maxLength: codeMode ? 30 : 10,
             onEnter: () => { form.submit(); }
@@ -944,11 +946,9 @@
         } else if (mode === 'cash') {
             // LC-07-03-01: the cash pad opens on the ROUNDED remainder — the exact
             // sum the customer can physically hand over.
-            PosInput.buffer = cashDefault;
-            PosInput.updateDisplay();
+            PosInput.prefill(cashDefault);
         } else {
-            PosInput.buffer = remainingDefault;
-            PosInput.updateDisplay();
+            PosInput.prefill(remainingDefault);
         }
     }
 
@@ -967,7 +967,7 @@
             hiddenId: hiddenId,
             containerId: 'payNumpadZone',
             keyboardType: amount ? 'payment' : 'numpad',
-            mode: amount ? 'payment' : 'integer',
+            mode: amount ? 'cents' : 'integer',
             placeholder: amount ? "0,00" : "",
             maxLength: amount ? 10 : 30,
             initialValue: document.getElementById(hiddenId).value || "",
@@ -987,6 +987,9 @@
             displayId: 'prefillDisplay',
             containerId: 'payNumpadZone',
             maxLength: 10,
+            // Sur cet écran, ce qu'on tape d'avance est TOUJOURS un montant : la
+            // virgule s'affiche donc pendant la frappe, comme dans les pavés.
+            amount: true,
             onEnter: function() { /* la validation est la touche du moyen */ }
         });
     })();
@@ -1042,7 +1045,7 @@
                 hiddenId: 'voucherAmountValue',
                 containerId: 'payNumpadZone',
                 keyboardType: 'payment',
-                mode: 'payment',
+                mode: 'cents',
                 placeholder: "0,00",
                 maxLength: 10,
                 onEnter: () => { amountForm.submit(); }
@@ -1075,7 +1078,7 @@
         backup: {
             container: 'backupKeypad',
             fields: {
-                amount:   { display: 'backupAmountDisplay',   hidden: 'backupAmountValue',   type: 'payment', mode: 'payment', max: 10 },
+                amount:   { display: 'backupAmountDisplay',   hidden: 'backupAmountValue',   type: 'payment', mode: 'cents', max: 10 },
                 login:    { display: 'backupLoginDisplay',    hidden: 'backupLoginValue',    type: 'alpha',   mode: 'text',    max: 32 },
                 password: { display: 'backupPasswordDisplay', hidden: 'backupPasswordValue', type: 'numpad',  mode: 'pin',     max: 8 }
             }
@@ -1142,7 +1145,7 @@
             hiddenId: 'backupAmountValue',
             containerId: 'backupKeypad',
             keyboardType: 'payment',
-            mode: 'payment',
+            mode: 'cents',
             placeholder: "0,00",
             maxLength: 10
         });
@@ -1172,7 +1175,7 @@
             hiddenId: 'currencyAmountValue',
             containerId: 'currencyKeypad',
             keyboardType: 'payment',
-            mode: 'payment',
+            mode: 'cents',
             placeholder: "0,00",
             maxLength: 10,
             onEnter: () => { currencyForm.submit(); }
@@ -1188,7 +1191,7 @@
             hiddenId: 'creditAmountValue',
             containerId: 'creditKeypad',
             keyboardType: 'payment',
-            mode: 'payment',
+            mode: 'cents',
             placeholder: "0,00",
             maxLength: 10,
             onEnter: () => { amountForm.submit(); }
@@ -1196,8 +1199,7 @@
         // Prefilled with what is still due: charging the whole remainder to the
         // account is the ordinary case, and a partial credit settlement is the
         // exception the operator types over it.
-        PosInput.buffer = remainingDefault;
-        PosInput.updateDisplay();
+        PosInput.prefill(remainingDefault);
     })();
 </script>
 

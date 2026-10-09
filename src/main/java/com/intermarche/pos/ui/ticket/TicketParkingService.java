@@ -35,6 +35,14 @@ public class TicketParkingService {
 
     private static final Logger LOGGER = Logger.getLogger(TicketParkingService.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject
     PosState state;
 
@@ -73,27 +81,27 @@ public class TicketParkingService {
         LOGGER.info("Entering method parkCurrent");
         if (state.ticket.items.isEmpty()) {
             LOGGER.info("Exiting method parkCurrent");
-            return "AUCUN TICKET À METTRE EN ATTENTE";
+            return i18n.get("op.aucunTicketMettreAttente");
         }
         if (state.payment.paymentInProgress || state.payment.paidAmount.signum() > 0) {
             LOGGER.info("Exiting method parkCurrent");
-            return "PAIEMENT EN COURS - MISE EN ATTENTE IMPOSSIBLE";
+            return i18n.get("op.paiementCoursMiseAttente");
         }
         // EXP-45: a single ticket may wait at a time. Several used to be allowed;
         // the register now refuses a second park until the first is resumed.
         if (!listParked().isEmpty()) {
             LOGGER.info("Exiting method parkCurrent");
-            return "UN TICKET EST DÉJÀ EN ATTENTE - REPRENEZ-LE D'ABORD";
+            return i18n.get("op.ticketDejaAttenteReprenez");
         }
         Long ticketId = ticketPersistenceService.syncDraft(state);
         if (ticketId == null) {
             LOGGER.info("Exiting method parkCurrent");
-            return "SYNCHRONISATION IMPOSSIBLE";
+            return i18n.get("op.synchronisationImpossible");
         }
         Ticket draft = Ticket.findById(ticketId);
         if (draft == null || draft.status != Ticket.TicketStatus.OPEN) {
             LOGGER.info("Exiting method parkCurrent");
-            return "TICKET INTROUVABLE";
+            return i18n.get("op.ticketIntrouvable2");
         }
         draft.status = Ticket.TicketStatus.PARKED;
         draft.persist();
@@ -137,14 +145,14 @@ public class TicketParkingService {
         LOGGER.info("Entering method resume with ticketId: " + ticketId);
         if (!state.ticket.items.isEmpty()) {
             LOGGER.info("Exiting method resume");
-            return "TICKET EN COURS - METTEZ-LE EN ATTENTE D'ABORD";
+            return i18n.get("op.ticketCoursMettezAttente");
         }
         Ticket draft = Ticket.findById(ticketId);
         if (draft == null
                 || draft.status != Ticket.TicketStatus.PARKED
                 || !ticketNumberService.getTerminalId().equals(draft.terminalId)) {
             LOGGER.info("Exiting method resume");
-            return "TICKET EN ATTENTE INTROUVABLE";
+            return i18n.get("op.ticketAttenteIntrouvable");
         }
         draft.status = Ticket.TicketStatus.OPEN;
         draft.persist();
@@ -181,7 +189,7 @@ public class TicketParkingService {
         Ticket foreign = interTillResumeClient.fetchParkedTicket(ticketNumber);
         if (foreign == null || foreign.status != Ticket.TicketStatus.PARKED) {
             LOGGER.info("Exiting method resumeByNumber");
-            return "TICKET EN ATTENTE INTROUVABLE";
+            return i18n.get("op.ticketAttenteIntrouvable");
         }
         LOGGER.info("Exiting method resumeByNumber (inter-caisses)");
         return resumeForeign(foreign);
@@ -202,7 +210,7 @@ public class TicketParkingService {
         LOGGER.info("Entering method resumeForeign");
         if (!state.ticket.items.isEmpty()) {
             LOGGER.info("Exiting method resumeForeign");
-            return "TICKET EN COURS - METTEZ-LE EN ATTENTE D'ABORD";
+            return i18n.get("op.ticketCoursMettezAttente");
         }
         foreign.status = Ticket.TicketStatus.OPEN;
         foreign.terminalId = ticketNumberService.getTerminalId();

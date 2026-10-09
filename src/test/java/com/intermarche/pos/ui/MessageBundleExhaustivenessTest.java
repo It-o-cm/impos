@@ -13,6 +13,7 @@ import java.util.TreeSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Plain unit test keeping the register's message bundles exhaustive and aligned
@@ -53,7 +54,7 @@ class MessageBundleExhaustivenessTest {
     @Test
     void testBundlesShareTheSameKeys() throws IOException {
         Set<String> reference = new TreeSet<>(load(Messages.DEFAULT_LANGUAGE).stringPropertyNames());
-        for (String language : Messages.BUNDLED_LANGUAGES) {
+        for (String language : Messages.bundledLanguages()) {
             if (Messages.DEFAULT_LANGUAGE.equals(language)) {
                 continue;
             }
@@ -77,7 +78,7 @@ class MessageBundleExhaustivenessTest {
      */
     @Test
     void testNoBlankValues() throws IOException {
-        for (String language : Messages.BUNDLED_LANGUAGES) {
+        for (String language : Messages.bundledLanguages()) {
             Properties properties = load(language);
             for (String key : properties.stringPropertyNames()) {
                 String value = properties.getProperty(key);
@@ -88,16 +89,47 @@ class MessageBundleExhaustivenessTest {
     }
 
     /**
-     * Tests that the three languages the register claims to ship are the three it
-     * actually ships, and that French is one of them: the whole fallback chain
-     * rests on the reference bundle existing.
+     * Tests that the languages offered are DISCOVERED from the bundles present,
+     * French first, and that each one names itself.
+     *
+     * <p>No expected list is written here, deliberately: a test that pinned
+     * {@code fr, nl, pt} would restore in the test suite exactly the hard-coding
+     * the production code just lost, and the next language added would show up as
+     * a red test rather than as a language. What IS pinned is the contract — the
+     * reference bundle exists, every discovered bundle is readable and carries its
+     * own name — so a file dropped half-written still fails loudly.
      *
      * @throws IOException if a bundle cannot be read
      */
     @Test
-    void testTheShippedLanguagesAreTheDeclaredOnes() throws IOException {
-        assertEquals(Set.of("fr", "nl", "pt"), Set.copyOf(Messages.BUNDLED_LANGUAGES));
+    void testTheOfferedLanguagesAreTheBundlesPresent() throws IOException {
+        java.util.List<String> discovered = Messages.bundledLanguages();
+        assertFalse(discovered.isEmpty(), "au moins le français doit être découvert");
+        assertEquals(Messages.DEFAULT_LANGUAGE, discovered.get(0),
+                "le français ouvre la liste : c'est le bundle de référence");
         assertFalse(load(Messages.DEFAULT_LANGUAGE).isEmpty(),
                 "le bundle de référence ne peut pas être vide");
+        for (String language : discovered) {
+            Properties properties = load(language);
+            assertFalse(properties.isEmpty(), "bundle vide ou absent : " + language);
+            String own = properties.getProperty("language.self");
+            assertFalse(own == null || own.isBlank(),
+                    "le bundle " + language + " doit se nommer lui-même (language.self)");
+        }
+    }
+
+    /**
+     * Tests that the three bundles shipped TODAY are among those discovered.
+     *
+     * <p>Not the same assertion as above and not a duplicate of it: that one says
+     * the mechanism works, this one says the delivery is complete. A bundle
+     * deleted by accident would otherwise pass every test in this class.
+     *
+     * @throws IOException if a bundle cannot be read
+     */
+    @Test
+    void testTheThreeShippedBundlesAreDiscovered() throws IOException {
+        assertTrue(Messages.bundledLanguages().containsAll(Set.of("fr", "nl", "pt")),
+                "les trois bundles livrés doivent être découverts");
     }
 }

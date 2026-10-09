@@ -278,6 +278,19 @@
             white-space: nowrap;
             box-sizing: border-box;
         }
+        /* SA HAUTEUR NE BOUGE JAMAIS. Un afficheur vide n'a aucun contenu en
+           ligne : sa boîte de ligne s'effondre, et comme min-height compte
+           padding et bordure comprises (box-sizing: border-box), la case est
+           alors plus basse de tout son cadre — puis grandit d'un coup à la
+           première touche. Un espace sans largeur, toujours présent, donne aux
+           deux états la MÊME boîte de ligne, quel que soit le padding que
+           l'écran ajoute par-dessus : une hauteur fixe, elle, ne pourrait pas
+           convenir à la fois au pavé de vente et à la case de connexion. Le
+           caractère est invisible et n'appartient pas au DOM, donc padText()
+           et les tests lisent le même textContent qu'avant. */
+        .pad-display::after {
+            content: '\200B';
+        }
         .pad-display:empty::before {
             content: attr(data-placeholder);
             color: var(--text-muted);

@@ -7,7 +7,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Changer le code PIN</title>
+    <title>{inject:i18n.get('pinchange.changerCodePin')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -44,7 +44,7 @@
 
 <div class="pos-terminal">
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
@@ -54,7 +54,7 @@
     <div class="overlay" id="pinScreen">
         <div class="overlay-panel">
         <div class="overlay-header">
-            <div class="overlay-title">CHANGER MON CODE PIN</div>
+            <div class="overlay-title">{inject:i18n.get('pinchange.changerMonCodePin')}</div>
             
         </div>
 
@@ -68,17 +68,17 @@
 
             <div class="pin-fields">
                 <div>
-                    <div class="pin-field-label">Code PIN actuel</div>
+                    <div class="pin-field-label">{inject:i18n.get('pinchange.codePinActuel')}</div>
                     <div id="dispCurrent" class="pin-display active pad-display" onclick="activateField('current')"></div>
                     <input type="hidden" name="currentPin" id="valCurrent" value="">
                 </div>
                 <div>
-                    <div class="pin-field-label">Nouveau code PIN</div>
+                    <div class="pin-field-label">{inject:i18n.get('pinchange.nouveauCodePin')}</div>
                     <div id="dispNew" class="pin-display pad-display" onclick="activateField('new')"></div>
                     <input type="hidden" name="newPin" id="valNew" value="">
                 </div>
                 <div>
-                    <div class="pin-field-label">Confirmer le nouveau code</div>
+                    <div class="pin-field-label">{inject:i18n.get('pinchange.confirmerNouveauCode')}</div>
                     <div id="dispConfirm" class="pin-display pad-display" onclick="activateField('confirm')"></div>
                     <input type="hidden" name="confirmPin" id="valConfirm" value="">
                 </div>
@@ -91,8 +91,8 @@
                  navigation lui en avait ajouté une deuxième, identique, à gauche —
                  deux touches RETOUR sur la même rangée. -->
             <div class="pin-actions">
-                <a href="/" id="btnSecondary" class="btn btn-muted" style="width:13.75rem;">RETOUR</a>
-                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:13.75rem;" disabled>VALIDER</button>
+                <a href="/" id="btnSecondary" class="btn btn-muted" style="width:13.75rem;">{inject:i18n.get('common.back')}</a>
+                <button type="submit" id="btnValidate" class="btn btn-primary" style="width:13.75rem;" disabled>{inject:i18n.get('common.validate')}</button>
             </div>
         </form>
         </div>

@@ -46,10 +46,10 @@ public class CreditClientService {
     private static final int MIN_SEARCH_LENGTH = 2;
 
     /** Refusal shown when the account has no administered ceiling. */
-    static final String NO_CREDIT_GRANTED = "COMPTE SANS AUTORISATION DE CREDIT";
+    static final String NO_CREDIT_GRANTED_KEY = "op.compteSansAutorisationCredit";
 
     /** Refusal shown when no account has been named yet. */
-    static final String NO_ACCOUNT = "COMPTE CLIENT NON IDENTIFIE";
+    static final String NO_ACCOUNT_KEY = "op.compteClientNonIdentifie";
 
     /**
      * Refusal shown when the client referential is too old to be trusted.
@@ -58,13 +58,21 @@ public class CreditClientService {
      * a shop that empties the parameter must still see a refusal, not a blank
      * panel that looks like nothing happened.
      */
-    static final String DEGRADED = "REFERENTIEL CLIENT NON A JOUR - CREDIT REFUSE";
+    static final String DEGRADED_KEY = "op.referentielClientNonJour";
 
     /** The action code journalled when a supervisor allows the ceiling to be passed. */
     static final String OVER_LIMIT_ACTION = "CREDIT_OVER_LIMIT";
 
     /** Refusal shown when the shop does not accept a partial credit settlement. */
-    static final String PARTIAL_REFUSED = "PAIEMENT PARTIEL EN CREDIT CLIENT NON AUTORISE";
+    static final String PARTIAL_REFUSED_KEY = "op.paiementPartielCreditClient";
+
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /** Registers the settlement once this service has allowed it. */
     @Inject
@@ -127,7 +135,7 @@ public class CreditClientService {
         state.payment.creditPendingAmount = null;
         String typed = accountNumber == null ? "" : accountNumber.trim();
         if (typed.isEmpty()) {
-            state.payment.creditError = "NUMERO DE COMPTE REQUIS";
+            state.payment.creditError = i18n.get("op.numeroCompteRequis");
             state.touch();
             LOGGER.info("Exiting method selectByNumber");
             return;
@@ -137,14 +145,14 @@ public class CreditClientService {
         // database is asked: an operator mistyping a loyalty card into the
         // account box gets told what is wrong, not "compte introuvable".
         if (!matchesAccountRange(typed)) {
-            state.payment.creditError = "NUMERO DE COMPTE HORS PLAGE : " + typed;
+            state.payment.creditError = i18n.format("op.numeroCompteHorsPlage", typed);
             state.touch();
             LOGGER.info("Exiting method selectByNumber");
             return;
         }
         AccountCustomer found = AccountCustomer.find("accountNumber", typed).firstResult();
         if (found == null) {
-            state.payment.creditError = "COMPTE INTROUVABLE : " + typed;
+            state.payment.creditError = i18n.format("op.compteIntrouvableNumero", typed);
             state.touch();
             LOGGER.info("Exiting method selectByNumber");
             return;
@@ -188,7 +196,8 @@ public class CreditClientService {
         if (state.payment.creditSearch.length() < MIN_SEARCH_LENGTH) {
             state.payment.creditCustomers = new java.util.ArrayList<>();
             state.payment.creditSearched = false;
-            state.payment.creditError = "SAISIR AU MOINS " + MIN_SEARCH_LENGTH + " CARACTERES";
+            state.payment.creditError = i18n.format("op.saisirAuMoinsCaracteres",
+                    String.valueOf(MIN_SEARCH_LENGTH));
             state.touch();
             LOGGER.info("Exiting method searchByName");
             return;
@@ -220,7 +229,7 @@ public class CreditClientService {
         state.payment.creditPendingAmount = null;
         AccountCustomer found = customerId == null ? null : AccountCustomer.findById(customerId);
         if (found == null) {
-            state.payment.creditError = "COMPTE INTROUVABLE";
+            state.payment.creditError = i18n.get("op.compteIntrouvable");
             state.touch();
             LOGGER.info("Exiting method selectById");
             return;
@@ -242,7 +251,7 @@ public class CreditClientService {
         state.payment.creditCustomers = new java.util.ArrayList<>();
         state.payment.creditSearched = false;
         if (!customer.isCreditAllowed()) {
-            state.payment.creditError = NO_CREDIT_GRANTED;
+            state.payment.creditError = i18n.get(NO_CREDIT_GRANTED_KEY);
         }
         state.touch();
     }
@@ -263,13 +272,13 @@ public class CreditClientService {
         LOGGER.info("Entering method processCredit with state: " + state + ", amount: " + amount);
         AccountCustomer customer = state.payment.creditCustomer;
         if (customer == null) {
-            state.payment.creditError = NO_ACCOUNT;
+            state.payment.creditError = i18n.get(NO_ACCOUNT_KEY);
             state.touch();
             LOGGER.info("Exiting method processCredit");
             return false;
         }
         if (!customer.isCreditAllowed()) {
-            state.payment.creditError = NO_CREDIT_GRANTED;
+            state.payment.creditError = i18n.get(NO_CREDIT_GRANTED_KEY);
             state.touch();
             LOGGER.info("Exiting method processCredit");
             return false;
@@ -291,7 +300,7 @@ public class CreditClientService {
         // shop has not authorised — and saying so before the account is charged is
         // the only moment where it costs nothing.
         if (!posSettingsService.partialCreditAllowed() && asked.compareTo(state.getRemaining()) < 0) {
-            state.payment.creditError = PARTIAL_REFUSED;
+            state.payment.creditError = i18n.get(PARTIAL_REFUSED_KEY);
             state.touch();
             LOGGER.info("Exiting method processCredit");
             return false;
@@ -328,7 +337,7 @@ public class CreditClientService {
         BigDecimal held = state.payment.creditPendingAmount;
         AccountCustomer customer = state.payment.creditCustomer;
         if (held == null || customer == null) {
-            state.payment.creditError = NO_ACCOUNT;
+            state.payment.creditError = i18n.get(NO_ACCOUNT_KEY);
             state.touch();
             LOGGER.info("Exiting method authorizeOverLimit");
             return false;
@@ -336,7 +345,7 @@ public class CreditClientService {
         boolean granted = endorsementService.operatorIsSupervisor(state)
                 || endorsementService.authorize(login, password, OVER_LIMIT_ACTION);
         if (!granted) {
-            state.payment.creditError = "AUTORISATION REFUSEE";
+            state.payment.creditError = i18n.get("op.autorisationRefusee");
             state.touch();
             LOGGER.info("Exiting method authorizeOverLimit");
             return false;
@@ -507,7 +516,8 @@ public class CreditClientService {
      */
     private String offlineMessage() {
         String administered = posSettingsService.customerOfflineMessage();
-        return administered == null || administered.isBlank() ? DEGRADED : administered;
+        return administered == null || administered.isBlank()
+                ? i18n.get(DEGRADED_KEY) : administered;
     }
 
     /**
@@ -524,8 +534,7 @@ public class CreditClientService {
     private String overLimitMessage(AccountCustomer customer) {
         String administered = posSettingsService.customerOverLimitMessage();
         if (administered == null || administered.isBlank()) {
-            administered = "PLAFOND DEPASSE - ENCOURS {encours} / PLAFOND {plafond}"
-                    + " - AUTORISATION REQUISE";
+            administered = i18n.get("op.plafondDepasseEncours");
         }
         return administered
                 .replace("{encours}", plain(customer.creditBalance))

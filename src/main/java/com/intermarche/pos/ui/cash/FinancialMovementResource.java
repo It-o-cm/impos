@@ -67,6 +67,14 @@ public class FinancialMovementResource {
     /** Action code journaled when a manager endorses a financial movement. */
     public static final String ENDORSEMENT_ACTION = "FINANCIAL_MOVEMENT";
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject @Location("financial-movement") Template financialMovement;
     @Inject CashSessionService cashSessionService;
     @Inject CashMovementService cashMovementService;
@@ -341,17 +349,17 @@ public class FinancialMovementResource {
      */
     private String messageOf(String error) {
         if ("no-session".equals(error)) {
-            return "AUCUNE SESSION OUVERTE";
+            return i18n.get("op.aucuneSessionOuverte");
         } else if ("bad-tender".equals(error)) {
-            return "MOYEN DE PAIEMENT INVALIDE";
+            return i18n.get("op.moyenPaiementInvalide");
         } else if ("same-tender".equals(error)) {
-            return "MEME MOYEN EN SOURCE ET DESTINATION";
+            return i18n.get("op.memeMoyenSourceDestination");
         } else if ("amount".equals(error)) {
-            return "MONTANT INVALIDE";
+            return i18n.get("op.montantInvalide");
         } else if ("endorsement".equals(error)) {
-            return "AVAL MANAGER REFUSÉ OU MANQUANT";
+            return i18n.get("op.avalManagerRefuseManquant");
         } else if ("training".equals(error)) {
-            return "INDISPONIBLE EN FORMATION";
+            return i18n.get("op.indisponibleFormation");
         }
         return null;
     }

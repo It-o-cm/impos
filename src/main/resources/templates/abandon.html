@@ -13,7 +13,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Abandon du ticket</title>
+  <title>{inject:i18n.get('abandon.abandonTicket')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -67,18 +67,18 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>ABANDON DU TICKET</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('abandon.abandonTicket2')}</span>
       <span id="clock"></span>
     </div>
 
     <div class="main-area">
       <div class="panel">
-        <h2>Abandonner la vente en cours</h2>
+        <h2>{inject:i18n.get('abandon.abandonnerVenteCours')}</h2>
 
         <div class="summary">
-          <span>Articles : <strong>{state.ticket.items.size()}</strong></span>
-          <span>Total : <strong>{state.ticket.getTotalFormatted()} €</strong></span>
+          <span>{inject:i18n.get('abandon.articles')} <strong>{state.ticket.items.size()}</strong></span>
+          <span>{inject:i18n.get('abandon.total')} <strong>{state.ticket.getTotalFormatted()} €</strong></span>
         </div>
 
         {#if error}
@@ -97,11 +97,11 @@
              qui vont être annulés sont nommés AVANT la validation — c'est ce qui
              fait de cet écran une proposition et non une exécution. -->
         <div class="payments">
-          <div class="head">Règlements qui seront annulés</div>
+          <div class="head">{inject:i18n.get('abandon.reglementsSerontAnnules')}</div>
           {#for entry in payments}
           <div class="row"><span>{entry.method}</span><span>{entry.amount} €</span></div>
           {/for}
-          <div class="row"><strong>TOTAL</strong><strong>{paymentTotal} €</strong></div>
+          <div class="row"><strong>{inject:i18n.get('abandon.total2')}</strong><strong>{paymentTotal} €</strong></div>
         </div>
         {/if}
 
@@ -120,18 +120,18 @@
           <!-- LC-04-04-12 : le magasin laisse la décision à l'opérateur. -->
           <div class="print-row">
             <input type="checkbox" name="print" id="printBox">
-            <label for="printBox">Imprimer le ticket d'abandon</label>
+            <label for="printBox">{inject:i18n.get('abandon.imprimerTicketDAbandon')}</label>
           </div>
           {/if}
 
-          <button type="submit" class="btn btn-danger" style="width:100%; height: 3.5rem;">ABANDONNER LE TICKET</button>
+          <button type="submit" class="btn btn-danger" style="width:100%; height: 3.5rem;">{inject:i18n.get('abandon.abandonnerTicket')}</button>
         </form>
         {/if}
       </div>
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted">RETOUR À LA VENTE</a>
+      <a href="/" class="btn btn-muted">{inject:i18n.get('abandon.retourVente')}</a>
     </div>
   </div>
 

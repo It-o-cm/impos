@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fruits & Légumes</title>
+    <title>{inject:i18n.get('fruits.fruitsLegumes')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -91,7 +91,7 @@
 
 <div class="pos-terminal">
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
@@ -101,11 +101,11 @@
     <div class="overlay active" id="pluScreen">
         <div class="overlay-panel">
         <div class="overlay-header">
-            <div class="overlay-title">FRUITS, LÉGUMES & FRAIS</div>
+            <div class="overlay-title">{inject:i18n.get('fruits.fruitsLegumesFrais')}</div>
         </div>
         <div class="plu-toolbar">
-            <button class="plu-tool-btn" onclick="openPluSearch()">🔍 Rechercher un produit</button>
-            <button class="plu-tool-btn" onclick="openPluCode()">🔢 Saisir un code PLU</button>
+            <button class="plu-tool-btn" onclick="openPluSearch()">{inject:i18n.get('fruits.rechercherProduit')}</button>
+            <button class="plu-tool-btn" onclick="openPluCode()">{inject:i18n.get('fruits.saisirCodePlu')}</button>
         </div>
         {! LC-14-01-04: tare containers — arming one tares the NEXT weighing only. !}
         {#if !tareContainers.isEmpty()}
@@ -117,7 +117,7 @@
             <a href="/tare/select/{c.code}" class="plu-tool-btn">{c.label}</a>
             {/for}
             {#if state.tare.hasContainer()}
-            <a href="/tare/clear" class="plu-tool-btn">✕ Retirer</a>
+            <a href="/tare/clear" class="plu-tool-btn">{inject:i18n.get('fruits.retirer')}</a>
             {/if}
         </div>
         {/if}
@@ -127,36 +127,36 @@
                 <div class="plu-grid" id="pluGrid"></div>
                 <div class="plu-prefill">
                     <div id="prefillDisplay" class="prefill-display pad-display"></div>
-                    <span class="prefill-hint" id="prefillHint">CODE PLU PUIS OK</span>
+                    <span class="prefill-hint" id="prefillHint">{inject:i18n.get('fruits.codePluPuisOk')}</span>
                     <div class="pos-kb-compact" id="prefillPad"></div>
                 </div>
             </div>
             <div class="plu-pagination pos-pager">
-                <a href="/" class="btn btn-sm btn-muted">RETOUR</a>
+                <a href="/" class="btn btn-sm btn-muted">{inject:i18n.get('common.back')}</a>
             </div>
         </div>
 
         <div class="plu-modal" id="pluSearchModal">
             <div class="plu-modal-panel search-panel">
                 <div class="plu-modal-header">
-                    <span class="plu-modal-title">Rechercher un produit</span>
+                    <span class="plu-modal-title">{inject:i18n.get('fruits.rechercherProduit2')}</span>
                     <button class="btn btn-sm btn-muted" onclick="closePluSearch()">RETOUR</button>
                 </div>
-                <div id="pluSearchDisplay" class="plu-search-input pad-display" data-placeholder="Tapez un nom..."></div>
+                <div id="pluSearchDisplay" class="plu-search-input pad-display" data-placeholder="{inject:i18n.get('fruits.tapezNom')}"></div>
                 <div id="pluSearchKb" class="plu-kb-area"></div>
-                <div class="plu-search-results" id="pluSearchResults"><div class="plu-search-empty">Tapez pour rechercher...</div></div>
+                <div class="plu-search-results" id="pluSearchResults"><div class="plu-search-empty">{inject:i18n.get('fruits.tapezRechercher')}</div></div>
             </div>
         </div>
 
         <div class="plu-modal" id="pluCodeModal">
             <div class="plu-modal-panel code-panel">
                 <div class="plu-modal-header">
-                    <span class="plu-modal-title">Code PLU</span>
+                    <span class="plu-modal-title">{inject:i18n.get('fruits.codePlu')}</span>
                     <button class="btn btn-sm btn-muted" onclick="closePluCode()">RETOUR</button>
                 </div>
                 <div id="pluCodeDisplay" class="plu-code-display pad-display"></div>
                 <div id="pluCodeNumpad" class="plu-kb-area"></div>
-                <a href="#" id="pluCodeValidate" class="btn btn-lg btn-success" style="width:100%;">VALIDER</a>
+                <a href="#" id="pluCodeValidate" class="btn btn-lg btn-success" style="width:100%;">{inject:i18n.get('common.validate')}</a>
             </div>
         </div>
         </div>

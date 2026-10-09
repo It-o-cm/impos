@@ -2,8 +2,9 @@ package com.intermarche.pos.ui;
 
 import io.quarkus.arc.Unremovable;
 import io.quarkus.qute.TemplateData;
-import jakarta.enterprise.context.RequestScoped;
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.ConfigProvider;
 import jakarta.inject.Named;
 import org.jboss.logging.Logger;
 
@@ -60,11 +61,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * screen, and the exhaustiveness test keeps the bundles aligned so the fallback
  * stays theoretical.
  *
+ * <p>APPLICATION-SCOPED, AND NOT REQUEST-SCOPED. The screens resolve their
+ * labels inside a request, but two consumers do not: the printer lays out a card
+ * receipt from the payment terminal's own follower thread, and a terminal or
+ * cheque-reader failure names its refusal there too. A request-scoped resolver
+ * threw {@code ContextNotActiveException} on exactly those paths — the ones a
+ * cashier meets when something goes wrong. The language is read from the
+ * register state, which a till has one of, so there is nothing per-request to
+ * remember: a till serves one operator at a time, and that operator's choice is
+ * the one the follower thread must print in.
+ *
  * <p>Package placement: consumed exclusively by the screens and the documents —
  * ui root, like {@link ThemeService}, the other cross-screen concern.
  */
 @Named("i18n")
-@RequestScoped
+@ApplicationScoped
 @TemplateData
 @Unremovable
 public class Messages {
@@ -75,11 +86,177 @@ public class Messages {
     /** The default language: the exhaustive reference bundle. */
     public static final String DEFAULT_LANGUAGE = "fr";
 
-    /** The languages the register ships a bundle for, in display order. */
-    public static final List<String> BUNDLED_LANGUAGES = List.of("fr", "nl", "pt");
+    /** Where a bundle lives on the classpath, and how its language is named. */
+    private static final String BUNDLE_PREFIX = "messages/msg_";
 
-    /** Loaded bundles, keyed by language; a bundle is read from the classpath once. */
+    /** The extension of a bundle file. */
+    private static final String BUNDLE_SUFFIX = ".properties";
+
+    /**
+     * Configuration key of a directory of bundles OUTSIDE the jar, empty by
+     * default.
+     *
+     * <p>What makes a language droppable instead of deliverable: a country that
+     * wants Spanish writes {@code msg_es.properties} into this directory — by
+     * hand or through the referential pull — and the register offers it at the
+     * next render of the language screen. No recompilation, no new release.
+     */
+    private static final String EXTERNAL_DIR_KEY = "pos.messages.dir";
+
+    /** Loaded bundles, keyed by language; a bundle is read once. */
     private static final Map<String, Map<String, String>> BUNDLES = new ConcurrentHashMap<>();
+
+    /** The key by which a bundle names ITS OWN language, in that language. */
+    private static final String SELF_NAME_KEY = "language.self";
+
+    /**
+     * The languages a bundle is shipped or dropped for, discovered and not
+     * enumerated.
+     *
+     * <p>THE LIST IS NOT WRITTEN ANYWHERE. It used to be {@code List.of("fr",
+     * "nl", "pt")}, which made adding a language a code change: the constant, a
+     * new bundle, AND the name of that language added to every other bundle —
+     * three gestures, two of them in Java, for a label. Now a bundle present is a
+     * language offered.
+     *
+     * <p>Discovered at EVERY call and not cached, on purpose: this is read when
+     * the language screen renders, never on the label path, and a cached list
+     * would mean a file dropped on a running till is ignored until it reboots.
+     * The bundle CONTENTS stay cached — that is the hot path.
+     *
+     * @return the language tags a bundle exists for, French always first, the
+     *         rest alphabetical
+     */
+    public static List<String> bundledLanguages() {
+        java.util.Set<String> found = new java.util.TreeSet<>();
+        found.add(DEFAULT_LANGUAGE);
+        found.addAll(classpathBundles());
+        found.addAll(externalBundles());
+        List<String> ordered = new ArrayList<>();
+        ordered.add(DEFAULT_LANGUAGE);
+        for (String tag : found) {
+            if (!DEFAULT_LANGUAGE.equals(tag)) {
+                ordered.add(tag);
+            }
+        }
+        return ordered;
+    }
+
+    /**
+     * The language tags the jar itself ships a bundle for.
+     *
+     * <p>Reads the {@code messages/} directory of the classpath, which is a real
+     * directory in development and an entry of the jar once packaged — the two
+     * cases are walked differently and both are handled, because a list that only
+     * worked in development would be the same hard-coding one layer down.
+     *
+     * @return the tags found, possibly empty
+     */
+    private static java.util.Set<String> classpathBundles() {
+        java.util.Set<String> tags = new java.util.TreeSet<>();
+        try {
+            java.util.Enumeration<java.net.URL> roots = Thread.currentThread()
+                    .getContextClassLoader().getResources("messages/");
+            while (roots.hasMoreElements()) {
+                java.net.URL root = roots.nextElement();
+                if ("jar".equals(root.getProtocol())) {
+                    java.net.JarURLConnection connection =
+                            (java.net.JarURLConnection) root.openConnection();
+                    try (java.util.jar.JarFile jar = connection.getJarFile()) {
+                        java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
+                        while (entries.hasMoreElements()) {
+                            tags.addAll(tagOf(entries.nextElement().getName()));
+                        }
+                    }
+                } else if ("file".equals(root.getProtocol())) {
+                    java.io.File[] files = new java.io.File(root.toURI()).listFiles();
+                    if (files != null) {
+                        for (java.io.File file : files) {
+                            tags.addAll(tagOf(file.getName()));
+                        }
+                    }
+                }
+            }
+        } catch (Exception unreadable) {
+            // A classpath that cannot be listed is not a reason to serve no
+            // language at all: French is added by the caller whatever happens.
+            LOGGER.warnf("Bundles du classpath illisibles (%s)", unreadable.getMessage());
+        }
+        return tags;
+    }
+
+    /**
+     * The language tags dropped in the external directory, when one is configured.
+     *
+     * @return the tags found, empty when no directory is configured or it is gone
+     */
+    private static java.util.Set<String> externalBundles() {
+        java.util.Set<String> tags = new java.util.TreeSet<>();
+        java.io.File directory = externalDirectory();
+        if (directory == null) {
+            return tags;
+        }
+        java.io.File[] files = directory.listFiles();
+        if (files == null) {
+            LOGGER.warnf("Répertoire de messages illisible : %s", directory);
+            return tags;
+        }
+        for (java.io.File file : files) {
+            tags.addAll(tagOf(file.getName()));
+        }
+        return tags;
+    }
+
+    /**
+     * The configured external directory of bundles, or null when there is none.
+     *
+     * @return the directory, or null when unconfigured, blank or not a directory
+     */
+    private static java.io.File externalDirectory() {
+        String configured = ConfigProvider.getConfig()
+                .getOptionalValue(EXTERNAL_DIR_KEY, String.class).orElse("");
+        if (configured.isBlank()) {
+            return null;
+        }
+        java.io.File directory = new java.io.File(configured.trim());
+        return directory.isDirectory() ? directory : null;
+    }
+
+    /**
+     * The language tag a file name carries, when that name is a bundle's.
+     *
+     * <p>Answers a set and not a tag so a caller can add the result blindly: a
+     * file that is not a bundle contributes nothing instead of a null to test.
+     *
+     * @param fileName the file or jar-entry name, possibly with directories
+     * @return the tag in a one-element set, or an empty set
+     */
+    private static java.util.Set<String> tagOf(String fileName) {
+        String name = fileName.substring(fileName.lastIndexOf('/') + 1);
+        String prefix = BUNDLE_PREFIX.substring(BUNDLE_PREFIX.lastIndexOf('/') + 1);
+        if (!name.startsWith(prefix) || !name.endsWith(BUNDLE_SUFFIX)) {
+            return java.util.Set.of();
+        }
+        String tag = name.substring(prefix.length(), name.length() - BUNDLE_SUFFIX.length());
+        return tag.isEmpty() || !tag.equals(normalize(tag)) ? java.util.Set.of() : java.util.Set.of(tag);
+    }
+
+    /**
+     * The inputs the memorised language was resolved from, or null before the
+     * first resolution.
+     *
+     * <p>WHY A MEMO AT ALL. The operator leg reads the {@code Employee} row, and
+     * a screen resolves a hundred labels: without this, rendering the sale
+     * screen asked the database a hundred times for the same answer. The key is
+     * the three inputs of the chain, so a sign-in, a sign-out or a language
+     * chosen on the language screen all move the labels at once — what a
+     * per-request cache could not do, since the resolver now outlives the
+     * request.
+     */
+    private volatile String memoInputs;
+
+    /** The language the memorised inputs resolved to. */
+    private volatile String memoLanguage = DEFAULT_LANGUAGE;
 
     /** The register state: carries the language the operator chose. */
     @Inject
@@ -89,12 +266,9 @@ public class Messages {
     @Inject
     com.intermarche.pos.service.PosSettingsService posSettingsService;
 
-    /** The language resolved for this request, computed once. */
-    private String resolvedLanguage;
-
     /**
-     * Returns the localised label of a key, in the language resolved for this
-     * request.
+     * Returns the localised label of a key, in the language resolved for the
+     * operator at this register.
      *
      * @param key the message key, or null
      * @return the localised label, the French value as a fallback, or the key
@@ -170,7 +344,14 @@ public class Messages {
         if (normalized.isEmpty()) {
             return "";
         }
-        return get("language." + normalized);
+        // A LANGUAGE NAMES ITSELF, in its own bundle and in its own language:
+        // "Nederlands", not "Néerlandais". Two reasons, and the second is the
+        // structural one. Whoever looks for Dutch on that screen does not read
+        // French. And a name held by the OTHER bundles meant that adding a
+        // language forced an edit of every language already shipped — the
+        // coupling that made this list hard-coded in the first place.
+        String own = bundle(normalized).get(SELF_NAME_KEY);
+        return own != null ? own : normalized.toUpperCase(Locale.ROOT);
     }
 
     /**
@@ -204,7 +385,7 @@ public class Messages {
         List<String> available = new ArrayList<>();
         for (String entry : posSettingsService.availableLanguages()) {
             String tag = normalize(entry);
-            if (BUNDLED_LANGUAGES.contains(tag) && !available.contains(tag)) {
+            if (bundledLanguages().contains(tag) && !available.contains(tag)) {
                 available.add(tag);
             }
         }
@@ -215,29 +396,63 @@ public class Messages {
     }
 
     /**
-     * Resolves, once per request, the language to render: the operator's own
-     * choice, then the signed-in operator's administered language, then the
-     * store's system language, then French. A language no bundle ships is
-     * ignored at every step rather than shown as raw keys.
+     * Resolves the language to render: the operator's own choice, then the
+     * signed-in operator's administered language, then the store's system
+     * language, then French. A language no bundle ships is ignored at every step
+     * rather than shown as raw keys.
+     *
+     * <p>Resolved at every call and not memorised: the resolver outlives the
+     * request now, and a language chosen on the language screen must apply to
+     * the very next label rather than to the next instance.
      *
      * @return the language tag to render
      */
     private String language() {
-        if (resolvedLanguage == null) {
-            String chosen = normalize(state.language);
-            String operator = normalize(operatorLanguage());
-            String system = normalize(posSettingsService.systemLanguage());
-            if (BUNDLED_LANGUAGES.contains(chosen)) {
-                resolvedLanguage = chosen;
-            } else if (BUNDLED_LANGUAGES.contains(operator)) {
-                resolvedLanguage = operator;
-            } else if (BUNDLED_LANGUAGES.contains(system)) {
-                resolvedLanguage = system;
-            } else {
-                resolvedLanguage = DEFAULT_LANGUAGE;
-            }
+        String chosen = normalize(state.language);
+        if (hasBundle(chosen)) {
+            return chosen;
         }
-        return resolvedLanguage;
+        String system = normalize(posSettingsService.systemLanguage());
+        Long operator = state.auth == null ? null : state.auth.operatorId;
+        String inputs = chosen + '|' + operator + '|' + system;
+        if (!inputs.equals(memoInputs)) {
+            memoLanguage = resolve(operator, system);
+            memoInputs = inputs;
+        }
+        return memoLanguage;
+    }
+
+    /**
+     * Resolves the operator leg and what follows it, the only leg that costs a
+     * database read.
+     *
+     * @param operator the signed-in operator's id, or null
+     * @param system the store's normalized system language
+     * @return the language tag to render
+     */
+    private String resolve(Long operator, String system) {
+        String administered = normalize(operatorLanguage(operator));
+        if (hasBundle(administered)) {
+            return administered;
+        }
+        return hasBundle(system) ? system : DEFAULT_LANGUAGE;
+    }
+
+    /**
+     * Tells whether a bundle exists for a language, cheaply enough for the
+     * label path.
+     *
+     * <p>NOT {@link #bundledLanguages()}, deliberately: that one walks the
+     * classpath at every call, which is the right answer for the language screen
+     * and the wrong one for a method called once per label. This reads the
+     * cached bundle instead — a language with keys has a bundle, and a bundle
+     * loaded once stays loaded.
+     *
+     * @param tag the normalized language tag
+     * @return true when that language resolves labels
+     */
+    private static boolean hasBundle(String tag) {
+        return !tag.isEmpty() && !bundle(tag).isEmpty();
     }
 
     /**
@@ -247,13 +462,23 @@ public class Messages {
      *
      * @return the operator's administered language, or null
      */
-    private String operatorLanguage() {
-        if (state.auth == null || state.auth.operatorId == null) {
+    private String operatorLanguage(Long operatorId) {
+        if (operatorId == null) {
             return null;
         }
-        com.intermarche.pos.domain.people.Employee employee =
-                com.intermarche.pos.domain.people.Employee.findById(state.auth.operatorId);
-        return employee == null ? null : employee.language;
+        try {
+            com.intermarche.pos.domain.people.Employee employee =
+                    com.intermarche.pos.domain.people.Employee.findById(operatorId);
+            return employee == null ? null : employee.language;
+        } catch (RuntimeException unreachable) {
+            // A LABEL IS NEVER WORTH AN EXCEPTION. This read runs wherever a
+            // label is resolved, and the printer resolves labels from the
+            // payment terminal's follower thread, where no persistence context
+            // is active. Falling through to the store's language prints a
+            // correct ticket; propagating would lose the customer's receipt.
+            LOGGER.debugf("Langue de l'operateur illisible ici (%s)", unreachable.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -264,7 +489,7 @@ public class Messages {
      */
     private String secondLanguage() {
         String second = normalize(posSettingsService.customerSecondLanguage());
-        if (!BUNDLED_LANGUAGES.contains(second) || second.equals(language())) {
+        if (!hasBundle(second) || second.equals(language())) {
             return null;
         }
         return second;

@@ -25,7 +25,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IHM Caisse Supermarché</title>
+    <title>{inject:i18n.get('main.ihmCaisseSupermarche')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -61,6 +61,10 @@
             border-left: 4px solid transparent; padding-left: 5px; margin-left: -5px;
         }
         .receipt-item.selected { background-color: rgba(0, 85, 255, 0.2); border-left-color: var(--primary); }
+        /* Une ligne annulee : barree, eteinte, et sans lisere de selection —
+           elle a quitte le panier et ne compte plus dans le total. */
+        .receipt-item.cancelled { opacity: 0.55; text-decoration: line-through; border-left-color: var(--text-muted); }
+        .receipt-item.cancelled .price { text-decoration: line-through; }
         .receipt-item .item-details { flex: 1; padding-right: 20px; }
         .receipt-item .qty { color: var(--warning); margin-right: 10px; display: inline-block; min-width: 5rem; }
         .receipt-item .price { font-weight: bold; color: var(--success); white-space: nowrap; font-size: var(--fs-amount); display: flex; align-items: center; gap: 8px; }
@@ -162,17 +166,17 @@
 <body data-theme="{posTheme}">
 
 <div class="pos-terminal" id="posTerminal">
-    {#if state.trainingMode}<div class="overlay-banner overlay-training">*** MODE FORMATION — RIEN N'EST ENREGISTRÉ ***</div>{/if}
+    {#if state.trainingMode}<div class="overlay-banner overlay-training">{inject:i18n.get('main.modeFormationRienN')}</div>{/if}
     {! LC-07-08-05: a permanent indicator. A till that has stopped asking the
      ! monetics for authorization must say so at every instant, not only on the
      ! screen where it was switched on. !}
-    {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">*** MODE DÉGRADÉ MONÉTIQUE FORCÉ ***</div>{/if}
+    {#if state.moneticsDegradedForced}<div class="overlay-banner overlay-monetics{#if state.trainingMode} overlay-monetics-second{/if}">{inject:i18n.get('main.modeDegradeMonetiqueForce')}</div>{/if}
     {! Le bandeau de plafond d'assurance MENE au prelevement des billets: il demandait
      ! un geste sans en donner le chemin, et la touche PRELEVEMENT est a deux menus de
      ! la. Le lien ouvre l'ecran en mode billets seulement. !}
-    {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} *** — <a href="/withdrawal?method=CASH&amp;notes=1" style="color:#000;text-decoration:underline;">PRÉLEVER</a></div>{/if}
-    {#if state.supervisorSessionBadge??}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">SUPERVISEUR {state.supervisorSessionBadge} — <a href="/action/supervisor-session/end" style="color:#fff;text-decoration:underline;">FIN SUPERVISEUR</a></div>{/if}
-    {#if state.returnMode}<div class="overlay-banner overlay-monetics" style="background:var(--danger);color:#fff;">*** MODE RETOUR — LES ARTICLES SONT REPRIS *** — <a href="/action/return-mode" style="color:#fff;text-decoration:underline;">FIN MODE RETOUR</a></div>{/if}
+    {#if drawerAlert??}<div class="overlay-banner overlay-monetics" style="background:var(--warning);color:#000;">*** {drawerAlert} *** — <a href="/withdrawal?method=CASH&amp;notes=1" style="color:#000;text-decoration:underline;">{inject:i18n.get('main.prelever')}</a></div>{/if}
+    {#if state.supervisorSessionBadge??}<div class="overlay-banner overlay-monetics" style="background:var(--primary);color:#fff;">SUPERVISEUR {state.supervisorSessionBadge} — <a href="/action/supervisor-session/end" style="color:#fff;text-decoration:underline;">{inject:i18n.get('main.finSuperviseur')}</a></div>{/if}
+    {#if state.returnMode}<div class="overlay-banner overlay-monetics" style="background:var(--danger);color:#fff;">{inject:i18n.get('main.modeRetourArticlesRepris')} <a href="/action/return-mode" style="color:#fff;text-decoration:underline;">{inject:i18n.get('main.finModeRetour')}</a></div>{/if}
     {! EXP-20 : message du back-office, non perturbant, écran caissier seul (absent
      ! de la visu client). EXP-89 : s'il porte une question, c'est un sondage auquel
      ! le caissier répond par un bouton, la réponse remontant au nœud. !}
@@ -186,7 +190,7 @@
     </div>
     {/if}
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
         <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
         <span id="clock">--:--:--</span>
     </div>
@@ -208,7 +212,7 @@
                 <!-- Attached-card summary: holder (when found via lookup),
                      card number and available balance. Rides the poll. -->
                 <div id="fidSummary" style="color: var(--text-muted); font-size: var(--fs-label); text-align: right;">{#if state.fidelity.displaySummary}{state.fidelity.displaySummary}{/if}</div>
-                <div class="total-label">TOTAL À PAYER</div>
+                <div class="total-label">{inject:i18n.get('main.totalPayer')}</div>
                 <div class="total-amount {state.ticket.totalAmount <= 0 ? 'zero' : ''}" id="mainTotal">
                     {state.ticket.getTotalFormatted()} €
                 </div>
@@ -218,94 +222,88 @@
 
                 {#if state.menu.key == 'articles'}
                     <!-- ARTICLES : la saisie des articles (nomenclature expert, étape 8). -->
-                    <a href="/action/cancelLine" class="btn btn-muted">ANNULER LIGNE</a>
+                    <a href="/action/cancelLine" class="btn btn-muted">{inject:i18n.get('main.annulerLigne')}</a>
                     <a href="/action/cancel-by-scan"
                        class="btn {#if state.cancelByScanArmed}btn-warning{#else}btn-muted{/if}"
                        {#if state.cancelByScanArmed}style="color:black;"{/if}>{#if state.cancelByScanArmed}ANNULER : SCANNEZ{#else}ANNULER PAR SCAN{/if}</a>
-                    <a href="/action/price-mod/quantity" data-prefill class="btn btn-muted">QUANTITÉ</a>
+                    <a href="/action/price-mod/quantity" data-prefill class="btn btn-muted">{inject:i18n.get('main.quantite')}</a>
                     <!-- LC-02-08-01 : une seule touche pour les deux gestes. -->
                     <a href="/action/collect"
                        class="btn {#if state.collectArmed}btn-warning{#else}btn-muted{/if}"
                        {#if state.collectArmed}style="color:black;"{/if}>{#if state.collectArmed}À ENLEVER : ARMÉ{#else}À ENLEVER{/if}</a>
-                    <a href="/action/repeat" class="btn btn-muted">RÉPÉTER ARTICLE</a>
-                    <a href="/fruits" class="btn btn-warning" style="color:black;">FRUITS &amp; LÉGUMES</a>
-                    <a href="/manual" class="btn btn-muted">SAISIE DIRECTE</a>
+                    <a href="/action/repeat" class="btn btn-muted">{inject:i18n.get('main.repeterArticle')}</a>
+                    <a href="/fruits" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.fruitsAmpLegumes')}</a>
+                    <a href="/manual" class="btn btn-muted">{inject:i18n.get('main.saisieDirecte')}</a>
                     <!-- Un code tapé d'avance cherche DIRECTEMENT : l'écran de
                          recherche ne s'ouvre que si le code ne désigne pas un
                          article unique. -->
                     <a href="/search" data-prefill data-prefill-href="/action/search/direct"
-                       data-prefill-param="q" class="btn btn-muted">RECHERCHE</a>
+                       data-prefill-param="q" class="btn btn-muted">{inject:i18n.get('main.recherche')}</a>
                     <!-- EXP-43 : le sous-total sépare la part de chacun ; il s'imprime. -->
-                    <a href="/action/subtotal" class="btn btn-muted">SOUS-TOTAL</a>
+                    <a href="/action/subtotal" class="btn btn-muted">{inject:i18n.get('main.sousTotal')}</a>
                     <!-- EXP-93 : consultation article en lecture seule, aucun ajout. -->
-                    <a href="/article-info" class="btn btn-muted">INFO ARTICLE</a>
+                    <a href="/article-info" class="btn btn-muted">{inject:i18n.get('main.infoArticle')}</a>
 
                 {#else if state.menu.key == 'caisse'}
                     <!-- CAISSE : la tenue du poste (EXP-10) et la session. -->
-                    <a href="/action/lock" class="btn btn-muted">VERROUILLER</a>
-                    <a href="/close" class="btn btn-muted">FERMER</a>
-                    <a href="/session" class="btn btn-success">SESSION CAISSE</a>
-                    <a href="/cash-calculator" class="btn btn-muted">CALCULATRICE FOND</a>
+                    <a href="/action/lock" class="btn btn-muted">{inject:i18n.get('main.verrouiller')}</a>
+                    <a href="/close" class="btn btn-muted">{inject:i18n.get('main.fermer')}</a>
+                    <a href="/session" class="btn btn-success">{inject:i18n.get('main.sessionCaisse')}</a>
+                    <a href="/cash-calculator" class="btn btn-muted">{inject:i18n.get('main.calculatriceFond')}</a>
                     <a href="/action/training" class="btn btn-muted">{state.trainingMode ? 'QUITTER FORMATION' : 'MODE FORMATION'}</a>
-
-                {#else if state.menu.key == 'reglement'}
-                    <!-- RÈGLEMENT : l'encaissement et les gestes qui touchent au dû. -->
-                    <!-- Une seule touche pour les trois façons de changer le prix d'une
-                         ligne : elle ouvre la modale sur la remise, les trois modes s'y échangent. -->
-                    <a href="/action/price-mod/remise" data-prefill class="btn btn-muted">REMISE / PRIX</a>
-                    <a href="/action/price-mod/global_remise" data-prefill class="btn btn-warning">REMISE TICKET</a>
-                    {#if state.ticket.totalAmount > 0}
-                        <a id="payBtn" href="/pay" class="btn btn-primary">ENCAISSER</a>
-                    {#else}
-                        <button id="payBtn" class="btn btn-primary" disabled>ENCAISSER</button>
-                    {/if}
 
                 {#else if state.menu.key == 'ticket'}
                     <!-- TICKET : la vie du ticket et les documents qu'il produit. -->
-                    {#if state.ticket.items.isEmpty()}
-                        <a href="/parked" class="btn btn-warning" style="color:black;">REPRENDRE TICKET</a>
+                    {#if state.visibleItems.isEmpty()}
+                        <a href="/parked" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.reprendreTicket')}</a>
                     {#else}
-                        <a href="/action/parked/park" class="btn btn-warning" style="color:black;">METTRE EN ATTENTE</a>
+                        <a href="/action/parked/park" class="btn btn-warning" style="color:black;">{inject:i18n.get('main.mettreAttente')}</a>
                     {/if}
-                    <a href="/abandon" class="btn btn-danger">ANNULER TICKET</a>
+                    <a href="/abandon" class="btn btn-danger">{inject:i18n.get('main.annulerTicket')}</a>
                     <a href="/action/return-mode" class="btn {#if state.returnMode}btn-danger{#else}btn-muted{/if}">{#if state.returnMode}FIN MODE RETOUR{#else}MODE RETOUR{/if}</a>
-                    <a href="/return" class="btn btn-primary">RETOUR</a>
-                    <a href="/invoice" class="btn btn-primary">FACTURE</a>
-                    <a href="/reprint" class="btn btn-primary">RECHERCHE TICKET</a>
+                    <a href="/return" class="btn btn-primary">{inject:i18n.get('common.back')}</a>
+                    <a href="/invoice" class="btn btn-primary">{inject:i18n.get('main.facture')}</a>
+                    <a href="/reprint" class="btn btn-primary">{inject:i18n.get('main.rechercheTicket')}</a>
                     <!-- Les quatre touches DERNIER agissent sur la dernière vente clôturée
                          (PosState.requireLastClosedTicket) : même refus, même message. -->
-                    <a href="/action/print-last" class="btn btn-muted">DERNIER : TICKET</a>
-                    <a href="/action/print-last-barcode" class="btn btn-muted">DERNIER : CODE-BARRES</a>
-                    <a href="/action/print-last-card" class="btn btn-muted">DERNIER : DUPLICATA CB</a>
-                    <a href="/ticket-email" class="btn btn-muted">DERNIER : PAR EMAIL</a>
+                    <a href="/action/print-last" class="btn btn-muted">{inject:i18n.get('main.dernierTicket')}</a>
+                    <a href="/action/print-last-barcode" class="btn btn-muted">{inject:i18n.get('main.dernierCodeBarres')}</a>
+                    <a href="/action/print-last-card" class="btn btn-muted">{inject:i18n.get('main.dernierDuplicataCb')}</a>
+                    <a href="/ticket-email" class="btn btn-muted">{inject:i18n.get('main.dernierEmail')}</a>
 
                 {#else if state.menu.key == 'generosite'}
-                    <!-- GÉNÉROSITÉ : fidélité et solde des avantages. -->
-                    <a href="/fidelity" class="btn btn-muted">FIDÉLITÉ</a>
-                    <a href="/voucher-balance" class="btn btn-muted">SOLDE BON / CARTE</a>
+                    <!-- GÉNÉROSITÉ : fidélité, solde des avantages, et les deux gestes
+                         de remise — ce que l'on CONCÈDE au client. Ils étaient sous
+                         RÈGLEMENT, dont la touche va désormais droit à l'encaissement. -->
+                    <a href="/fidelity" class="btn btn-muted">{inject:i18n.get('main.fidelite')}</a>
+                    <a href="/voucher-balance" class="btn btn-muted">{inject:i18n.get('main.soldeBonCarte')}</a>
+                    <!-- Une seule touche pour les trois façons de changer le prix d'une
+                         ligne : elle ouvre la modale sur la remise, les trois modes s'y échangent. -->
+                    <a href="/action/price-mod/remise" data-prefill class="btn btn-muted">{inject:i18n.get('main.remisePrix')}</a>
+                    <a href="/action/price-mod/global_remise" data-prefill class="btn btn-warning">{inject:i18n.get('main.remiseTicket')}</a>
 
                 {#else if state.menu.key == 'tiroir'}
                     <!-- TIROIR : l'argent du tiroir. -->
-                    <a href="/cash-movement" class="btn btn-success">MOUVEMENT</a>
-                    <a href="/withdrawal" class="btn btn-success">PRÉLÈVEMENT</a>
-                    <a href="/apport" class="btn btn-success">APPORT MONNAIE</a>
-                    <a href="/transfer" class="btn btn-success">TRANSFERT RÈGLEMENT</a>
-                    <a href="/financial-movement" class="btn btn-success">MVT FINANCIER</a>
-                    <a href="/change-order" class="btn btn-muted">COMMANDE MONNAIE</a>
-                    <a href="/action/deposit" class="btn btn-muted">DÉCONSIGNATION</a>
+                    <a href="/cash-movement" class="btn btn-success">{inject:i18n.get('main.mouvement')}</a>
+                    <a href="/withdrawal" class="btn btn-success">{inject:i18n.get('main.prelevement')}</a>
+                    <a href="/apport" class="btn btn-success">{inject:i18n.get('main.apportMonnaie')}</a>
+                    <a href="/transfer" class="btn btn-success">{inject:i18n.get('main.transfertReglement')}</a>
+                    <a href="/financial-movement" class="btn btn-success">{inject:i18n.get('main.mvtFinancier')}</a>
+                    <a href="/change-order" class="btn btn-muted">{inject:i18n.get('main.commandeMonnaie')}</a>
+                    <a href="/action/deposit" class="btn btn-muted">{inject:i18n.get('main.deconsignation')}</a>
 
                 {#else}
                     <!-- AUTRE : le reste — supervision, mode dégradé, réglages opérateur, rappel. -->
-                    <a href="/supervisor" class="btn btn-warning">APPEL SUPERVISEUR</a>
+                    <a href="/supervisor" class="btn btn-warning">{inject:i18n.get('main.appelSuperviseur')}</a>
                     <form action="/action/monetics-degraded" method="POST" style="display:contents;">
                         <button type="submit" class="btn btn-warning" style="color:#000;">{state.moneticsDegradedForced ? 'LEVER DÉGRADÉ MONÉTIQUE' : 'FORCER DÉGRADÉ MONÉTIQUE'}</button>
                     </form>
                     <!-- EXP-90/91/92 : rappel par code d'un devis, commande, bon de vente
                          ou panier click&collect remis par le back-office. -->
-                    <a href="/recall" class="btn btn-muted">RAPPEL CODE</a>
-                    <a href="/badge-print" class="btn btn-muted">BADGE OPÉRATEUR</a>
-                    <a href="/pin-change" class="btn btn-muted">CHANGER CODE PIN</a>
-                    <a href="/theme-select" class="btn btn-muted">THÈME D'AFFICHAGE</a>
+                    <a href="/recall" class="btn btn-muted">{inject:i18n.get('main.rappelCode')}</a>
+                    <a href="/badge-print" class="btn btn-muted">{inject:i18n.get('main.badgeOperateur')}</a>
+                    <a href="/pin-change" class="btn btn-muted">{inject:i18n.get('main.changerCodePin')}</a>
+                    <a href="/theme-select" class="btn btn-muted">{inject:i18n.get('common.theme')}</a>
                     {! LC-13-06-04 : changer la langue a tout moment, y compris pendant une
                      ! transaction. Le parametre language.operator-change decide si le choix
                      ! est pris ; l'ecran le dit plutot que de cacher la touche. !}
@@ -330,8 +328,20 @@
          does one thing instead of two. The current menu is the one lit. -->
     <div class="bottom-nav">
         {#for m in state.menus}
+        {#if m.direct}
+            <!-- UNE TOUCHE DIRECTE N'OUVRE PAS DE MENU : elle mène à son écran.
+                 Le garde-fou est celui qu'avait la touche ENCAISSER — rien à
+                 payer, rien à ouvrir : l'écran de règlement créerait sinon un
+                 ticket brouillon à zéro. -->
+            {#if state.ticket.totalAmount > 0}
+                <a id="payBtn" href="{m.destination}" class="btn btn-primary">{inject:i18n.get(m.labelKey)}</a>
+            {#else}
+                <button id="payBtn" class="btn btn-muted" disabled>{inject:i18n.get(m.labelKey)}</button>
+            {/if}
+        {#else}
         <a href="/action/menu/{m.key}"
-           class="btn {#if state.menu.key == m.key}btn-primary{#else}btn-muted{/if}">{m.label}</a>
+           class="btn {#if state.menu.key == m.key}btn-primary{#else}btn-muted{/if}">{inject:i18n.get(m.labelKey)}</a>
+        {/if}
         {/for}
     </div>
 
@@ -342,11 +352,11 @@
             <div class="price-title">CONTRÔLE D'ÂGE ({state.ageCheck.threshold}+)</div>
             <div style="text-align:center; font-weight:bold; margin:8px 0;">{state.ageCheck.productLabel}</div>
             <div style="text-align:center; color: var(--text-muted); margin-bottom:14px;">
-                Vérifiez la pièce d'identité du client<br>(né avant {ageCheckBirthYear})
+                {inject:i18n.get('main.verifiezPieceDIdentite')}<br>(né avant {ageCheckBirthYear})
             </div>
             <div style="display:flex; gap:12px; justify-content:center;">
-                <a href="/action/age-check/refuse" class="btn btn-danger" style="min-width:9.375rem; text-align:center;">REFUSER</a>
-                <a href="/action/age-check/confirm" class="btn btn-success" style="min-width:9.375rem; text-align:center;">CLIENT MAJEUR</a>
+                <a href="/action/age-check/refuse" class="btn btn-danger" style="min-width:9.375rem; text-align:center;">{inject:i18n.get('main.refuser')}</a>
+                <a href="/action/age-check/confirm" class="btn btn-success" style="min-width:9.375rem; text-align:center;">{inject:i18n.get('main.clientMajeur')}</a>
             </div>
         </div>
     </div>
@@ -361,7 +371,7 @@
     {#if state.entryPrompt.active}
     <div class="price-modal active" id="entryPromptModal">
         <div class="price-panel">
-            <div class="price-title">{state.entryPrompt.title}</div>
+            <div class="price-title">{inject:i18n.get(state.entryPrompt.titleKey)}</div>
             <div style="text-align:center; font-weight:bold; margin:8px 0;">{state.entryPrompt.label}</div>
             {#if !state.entryPrompt.priceKind && state.entryPrompt.unitPriceFormatted}
             <div style="text-align:center; color: var(--text-muted); margin-bottom:10px;">
@@ -373,8 +383,8 @@
                 <div id="entryDisplay" class="price-input-display pad-display"></div>
                 <div class="price-kb-area pos-kb-compact" id="entryKbArea"></div>
                 <div style="display:flex; gap:10px; margin-top:10px;">
-                    <a href="/action/entry/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">ANNULER</a>
-                    <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
+                    <a href="/action/entry/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">{inject:i18n.get('common.cancel')}</a>
+                    <button type="submit" class="btn btn-primary" style="width:50%;">{inject:i18n.get('common.validate')}</button>
                 </div>
             </form>
         </div>
@@ -383,7 +393,7 @@
     {#if state.priceModState.active}
         <div class="price-modal active">
             <div class="price-panel">
-                <div class="price-title">{state.priceModState.typeLabel}</div>
+                <div class="price-title">{inject:i18n.get(state.priceModState.typeLabelKey)}</div>
                 {#if state.priceModState.targetLine}
                     <!-- RAPPEL DE LA LIGNE MODIFIÉE. La modale recouvre le ticket :
                          sans ce rappel, remise, discount et forçage se saisissent
@@ -405,18 +415,18 @@
                 {#if state.priceModState.ticketModes}
                     <div class="price-modes">
                         <a href="/action/price-mod/global_remise"
-                           class="btn {state.priceModState.typeName == 'GLOBAL_REMISE' ? 'btn-primary' : 'btn-muted'}">MONTANT €</a>
+                           class="btn {state.priceModState.typeName == 'GLOBAL_REMISE' ? 'btn-primary' : 'btn-muted'}">{inject:i18n.get('main.montant')}</a>
                         <a href="/action/price-mod/global_discount"
-                           class="btn {state.priceModState.typeName == 'GLOBAL_DISCOUNT' ? 'btn-primary' : 'btn-muted'}">POURCENT %</a>
+                           class="btn {state.priceModState.typeName == 'GLOBAL_DISCOUNT' ? 'btn-primary' : 'btn-muted'}">{inject:i18n.get('main.pourcent')}</a>
                     </div>
                 {#else if state.priceModState.lineModes}
                     <div class="price-modes">
                         <a href="/action/price-mod/remise"
-                           class="btn {state.priceModState.typeName == 'REMISE' ? 'btn-primary' : 'btn-muted'}">REMISE €</a>
+                           class="btn {state.priceModState.typeName == 'REMISE' ? 'btn-primary' : 'btn-muted'}">{inject:i18n.get('main.remise')}</a>
                         <a href="/action/price-mod/discount"
-                           class="btn {state.priceModState.typeName == 'DISCOUNT' ? 'btn-primary' : 'btn-muted'}">DISCOUNT %</a>
+                           class="btn {state.priceModState.typeName == 'DISCOUNT' ? 'btn-primary' : 'btn-muted'}">{inject:i18n.get('main.discount')}</a>
                         <a href="/action/price-mod/force_price"
-                           class="btn {state.priceModState.typeName == 'FORCE_PRICE' ? 'btn-primary' : 'btn-muted'}">PRIX FORCÉ</a>
+                           class="btn {state.priceModState.typeName == 'FORCE_PRICE' ? 'btn-primary' : 'btn-muted'}">{inject:i18n.get('main.prixForce')}</a>
                     </div>
                 {/if}
                 <form action="/action/price-mod/submit" method="POST" id="priceForm">
@@ -429,14 +439,19 @@
                         <a href="/action/price-mod/cancel" class="btn btn-muted" style="width:50%; line-height: 3.125rem;">ANNULER</a>
                         <button type="submit" class="btn btn-primary" style="width:50%;">VALIDER</button>
                     </div>
-                    {#if state.priceModState.typeName == 'QUANTITY'}
+                    {#if state.priceModState.typeName == 'QUANTITY' && state.priceModState.targetLine}
                     <!-- LC-02-13-04/05/06 : la même valeur, l'autre destination. La
                          touche QUANTITÉ appliquait la quantité à une ligne DÉJÀ
                          enregistrée ; l'exigence demande aussi l'ordre inverse. Un
                          second bouton plutôt qu'une seconde touche de menu : c'est la
-                         même saisie, seule change la ligne qu'elle vise. -->
+                         même saisie, seule change la ligne qu'elle vise.
+                         Le bouton n'a de sens que sur une ligne VISÉE : sans
+                         sélection, la modale n'a pas de ligne du tout et VALIDER
+                         arme déjà la quantité pour le prochain article — deux
+                         boutons pour le même effet n'apprendraient rien à
+                         personne. -->
                     <button type="submit" formaction="/action/price-mod/arm"
-                            class="btn btn-warning" style="width:100%; margin-top:10px; color:#000;">POUR LE PROCHAIN ARTICLE</button>
+                            class="btn btn-warning" style="width:100%; margin-top:10px; color:#000;">{inject:i18n.get('main.prochainArticle')}</button>
                     {/if}
                 </form>
             </div>
@@ -536,8 +551,9 @@
                 }
                 // ENCAISSER is server-rendered outside the fragment: reload
                 // once when payability no longer matches the rendered control
-                // (first article scanned over the bus, cart emptied). Absent
-                // control = secondary menu shown, nothing to compare.
+                // (first article scanned over the bus, cart emptied). That control
+                // is the RÈGLEMENT key of the bottom bar, so it is present on every
+                // menu now that the key leads straight to the payment screen.
                 var payBtn = document.getElementById('payBtn');
                 if (payBtn && data.payable !== (payBtn.tagName === 'A')) {
                     window.location.reload();
@@ -573,7 +589,10 @@
             hiddenId: 'entryHidden',
             containerId: 'entryKbArea',
             keyboardType: 'price',
-            mode: 'decimal',
+            /* L'invite demande SOIT un prix SOIT une quantité, et seule la première
+               est un montant : un prix se tape en centimes, une quantité au kilo
+               garde sa virgule — 0,850 kg n'est pas 85 centimes. */
+            mode: '{#if state.entryPrompt.priceKind}cents{#else}decimal{/if}',
             placeholder: "0"
         });
     } else if (document.querySelector('.price-modal.active')) {
@@ -582,7 +601,10 @@
             hiddenId: 'priceHidden',
             containerId: 'priceKbArea',
             keyboardType: 'price',
-            mode: 'decimal',
+            /* Une seule modale, trois natures de chiffre : la remise et le prix forcé
+               sont des MONTANTS, donc des centimes ; le pourcentage et la quantité
+               n'en sont pas et gardent leur virgule. */
+            mode: '{#if state.priceModState.typeName == 'REMISE' || state.priceModState.typeName == 'GLOBAL_REMISE' || state.priceModState.typeName == 'FORCE_PRICE'}cents{#else}decimal{/if}',
             placeholder: "0"
         });
     }

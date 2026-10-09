@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware;
 
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +57,10 @@ class DrawerTicketPrintingTest {
     @BeforeEach
     void setUp() {
         service = new TicketPrinterService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         hardware = new FakeHardware();
         service.hardwareService = hardware;
     }

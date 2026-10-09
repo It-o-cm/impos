@@ -6,7 +6,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Retour Client - Recherche</title>
+  <title>{inject:i18n.get('returnsearch.retourClientRecherche')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -64,15 +64,15 @@
 
 <div class="pos-terminal">
   <div class="top-bar">
-    <span class="store-name">INTERMARCHÉ</span>
-    <span id="screenTitle">RETOUR CLIENT</span>
+    <span class="store-name">{inject:i18n.get('common.store')}</span>
+    <span id="screenTitle">{inject:i18n.get('returnsearch.retourClient')}</span>
     <span id="clock">--:--:--</span>
   </div>
 
   <div class="main-area">
     <div class="list-panel">
       <div class="search-ticket-bar">
-        <div class="search-info">Saisissez le N° de ticket</div>
+        <div class="search-info">{inject:i18n.get('returnsearch.saisissezNTicket')}</div>
       </div>
 
       <div class="content-area">
@@ -84,9 +84,9 @@
         <div class="search-results-list">
           {#if state.refund.foundTickets.isEmpty}
             {#if state.refund.searchPattern.length >= 3}
-              <div style="text-align:center; padding:20px; color:var(--danger);">Aucun ticket trouvé</div>
+              <div style="text-align:center; padding:20px; color:var(--danger);">{inject:i18n.get('returnsearch.aucunTicketTrouve')}</div>
             {#else}
-              <div style="text-align:center; padding:20px; color:var(--text-muted);">Saisir au moins 3 caractères</div>
+              <div style="text-align:center; padding:20px; color:var(--text-muted);">{inject:i18n.get('returnsearch.saisirMoins3Caracteres')}</div>
             {/if}
           {#else}
             {#for t in state.refund.foundTickets}
@@ -123,7 +123,7 @@
   </div>
 
   <div class="bottom-nav">
-    <a href="/return/leave" class="btn-back">RETOUR</a>
+    <a href="/return/leave" class="btn-back">{inject:i18n.get('common.back')}</a>
   </div>
 </div>
 
@@ -160,9 +160,8 @@
 
     var serverPattern = '{state.refund.searchPattern}';
     if (serverPattern && serverPattern.length > 0) {
-      PosInput.buffer = serverPattern;
+      PosInput.resume(serverPattern);
       prevLen = serverPattern.length;
-      PosInput.updateDisplay();
     }
   });
 </script>

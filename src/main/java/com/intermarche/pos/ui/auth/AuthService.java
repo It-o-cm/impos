@@ -43,6 +43,14 @@ public class AuthService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(AuthService.class);
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** Number of consecutive PIN failures triggering a lockout. */
     @ConfigProperty(name = "pos.auth.max-attempts", defaultValue = "3")
     int maxAttempts;
@@ -64,6 +72,25 @@ public class AuthService {
         SUCCESS,
         /** Credentials invalid (unknown account or wrong PIN). */
         INVALID,
+        /** Account locked after repeated PIN failures. */
+        LOCKED
+    }
+
+    /**
+     * Outcome of a credential check made OUTSIDE the login — an endorsement, a
+     * closing password — where the three cases must be told apart by the screen.
+     *
+     * <p>THE LOCKOUT IS THE ONE THAT MATTERS. A boolean collapses {@link #DENIED}
+     * and {@link #LOCKED} into one refusal, and the screen then tells an operator
+     * their code is wrong while the register is in fact refusing a code that is
+     * right: they retype it, correctly, until they give up. The lockout has to be
+     * NAMED, or it reads as a definitive block.
+     */
+    public enum CheckOutcome {
+        /** Credentials valid and sufficient for what was asked. */
+        GRANTED,
+        /** Credentials invalid, or valid without the required role. */
+        DENIED,
         /** Account locked after repeated PIN failures. */
         LOCKED
     }
@@ -336,11 +363,19 @@ public class AuthService {
         if (state.auth.operatorBadgeId != null) {
             technicalEventService.log(TechnicalEvent.EventType.REGISTER_LOCKED,
                     null, state.auth.operatorBadgeId);
+            // LC-13-06-02: at sign-out the default language applies again — the
+            // choice belonged to the OPERATOR who made it, not to the register.
+            //
+            // INSIDE the "somebody was signed in" guard, and that is the whole
+            // point: /lock logs out at EVERY render to reset a free register, so
+            // dropping the language unconditionally erased it a millisecond after
+            // it was chosen — and the lock screen is precisely where an operator
+            // who cannot read the till's language has to choose one
+            // (LC-13-06-03). A logout with nobody signed in has nothing to
+            // forget.
+            state.language = null;
         }
         state.auth.logout();
-        // LC-13-06-02: at sign-out the default language applies again. The choice
-        // belonged to the operator who made it, not to the register.
-        state.language = null;
         state.clearTicket();
         LOGGER.info("Exiting method logout");
     }
@@ -363,24 +398,24 @@ public class AuthService {
         Long operatorId = state.auth.operatorId;
         if (operatorId == null) {
             LOGGER.info("Exiting method changePin");
-            return "Aucun opérateur connecté";
+            return i18n.get("op.aucunOperateurConnecte");
         }
         Employee employee = Employee.findById(operatorId);
         if (employee == null) {
             LOGGER.info("Exiting method changePin");
-            return "Opérateur introuvable";
+            return i18n.get("op.operateurIntrouvable2");
         }
         if (currentPin == null || !employee.verifyPassword(currentPin)) {
             LOGGER.info("Exiting method changePin");
-            return "Code PIN actuel incorrect";
+            return i18n.get("op.codePinActuelIncorrect");
         }
         if (newPin == null || !newPin.matches("\\d{4}")) {
             LOGGER.info("Exiting method changePin");
-            return "Le nouveau code doit comporter 4 chiffres";
+            return i18n.get("op.nouveauCodeDoitComporter");
         }
         if (!newPin.equals(confirmPin)) {
             LOGGER.info("Exiting method changePin");
-            return "Les nouveaux codes ne correspondent pas";
+            return i18n.get("op.nouveauxCodesNeCorrespondent");
         }
         employee.password = Employee.hashPassword(newPin);
         employee.persist();

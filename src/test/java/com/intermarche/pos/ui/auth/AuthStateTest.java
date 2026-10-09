@@ -184,4 +184,97 @@ class AuthStateTest {
         Assertions.assertNull(state.lockedOperatorBadgeId);
         Assertions.assertFalse(state.passwordChangeRequired);
     }
+
+    /**
+     * A fresh register arms no supervisor identification: an unexpected badge
+     * has nowhere to land (the zero-deadline arm).
+     */
+    @Test
+    void supervisorBadgeIsNotArmedByDefault() {
+        AuthState state = new AuthState();
+        Assertions.assertFalse(state.supervisorBadgeArmed());
+        Assertions.assertNull(state.supervisorBadgeId);
+    }
+
+    /**
+     * Arming opens the supervisor mailbox for the given span (the
+     * deadline-in-the-future arm).
+     */
+    @Test
+    void armSupervisorBadgeOpensTheMailbox() {
+        AuthState state = new AuthState();
+        state.armSupervisorBadge(3000L);
+        Assertions.assertTrue(state.supervisorBadgeArmed());
+    }
+
+    /**
+     * An arming whose deadline has passed is no arming at all: a panel that
+     * left the screen stops receiving badges without anyone disarming it (the
+     * deadline-in-the-past arm).
+     */
+    @Test
+    void anExpiredArmingNoLongerReceivesBadges() {
+        AuthState state = new AuthState();
+        state.armSupervisorBadge(-1L);
+        Assertions.assertFalse(state.supervisorBadgeArmed());
+    }
+
+    /**
+     * A badge deposited for a supervisor identification is also recorded as
+     * PRESENTED, like the opening's own mailbox does: the proof that a badge was
+     * physically read is one and the same for both identifications.
+     */
+    @Test
+    void setSupervisorBadgeDepositsAndRecordsThePresentation() {
+        AuthState state = new AuthState();
+        state.setSupervisorBadge("BADGE-9");
+        Assertions.assertEquals("BADGE-9", state.supervisorBadgeId);
+        Assertions.assertEquals("BADGE-9", state.takePresentedBadge());
+    }
+
+    /**
+     * Taking the supervisor mailbox empties it — it is a one-shot — and leaves
+     * the arming standing, so a supervisor who presented the wrong badge may
+     * present another.
+     */
+    @Test
+    void takeSupervisorBadgeIsOneShotAndKeepsTheArming() {
+        AuthState state = new AuthState();
+        state.armSupervisorBadge(3000L);
+        state.setSupervisorBadge("BADGE-9");
+        Assertions.assertEquals("BADGE-9", state.takeSupervisorBadge());
+        Assertions.assertNull(state.takeSupervisorBadge());
+        Assertions.assertTrue(state.supervisorBadgeArmed());
+    }
+
+    /**
+     * An empty supervisor mailbox answers null rather than throwing.
+     */
+    @Test
+    void takeSupervisorBadgeOnAnEmptyMailboxAnswersNull() {
+        Assertions.assertNull(new AuthState().takeSupervisorBadge());
+    }
+
+    /**
+     * The three exits — login, logout and pause — each drop the supervisor
+     * mailbox AND its arming: a badge or an arming surviving a change of
+     * operator would route the next scan to a panel from the previous shift.
+     */
+    @Test
+    void loginLogoutAndPauseAllDropTheSupervisorArming() {
+        for (int exit = 0; exit < 3; exit++) {
+            AuthState state = new AuthState();
+            state.armSupervisorBadge(3000L);
+            state.setSupervisorBadge("BADGE-9");
+            if (exit == 0) {
+                state.login(7L, "Alice", "007");
+            } else if (exit == 1) {
+                state.logout();
+            } else {
+                state.pause();
+            }
+            Assertions.assertNull(state.supervisorBadgeId);
+            Assertions.assertFalse(state.supervisorBadgeArmed());
+        }
+    }
 }

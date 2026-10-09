@@ -42,13 +42,31 @@ public class HomeService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(HomeService.class);
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     @Inject
     PosState state;
 
     @Inject
     TicketService ticketService;
 
-    /** Resolves the software tare deducted from a manually typed weight (LC-14-01-08). */
+    /**
+     * Resolves the software tare to deduct from a manually typed weight
+     * ({@code LC-14-01-08}).
+     *
+     * <p>NOTHING IN THIS CLASS CALLS IT YET, and deliberately so: the tare is
+     * deducted from a weight TYPED BEFORE THE ARTICLE, on the manual-weight key
+     * of {@code LC-02-02-03}, and that key does not exist. It was briefly wired
+     * onto the QUANTITE key over an existing weighed line, which put a keyed
+     * figure over a measurement — the one thing {@code LC-02-13-15} forbids. The
+     * resolver stays injected here because this is the service that will own that
+     * key.
+     */
     @Inject
     com.intermarche.pos.ui.balance.TareService tareService;
 
@@ -101,6 +119,15 @@ public class HomeService {
      */
     public void selectMenu(com.intermarche.pos.ui.PosMenu menu) {
         LOGGER.info("Entering method selectMenu with menu: " + menu);
+        if (menu != null && menu.isDirect()) {
+            // A DIRECT KEY IS NOT A MENU: it carries no button list, so selecting
+            // it would leave the screen showing an empty block. The bottom bar
+            // links it to its screen and never here; a stale page or a hand-typed
+            // URL that still asks for it keeps the menu it was on.
+            state.touch();
+            LOGGER.info("Exiting method selectMenu: direct key, menu unchanged");
+            return;
+        }
         state.menu = menu;
         state.touch();
         LOGGER.info("Exiting method selectMenu");
@@ -200,8 +227,8 @@ public class HomeService {
             return null;
         }
         LOGGER.info("Exiting method drawerCapAlert");
-        return "PRÉLÈVEMENT BILLETS — CONTENU TIROIR "
-                + String.format("%.2f", excess).replace('.', ',') + " €";
+        return i18n.format("op.prelevementBilletsContenuTiroir",
+                String.format("%.2f", excess).replace('.', ','));
     }
 
     public List<RestrictedTenderRow> restrictedTenderRows() {
@@ -238,7 +265,7 @@ public class HomeService {
     public void armQuantity(BigDecimal quantity) {
         LOGGER.info("Entering method armQuantity with quantity: " + quantity);
         if (quantity == null || quantity.signum() <= 0) {
-            state.ticket.setError("QUANTITÉ INVALIDE");
+            state.ticket.setError(i18n.get("op.quantiteInvalide"));
             state.priceModState.clear();
             state.touch();
             LOGGER.info("Exiting method armQuantity");
@@ -246,10 +273,67 @@ public class HomeService {
         }
         state.armedQuantity = quantity;
         state.priceModState.clear();
-        state.ticket.setNotice("QUANTITÉ " + quantity.stripTrailingZeros().toPlainString()
-                + " — SAISISSEZ L'ARTICLE");
+        state.ticket.setNotice(i18n.format("op.quantiteSaisissezArticle",
+                quantity.stripTrailingZeros().toPlainString()));
         state.touch();
         LOGGER.info("Exiting method armQuantity");
+    }
+
+    /**
+     * Takes ONE UNIT — or the quantity keyed just before — off the line a
+     * cancel-by-scan found, rather than striking the whole line out.
+     *
+     * <p>SCANNING AN ARTICLE TWICE AND CANCELLING IT ONCE ARE NOT THE SAME
+     * GESTURE. The register used to remove the line whole: a customer taking one
+     * of the three yogurts back lost all three, and the cashier had to re-scan
+     * the other two. The scan names an ARTICLE, and the unit is what leaves the
+     * basket with it — so the line loses one unit, and only disappears when its
+     * last unit goes.
+     *
+     * <p>A QUANTITY KEYED FIRST IS HONOURED, because that is how the operator
+     * says "take two back": the armed quantity is consumed here exactly as the
+     * article entry consumes it, so it never leaks onto the next scan. A keyed
+     * quantity at or above what the line carries empties it, and the line is then
+     * cancelled through the ordinary path — with its endorsement, because
+     * removing a line is the gesture a manager answers for.
+     *
+     * <p>Only a UNIT line is decremented. A weighed line's quantity is a weight
+     * ({@code LC-02-13-15}) and half a weighing means nothing: it is cancelled
+     * whole, as before.
+     *
+     * <p>Package-private so every refusal arm can be reached directly, like
+     * {@link #cancelLineByUid(String)} beside it: through {@code cancelByScan}
+     * the line is always found, so the not-found arm would be untestable.
+     *
+     * @param targetUid the uid of the line the scan found
+     * @return true when the line was decremented and nothing else must happen,
+     *         false when the caller must cancel the line outright
+     */
+    boolean decrementByScan(String targetUid) {
+        LOGGER.info("Entering method decrementByScan with targetUid: " + targetUid);
+        BigDecimal asked = state.armedQuantity;
+        state.armedQuantity = null;
+        TicketState.TicketItem item = state.ticket.items.stream()
+                .filter(i -> i.uid.equals(targetUid))
+                .findFirst()
+                .orElse(null);
+        if (item == null || (item.plu != null && !item.plu.isEmpty())
+                || item.priceEmbedded || item.moneyProduct
+                || item.getTotalPrice().signum() < 0) {
+            LOGGER.info("Exiting method decrementByScan with false");
+            return false;
+        }
+        BigDecimal units = asked == null || asked.signum() <= 0 ? BigDecimal.ONE : asked;
+        if (item.quantity.compareTo(units) <= 0) {
+            LOGGER.info("Exiting method decrementByScan with false");
+            return false;
+        }
+        item.quantity = item.quantity.subtract(units);
+        ticketService.recalculateTotal(state);
+        state.ticket.setNotice(i18n.format("op.quantiteRetireeArticle",
+                units.stripTrailingZeros().toPlainString()));
+        LOGGER.info("Exiting method decrementByScan with true");
+        return true;
     }
 
     /**
@@ -279,26 +363,26 @@ public class HomeService {
         LOGGER.info("Entering method repeatLastItem");
         TicketState.TicketItem last = lastEnteredItem();
         if (last == null) {
-            state.ticket.setError("AUCUN ARTICLE À RÉPÉTER");
+            state.ticket.setError(i18n.get("op.aucunArticleRepeter"));
             state.touch();
             LOGGER.info("Exiting method repeatLastItem");
             return;
         }
         if (last.plu != null && !last.plu.isEmpty()) {
-            state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE EN PESÉE");
+            state.ticket.setError(i18n.get("op.repetitionImpossibleArticlePesee"));
             state.touch();
             LOGGER.info("Exiting method repeatLastItem");
             return;
         }
         if (last.priceEmbedded) {
-            state.ticket.setError("RÉPÉTITION IMPOSSIBLE : ARTICLE PRIX EMBARQUÉ");
+            state.ticket.setError(i18n.get("op.repetitionImpossibleArticlePrix"));
             state.touch();
             LOGGER.info("Exiting method repeatLastItem");
             return;
         }
         last.quantity = last.quantity.add(BigDecimal.ONE);
         ticketService.recalculateTotal(state);
-        state.ticket.setNotice("ARTICLE RÉPÉTÉ : " + last.label);
+        state.ticket.setNotice(i18n.format("op.articleRepete", last.label));
         state.touch();
         LOGGER.info("Exiting method repeatLastItem");
     }
@@ -339,15 +423,14 @@ public class HomeService {
         if (selected != null) {
             selected.toCollect = !selected.toCollect;
             state.selectedTicketIndex = -1;
-            state.ticket.setNotice(selected.toCollect
-                    ? "ARTICLE MARQUÉ À ENLEVER" : "MARQUAGE À ENLEVER RETIRÉ");
+            state.ticket.setNotice(i18n.get(selected.toCollect
+                    ? "op.articleMarqueEnlever" : "op.marquageEnleverRetire"));
             state.touch();
             LOGGER.info("Exiting method toggleCollect");
             return;
         }
         state.collectArmed = !state.collectArmed;
-        state.ticket.setNotice(state.collectArmed
-                ? "PROCHAIN ARTICLE À ENLEVER" : "MARQUAGE À ENLEVER ANNULÉ");
+        state.ticket.setNotice(i18n.get(state.collectArmed ? "op.prochainArticleEnlever" : "op.marquageEnleverAnnule"));
         state.touch();
         LOGGER.info("Exiting method toggleCollect");
     }
@@ -391,10 +474,12 @@ public class HomeService {
     void cancelLineByUid(String targetUid) {
         LOGGER.info("Entering method cancelLineByUid with targetUid: " + targetUid);
         if (state.ticket.items.size() == 1
-                && targetUid.equals(state.ticket.items.get(0).uid)) {
+                && targetUid.equals(state.ticket.items.get(0).uid)
+                && !onlyNegativeLines()) {
             // EXP-35: cancelling the only line would zero the ticket, a known
-            // fraud door. The refusal names the exit: the ticket abandon.
-            state.ticket.setError("DERNIER ARTICLE — UTILISEZ L'ABANDON DE TICKET");
+            // fraud door. The refusal names the exit: the ticket abandon. A ticket
+            // that sold NOTHING is exempt — see onlyNegativeLines().
+            state.ticket.setError(i18n.get("op.dernierArticleUtilisezAbandon"));
             LOGGER.info("Exiting method cancelLineByUid");
             return;
         }
@@ -409,6 +494,29 @@ public class HomeService {
             endorsementService.requestAuthorization(state, "CANCEL_LINE_" + targetUid);
         }
         LOGGER.info("Exiting method cancelLineByUid");
+    }
+
+    /**
+     * Whether the ticket holds nothing but negative lines — a deposit return, a
+     * reprise — and therefore nothing sold.
+     *
+     * <p>What the last-article guard protects is a SALE being quietly zeroed. A
+     * ticket carrying only money owed BACK to the customer has no sale to empty, so
+     * the door that guard watches does not exist there. Without this exemption a
+     * cashier who rang a deposit return by mistake had no way out but the ticket
+     * abandon — its reason, its endorsement, its printed document — for a bottle the
+     * customer changed their mind about. Worse, a second press on DÉCONSIGNATION
+     * adds no line but raises the quantity of the first, and the quantity key
+     * refuses a negative line: the ticket was a dead end.
+     *
+     * <p>An empty ticket answers true, and that costs nothing: the only caller
+     * already demands exactly one line, so the answer is never read there. A guard
+     * against the empty case would be a branch no test could ever reach.
+     *
+     * @return true when every line of the ticket is negative
+     */
+    private boolean onlyNegativeLines() {
+        return state.ticket.items.stream().allMatch(TicketState.TicketItem::isNegative);
     }
 
     /**
@@ -440,9 +548,9 @@ public class HomeService {
     public void markSubtotal() {
         LOGGER.info("Entering method markSubtotal");
         if (state.ticket.markSubtotal()) {
-            state.ticket.setNotice("SOUS-TOTAL POSÉ");
+            state.ticket.setNotice(i18n.get("op.sousTotalPose"));
         } else {
-            state.ticket.setError("AUCUN ARTICLE POUR UN SOUS-TOTAL");
+            state.ticket.setError(i18n.get("op.aucunArticleSousTotal"));
         }
         state.touch();
         LOGGER.info("Exiting method markSubtotal");
@@ -476,7 +584,7 @@ public class HomeService {
         // to toggle and says so instead of handing the till back to sales.
         if (posSettingsService.returnDedicatedRegister()) {
             state.returnMode = true;
-            state.ticket.setError("CAISSE DÉDIÉE AUX RETOURS");
+            state.ticket.setError(i18n.get("op.caisseDedieeRetours"));
             state.touch();
             LOGGER.info("Exiting method toggleReturnMode");
             return;
@@ -486,7 +594,7 @@ public class HomeService {
             // return stays a return to the end — leaving the mode over returned
             // lines would ring the next articles as a sale on the same ticket.
             if (!posSettingsService.returnInSaleAllowed() && hasReturnLine()) {
-                state.ticket.setError("TICKET DE RETOUR — VENTE INTERDITE SUR CE TICKET");
+                state.ticket.setError(i18n.get("op.ticketRetourVenteInterdite"));
                 state.touch();
                 LOGGER.info("Exiting method toggleReturnMode");
                 return;
@@ -499,7 +607,7 @@ public class HomeService {
         // forbidden store-wide; the recall-based return (/return) is then the only
         // way in.
         if (!posSettingsService.returnWithoutOriginAllowed()) {
-            state.ticket.setError("RETOUR SANS TICKET D'ORIGINE INTERDIT");
+            state.ticket.setError(i18n.get("op.retourSansTicketOrigine"));
             state.touch();
             LOGGER.info("Exiting method toggleReturnMode");
             return;
@@ -507,7 +615,7 @@ public class HomeService {
         // LC-05-01-01: a return inside a ticket that already carries sales is a
         // permission of its own — without it the return starts on an empty ticket.
         if (!posSettingsService.returnInSaleAllowed() && !state.ticket.items.isEmpty()) {
-            state.ticket.setError("RETOUR DANS UN TICKET DE VENTE INTERDIT");
+            state.ticket.setError(i18n.get("op.retourTicketVenteInterdit"));
             state.touch();
             LOGGER.info("Exiting method toggleReturnMode");
             return;
@@ -557,7 +665,7 @@ public class HomeService {
             }
         }
         if (type == null) {
-            state.ticket.setError("TYPE DE RETOUR INCONNU");
+            state.ticket.setError(i18n.get("op.typeRetourInconnu"));
             state.touch();
             LOGGER.info("Exiting method startReturnType");
             return false;
@@ -605,8 +713,7 @@ public class HomeService {
             // the previous one's type.
             state.returnTypeLabel = null;
         }
-        state.ticket.setNotice(state.returnMode
-                ? "MODE RETOUR ACTIVÉ — LES ARTICLES SONT REPRIS" : "MODE RETOUR TERMINÉ");
+        state.ticket.setNotice(i18n.get(state.returnMode ? "op.modeRetourActiveArticles" : "op.modeRetourTermine"));
         state.touch();
         LOGGER.info("Exiting method performReturnModeToggle");
     }
@@ -620,7 +727,7 @@ public class HomeService {
         LOGGER.info("Entering method armCancelByScan");
         state.cancelByScanArmed = true;
         state.priceModState.clear();
-        state.ticket.setNotice("SCANNEZ L'ARTICLE À ANNULER");
+        state.ticket.setNotice(i18n.get("op.scannezArticleAnnuler"));
         state.touch();
         LOGGER.info("Exiting method armCancelByScan");
     }
@@ -645,8 +752,8 @@ public class HomeService {
             }
         }
         if (targetUid == null) {
-            state.ticket.setError("ARTICLE ABSENT DU TICKET");
-        } else {
+            state.ticket.setError(i18n.get("op.articleAbsentTicket"));
+        } else if (!decrementByScan(targetUid)) {
             cancelLineByUid(targetUid);
         }
         state.selectedTicketIndex = -1;
@@ -678,7 +785,7 @@ public class HomeService {
         // when they succeeded, changed nothing on it: the register printed and
         // said nothing, which on a till whose printer is a remote bridge is
         // indistinguishable from a dead button.
-        state.ticket.setNotice("TICKET RÉIMPRIMÉ");
+        state.ticket.setNotice(i18n.get("op.ticketReimprime"));
         LOGGER.info("Exiting method printLastTicket");
     }
 
@@ -698,7 +805,7 @@ public class HomeService {
             return;
         }
         ticketService.printTicketIdentityBarcode(state.lastClosedTicketId);
-        state.ticket.setNotice("CODE-BARRES IMPRIMÉ");
+        state.ticket.setNotice(i18n.get("op.codeBarresImprime"));
         LOGGER.info("Exiting method printLastTicketBarcode");
     }
 
@@ -722,9 +829,9 @@ public class HomeService {
         // but pressing the key and getting silence is: the operator is told the
         // ticket has no card slip to duplicate.
         if (ticketService.printCardReceiptDuplicate(state.lastClosedTicketId) > 0) {
-            state.ticket.setNotice("DUPLICATA CB IMPRIMÉ");
+            state.ticket.setNotice(i18n.get("op.duplicataCbImprime"));
         } else {
-            state.ticket.setError("AUCUN PAIEMENT CARTE SUR CE TICKET");
+            state.ticket.setError(i18n.get("op.aucunPaiementCarteTicket"));
         }
         LOGGER.info("Exiting method printLastCardReceiptDuplicate");
     }
@@ -744,7 +851,7 @@ public class HomeService {
         LOGGER.info("Entering method openPriceMod with type: " + type);
         PriceModType mode = PriceModType.of(type == null ? null : type.toUpperCase());
         if (mode == null) {
-            state.ticket.setError("MODIFICATION INCONNUE");
+            state.ticket.setError(i18n.get("op.modificationInconnue"));
             state.touch();
             LOGGER.info("Exiting method openPriceMod");
             return;
@@ -752,14 +859,30 @@ public class HomeService {
         // Ticket-level gestures target the whole sale: no line selection
         // required (phase: global ticket discount).
         if (mode.isTicketLevel()) {
-            state.priceModState.set(mode, null, "TICKET COMPLET");
+            state.priceModState.set(mode, null, i18n.get("op.ticketComplet"));
             state.touch();
             LOGGER.info("Exiting method openPriceMod");
             return;
         }
-        TicketState.TicketItem target = state.getTargetItem();
-        if (target == null) {
-            state.ticket.setError("AUCUNE LIGNE SÉLECTIONNÉE");
+        // THE QUANTITY KEY READS THE EXPLICIT SELECTION, not the fallback.
+        // getTargetItem() answers the last line when nothing is selected, which
+        // is the right answer for the price gestures and the wrong one here: a
+        // quantity keyed with no line chosen landed on the last article rung
+        // instead of arming for the next one, so the arming below never fired
+        // on a ticket that already carried a line (LC-02-13-04/05/06).
+        TicketState.TicketItem target = mode == PriceModType.QUANTITY
+                ? state.getSelectedItem() : state.getTargetItem();
+        if (target == null && mode == PriceModType.QUANTITY) {
+            // NO LINE SELECTED AND A QUANTITY KEYED: the figure is for the article
+            // ABOUT TO BE RUNG. Keying the quantity and then the article is the
+            // order LC-02-13-04/05/06 asks for, and a cashier who has selected
+            // nothing can only mean that one — there is no other line the quantity
+            // could belong to. So the modal opens WITHOUT a target line, and
+            // validating it arms the quantity for the next article instead of
+            // refusing the gesture.
+            state.priceModState.set(mode, null, i18n.get("op.prochainArticle"));
+        } else if (target == null) {
+            state.ticket.setError(i18n.get("op.aucuneLigneSelectionnee"));
         } else {
             // The line is captured HERE, at opening, and not read again while the
             // modal is up: what the operator is about to modify is the line as it
@@ -796,14 +919,49 @@ public class HomeService {
             // Same refusal as the modal's own: the figure is named invalid and
             // nothing is applied. A pre-entry cannot be "half applied", since the
             // operator is no longer looking at a field to correct.
-            state.ticket.setError("VALEUR INVALIDE");
+            state.ticket.setError(i18n.get("op.valeurInvalide"));
             state.priceModState.clear();
             state.touch();
             LOGGER.info("Exiting method applyPreEntry");
             return;
         }
-        submitPriceMod(state.priceModState.type, state.priceModState.targetUid, value);
+        submitPriceMod(state.priceModState.type, state.priceModState.targetUid,
+                preEntryAmount(state.priceModState.type, rawValue, value));
         LOGGER.info("Exiting method applyPreEntry");
+    }
+
+    /**
+     * Reads a pre-entered figure as what the gesture about to consume it expects.
+     *
+     * <p>AN AMOUNT IS KEYED IN CENTS, WITHOUT EXCEPTION. The pre-entry pad is the one
+     * place where the register cannot know in advance whether the figure is an
+     * amount: the same buffer feeds the quantity key, the percentage gestures and the
+     * two that move money. So the gesture decides — a remise in euros and a forced
+     * price are amounts, and their figure is cents; a quantity and a percentage are
+     * not amounts and keep what was keyed.
+     *
+     * <p>A separator keyed on an amount is DROPPED, not honoured: the pad still
+     * carries a comma because quantities need it, and {@code 3,50} on a remise means
+     * the same three euros fifty as {@code 350}. There is no spelling of an amount
+     * that places its own comma.
+     *
+     * @param type the gesture about to consume the figure
+     * @param rawValue the figure as the pad held it
+     * @param value the figure already parsed, for the gestures that are not amounts
+     * @return the value the gesture expects
+     */
+    private BigDecimal preEntryAmount(PriceModType type, String rawValue, BigDecimal value) {
+        boolean amountGesture = type == PriceModType.REMISE
+                || type == PriceModType.GLOBAL_REMISE
+                || type == PriceModType.FORCE_PRICE;
+        if (!amountGesture) {
+            return value;
+        }
+        String digits = rawValue == null ? "" : rawValue.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) {
+            return value;
+        }
+        return new BigDecimal(digits).movePointLeft(2);
     }
 
     /**
@@ -831,7 +989,7 @@ public class HomeService {
     public void requestTrainingToggle() {
         LOGGER.info("Entering method requestTrainingToggle");
         if (!state.ticket.items.isEmpty() || state.payment.paymentInProgress) {
-            state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+            state.ticket.setError(i18n.get("op.terminezAnnulezTicketAbord"));
             state.touch();
             LOGGER.info("Exiting method requestTrainingToggle");
             return;
@@ -853,7 +1011,7 @@ public class HomeService {
     public void performTrainingToggle() {
         LOGGER.info("Entering method performTrainingToggle");
         if (!state.ticket.items.isEmpty() || state.payment.paymentInProgress) {
-            state.ticket.setError("TERMINEZ OU ANNULEZ LE TICKET D'ABORD");
+            state.ticket.setError(i18n.get("op.terminezAnnulezTicketAbord"));
             LOGGER.info("Exiting method performTrainingToggle");
             return;
         }
@@ -861,7 +1019,7 @@ public class HomeService {
         technicalEventService.log(state.trainingMode
                 ? TechnicalEvent.EventType.TRAINING_STARTED
                 : TechnicalEvent.EventType.TRAINING_ENDED, null);
-        state.ticket.setError(state.trainingMode ? "MODE FORMATION ACTIVÉ" : "MODE FORMATION TERMINÉ");
+        state.ticket.setError(i18n.get(state.trainingMode ? "op.modeFormationActive" : "op.modeFormationTermine"));
         LOGGER.info("Exiting method performTrainingToggle");
     }
 
@@ -884,7 +1042,7 @@ public class HomeService {
                 ? reason : reason + " — " + message;
         technicalEventService.log(TechnicalEvent.EventType.SUPERVISOR_CALLED, journalled);
         if (!syncOutboxService.isEnabled()) {
-            state.ticket.setError("SUPERVISION NON CONFIGURÉE SUR CETTE CAISSE");
+            state.ticket.setError(i18n.get("op.supervisionNonConfigureeCaisse"));
             state.touch();
             LOGGER.info("Exiting method callSupervisor");
             return;
@@ -912,15 +1070,15 @@ public class HomeService {
                 // A CONFIRMATION, not a refusal: the zone is shared, so the
                 // setter is what decides whether it is drawn red with an ERR
                 // marker or as an acknowledgement.
-                state.ticket.setNotice("SUPERVISEUR PRÉVENU");
+                state.ticket.setNotice(i18n.get("op.superviseurPrevenu"));
             } else {
-                state.ticket.setError("APPEL SUPERVISEUR REFUSÉ (" + response.statusCode() + ")");
+                state.ticket.setError(i18n.format("op.appelSuperviseurRefuse", String.valueOf(response.statusCode())));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            state.ticket.setError("APPEL SUPERVISEUR INTERROMPU");
+            state.ticket.setError(i18n.get("op.appelSuperviseurInterrompu"));
         } catch (Exception e) {
-            state.ticket.setError("APPEL SUPERVISEUR IMPOSSIBLE");
+            state.ticket.setError(i18n.get("op.appelSuperviseurImpossible"));
         }
         state.touch();
         LOGGER.info("Exiting method callSupervisor");
@@ -993,13 +1151,18 @@ public class HomeService {
      */
     public void submitPriceMod(PriceModType type, String uid, BigDecimal value) {
         LOGGER.info("Entering method submitPriceMod with type: " + type + ", uid: " + uid + ", value: " + value);
-        if (type == PriceModType.QUANTITY) {
+        if (type == PriceModType.QUANTITY && (uid == null || uid.isBlank())) {
+            // The modal opened with no target line because there was none to open
+            // on: there is therefore no line to multiply, and the figure is armed
+            // for the article the cashier is about to ring (LC-02-13-04/05/06).
+            armQuantity(value);
+        } else if (type == PriceModType.QUANTITY) {
             // Multiplying a scanned line is a normal sale action: no endorsement
             applyLineQuantity(uid, value);
         } else if (isDiscountGesture(type) && !posSettingsService.discountEnabled()) {
             // BO-03-07-01: remises and rabais deactivated at the back office —
             // the gesture is refused before any endorsement or application.
-            state.ticket.setError("REMISES DÉSACTIVÉES");
+            state.ticket.setError(i18n.get("op.remisesDesactivees"));
         } else if (endorsementService.gestureAuthorized(state,
                 type == PriceModType.FORCE_PRICE ? "price-force" : "discount")) {
             // Authorized without a modal (EXP-32/33: flag off, connected
@@ -1046,7 +1209,7 @@ public class HomeService {
                 .findFirst()
                 .orElse(null);
         if (item == null) {
-            state.ticket.setError("LIGNE INTROUVABLE");
+            state.ticket.setError(i18n.get("op.ligneIntrouvable"));
             return;
         }
         if (type == PriceModType.REMISE) ticketService.applyRemise(item, value);
@@ -1056,15 +1219,31 @@ public class HomeService {
     }
 
     /**
-     * Applies a typed quantity on a ticket line. Two families (LC-02-13-02):
-     * unit EAN lines take a WHOLE quantity between 1 and 999; weighed lines
-     * (PLU carried, catalog price per kilogram) take a DECIMAL weight in
-     * kilograms between 0.001 and 99.999. Price-embedded sticker lines stay
-     * untouchable — one physical sticker is one object at its printed total —
-     * as do money products and negative (deposit) lines.
+     * Applies a typed quantity on a ticket line. Two families and a refusal
+     * ({@code LC-02-13-02} and {@code -03}): a unit EAN line takes a WHOLE
+     * quantity between 1 and 999, and a line whose article is of the
+     * DECIMAL-QUANTITY type — sold by the metre, the square metre or the litre —
+     * takes a decimal quantity of at most three places, up to the same ceiling.
+     * Decimals keyed on anything else are refused, which is the error
+     * {@code LC-02-13-03} asks for.
+     *
+     * <p>A WEIGHING IS NOT A QUANTITY THIS KEY MAY REWRITE. The quantity of a
+     * weighed line IS its weight, and that weight was MEASURED — by the scale, by
+     * the fruits screen, by an embedded-weight label. 1,234 kg of bananas cannot
+     * become "3" because the operator pressed QUANTITE: no gesture turns a
+     * measurement into a count. The register says so out loud, which is the same
+     * refusal {@link com.intermarche.pos.ui.ticket.TicketState#addItem} already
+     * applies to an armed quantity and {@link #repeatLastItem()} to a repetition
+     * ({@code LC-02-13-15}). Typing a weight by hand is a DIFFERENT gesture, on a
+     * different key and before the article ({@code LC-02-02-03}), not a quantity
+     * keyed over a line already weighed.
+     *
+     * <p>Price-embedded sticker lines are refused for their own reason — one
+     * physical sticker is one object at its printed total ({@code LC-02-13-16}) —
+     * as are money products and negative (deposit) lines.
      *
      * @param uid the uid of the targeted line
-     * @param value the typed quantity (units, or kg for a weighed line)
+     * @param value the typed quantity, in the article's unit of measure
      */
     private void applyLineQuantity(String uid, BigDecimal value) {
         TicketState.TicketItem item = state.ticket.items.stream()
@@ -1072,42 +1251,28 @@ public class HomeService {
                 .findFirst()
                 .orElse(null);
         if (item == null) {
-            state.ticket.setError("LIGNE INTROUVABLE");
+            state.ticket.setError(i18n.get("op.ligneIntrouvable"));
             return;
         }
         boolean hasEan = item.ean != null && !item.ean.isEmpty();
-        boolean weighedLine = item.plu != null && !item.plu.isEmpty()
-                && hasEan && !item.priceEmbedded;
-        boolean unitLine = (item.plu == null || item.plu.isEmpty()) && hasEan;
-        if ((!unitLine && !weighedLine) || item.getTotalPrice().signum() < 0
-                || item.moneyProduct) {
-            state.ticket.setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
+        boolean weighedLine = item.plu != null && !item.plu.isEmpty();
+        if (!hasEan || weighedLine || item.priceEmbedded
+                || item.getTotalPrice().signum() < 0 || item.moneyProduct) {
+            state.ticket.setError(i18n.get("op.quantiteNonModifiableLigne"));
             return;
         }
-        if (weighedLine) {
-            if (value == null || value.scale() > 3
-                    || value.compareTo(new BigDecimal("0.001")) < 0
-                    || value.compareTo(new BigDecimal("99.999")) > 0) {
-                state.ticket.setError("POIDS INVALIDE (0,001-99,999 KG)");
+        if (item.decimalQuantity) {
+            if (value == null || value.signum() <= 0 || value.scale() > 3
+                    || value.compareTo(BigDecimal.valueOf(999)) > 0) {
+                state.ticket.setError(i18n.get("op.quantiteInvalide"));
                 return;
             }
-            // LC-14-01-08: a MANUALLY typed weight is a gross weight and no
-            // scale nets it, so the register itself deducts the software tare
-            // (container > article snapshot > default). A tare that leaves
-            // nothing on the plate is refused, like any invalid weight.
-            BigDecimal tare = tareService.resolveForManual(item, state);
-            BigDecimal net = value.subtract(tare).setScale(3, java.math.RoundingMode.HALF_UP);
-            if (net.compareTo(new BigDecimal("0.001")) < 0) {
-                state.ticket.setError("POIDS INVALIDE (0,001-99,999 KG)");
-                return;
-            }
-            item.quantity = net;
-            tareService.consume(state);
+            item.quantity = value;
         } else {
             if (value == null || value.stripTrailingZeros().scale() > 0
                     || value.compareTo(BigDecimal.ONE) < 0
                     || value.compareTo(BigDecimal.valueOf(999)) > 0) {
-                state.ticket.setError("QUANTITÉ INVALIDE (1-999)");
+                state.ticket.setError(i18n.get("op.quantiteInvalidePlage"));
                 return;
             }
             item.quantity = BigDecimal.valueOf(value.intValueExact());
@@ -1131,12 +1296,12 @@ public class HomeService {
                     .<com.intermarche.pos.domain.people.Employee>find("loginName", operatorNumber).firstResult();
         }
         if (employee == null || !employee.active) {
-            state.ticket.setError("OPÉRATEUR INTROUVABLE (" + operatorNumber + ")");
+            state.ticket.setError(i18n.format("op.operateurIntrouvable", operatorNumber));
             LOGGER.info("Exiting method printOperatorBadge");
             return;
         }
         ticketPrinterService.printOperatorBadge(employee);
-        state.ticket.setError("BADGE OPÉRATEUR IMPRIMÉ");
+        state.ticket.setError(i18n.get("op.badgeOperateurImprime"));
         LOGGER.info("Exiting method printOperatorBadge");
     }
 }

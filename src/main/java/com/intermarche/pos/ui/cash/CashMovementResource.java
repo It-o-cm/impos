@@ -73,6 +73,14 @@ public class CashMovementResource {
     /** Action code journaled when a manager endorses a cash movement. */
     public static final String ENDORSEMENT_ACTION = "CASH_MOVEMENT";
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject @Location("cash-movement") Template cashMovement;
     @Inject CashSessionService cashSessionService;
     @Inject CashMovementService cashMovementService;
@@ -98,19 +106,19 @@ public class CashMovementResource {
         LOGGER.info("Entering method cashMovementPage with error: " + error + ", ok: " + ok);
         String message;
         if ("no-session".equals(error)) {
-            message = "AUCUNE SESSION OUVERTE";
+            message = i18n.get("op.aucuneSessionOuverte");
         } else if ("bad-type".equals(error)) {
-            message = "TYPE DE MOUVEMENT INVALIDE";
+            message = i18n.get("op.typeMouvementInvalide");
         } else if ("own-screen".equals(error)) {
-            message = "PRÉLÈVEMENT ET APPORT : ÉCRANS DÉDIÉS";
+            message = i18n.get("op.prelevementApportEcransDedies");
         } else if ("reason".equals(error)) {
-            message = "MOTIF OBLIGATOIRE";
+            message = i18n.get("op.motifObligatoire");
         } else if ("reference".equals(error)) {
-            message = "RÉFÉRENCE DE COMMANDE OBLIGATOIRE";
+            message = i18n.get("op.referenceCommandeObligatoire");
         } else if ("endorsement".equals(error)) {
-            message = "AVAL MANAGER REFUSÉ OU MANQUANT";
+            message = i18n.get("op.avalManagerRefuseManquant");
         } else if ("training".equals(error)) {
-            message = "INDISPONIBLE EN FORMATION";
+            message = i18n.get("op.indisponibleFormation");
         } else {
             message = null;
         }

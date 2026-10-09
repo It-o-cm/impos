@@ -53,6 +53,14 @@ public class TicketMailService {
     /** The ticket travels both ways. */
     public static final String FORMAT_BOTH = "BOTH";
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The SMTP relay host; absent = nothing leaves, the send is journalled only. */
     @ConfigProperty(name = "pos.mail.host")
     Optional<String> host;
@@ -193,7 +201,7 @@ public class TicketMailService {
         MimeMessage message = new MimeMessage(session());
         message.setFrom(new InternetAddress(from));
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(address));
-        message.setSubject("Votre ticket " + ticket.ticketNumber, "UTF-8");
+        message.setSubject(i18n.format("mail.objet", ticket.ticketNumber), "UTF-8");
         if (FORMAT_BODY.equals(format)) {
             message.setText(content, "UTF-8");
             return message;
@@ -203,7 +211,7 @@ public class TicketMailService {
         // An attachment-only send still carries a readable line: a message whose body
         // is empty reads as a mistake, and some clients hide the attachment entirely.
         body.setText(FORMAT_BOTH.equals(format) ? content
-                : "Votre ticket " + ticket.ticketNumber + " est en pièce jointe.", "UTF-8");
+                : i18n.format("mail.corpsPieceJointe", ticket.ticketNumber), "UTF-8");
         parts.addBodyPart(body);
         MimeBodyPart attachment = new MimeBodyPart();
         attachment.setText(content, "UTF-8");

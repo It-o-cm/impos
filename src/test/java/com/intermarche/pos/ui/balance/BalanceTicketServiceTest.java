@@ -7,6 +7,7 @@ import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.service.sync.SyncPayloads;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -63,6 +64,10 @@ class BalanceTicketServiceTest {
      */
     private BalanceTicketService newService(BalanceTicketClient client) {
         BalanceTicketService service = new BalanceTicketService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.balanceTicketClient = client;
         service.ticketNumberService = mock(TicketNumberService.class);
         when(service.ticketNumberService.getTerminalId()).thenReturn(TERMINAL);
@@ -162,7 +167,7 @@ class BalanceTicketServiceTest {
         boolean added = newService(refusing(BalanceTicketClient.Outcome.NO_STORE_NODE))
                 .integrate(state, REFERENCE);
         assertFalse(added);
-        verify(ticket).setError(BalanceTicketService.NO_STORE_NODE);
+        verify(ticket).setError("COMPTOIR NON RACCORDÉ - SAISIE MANUELLE");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 
@@ -177,7 +182,7 @@ class BalanceTicketServiceTest {
         boolean added = newService(refusing(BalanceTicketClient.Outcome.UNREACHABLE))
                 .integrate(state, REFERENCE);
         assertFalse(added);
-        verify(ticket).setError(BalanceTicketService.UNREACHABLE);
+        verify(ticket).setError("COMPTOIR INJOIGNABLE - SAISIE MANUELLE");
         verify(ticket, never()).addItem(any(), any(), any(), any(), any(), any());
     }
 
@@ -192,7 +197,7 @@ class BalanceTicketServiceTest {
         boolean added = newService(refusing(BalanceTicketClient.Outcome.ALREADY_CONSUMED))
                 .integrate(state, REFERENCE);
         assertFalse(added);
-        verify(ticket).setError(BalanceTicketService.ALREADY_PICKED_ELSEWHERE);
+        verify(ticket).setError("TICKET COMPTOIR INCONNU OU DÉJÀ UTILISÉ - SAISIE MANUELLE");
     }
 
     /**
@@ -217,7 +222,7 @@ class BalanceTicketServiceTest {
             assertFalse(service.integrate(state, REFERENCE));
         }
         verify(client, times(1)).pickUp(eq(REFERENCE), eq(TERMINAL));
-        verify(ticket).setError(BalanceTicketService.ALREADY_PICKED_HERE);
+        verify(ticket).setError("TICKET COMPTOIR DÉJÀ INTÉGRÉ");
     }
 
     /**

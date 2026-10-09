@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.hardware.terminal;
 
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.hardware.HardwareClient;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,9 @@ class TerminalClientProducerTest {
     @BeforeEach
     void setUp() {
         producer = new TerminalClientProducer();
+        // The producer hands its resolver to the two clients it builds; without
+        // one, a terminal failure would name its refusal on a null resolver.
+        producer.i18n = TestMessages.french();
         virtualClient = mock(VirtualTerminalClient.class);
         producer.virtualTerminalClient = virtualClient;
         producer.posSettingsService = mock(PosSettingsService.class);

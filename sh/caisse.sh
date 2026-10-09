@@ -5,7 +5,7 @@
 set -u
 
 PASS='Stine*Dear132!?'
-HOST='root@10.63.31.150'
+HOST='root@10.63.31.153'
 REMOTE_DIR='/root/Henri'
 # Back-office password of the ADMIN account, used for the HTTP Basic pushes
 # below. It appears TWICE and the two must agree: it is exported as
@@ -63,7 +63,7 @@ SCPOPT='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 # through java.lang.foreign, final only from 22 on.
 POS_JAVA='java'
 HW_JAVA='/opt/java/jdk-25.0.4.1+1/bin/java'
-KIOSK_SCRIPT="$IMPOS_DIR/kiosk.sh"
+KIOSK_SCRIPT="$IMPOS_DIR/sh/kiosk.sh"
 
 HOST_IP="${HOST#*@}"
 BASE="http://$HOST_IP:$POS_PORT"

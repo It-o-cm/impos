@@ -2,6 +2,7 @@ package com.intermarche.pos.ui.payment;
 
 import com.intermarche.pos.domain.payment.Currency;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,10 @@ class ForeignCurrencyServiceTest {
      */
     private ForeignCurrencyService newService() {
         ForeignCurrencyService service = new ForeignCurrencyService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.paymentService = mock(PaymentService.class);
         return service;
     }
@@ -200,7 +205,7 @@ class ForeignCurrencyServiceTest {
             panache.when(() -> Currency.list(anyString())).thenReturn(List.of());
             service.openPanel(state);
         }
-        assertEquals(ForeignCurrencyService.NO_CURRENCY, state.payment.currencyError);
+        assertEquals("AUCUNE DEVISE PARAMETREE", state.payment.currencyError);
     }
 
     /**
@@ -249,7 +254,7 @@ class ForeignCurrencyServiceTest {
             service.selectCurrency(state, "XXX");
         }
         assertNull(state.payment.selectedCurrency);
-        assertEquals(ForeignCurrencyService.NO_SELECTION, state.payment.currencyError);
+        assertEquals("DEVISE NON SELECTIONNEE", state.payment.currencyError);
     }
 
     /**
@@ -260,7 +265,7 @@ class ForeignCurrencyServiceTest {
         ForeignCurrencyService service = newService();
         PosState state = newState("30.00");
         service.selectCurrency(state, null);
-        assertEquals(ForeignCurrencyService.NO_SELECTION, state.payment.currencyError);
+        assertEquals("DEVISE NON SELECTIONNEE", state.payment.currencyError);
     }
 
     /**
@@ -271,7 +276,7 @@ class ForeignCurrencyServiceTest {
         ForeignCurrencyService service = newService();
         PosState state = newState("30.00");
         service.selectCurrency(state, "   ");
-        assertEquals(ForeignCurrencyService.NO_SELECTION, state.payment.currencyError);
+        assertEquals("DEVISE NON SELECTIONNEE", state.payment.currencyError);
     }
 
     // --------------------------------------------------
@@ -286,7 +291,7 @@ class ForeignCurrencyServiceTest {
         ForeignCurrencyService service = newService();
         PosState state = newState("30.00");
         assertFalse(service.processCurrency(state, new BigDecimal("50.00")));
-        assertEquals(ForeignCurrencyService.NO_SELECTION, state.payment.currencyError);
+        assertEquals("DEVISE NON SELECTIONNEE", state.payment.currencyError);
         verify(service.paymentService, never()).processForeignCurrency(any(), any(), any(), any());
     }
 
@@ -299,7 +304,7 @@ class ForeignCurrencyServiceTest {
         PosState state = newState("30.00");
         state.payment.selectedCurrency = newCurrency("CHF", RATE);
         assertFalse(service.processCurrency(state, null));
-        assertEquals(ForeignCurrencyService.BAD_AMOUNT, state.payment.currencyError);
+        assertEquals("MONTANT EN DEVISE INVALIDE", state.payment.currencyError);
     }
 
     /**
@@ -311,7 +316,7 @@ class ForeignCurrencyServiceTest {
         PosState state = newState("30.00");
         state.payment.selectedCurrency = newCurrency("CHF", RATE);
         assertFalse(service.processCurrency(state, BigDecimal.ZERO));
-        assertEquals(ForeignCurrencyService.BAD_AMOUNT, state.payment.currencyError);
+        assertEquals("MONTANT EN DEVISE INVALIDE", state.payment.currencyError);
     }
 
     /**
@@ -324,7 +329,7 @@ class ForeignCurrencyServiceTest {
         PosState state = newState("30.00");
         state.payment.selectedCurrency = newCurrency("XXX", new BigDecimal("0.000001"));
         assertFalse(service.processCurrency(state, new BigDecimal("1.00")));
-        assertEquals(ForeignCurrencyService.BAD_AMOUNT, state.payment.currencyError);
+        assertEquals("MONTANT EN DEVISE INVALIDE", state.payment.currencyError);
         verify(service.paymentService, never()).processForeignCurrency(any(), any(), any(), any());
     }
 

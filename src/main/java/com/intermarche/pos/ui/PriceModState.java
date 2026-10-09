@@ -131,8 +131,8 @@ public class PriceModState implements Serializable {
      *
      * @return the display title
      */
-    public String getTypeLabel() {
-        return type == null ? "MODIFICATION" : type.getLabel();
+    public String getTypeLabelKey() {
+        return type == null ? "op.modification" : type.getLabelKey();
     }
 
     /**

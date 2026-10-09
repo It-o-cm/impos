@@ -11,7 +11,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Ticket d'une autre caisse</title>
+    <title>{inject:i18n.get('reprintforeign.ticketDAutreCaisse')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -41,7 +41,7 @@
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">TICKET D'UNE AUTRE CAISSE</span>
+        <span class="store-name">{inject:i18n.get('reprintforeign.ticketDAutreCaisse2')}</span>
         <span id="clock"></span>
     </div>
 
@@ -53,18 +53,18 @@
 
         <div class="work">
             <div class="side">
-                <h2>Duplicata magasin</h2>
-                <p>Saisissez le numéro imprimé sur le ticket que le client présente.<br>
-                   Le ticket est demandé au magasin, puis imprimé ici tel quel.</p>
-                <p>Le compteur de duplicata reste celui de la caisse qui a fait la vente.</p>
+                <h2>{inject:i18n.get('reprintforeign.duplicataMagasin')}</h2>
+                <p>{inject:i18n.get('reprintforeign.saisissezNumeroImprimeTicket')}<br>
+                   {inject:i18n.get('reprintforeign.ticketDemandeMagasinPuis')}</p>
+                <p>{inject:i18n.get('reprintforeign.compteurDuplicataResteCelui')}</p>
             </div>
             <form class="entry" method="post" action="/reprint/foreign">
-                <div class="entry-title">Numéro du ticket</div>
+                <div class="entry-title">{inject:i18n.get('reprintforeign.numeroTicket')}</div>
                 <div id="kbDisplay" class="display pad-display"></div>
                 <input type="hidden" id="kbHidden" name="ticketNumber" value="{state.reprint.foreignTicketNumber}">
                 <div class="keyboard pos-kb-compact" id="kbArea"></div>
                 <div class="actions">
-                    <button class="btn btn-success" type="submit">IMPRIMER LE DUPLICATA</button>
+                    <button class="btn btn-success" type="submit">{inject:i18n.get('reprintforeign.imprimerDuplicata')}</button>
                 </div>
             </form>
         </div>
@@ -72,8 +72,8 @@
     </div>
 
     <div class="bottom-nav">
-        <a href="/reprint" class="btn btn-muted">RETOUR LISTE</a>
-        <a href="/" class="btn btn-muted">RETOUR</a>
+        <a href="/reprint" class="btn btn-muted">{inject:i18n.get('reprintforeign.retourListe')}</a>
+        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 

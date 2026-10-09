@@ -16,6 +16,7 @@ import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -72,6 +73,10 @@ class TicketPrinterServiceTest {
      */
     private TicketPrinterService newService() {
         TicketPrinterService service = new TicketPrinterService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.hardwareService = mock(HardwareService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         // Back-office parameters at their defaults: no EAN on paper. The
@@ -82,6 +87,10 @@ class TicketPrinterServiceTest {
         // VAT breakdown defaults to ON, the pre-existing behavior every ticket
         // case relies on (BO-10-06-04).
         when(service.posSettingsService.vatBreakdownEnabled()).thenReturn(true);
+        // ONE handover slip here, which is the single-copy behaviour every
+        // pre-existing collection-voucher case asserts: captureReceipt verifies a
+        // SINGLE print. The two-copy cases stub the count themselves.
+        when(service.posSettingsService.collectVoucherCopies()).thenReturn(1);
         return service;
     }
 
@@ -286,7 +295,10 @@ class TicketPrinterServiceTest {
             assertTrue(out.contains("INTERMARCHE"));
             assertTrue(out.contains("MAGASIN LYON"));
             assertTrue(out.contains("Vendeur: Jean Dupont"));
-            assertTrue(out.contains("CASH"));
+            // LC-07-03-06: le reglement est nomme en francais sur le papier, pas
+            // par le nom de la classe Java.
+            assertTrue(out.contains("ESPECES"));
+            assertFalse(out.contains("CASH"));
             assertFalse(out.contains("DUPLICATA"));
             assertFalse(out.contains("Votre ticket en ligne"));
         }
@@ -318,6 +330,170 @@ class TicketPrinterServiceTest {
             assertFalse(out.contains("PRODUIT ANNULE"));
             assertTrue(out.contains("TVA 20"));
             assertFalse(out.contains("TVA 5,5"));
+        }
+    }
+
+    /**
+     * THE CHANGE IS PRINTED under the cash line: what the customer handed over
+     * and what came back, so the figures are checkable after they have left the
+     * lane (correctif besoins métier du 08/10, onglet ARTICLES).
+     */
+    @Test
+    void printTicketPrintsTheChangeUnderTheCashLine() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "24.60", "24.60"));
+        ticket.payments.add(new CashPayment(new BigDecimal("24.60"), new BigDecimal("50.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("DONNE"), "the amount handed over must be printed");
+            assertTrue(out.contains("50,00"), "the amount handed over must carry its figure");
+            assertTrue(out.contains("RENDU MONNAIE"), "the change must be named");
+            assertTrue(out.contains("25,40"), "the change must carry its figure");
+        }
+    }
+
+    /**
+     * AN EXACT SUM PRINTS NEITHER LINE: a receipt that says "handed over 24,60,
+     * change 0,00" reads as a defect, not as a courtesy (the tendered-equals-
+     * applied arm of the gate).
+     */
+    @Test
+    void printTicketPrintsNoChangeOnAnExactSum() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "24.60", "24.60"));
+        ticket.payments.add(new CashPayment(new BigDecimal("24.60"), new BigDecimal("24.60")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("DONNE"), "an exact sum hands nothing back");
+            assertFalse(out.contains("RENDU MONNAIE"), "an exact sum hands nothing back");
+        }
+    }
+
+    /**
+     * A CASH SETTLEMENT THAT RECORDED NO TENDER prints neither line either: a
+     * recovered draft and an older sale both carry a null tendered amount, and
+     * the register states no change it cannot vouch for (the nullity arm).
+     */
+    @Test
+    void printTicketPrintsNoChangeWithoutARecordedTender() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "24.60", "24.60"));
+        CashPayment cash = new CashPayment(new BigDecimal("24.60"), null);
+        ticket.payments.add(cash);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertFalse(out.contains("DONNE"), "no recorded tender, no printed change");
+            assertFalse(out.contains("RENDU MONNAIE"), "no recorded tender, no printed change");
+        }
+    }
+
+    /**
+     * EVERY SETTLEMENT METHOD IS NAMED IN FRENCH ON THE PAPER — one arm of the
+     * tender switch per method, all twelve on a single ticket so no arm is
+     * asserted on faith ({@code LC-07-03-06}).
+     *
+     * <p>The label used to be the Java class name with "Payment" chopped off and
+     * upper-cased: {@code CASH} on a French receipt, and {@code SUPPLIERGIFTCARD}
+     * on a gift-card settlement. Each assertion below also checks that the
+     * English word is GONE, because a mapping that adds the French label without
+     * replacing the derived one would read as passing.
+     */
+    @Test
+    void printTicketNamesEverySettlementMethodInFrench() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        ticket.payments.add(new CashPayment(new BigDecimal("1.00"), new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.CardPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.ChequePayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.VoucherPayment(
+                new BigDecimal("1.00"), "BON", "B1"));
+        ticket.payments.add(new FidelityPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.TicketRestoPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.CreditPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.BackupPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.TrdCardPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.RestoFlashPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.SupplierGiftCardPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.SogecPayment(new BigDecimal("1.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            String out = captureReceipt(service);
+            assertTrue(out.contains("ESPECES"), "Cash");
+            assertTrue(out.contains("CARTE BANCAIRE"), "Card");
+            assertTrue(out.contains("CHEQUE"), "Cheque");
+            assertTrue(out.contains("BON D'ACHAT"), "Voucher");
+            assertTrue(out.contains("CAGNOTTE"), "Fidelity");
+            assertTrue(out.contains("TICKET RESTO"), "TicketResto");
+            assertTrue(out.contains("CREDIT CLIENT"), "Credit");
+            assertTrue(out.contains("SECOURS MONETIQUE"), "Backup");
+            assertTrue(out.contains("CARTE TRD"), "TrdCard");
+            assertTrue(out.contains("RESTO FLASH"), "RestoFlash");
+            assertTrue(out.contains("CARTE CADEAU"), "SupplierGiftCard");
+            assertTrue(out.contains("BON SOGEC"), "Sogec");
+            assertFalse(out.contains("CASH"), "the class name must be gone");
+            assertFalse(out.contains("VOUCHER"), "the class name must be gone");
+            assertFalse(out.contains("FIDELITY"), "the class name must be gone");
+            assertFalse(out.contains("TICKETRESTO"), "the class name must be gone");
+            assertFalse(out.contains("BACKUP"), "the class name must be gone");
+            assertFalse(out.contains("TRDCARD"), "the class name must be gone");
+            assertFalse(out.contains("RESTOFLASH"), "the class name must be gone");
+            assertFalse(out.contains("SUPPLIERGIFTCARD"), "the class name must be gone");
+            assertFalse(out.contains("SOGECPAYMENT"), "the class name must be gone");
+        }
+    }
+
+    /**
+     * A settlement class this version has no word for falls back to its bare
+     * type name — the switch's default arm. Ugly and visible beats a blank
+     * beside a justified amount, and it names what has to be added.
+     */
+    @Test
+    void printTicketFallsBackToTheTypeNameForAnUnknownMethod() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        ticket.lines.add(line("U1", "PAIN", "1", "2.00", "2.00"));
+        ticket.payments.add(new UnknownTenderPayment(new BigDecimal("2.00")));
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            mocked.when(() -> TicketLineValuation.list("ticket.id", 1L))
+                    .thenReturn(new ArrayList<TicketLineValuation>());
+            service.printTicket(1L);
+            assertTrue(captureReceipt(service).contains("UNKNOWNTENDER"));
+        }
+    }
+
+    /**
+     * A settlement method this version knows nothing about, used to exercise the
+     * default arm of the tender switch.
+     */
+    private static class UnknownTenderPayment extends com.intermarche.pos.domain.payment.TicketPayment {
+
+        /**
+         * Settles the given amount.
+         *
+         * @param amount the settled amount
+         */
+        UnknownTenderPayment(BigDecimal amount) {
+            super(amount);
         }
     }
 
@@ -3760,6 +3936,104 @@ class TicketPrinterServiceTest {
         assertTrue(out.contains("TABOURET"));
         assertTrue(out.contains("Retire : ............  Reste : ............"));
         assertTrue(out.contains("Signature: .............................."));
+    }
+
+    /**
+     * TWO COPIES, NAMED. The handover slip is not a fiscal document but a proof
+     * that goods left the shop: the collection desk KEEPS one — the manager
+     * collects them in the evening — and the customer KEEPS one, carrying the
+     * "retiré / reste" boxes they come back with. Two identical sheets would
+     * leave nobody able to tell an honoured slip from an open one, so the first
+     * is the store's and the second the customer's, and both carry the articles
+     * and the barcode the desk scans.
+     */
+    @Test
+    void printCollectionVoucherPrintsTwoNamedCopies() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.collectVoucherCopies()).thenReturn(2);
+        Ticket ticket = ticket(0, null);
+        TicketLine marked = line("U1", "CIMENT", "10", "6.00", "60.00");
+        marked.toCollect = true;
+        ticket.lines.add(marked);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printCollectionVoucher(1L));
+        }
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(service.hardwareService, times(2)).printReceipt(captor.capture());
+        verify(service.hardwareService, times(2)).cutPaper();
+        assertTrue(captor.getAllValues().get(0).contains("EXEMPLAIRE MAGASIN"));
+        assertFalse(captor.getAllValues().get(0).contains("EXEMPLAIRE CLIENT"));
+        assertTrue(captor.getAllValues().get(1).contains("EXEMPLAIRE CLIENT"));
+        assertFalse(captor.getAllValues().get(1).contains("EXEMPLAIRE MAGASIN"));
+        for (String copy : captor.getAllValues()) {
+            assertTrue(copy.contains("CIMENT"));
+            assertTrue(copy.contains("ARTICLES A ENLEVER"));
+        }
+    }
+
+    /**
+     * A SINGLE administered copy carries NO exemplaire line: there is nothing to
+     * tell apart, and a lone slip announcing itself as one of two would be a
+     * lie — the false leg of the copy-count test.
+     */
+    @Test
+    void printCollectionVoucherOnASingleCopyNamesNoExemplaire() {
+        TicketPrinterService service = newService();
+        Ticket ticket = ticket(0, null);
+        TicketLine marked = line("U1", "CIMENT", "10", "6.00", "60.00");
+        marked.toCollect = true;
+        ticket.lines.add(marked);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printCollectionVoucher(1L));
+        }
+        String out = captureReceipt(service);
+        assertFalse(out.contains("EXEMPLAIRE"));
+        assertTrue(out.contains("CIMENT"));
+    }
+
+    /**
+     * THE SLIP NAMES THE PLACE when the store administered one: the customer
+     * pays at the till and drives to the collection point — the BATI counter in
+     * a hardware store, the DRIVE in a food one — so the slip has to say where.
+     * Surrounding blanks are trimmed.
+     */
+    @Test
+    void printCollectionVoucherNamesTheAdministeredCollectionPoint() {
+        TicketPrinterService service = newService();
+        when(service.posSettingsService.collectPointLabel()).thenReturn("  BATI  ");
+        Ticket ticket = ticket(0, null);
+        TicketLine marked = line("U1", "PARPAING", "20", "1.20", "24.00");
+        marked.toCollect = true;
+        ticket.lines.add(marked);
+        try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+            mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+            assertEquals(1, service.printCollectionVoucher(1L));
+        }
+        assertTrue(captureReceipt(service).contains("RETRAIT AU BATI"));
+    }
+
+    /**
+     * A store that administered NO collection point gets a slip naming none,
+     * rather than one inventing a place — the blank and the null legs of the
+     * guard, which a mocked setting answers as null by default.
+     */
+    @Test
+    void printCollectionVoucherNamesNoPointWhenNoneIsAdministered() {
+        for (String administered : new String[] {null, "   "}) {
+            TicketPrinterService service = newService();
+            when(service.posSettingsService.collectPointLabel()).thenReturn(administered);
+            Ticket ticket = ticket(0, null);
+            TicketLine marked = line("U1", "PARPAING", "20", "1.20", "24.00");
+            marked.toCollect = true;
+            ticket.lines.add(marked);
+            try (MockedStatic<PanacheEntityBase> mocked = mockStatic(PanacheEntityBase.class)) {
+                mocked.when(() -> Ticket.findById(1L)).thenReturn(ticket);
+                assertEquals(1, service.printCollectionVoucher(1L));
+            }
+            assertFalse(captureReceipt(service).contains("RETRAIT AU"));
+        }
     }
 
     /**

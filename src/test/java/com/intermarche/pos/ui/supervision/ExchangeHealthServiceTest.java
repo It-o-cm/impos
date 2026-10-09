@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.sync.RefState;
 import com.intermarche.pos.domain.sync.SyncOutbox;
 import com.intermarche.pos.service.sync.EngineFeedService;
 import com.intermarche.pos.service.sync.RefPullService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,20 @@ import static org.mockito.Mockito.when;
 class ExchangeHealthServiceTest {
 
     /** The service under test. */
-    private final ExchangeHealthService service = new ExchangeHealthService();
+    private final ExchangeHealthService service = newService();
+
+    /**
+     * Builds the service with a resolver reading the French bundle: the feed
+     * statuses are bundle keys, so the assertions below keep the literal
+     * wording the supervision screen shows (LC-13-06).
+     *
+     * @return the service under test
+     */
+    private static ExchangeHealthService newService() {
+        ExchangeHealthService built = new ExchangeHealthService();
+        built.i18n = TestMessages.french();
+        return built;
+    }
 
     /** The mocked engine feed keeper. */
     private final EngineFeedService engineFeedService = mock(EngineFeedService.class);

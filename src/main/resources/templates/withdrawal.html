@@ -19,7 +19,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Prélèvement</title>
+  <title>{inject:i18n.get('withdrawal.prelevement')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -80,8 +80,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>PRÉLÈVEMENT</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('withdrawal.prelevement2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -91,7 +91,7 @@
           <div class="error-box">{error}</div>
         {/if}
         {#if saved}
-          <div class="ok-box">PRÉLÈVEMENT ENREGISTRÉ</div>
+          <div class="ok-box">{inject:i18n.get('withdrawal.prelevementEnregistre')}</div>
         {/if}
       </div>
 
@@ -105,10 +105,10 @@
 
             <div class="count-list-area">
               <div class="tabs-container">
-                <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
+                <button type="button" class="tab-btn active" onclick="switchTab('bills', this)">{inject:i18n.get('withdrawal.billets')}</button>
                 {#if !notesOnly}
-                <button type="button" class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
-                <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+                <button type="button" class="tab-btn" onclick="switchTab('coins', this)">{inject:i18n.get('withdrawal.pieces')}</button>
+                <button type="button" class="tab-btn" onclick="switchTab('rolls', this)">{inject:i18n.get('withdrawal.rouleaux')}</button>
                 {/if}
               </div>
               <div class="items-scroll" id="listContainer">
@@ -124,14 +124,14 @@
 
             <div class="action-area">
               <div class="total-box">
-                <div class="total-label">À prélever</div>
+                <div class="total-label">{inject:i18n.get('withdrawal.prelever')}</div>
                 <div class="total-amount" id="totalDisplay">0,00 €</div>
               </div>
               {#if notesOnly}
-                <div class="notes-only">BILLETS SEULEMENT<br>les pièces restent pour rendre la monnaie</div>
+                <div class="notes-only">{inject:i18n.get('withdrawal.billetsSeulement')}<br>{inject:i18n.get('withdrawal.piecesRestentRendreMonnaie')}</div>
               {/if}
               <div class="dest-box">
-                <label class="total-label" for="destination">Destination</label>
+                <label class="total-label" for="destination">{inject:i18n.get('withdrawal.destination')}</label>
                 <select id="destination" name="destination" class="dest-select">
                   <option value="">—</option>
                   <option value="{safeDestination}">{safeDestination}</option>
@@ -156,7 +156,7 @@
               <div class="qty">{selected.count} transaction(s)</div>
               <div class="amount">{selected.amountFormatted} €</div>
             </div>
-            <div class="fixed-hint">Le prélèvement porte sur la totalité du théorique affiché.</div>
+            <div class="fixed-hint">{inject:i18n.get('withdrawal.prelevementPorteTotaliteTheorique')}</div>
             <div class="dest-box">
               <label class="total-label" for="destinationFixed">Destination</label>
               <select id="destinationFixed" name="destination" class="dest-select">
@@ -184,7 +184,7 @@
             </a>
           {/for}
           {#if methods.isEmpty}
-            <div class="empty">AUCUN MOYEN DE PAIEMENT PARAMÉTRÉ EN PRÉLÈVEMENT MANUEL</div>
+            <div class="empty">{inject:i18n.get('withdrawal.aucunMoyenPaiementParametre')}</div>
           {/if}
         </div>
       {/if}
@@ -192,11 +192,11 @@
 
     <div class="bottom-nav">
       {#if selected??}
-        <a href="/withdrawal" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+        <a href="/withdrawal" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
         <!-- EXP-87 : une seule validation. La DESTINATION dit ce que devient l'argent,
              et le coffre y reste un cas a part (le coffre est une entite du noeud
              magasin ; la caisse n'enregistre que le mouvement qui l'alimente). -->
-        <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE PRÉLÈVEMENT</button>
+        <button type="submit" form="withdrawForm" class="btn btn-lg btn-success" style="width: 13.75rem;">{inject:i18n.get('withdrawal.validerPrelevement')}</button>
       {#else}
         <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
         <span></span>
@@ -251,8 +251,7 @@
           updateTotal();
         }
       });
-      PosInput.buffer = (countState[id] || 0).toString();
-      PosInput.updateDisplay();
+      PosInput.prefill((countState[id] || 0).toString());
     }
 
     function updateItemDisplay(element, qty, value) {

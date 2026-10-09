@@ -18,6 +18,14 @@ import java.util.List;
 @ApplicationScoped
 public class CashCountService {
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(CashCountService.class);
 
@@ -29,10 +37,10 @@ public class CashCountService {
     public List<CashItem> getBills() {
         LOGGER.info("Entering method getBills");
         List<CashItem> items = new ArrayList<>();
-        items.add(new CashItem("b50", "Billet 50 €", 50.0));
-        items.add(new CashItem("b20", "Billet 20 €", 20.0));
-        items.add(new CashItem("b10", "Billet 10 €", 10.0));
-        items.add(new CashItem("b5",  "Billet 5 €",  5.0));
+        items.add(new CashItem("b50", i18n.get("cash.billet50"), 50.0));
+        items.add(new CashItem("b20", i18n.get("cash.billet20"), 20.0));
+        items.add(new CashItem("b10", i18n.get("cash.billet10"), 10.0));
+        items.add(new CashItem("b5",  i18n.get("cash.billet5"),  5.0));
         LOGGER.info("Exiting method getBills");
         return items;
     }
@@ -45,14 +53,14 @@ public class CashCountService {
     public List<CashItem> getCoins() {
         LOGGER.info("Entering method getCoins");
         List<CashItem> items = new ArrayList<>();
-        items.add(new CashItem("c2",   "Pièce 2 €",    2.0));
-        items.add(new CashItem("c1",   "Pièce 1 €",    1.0));
-        items.add(new CashItem("c050", "Pièce 0,50 €", 0.5));
-        items.add(new CashItem("c020", "Pièce 0,20 €", 0.2));
-        items.add(new CashItem("c010", "Pièce 0,10 €", 0.1));
-        items.add(new CashItem("c005", "Pièce 0,05 €", 0.05));
-        items.add(new CashItem("c002", "Pièce 0,02 €", 0.02));
-        items.add(new CashItem("c001", "Pièce 0,01 €", 0.01));
+        items.add(new CashItem("c2",   i18n.get("cash.piece2"),    2.0));
+        items.add(new CashItem("c1",   i18n.get("cash.piece1"),    1.0));
+        items.add(new CashItem("c050", i18n.get("cash.piece050"), 0.5));
+        items.add(new CashItem("c020", i18n.get("cash.piece020"), 0.2));
+        items.add(new CashItem("c010", i18n.get("cash.piece010"), 0.1));
+        items.add(new CashItem("c005", i18n.get("cash.piece005"), 0.05));
+        items.add(new CashItem("c002", i18n.get("cash.piece002"), 0.02));
+        items.add(new CashItem("c001", i18n.get("cash.piece001"), 0.01));
         LOGGER.info("Exiting method getCoins");
         return items;
     }
@@ -65,12 +73,12 @@ public class CashCountService {
     public List<CashItem> getRolls() {
         LOGGER.info("Entering method getRolls");
         List<CashItem> items = new ArrayList<>();
-        items.add(new CashItem("r2",   "Rouleau 2€ (50€)",  50.0));
-        items.add(new CashItem("r1",   "Rouleau 1€ (25€)",  25.0));
-        items.add(new CashItem("r050", "Rouleau 0.50€ (20€)", 20.0));
-        items.add(new CashItem("r020", "Rouleau 0.20€ (8€)",  8.0));
-        items.add(new CashItem("r010", "Rouleau 0.10€ (4€)",  4.0));
-        items.add(new CashItem("r005", "Rouleau 0.05€ (2€)",  2.0));
+        items.add(new CashItem("r2",   i18n.get("cash.rouleau2"),  50.0));
+        items.add(new CashItem("r1",   i18n.get("cash.rouleau1"),  25.0));
+        items.add(new CashItem("r050", i18n.get("cash.rouleau050"), 20.0));
+        items.add(new CashItem("r020", i18n.get("cash.rouleau020"),  8.0));
+        items.add(new CashItem("r010", i18n.get("cash.rouleau010"),  4.0));
+        items.add(new CashItem("r005", i18n.get("cash.rouleau005"),  2.0));
         LOGGER.info("Exiting method getRolls");
         return items;
     }

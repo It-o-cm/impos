@@ -12,6 +12,7 @@ import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.HardwareService;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -396,6 +397,10 @@ class InvoiceServiceTest {
     @BeforeEach
     void setUp() {
         service = new InvoiceService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         state = new PosState();
         repository = new FakeRepository();
         numbers = new FakeNumbers();
@@ -1922,7 +1927,7 @@ class InvoiceServiceTest {
                             com.intermarche.pos.domain.setting.DocumentTemplate
                                     .DocumentType.INVOICE))
                     .thenReturn(List.of());
-            assertEquals(InvoiceRenderer.render(document), service.renderLines(document));
+            assertEquals(InvoiceRenderer.render(document, TestMessages.french()), service.renderLines(document));
         }
     }
 
@@ -1934,7 +1939,7 @@ class InvoiceServiceTest {
     void anInvoiceServiceWithoutARendererKeepsTheBuiltInRendering() {
         assertNull(service.documentTemplateService);
         InvoiceDocument document = laidOut();
-        assertEquals(InvoiceRenderer.render(document), service.renderLines(document));
+        assertEquals(InvoiceRenderer.render(document, TestMessages.french()), service.renderLines(document));
     }
 
     /**

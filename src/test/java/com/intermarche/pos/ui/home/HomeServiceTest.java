@@ -13,6 +13,7 @@ import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketService;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.AfterEach;
@@ -67,18 +68,19 @@ class HomeServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         service = new HomeService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.state = mock(PosState.class);
         service.state.ticket = mock(TicketState.class);
         service.state.ticket.items = new ArrayList<>();
         service.state.priceModState = mock(PriceModState.class);
         service.state.payment = mock(PaymentState.class);
         service.ticketService = mock(TicketService.class);
-        // LC-14-01-08: the tare resolver is a stand-in returning no tare by
-        // default, so the historical weighed-quantity assertions are unchanged;
-        // the tare-deduction cases stub a positive tare explicitly.
+        // The tare resolver is a stand-in and nothing here stubs it: the quantity
+        // key no longer types weights, so no case of this class consults it.
         service.tareService = mock(com.intermarche.pos.ui.balance.TareService.class);
-        when(service.tareService.resolveForManual(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any())).thenReturn(java.math.BigDecimal.ZERO);
         service.ticketPrinterService = mock(com.intermarche.pos.ui.hardware.TicketPrinterService.class);
         service.endorsementService = mock(EndorsementService.class);
         // The payment writer, for the direct (unendorsed) ticket abandon (EXP-32).
@@ -608,6 +610,54 @@ class HomeServiceTest {
     }
 
     /**
+     * {@code openPriceMod()} on QUANTITY with NO line selected opens the modal on
+     * no line at all instead of refusing the gesture: the figure about to be keyed
+     * is for the article the cashier is about to ring ({@code LC-02-13-04/05/06}).
+     */
+    @Test
+    void openPriceModQuantityWithoutSelectionTargetsTheNextArticle() {
+        when(service.state.getSelectedItem()).thenReturn(null);
+        service.openPriceMod("quantity");
+        verify(service.state.priceModState).set(PriceModType.QUANTITY, null, "PROCHAIN ARTICLE");
+        verify(service.state.ticket, never())
+                .setError(org.mockito.ArgumentMatchers.anyString());
+        verify(service.state).touch();
+    }
+
+    /**
+     * THE ARMING FIRES EVEN WITH ARTICLES ALREADY ON THE TICKET, and this is the
+     * case that was broken: the key read {@code getTargetItem()}, which answers
+     * the LAST line when nothing is selected, so a quantity keyed on a running
+     * sale landed on the article just rung instead of arming for the next one.
+     * The key reads the explicit selection now, and the fallback is left to the
+     * price gestures it was written for.
+     */
+    @Test
+    void openPriceModQuantityArmsEvenWhenTheTicketCarriesLines() {
+        TicketState.TicketItem last = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        when(service.state.getTargetItem()).thenReturn(last);
+        when(service.state.getSelectedItem()).thenReturn(null);
+        service.openPriceMod("quantity");
+        verify(service.state.priceModState).set(PriceModType.QUANTITY, null, "PROCHAIN ARTICLE");
+        verify(service.state.ticket, never())
+                .setError(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * {@code openPriceMod()} on QUANTITY WITH a line selected still targets that
+     * line — the other arm of the same guard, and the gesture that existed first.
+     */
+    @Test
+    void openPriceModQuantityWithASelectionStillTargetsThatLine() {
+        TicketState.TicketItem it = item("A", "123", null, BigDecimal.ONE, BigDecimal.ONE);
+        when(service.state.getSelectedItem()).thenReturn(it);
+        service.openPriceMod("quantity");
+        verify(service.state.priceModState).set(PriceModType.QUANTITY, "A", "L", it.getHtml(),
+                it.getPriceFormatted(), it.getModifierLabel());
+        verify(service.state).touch();
+    }
+
+    /**
      * {@code openPriceMod()} opens the modal on the targeted line, upper-casing
      * the type (target non-null).
      */
@@ -1071,6 +1121,11 @@ class HomeServiceTest {
     /**
      * PRE-ENTRY: a figure typed before the key is applied to the line the opening
      * captured, and the modal closes without ever having been seen.
+     *
+     * <p>AND IT IS READ IN CENTS, because a remise in euros is an amount: a bare
+     * {@code 3} is three cents, exactly as it would be on the amount pad. The
+     * register has one spelling for an amount and the pre-entry pad is no
+     * exception.
      */
     @Test
     void applyPreEntryAppliesTheTypedFigure() {
@@ -1079,14 +1134,16 @@ class HomeServiceTest {
         service.state.priceModState.targetUid = "A";
         service.applyPreEntry("3");
         verify(service.endorsementService).requestPriceModification(service.state,
-                PriceModType.REMISE, "A", new BigDecimal("3"));
+                PriceModType.REMISE, "A", new BigDecimal("0.03"));
         verify(service.state.priceModState).clear();
         verify(service.state).touch();
     }
 
     /**
-     * A COMMA is what a French pad types, and it must parse: 2,50 is two euros
-     * fifty, not an invalid figure.
+     * A COMMA keyed on an amount is DROPPED, not honoured: {@code 2,50} on a
+     * remise means the same two euros fifty as {@code 250}, because the figure
+     * is read in cents either way. The pad still carries a comma for the
+     * quantity gestures, so the separator must parse rather than refuse.
      */
     @Test
     void applyPreEntryReadsTheFrenchComma() {
@@ -1191,6 +1248,24 @@ class HomeServiceTest {
     }
 
     /**
+     * {@code submitPriceMod()} on QUANTITY without a line arms the figure for the
+     * NEXT article, on both arms that mean "no line": no uid at all, and the empty
+     * uid the modal posts when it opened on none ({@code LC-02-13-04/05/06}).
+     */
+    @Test
+    void submitPriceModQuantityWithoutLineArmsTheNextArticle() {
+        service.submitPriceMod(PriceModType.QUANTITY, null, new BigDecimal("3"));
+        assertEquals(new BigDecimal("3"), service.state.armedQuantity);
+        verify(service.state.ticket).setNotice("QUANTITÉ 3 — SAISISSEZ L'ARTICLE");
+        service.state.armedQuantity = null;
+        service.submitPriceMod(PriceModType.QUANTITY, "   ", new BigDecimal("4"));
+        assertEquals(new BigDecimal("4"), service.state.armedQuantity);
+        verify(service.state.ticket).setNotice("QUANTITÉ 4 — SAISISSEZ L'ARTICLE");
+        verify(service.state.ticket, never()).setError("LIGNE INTROUVABLE");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
      * {@code submitPriceMod()} reports an unknown line when the uid matches no
      * item (item null).
      */
@@ -1203,69 +1278,153 @@ class HomeServiceTest {
     }
 
     /**
-     * {@code submitPriceMod()} applies a DECIMAL weight on a weighed line
-     * (LC-02-13-02: plu carried, ean present, not price-embedded — the typed
-     * value is the weight in kilograms, stored at scale 3).
+     * {@code submitPriceMod()} REFUSES a quantity on a weighed line
+     * ({@code LC-02-13-15}: plu carried, so the quantity is a weight the scale
+     * measured and no key may rewrite it — the weighed leg of the guard). The
+     * weight stays what was weighed and the tare resolver is never consulted:
+     * typing a weight by hand is another gesture on another key
+     * ({@code LC-02-02-03}).
      */
     @Test
-    void submitPriceModQuantityAppliesDecimalWeightOnWeighedLine() {
-        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
+    void submitPriceModQuantityRefusedOnWeighedLine() {
+        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, new BigDecimal("1.234"));
         service.state.ticket.items.add(it);
-        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.85"));
-        assertEquals(0, new BigDecimal("0.850").compareTo(it.quantity));
-        assertEquals(3, it.quantity.scale());
-        verify(service.ticketService).recalculateTotal(service.state);
-    }
-
-    /**
-     * LC-14-01-08: a manually typed weight is a GROSS weight, so the resolved
-     * software tare is deducted before the net is stored, and the punctual
-     * container is consumed. A tare of 0,100 on a typed 0,850 stores 0,750.
-     */
-    @Test
-    void submitPriceModQuantityDeductsSoftwareTareFromManualWeight() {
-        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE);
-        service.state.ticket.items.add(it);
-        when(service.tareService.resolveForManual(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any())).thenReturn(new BigDecimal("0.100"));
-        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.850"));
-        assertEquals(0, new BigDecimal("0.750").compareTo(it.quantity));
-        verify(service.ticketService).recalculateTotal(service.state);
-        verify(service.tareService).consume(service.state);
-    }
-
-    /**
-     * LC-14-01-08: a tare that leaves nothing on the plate is refused like any
-     * invalid weight — a typed 0,850 with a 0,850 tare nets zero, below the
-     * 0,001 floor, so the weight message is shown and nothing is recalculated
-     * or consumed (the net-below-floor arm).
-     */
-    @Test
-    void submitPriceModQuantityRefusesWhenTareLeavesNothing() {
-        service.state.ticket.items.add(item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE));
-        when(service.tareService.resolveForManual(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any())).thenReturn(new BigDecimal("0.850"));
-        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.850"));
-        verify(service.state.ticket).setError("POIDS INVALIDE (0,001-99,999 KG)");
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
+        verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
+        assertEquals(0, new BigDecimal("1.234").compareTo(it.quantity));
         verify(service.ticketService, never()).recalculateTotal(any());
         verify(service.tareService, never()).consume(any());
     }
 
     /**
-     * {@code submitPriceMod()} refuses an out-of-range weight on a weighed
-     * line (zero, above 99.999 kg, or finer than the gram) with the weight
-     * message — one test per leg of the composed guard.
+     * {@code submitPriceMod()} refuses a DECIMAL weight on a weighed line too:
+     * the refusal is about the line and not about the figure, so 0,850 keyed on
+     * 1,234 kg of bananas changes nothing either.
      */
     @Test
-    void submitPriceModQuantityRefusesInvalidWeightLegs() {
-        service.state.ticket.items.add(item("A", "123", "1000", BigDecimal.ONE, BigDecimal.ONE));
-        service.submitPriceMod(PriceModType.QUANTITY, "A", BigDecimal.ZERO);
-        verify(service.state.ticket).setError("POIDS INVALIDE (0,001-99,999 KG)");
-        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("100.000"));
-        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.0005"));
-        service.submitPriceMod(PriceModType.QUANTITY, "A", null);
-        verify(service.state.ticket, times(4)).setError("POIDS INVALIDE (0,001-99,999 KG)");
+    void submitPriceModQuantityRefusedOnWeighedLineWhateverTheFigure() {
+        TicketState.TicketItem it = item("A", "123", "1000", BigDecimal.ONE, new BigDecimal("1.234"));
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("0.850"));
+        verify(service.state.ticket).setError("QUANTITÉ NON MODIFIABLE SUR CETTE LIGNE");
+        assertEquals(0, new BigDecimal("1.234").compareTo(it.quantity));
         verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * {@code submitPriceMod()} applies a DECIMAL quantity on a DECIMAL-QUANTITY
+     * line ({@code LC-02-13-02}: a hose sold by the metre, a tablecloth by the
+     * square metre). The figure is stored exactly as keyed — no rounding to the
+     * unit — and the total is recomputed.
+     */
+    @Test
+    void submitPriceModQuantityAppliesDecimalOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("2.360"));
+        assertEquals(0, new BigDecimal("2.360").compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * A whole figure on a DECIMAL-QUANTITY line is applied as keyed: the decimal
+     * family accepts the integers too (the no-decimal case of the same branch).
+     */
+    @Test
+    void submitPriceModQuantityAppliesWholeFigureOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("3"));
+        assertEquals(0, BigDecimal.valueOf(3).compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * The upper bound is the same 999 as the unit family, and it is INCLUSIVE on
+     * a DECIMAL-QUANTITY line (the above-999 leg false at its boundary).
+     */
+    @Test
+    void submitPriceModQuantityAcceptsTheCeilingOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("999.000"));
+        assertEquals(0, new BigDecimal("999").compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+    }
+
+    /**
+     * {@code submitPriceMod()} rejects a null figure on a DECIMAL-QUANTITY line
+     * (value-null leg) with the plain invalid-quantity message, the range
+     * message of the unit family naming a range that is not this one.
+     */
+    @Test
+    void submitPriceModQuantityRejectsNullOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", null);
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * {@code submitPriceMod()} rejects a ZERO figure on a DECIMAL-QUANTITY line
+     * (signum leg, zero arm): nothing is sold by the zero metre.
+     */
+    @Test
+    void submitPriceModQuantityRejectsZeroOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", BigDecimal.ZERO);
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        assertEquals(0, BigDecimal.ONE.compareTo(it.quantity));
+    }
+
+    /**
+     * {@code submitPriceMod()} rejects a NEGATIVE figure on a DECIMAL-QUANTITY
+     * line (signum leg, negative arm).
+     */
+    @Test
+    void submitPriceModQuantityRejectsNegativeOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("-2.5"));
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        assertEquals(0, BigDecimal.ONE.compareTo(it.quantity));
+    }
+
+    /**
+     * {@code submitPriceMod()} rejects a figure finer than three decimals on a
+     * DECIMAL-QUANTITY line (scale leg): the register states quantities to the
+     * thousandth and keeps no digit it would not print.
+     */
+    @Test
+    void submitPriceModQuantityRejectsTooManyDecimalsOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("2.3605"));
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        assertEquals(0, BigDecimal.ONE.compareTo(it.quantity));
+    }
+
+    /**
+     * {@code submitPriceMod()} rejects a figure above 999 on a DECIMAL-QUANTITY
+     * line (above-999 leg).
+     */
+    @Test
+    void submitPriceModQuantityRejectsAboveMaxOnDecimalQuantityLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("4.99"), BigDecimal.ONE);
+        it.decimalQuantity = true;
+        service.state.ticket.items.add(it);
+        service.submitPriceMod(PriceModType.QUANTITY, "A", new BigDecimal("999.001"));
+        verify(service.state.ticket).setError("QUANTITÉ INVALIDE");
+        assertEquals(0, BigDecimal.ONE.compareTo(it.quantity));
     }
 
     /**
@@ -1321,9 +1480,9 @@ class HomeServiceTest {
 
     /**
      * {@code submitPriceMod()} refuses a quantity on a line carrying a PLU but
-     * NO EAN (weighed guard: plu non-null true, plu non-empty true, hasEan arm
-     * false). It is neither a weighed line (no EAN) nor a unit line (a PLU is
-     * present), so the line is not quantity-modifiable.
+     * NO EAN: the hasEan leg is false AND the weighed leg is true, so the line is
+     * refused twice over — it is a weighing whose article the catalog no longer
+     * names.
      */
     @Test
     void submitPriceModQuantityRefusedWhenPluPresentButEanNull() {
@@ -1766,6 +1925,29 @@ class HomeServiceTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
         verify(service.endorsementService, never()).requestAuthorization(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /**
+     * {@code cancelLine()} DOES cancel the only line when that line is negative —
+     * a deposit return, a reprise: nothing was sold, so there is no sale to zero.
+     *
+     * <p>The other arm of the exemption: a cashier who rang a déconsignation by
+     * mistake had no way out but the ticket abandon, because a second press raises
+     * the quantity of the same line instead of adding one, and the quantity key
+     * refuses a negative line.
+     */
+    @Test
+    void cancelLineCancelsTheOnlyLineWhenNothingWasSold() {
+        service.state.ticket.items.add(
+                item("D", "3570590000000", null, new BigDecimal("-1.00"), BigDecimal.ONE));
+        service.state.selectedTicketIndex = 0;
+        service.state.lastEnteredItemId = "D";
+        when(service.endorsementService.gestureAuthorized(service.state, "cancel-last"))
+                .thenReturn(true);
+        service.cancelLine();
+        verify(service.state.ticket, never())
+                .setError("DERNIER ARTICLE — UTILISEZ L'ABANDON DE TICKET");
+        verify(service.ticketService).cancelItemById(service.state, "D");
     }
 
     /**
@@ -2278,5 +2460,173 @@ class HomeServiceTest {
                 .log(org.mockito.ArgumentMatchers.eq(TechnicalEvent.EventType.SUPERVISOR_CALLED),
                         org.mockito.ArgumentMatchers.anyString());
         assertSame(survey, service.state.backOfficeSurvey);
+    }
+
+    // --- ANNULER SCANNER : le decrement d'une unite ---
+
+    /**
+     * {@code decrementByScan} takes ONE unit off a unit line when nothing was
+     * keyed, recomputes the total and says so — the gesture the field expert
+     * asked for: a customer taking one of three yogurts back keeps the other
+     * two.
+     */
+    @Test
+    void decrementByScanTakesOneUnitWhenNothingWasKeyed() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3"));
+        service.state.ticket.items.add(it);
+        assertTrue(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("2").compareTo(it.quantity));
+        verify(service.ticketService).recalculateTotal(service.state);
+        verify(service.state.ticket).setNotice("1 UNITE(S) RETIREE(S) DE LA LIGNE");
+    }
+
+    /**
+     * A quantity keyed before the gesture is HONOURED — that is how the operator
+     * says "take two back" — and consumed, so it never leaks onto the next scan.
+     */
+    @Test
+    void decrementByScanHonoursAndConsumesTheKeyedQuantity() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("5"));
+        service.state.ticket.items.add(it);
+        service.state.armedQuantity = new BigDecimal("2");
+        assertTrue(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("3").compareTo(it.quantity));
+        assertNull(service.state.armedQuantity);
+        verify(service.state.ticket).setNotice("2 UNITE(S) RETIREE(S) DE LA LIGNE");
+    }
+
+    /**
+     * A keyed quantity at or above what the line carries empties it, so the
+     * caller cancels the line outright — with its endorsement. The armed
+     * quantity is consumed all the same (the {@code <=} leg).
+     */
+    @Test
+    void decrementByScanHandsBackALineTheQuantityWouldEmpty() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("2"));
+        service.state.ticket.items.add(it);
+        service.state.armedQuantity = new BigDecimal("2");
+        assertFalse(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("2").compareTo(it.quantity));
+        assertNull(service.state.armedQuantity);
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * A line carrying ONE unit is handed back too: one unit off one unit is an
+     * empty line, which is a cancellation and not a decrement.
+     */
+    @Test
+    void decrementByScanHandsBackASingleUnitLine() {
+        service.state.ticket.items.add(item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE));
+        assertFalse(service.decrementByScan("A"));
+    }
+
+    /**
+     * A ZERO armed quantity is read as one unit, not as a refusal — the first
+     * leg of the signum guard on the armed figure.
+     */
+    @Test
+    void decrementByScanReadsAZeroArmedQuantityAsOneUnit() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("4"));
+        service.state.ticket.items.add(it);
+        service.state.armedQuantity = BigDecimal.ZERO;
+        assertTrue(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("3").compareTo(it.quantity));
+    }
+
+    /**
+     * A NEGATIVE armed quantity is read as one unit too — the second leg of that
+     * guard. A figure that cannot be a count of articles does not become one.
+     */
+    @Test
+    void decrementByScanReadsANegativeArmedQuantityAsOneUnit() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("4"));
+        service.state.ticket.items.add(it);
+        service.state.armedQuantity = new BigDecimal("-3");
+        assertTrue(service.decrementByScan("A"));
+        assertEquals(0, new BigDecimal("3").compareTo(it.quantity));
+    }
+
+    /**
+     * An unknown uid is handed back without touching anything — the not-found
+     * leg, reachable only by calling the method directly.
+     */
+    @Test
+    void decrementByScanHandsBackAnUnknownUid() {
+        service.state.ticket.items.add(item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3")));
+        assertFalse(service.decrementByScan("MISSING"));
+        verify(service.ticketService, never()).recalculateTotal(any());
+    }
+
+    /**
+     * A WEIGHED line is handed back: its quantity is a weight
+     * ({@code LC-02-13-15}) and half a weighing means nothing — it is cancelled
+     * whole, as before.
+     */
+    @Test
+    void decrementByScanHandsBackAWeighedLine() {
+        service.state.ticket.items.add(item("A", "123", "1000", new BigDecimal("2.00"), new BigDecimal("1.234")));
+        assertFalse(service.decrementByScan("A"));
+    }
+
+    /**
+     * A PRICE-EMBEDDED sticker line is handed back: one sticker is one object at
+     * its printed total ({@code LC-02-13-16}).
+     */
+    @Test
+    void decrementByScanHandsBackAPriceEmbeddedLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3"));
+        it.priceEmbedded = true;
+        service.state.ticket.items.add(it);
+        assertFalse(service.decrementByScan("A"));
+    }
+
+    /**
+     * A MONEY-PRODUCT line is handed back: money is not decremented by a scan.
+     */
+    @Test
+    void decrementByScanHandsBackAMoneyProductLine() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3"));
+        it.moneyProduct = true;
+        service.state.ticket.items.add(it);
+        assertFalse(service.decrementByScan("A"));
+    }
+
+    /**
+     * A NEGATIVE line — a deposit return — is handed back: taking a unit off a
+     * refund is not what a scan means.
+     */
+    @Test
+    void decrementByScanHandsBackANegativeLine() {
+        service.state.ticket.items.add(item("A", "123", null, new BigDecimal("-2.00"), new BigDecimal("3")));
+        assertFalse(service.decrementByScan("A"));
+    }
+
+    /**
+     * {@code cancelByScan} on a line carrying several units DECREMENTS it and
+     * never reaches the cancellation path — no endorsement is requested for one
+     * unit leaving the basket.
+     */
+    @Test
+    void cancelByScanDecrementsInsteadOfCancelling() {
+        TicketState.TicketItem it = item("A", "123", null, new BigDecimal("2.00"), new BigDecimal("3"));
+        service.state.ticket.items.add(it);
+        service.cancelByScan("123");
+        assertEquals(0, new BigDecimal("2").compareTo(it.quantity));
+        verify(service.endorsementService, never()).requestAuthorization(any(), anyString());
+        verify(service.ticketService, never()).cancelItemById(any(), anyString());
+    }
+
+    /**
+     * {@code cancelByScan} on a line carrying its LAST unit falls through to the
+     * cancellation, which answers to the endorsement as before.
+     */
+    @Test
+    void cancelByScanStillCancelsALineOnItsLastUnit() {
+        service.state.ticket.items.add(item("A", "123", null, new BigDecimal("2.00"), BigDecimal.ONE));
+        service.state.ticket.items.add(item("B", "456", null, new BigDecimal("1.00"), BigDecimal.ONE));
+        when(service.endorsementService.gestureAuthorized(any(), anyString())).thenReturn(true);
+        service.cancelByScan("123");
+        verify(service.ticketService).cancelItemById(service.state, "A");
     }
 }

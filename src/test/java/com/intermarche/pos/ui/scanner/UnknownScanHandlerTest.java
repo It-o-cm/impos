@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.scanner;
 
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.ui.ticket.TicketState;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +29,19 @@ class UnknownScanHandlerTest {
     private static final String CODE = "ABC999";
 
     /**
+     * Assembles the handler under test with a resolver reading the French
+     * bundle, so the assertions keep the literal sentence the register shows
+     * (LC-13-06).
+     *
+     * @return the wired handler
+     */
+    private UnknownScanHandler newHandler() {
+        UnknownScanHandler handler = new UnknownScanHandler();
+        handler.i18n = TestMessages.french();
+        return handler;
+    }
+
+    /**
      * Assembles a mock {@link PosState} whose ticket sub-state is the supplied
      * mock and whose lock flag is set as requested.
      *
@@ -53,7 +67,7 @@ class UnknownScanHandlerTest {
         state.ticket = ticket;
         ScanContext ctx = new ScanContext(CODE, state);
         ctx.handled = true;
-        new UnknownScanHandler().handle(ctx);
+        newHandler().handle(ctx);
         assertTrue(ctx.handled);
         assertNull(ticket.transientError);
         verifyNoInteractions(ticket);
@@ -69,7 +83,7 @@ class UnknownScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket, true);
         ScanContext ctx = new ScanContext(CODE, state);
-        new UnknownScanHandler().handle(ctx);
+        newHandler().handle(ctx);
         assertFalse(ctx.handled);
         assertNull(ticket.transientError);
     }
@@ -83,7 +97,7 @@ class UnknownScanHandlerTest {
         TicketState ticket = mock(TicketState.class);
         PosState state = newState(ticket, false);
         ScanContext ctx = new ScanContext(CODE, state);
-        new UnknownScanHandler().handle(ctx);
+        newHandler().handle(ctx);
         assertTrue(ctx.handled);
         verify(ticket).setError("CODE INCONNU: " + CODE);
     }

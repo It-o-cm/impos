@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -35,4 +36,31 @@ export async function loadScript(relativePath, options = {}) {
   }
   const module = await import(/* @vite-ignore */ url);
   return module.default;
+}
+
+
+/**
+ * Runs the inline script of a Qute TEMPLATE and returns the globals it installed.
+ * <p>
+ * The shared keypad library does not live in a static .js file: it is the inline
+ * `<script>` of templates/keyboard-lib.html, included by every screen. It cannot be
+ * imported like the supervisor sources, so the bench reads the template, takes its one
+ * script block and runs it against the current jsdom window — which is exactly what a
+ * screen does when the browser parses the include. The file is never touched, and the
+ * globals it assigns (PosKeyboards, PosInput, PosPrefill, padText) are returned.
+ *
+ * @param {string} relativePath Project-relative path of the template, e.g.
+ *   "src/main/resources/templates/keyboard-lib.html".
+ * @returns {object} The jsdom window, after the script has installed its globals.
+ */
+export function loadTemplateScript(relativePath) {
+  const source = readFileSync(resolve(ROOT, relativePath), 'utf8');
+  const opening = source.indexOf('<script>');
+  const closing = source.lastIndexOf('</script>');
+  if (opening < 0 || closing < 0) {
+    throw new Error(`no script block in ${relativePath}`);
+  }
+  const code = source.slice(opening + '<script>'.length, closing);
+  new Function('window', 'document', code)(globalThis.window, globalThis.document);
+  return globalThis.window;
 }

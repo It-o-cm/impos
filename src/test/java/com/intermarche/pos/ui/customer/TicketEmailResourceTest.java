@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.customer;
 import com.intermarche.pos.domain.sale.Ticket;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.ui.fidelity.FidelityState;
 import com.intermarche.pos.ui.ticket.TicketService;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -53,6 +54,9 @@ class TicketEmailResourceTest {
         resource.ticketService = mock(TicketService.class);
         resource.posSettingsService = mock(PosSettingsService.class);
         resource.ticketEmailPage = mock(Template.class);
+        // The refusals this screen shows read the French bundle, so the
+        // assertions keep the literal sentence the register shows (LC-13-06).
+        resource.i18n = TestMessages.french();
         return resource;
     }
 
@@ -136,7 +140,7 @@ class TicketEmailResourceTest {
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.sendEmail("  jean@example.fr  "));
         verify(view).data("address", "jean@example.fr");
-        verify(view).data("error", PosState.TRAINING_FORBIDDEN);
+        verify(view).data("error", "FONCTION INDISPONIBLE EN FORMATION");
         verify(view).data("sent", false);
         verify(resource.ticketMailService, never()).send(any(), anyString());
     }
@@ -153,7 +157,7 @@ class TicketEmailResourceTest {
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.sendEmail(null));
         verify(view).data("address", "");
-        verify(view).data("error", PosState.NO_LAST_TICKET);
+        verify(view).data("error", "AUCUN TICKET");
         verify(view).data("sent", false);
         verify(resource.ticketMailService, never()).send(any(), anyString());
     }
@@ -239,7 +243,7 @@ class TicketEmailResourceTest {
         resource.state.trainingMode = true;
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.sendSms("0612345678"));
-        verify(view).data("error", PosState.TRAINING_FORBIDDEN);
+        verify(view).data("error", "FONCTION INDISPONIBLE EN FORMATION");
         verify(resource.ticketSmsService, never()).send(any(), anyString());
     }
 
@@ -253,7 +257,7 @@ class TicketEmailResourceTest {
         resource.state.lastClosedTicketId = null;
         TemplateInstance view = stubPage(resource);
         assertSame(view, resource.sendSms("0612345678"));
-        verify(view).data("error", PosState.NO_LAST_TICKET);
+        verify(view).data("error", "AUCUN TICKET");
         verify(resource.ticketSmsService, never()).send(any(), anyString());
     }
 

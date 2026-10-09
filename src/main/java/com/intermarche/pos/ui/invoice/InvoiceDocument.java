@@ -271,8 +271,9 @@ public final class InvoiceDocument {
      * @param showEan whether the article codes are printed ({@code BO-03-03-03})
      * @return the laid-out document
      */
-    public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan) {
-        return of(invoice, ticket, showEan, null);
+    public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
+            com.intermarche.pos.ui.Messages i18n) {
+        return of(invoice, ticket, showEan, null, i18n);
     }
 
     /**
@@ -288,8 +289,8 @@ public final class InvoiceDocument {
      * @return the laid-out document
      */
     public static InvoiceDocument of(Invoice invoice, Ticket ticket, boolean showEan,
-            String taxIdLabel) {
-        List<Tender> tenders = tendersOf(ticket);
+            String taxIdLabel, com.intermarche.pos.ui.Messages i18n) {
+        List<Tender> tenders = tendersOf(ticket, i18n);
         return new InvoiceDocument(
                 invoice.documentType.getTitle(),
                 invoice.documentNumber,
@@ -300,7 +301,7 @@ public final class InvoiceDocument {
                 invoice.printCount,
                 sellerOf(ticket.store),
                 customerOf(invoice),
-                linesOf(ticket, showEan),
+                linesOf(ticket, showEan, i18n),
                 vatRowsOf(ticket),
                 tenders,
                 DF.format(invoice.totalExcludingTax),
@@ -545,7 +546,8 @@ public final class InvoiceDocument {
      * @param showEan whether the article codes are printed
      * @return the rows
      */
-    private static List<Line> linesOf(Ticket ticket, boolean showEan) {
+    private static List<Line> linesOf(Ticket ticket, boolean showEan,
+            com.intermarche.pos.ui.Messages i18n) {
         List<Line> rows = new ArrayList<>();
         for (TicketLine line : ticket.lines) {
             if (line.cancelled) {
@@ -554,7 +556,7 @@ public final class InvoiceDocument {
             BigDecimal rate = line.vatRate == null ? BigDecimal.ZERO : line.vatRate;
             rows.add(new Line(
                     text(line.productLabel),
-                    attributesOf(line),
+                    attributesOf(line, i18n),
                     showEan ? text(line.ean) : "",
                     quantityOf(line),
                     percent(rate),
@@ -577,8 +579,9 @@ public final class InvoiceDocument {
      * @param line the ticket line
      * @return the attributes line, empty when the line carries none
      */
-    private static String attributesOf(TicketLine line) {
-        return isFilled(line.familyLabel) ? "Famille : " + line.familyLabel.trim() : "";
+    private static String attributesOf(TicketLine line, com.intermarche.pos.ui.Messages i18n) {
+        return isFilled(line.familyLabel)
+                ? i18n.get("doc.famille") + line.familyLabel.trim() : "";
     }
 
     /**
@@ -616,10 +619,10 @@ public final class InvoiceDocument {
      * @param ticket the closed ticket
      * @return the rows, in the order the tenders first appear
      */
-    private static List<Tender> tendersOf(Ticket ticket) {
+    private static List<Tender> tendersOf(Ticket ticket, com.intermarche.pos.ui.Messages i18n) {
         Map<String, BigDecimal> byTender = new LinkedHashMap<>();
         for (TicketPayment payment : ticket.payments) {
-            byTender.merge(tenderLabel(payment), orZero(payment.amount), BigDecimal::add);
+            byTender.merge(tenderLabel(payment, i18n), orZero(payment.amount), BigDecimal::add);
         }
         List<Tender> rows = new ArrayList<>();
         for (Map.Entry<String, BigDecimal> entry : byTender.entrySet()) {
@@ -629,20 +632,47 @@ public final class InvoiceDocument {
     }
 
     /**
-     * Names a tender as the customer reads it.
+     * Names a tender as the customer reads it, for EVERY settlement method the
+     * register can take.
+     *
+     * <p>SIX WERE NAMED AND EIGHT WERE NOT. The eight others fell through to the
+     * default arm, which answers the Java class name with its suffix chopped
+     * off: a customer settling an invoice on their account read "Credit", a
+     * rounding line read "Rounding" and a foreign settlement "ForeignCurrency" —
+     * in English, on an invoice, under the shop's letterhead. The two worst were
+     * the two commonest: the thermal receipt gives ARRONDI and DEVISE branches of
+     * their own, and this document had neither.
+     *
+     * <p>In sentence case WITH accents, the convention of the {@code doc.*}
+     * namespace: this is an A4 page set in a proportional font, not the thermal
+     * paper's capitals.
+     *
+     * <p>The default arm stays, and stays the bare type name: a method this
+     * version has no word for must be visible on the page rather than blank
+     * under an amount, and it names exactly what has to be added.
      *
      * @param payment the settled payment
-     * @return its French label, the bare type when it has no known name
+     * @param i18n the operator-language resolver
+     * @return its label in the register's language, the bare type when it has no
+     *         known name
      */
-    private static String tenderLabel(TicketPayment payment) {
+    private static String tenderLabel(TicketPayment payment, com.intermarche.pos.ui.Messages i18n) {
         String type = payment.getClass().getSimpleName().replace("Payment", "");
         return switch (type) {
-            case "Cash" -> "Espèces";
-            case "Card" -> "Carte bancaire";
-            case "Cheque" -> "Chèque";
-            case "TicketResto" -> "Titre-restaurant";
-            case "Voucher" -> "Bon d'achat";
-            case "Fidelity" -> "Cagnotte fidélité";
+            case "Cash" -> i18n.get("doc.especes");
+            case "Card" -> i18n.get("doc.carteBancaire");
+            case "Cheque" -> i18n.get("doc.cheque");
+            case "TicketResto" -> i18n.get("doc.titreRestaurant");
+            case "Voucher" -> i18n.get("doc.bonAchat");
+            case "Fidelity" -> i18n.get("doc.cagnotteFidelite");
+            case "Credit" -> i18n.get("doc.creditClient");
+            case "Rounding" -> i18n.get("doc.arrondi");
+            case "ForeignCurrency" -> i18n.get("doc.devise");
+            case "Backup" -> i18n.get("doc.secoursMonetique");
+            case "TrdCard" -> i18n.get("doc.carteTrd");
+            case "RestoFlash" -> i18n.get("doc.restoFlash");
+            case "SupplierGiftCard" -> i18n.get("doc.carteCadeau");
+            case "Sogec" -> i18n.get("doc.bonSogec");
             default -> type;
         };
     }

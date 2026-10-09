@@ -10,7 +10,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Saisie Directe</title>
+    <title>{inject:i18n.get('manual.saisieDirecte')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -104,17 +104,17 @@
 <div class="pos-terminal">
     <div class="overlay active">
         <div class="overlay-header">
-            <div class="overlay-title">SAISIE DIRECTE</div>
+            <div class="overlay-title">{inject:i18n.get('manual.saisieDirecte2')}</div>
         </div>
 
         <div class="manual-form">
             <div class="product-selection" id="productSelection">
-                <div class="flash-label" id="flashLabel">⚠ SÉLECTIONNEZ UN PRODUIT</div>
+                <div class="flash-label" id="flashLabel">{inject:i18n.get('manual.selectionnezProduit')}</div>
                 <div class="breadcrumb" id="breadcrumb">{breadcrumb}</div>
 
                 <div class="product-grid" id="productGrid">
                     {#if isRoot}
-                        <button type="button" class="grid-btn skip-btn" onclick="selectProduct(this, 'PRODUIT NON RECONNU', '')">NON RECONNU</button>
+                        <button type="button" class="grid-btn skip-btn" onclick="selectProduct(this, 'PRODUIT NON RECONNU', '')">{inject:i18n.get('manual.nonReconnu')}</button>
                     {#else}
                         <a href="{parentUrl}" class="grid-btn back-btn">< RETOUR</a>
                     {/if}
@@ -130,15 +130,15 @@
 
                 {#if totalPages > 1}
                 <div class="pos-pager">
-                    {#if prevUrl}<a href="{prevUrl}" class="btn btn-sm btn-primary">PRÉCÉDENT</a>{#else}<span class="btn btn-sm btn-primary off">PRÉCÉDENT</span>{/if}
+                    {#if prevUrl}<a href="{prevUrl}" class="btn btn-sm btn-primary">{inject:i18n.get('manual.precedent')}</a>{#else}<span class="btn btn-sm btn-primary off">PRÉCÉDENT</span>{/if}
                     <span class="pos-pager-info">PAGE {page} / {totalPages}</span>
-                    {#if nextUrl}<a href="{nextUrl}" class="btn btn-sm btn-primary">SUIVANT</a>{#else}<span class="btn btn-sm btn-primary off">SUIVANT</span>{/if}
+                    {#if nextUrl}<a href="{nextUrl}" class="btn btn-sm btn-primary">{inject:i18n.get('lock.next')}</a>{#else}<span class="btn btn-sm btn-primary off">SUIVANT</span>{/if}
                 </div>
                 {/if}
             </div>
 
             <div class="price-section">
-                <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:var(--fs-section);">SAISIE QUANTITÉ</div>
+                <div id="inputTitle" style="text-align:center;color:var(--primary);font-weight:bold;font-size:var(--fs-section);">{inject:i18n.get('manual.saisieQuantite')}</div>
                 <div id="displayValue" class="price-display pad-display" data-placeholder="1"></div>
 
                 <form action="/action/manual-add-known" method="POST" id="formKnown" style="display:none;">
@@ -158,20 +158,20 @@
                      ! vente au code famille etait inaccessible. Elles empruntent le
                      ! pave de l'ecran — un clic le rebranche, un clic sur un produit
                      ! le rend a la quantite ou au prix. !}
-                    <label style="color:var(--text-muted);">FAMILLE</label>
-                    <div id="dispFamily" class="pad-display" data-placeholder="code" onclick="bindFamilyField('family')" style="width:6rem;"></div>
+                    <label style="color:var(--text-muted);">{inject:i18n.get('manual.famille')}</label>
+                    <div id="dispFamily" class="pad-display" data-placeholder="{inject:i18n.get('manual.code')}" onclick="bindFamilyField('family')" style="width:6rem;"></div>
                     <input type="hidden" name="familyCode" id="valFamily" value="">
-                    <label style="color:var(--text-muted);">PRIX €</label>
+                    <label style="color:var(--text-muted);">{inject:i18n.get('manual.prix')}</label>
                     <div id="dispFamilyPrice" class="pad-display" data-placeholder="0,00" onclick="bindFamilyField('price')" style="width:7rem;"></div>
                     <input type="hidden" name="price" id="valFamilyPrice" value="">
-                    <button type="submit" class="btn btn-success">VALIDER FAMILLE</button>
+                    <button type="submit" class="btn btn-success">{inject:i18n.get('manual.validerFamille')}</button>
                 </form>
 
                 <div class="numpad-dynamic-area" id="keyboardArea"></div>
 
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <a href="/" class="btn btn-muted" style="flex:0 0 8.125rem; display:flex; align-items:center; justify-content:center;">RETOUR</a>
-                    <button type="button" class="btn btn-success" style="flex:1;" onclick="submitForm()">VALIDER</button>
+                    <a href="/" class="btn btn-muted" style="flex:0 0 8.125rem; display:flex; align-items:center; justify-content:center;">{inject:i18n.get('common.back')}</a>
+                    <button type="button" class="btn btn-success" style="flex:1;" onclick="submitForm()">{inject:i18n.get('common.validate')}</button>
                 </div>
             </div>
         </div>
@@ -186,7 +186,7 @@
        PosInput ne cable qu'un champ a la fois, donc un clic rebranche. */
     const FAMILY_FIELDS = {
         family: { display: 'dispFamily',      hidden: 'valFamily',      type: 'numpad', mode: 'text',    max: 6 },
-        price:  { display: 'dispFamilyPrice', hidden: 'valFamilyPrice', type: 'price',  mode: 'decimal', max: 9 }
+        price:  { display: 'dispFamilyPrice', hidden: 'valFamilyPrice', type: 'price',  mode: 'cents', max: 9 }
     };
 
     /* Rebranche le pave sur l'une des deux cases de la vente au code famille,
@@ -227,14 +227,15 @@
         // non reconnu, quantité pour un produit connu. Rien de tapé, l'écran garde
         // son geste en trois temps.
         if (!PosPrefill.isEmpty()) {
-            const typed = PosPrefill.consume();
             if (ean === null || ean === '') {
+                // Un produit non reconnu prend un PRIX, donc des centimes.
                 document.getElementById('inputLabel').value = label;
-                document.getElementById('inputPrice').value = typed;
+                document.getElementById('inputPrice').value = PosPrefill.consumeAmount();
                 document.getElementById('formUnknown').submit();
             } else {
+                // Un produit connu prend une QUANTITÉ, qui n'est pas un montant.
                 document.getElementById('inputEan').value = ean;
-                document.getElementById('inputQuantity').value = typed;
+                document.getElementById('inputQuantity').value = PosPrefill.consume();
                 document.getElementById('formKnown').submit();
             }
             return;
@@ -268,7 +269,7 @@
                 hiddenId: 'inputPrice',
                 containerId: 'keyboardArea',
                 keyboardType: 'price',
-                mode: 'decimal',
+                mode: 'cents',
                 placeholder: "0,00"
             });
 

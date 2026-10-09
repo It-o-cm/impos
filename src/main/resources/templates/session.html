@@ -10,7 +10,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Session de Caisse</title>
+  <title>{inject:i18n.get('session.sessionCaisse')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -41,8 +41,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>SESSION DE CAISSE</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('session.sessionCaisse2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -53,37 +53,37 @@
         {/if}
 
         {#if current??}
-          <h2>Session en cours</h2>
-          <div class="info-row"><span class="label">Numéro</span><span class="value">{current.sessionNumber}</span></div>
-          <div class="info-row"><span class="label">Statut</span><span class="value status-open">OUVERTE</span></div>
-          <div class="info-row"><span class="label">Ouverte le</span><span class="value">{current.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
-          <div class="info-row"><span class="label">Fond de caisse</span><span class="value">{current.openingFloatFormatted} €</span></div>
+          <h2>{inject:i18n.get('session.sessionCours')}</h2>
+          <div class="info-row"><span class="label">{inject:i18n.get('session.numero')}</span><span class="value">{current.sessionNumber}</span></div>
+          <div class="info-row"><span class="label">{inject:i18n.get('session.statut')}</span><span class="value status-open">{inject:i18n.get('session.ouverte')}</span></div>
+          <div class="info-row"><span class="label">{inject:i18n.get('session.ouverte2')}</span><span class="value">{current.openingDate.format('dd/MM/yyyy HH:mm')}</span></div>
+          <div class="info-row"><span class="label">{inject:i18n.get('session.fondCaisse')}</span><span class="value">{current.openingFloatFormatted} €</span></div>
           <div class="actions">
-            <a href="/session/x-report" class="btn btn-primary">RAPPORT X (LECTURE)</a>
-            <a href="/action/session/settlement-voucher" class="btn btn-muted">BORDEREAU DE RÈGLEMENT</a>
-            <a href="/action/session/close-start" class="btn btn-danger">CLÔTURE DE CAISSE (Z)</a>
+            <a href="/session/x-report" class="btn btn-primary">{inject:i18n.get('session.rapportXLecture')}</a>
+            <a href="/action/session/settlement-voucher" class="btn btn-muted">{inject:i18n.get('session.bordereauReglement')}</a>
+            <a href="/action/session/close-start" class="btn btn-danger">{inject:i18n.get('session.clotureCaisseZ')}</a>
           </div>
         {#else}
-          <h2>Aucune session ouverte</h2>
+          <h2>{inject:i18n.get('session.aucuneSessionOuverte')}</h2>
           {#if theoreticalFloat??}
-          <div class="info-row"><span class="label">Fond théorique (report clôture précédente)</span><span class="value">{theoreticalFloat} €</span></div>
+          <div class="info-row"><span class="label">{inject:i18n.get('session.fondTheoriqueReportCloture')}</span><span class="value">{theoreticalFloat} €</span></div>
           {/if}
           <form method="post" action="/action/session/open">
             {! Pave tactile, comme partout ailleurs sur la caisse: la borne n'a
              ! pas de clavier physique, un <input> libre y est inutilisable. !}
             <div class="form-row">
-              <label for="floatDisplay">Fond de caisse €</label>
+              <label for="floatDisplay">{inject:i18n.get('session.fondCaisse2')}</label>
               <div id="floatDisplay" class="kb-display pad-display"></div>
               <input type="hidden" id="floatHidden" name="openingFloat" value="{defaultFloat}">
             </div>
             <div class="keyboard pos-kb-compact" id="floatKbArea"></div>
             <div class="actions">
-              <button type="submit" class="btn btn-success">OUVRIR LA SESSION</button>
+              <button type="submit" class="btn btn-success">{inject:i18n.get('session.ouvrirSession')}</button>
               {! Grisee tant qu'aucune session n'est ouverte: la calculatrice de
                ! fond est derriere le garde de session (SessionCheckFilter ne la
                ! laisse pas passer), donc l'offrir cliquable ici reviendrait a
                ! proposer un choix pour le refuser aussitot. !}
-              <button type="button" class="btn btn-muted" disabled>CALCULATRICE DE FOND</button>
+              <button type="button" class="btn btn-muted" disabled>{inject:i18n.get('session.calculatriceFond')}</button>
             </div>
           </form>
         {/if}
@@ -94,9 +94,9 @@
       <!-- Sans session ouverte, RETOUR ne mène nulle part : le garde de session
            renvoie ici. La seule sortie légitime est alors de rendre la caisse. -->
       {#if current??}
-        <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+        <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
       {#else}
-        <a href="/close" class="btn btn-muted" style="width: 11.25rem;">FERMER</a>
+        <a href="/close" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('session.fermer')}</a>
       {/if}
     </div>
   </div>
@@ -114,7 +114,7 @@
             hiddenId: 'floatHidden',
             containerId: 'floatKbArea',
             keyboardType: 'price',
-            mode: 'decimal',
+            mode: 'cents',
             maxLength: 9,
             initialValue: (hidden.value || '').replace(',', '.')
         });

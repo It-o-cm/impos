@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware;
 
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -37,6 +38,10 @@ class ChequeReadingServiceTest {
      */
     private ChequeReadingService serviceWith(HardwareClient client) {
         ChequeReadingService service = new ChequeReadingService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.hardware = client;
         service.pollMillis = 1L;
         service.deadlineMillis = 2000L;

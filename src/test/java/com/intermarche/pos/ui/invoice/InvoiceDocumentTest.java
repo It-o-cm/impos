@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.invoice;
 
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.domain.store.Address;
 import com.intermarche.pos.domain.store.Store;
@@ -152,7 +153,7 @@ class InvoiceDocumentTest {
         ticket.payments.add(new CashPayment(new BigDecimal("16.60"), new BigDecimal("20.00")));
 
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "C04-F000123"),
-                ticket, true);
+                ticket, true, TestMessages.french());
 
         assertEquals(3, document.lines.size());
         assertEquals("A", document.lines.get(0).label());
@@ -193,7 +194,7 @@ class InvoiceDocumentTest {
         ticket.ticketNumber = "T";
         ticket.lines.add(line("A", "3178530403022", "1", "1.00", "1.00", "0.20", null, null));
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, false);
+                ticket, false, TestMessages.french());
         assertEquals("", document.lines.get(0).ean());
     }
 
@@ -208,7 +209,7 @@ class InvoiceDocumentTest {
         ticket.payments.add(new CashPayment(new BigDecimal("10.00"), new BigDecimal("10.00")));
         ticket.payments.add(new CashPayment(new BigDecimal("5.50"), new BigDecimal("5.50")));
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals(1, document.tenders.size());
         assertEquals("15,50", document.tenders.get(0).amount());
     }
@@ -224,7 +225,7 @@ class InvoiceDocumentTest {
         ticket.ticketNumber = "T";
         ticket.lines.add(line("A", null, "1", "10.00", "10.00", null, null, null));
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals("0,00 %", document.lines.get(0).vatRate());
         assertEquals("10,00", document.lines.get(0).unitExcludingTax());
     }
@@ -243,7 +244,7 @@ class InvoiceDocumentTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals("", document.legalFooter);
         assertEquals(1, document.seller.addressLines().size());
         assertEquals("VAUCRESSON", document.seller.addressLines().get(0));
@@ -266,7 +267,7 @@ class InvoiceDocumentTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals("Capital : 1,00 €", document.legalFooter);
         assertTrue(document.seller.addressLines().isEmpty());
     }
@@ -283,7 +284,7 @@ class InvoiceDocumentTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals("RCS 123", document.legalFooter);
     }
 
@@ -300,7 +301,7 @@ class InvoiceDocumentTest {
         Ticket first = new Ticket();
         first.store = townOnly;
         first.ticketNumber = "T";
-        assertEquals("VAUCRESSON", InvoiceDocument.of(invoice(first, fullCustomer(), "N"), first, true)
+        assertEquals("VAUCRESSON", InvoiceDocument.of(invoice(first, fullCustomer(), "N"), first, true, TestMessages.french())
                 .seller.addressLines().get(0));
 
         Store codeOnly = new Store();
@@ -310,7 +311,7 @@ class InvoiceDocumentTest {
         Ticket second = new Ticket();
         second.store = codeOnly;
         second.ticketNumber = "T";
-        assertEquals("92420", InvoiceDocument.of(invoice(second, fullCustomer(), "N"), second, true)
+        assertEquals("92420", InvoiceDocument.of(invoice(second, fullCustomer(), "N"), second, true, TestMessages.french())
                 .seller.addressLines().get(0));
     }
 
@@ -328,7 +329,7 @@ class InvoiceDocumentTest {
         ticket.ticketNumber = "T";
         Invoice document = invoice(ticket, customer, "N");
         document.customerAddress = null;
-        InvoiceDocument laid = InvoiceDocument.of(document, ticket, true);
+        InvoiceDocument laid = InvoiceDocument.of(document, ticket, true, TestMessages.french());
         assertTrue(laid.customer.addressLines().isEmpty());
         assertEquals("", laid.customer.contact());
         assertEquals("", laid.customer.siret());
@@ -344,7 +345,7 @@ class InvoiceDocumentTest {
         ticket.ticketNumber = "T";
         Invoice document = invoice(ticket, fullCustomer(), "N");
         document.printCount = 2;
-        InvoiceDocument laid = InvoiceDocument.of(document, ticket, true);
+        InvoiceDocument laid = InvoiceDocument.of(document, ticket, true, TestMessages.french());
         assertTrue(laid.isDuplicate());
         assertEquals(2, laid.duplicateNumber);
     }
@@ -359,7 +360,7 @@ class InvoiceDocumentTest {
         ticket.store = fullStore();
         ticket.ticketNumber = "T";
         ticket.creationDate = null;
-        assertEquals("", InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"), ticket, true)
+        assertEquals("", InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"), ticket, true, TestMessages.french())
                 .saleDate);
     }
 
@@ -372,17 +373,16 @@ class InvoiceDocumentTest {
         Ticket ticket = new Ticket();
         ticket.store = fullStore();
         ticket.ticketNumber = "T";
-        String mentions = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"), ticket, true)
+        String mentions = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"), ticket, true, TestMessages.french())
                 .getLegalMentions();
         assertTrue(mentions.contains("L441-10"));
         assertTrue(mentions.contains("40 €"));
     }
 
     /**
-     * Each remaining known tender is named as the customer reads it, and an unmapped
-     * tender falls back to its bare type — the four named legs of the tender switch
-     * plus its default arm. The loyalty tender is settled with no amount, which the
-     * document reads as zero, the null arm of the amount guard.
+     * Each of the first six named tenders is named as the customer reads it. The
+     * loyalty tender is settled with no amount, which the document reads as zero,
+     * the null arm of the amount guard.
      */
     @Test
     void namesEveryRemainingTenderAndTreatsANullAmountAsZero() {
@@ -395,7 +395,7 @@ class InvoiceDocumentTest {
         ticket.payments.add(new FidelityPayment(null));
         ticket.payments.add(new CreditPayment(new BigDecimal("2.00")));
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals(5, document.tenders.size());
         assertEquals("Chèque", document.tenders.get(0).label());
         assertEquals("10,00", document.tenders.get(0).amount());
@@ -403,9 +403,89 @@ class InvoiceDocumentTest {
         assertEquals("Bon d'achat", document.tenders.get(2).label());
         assertEquals("Cagnotte fidélité", document.tenders.get(3).label());
         assertEquals("0,00", document.tenders.get(3).amount());
-        assertEquals("Credit", document.tenders.get(4).label());
-        assertEquals("Chèque, Titre-restaurant, Bon d'achat, Cagnotte fidélité, Credit",
+        assertEquals("Crédit client", document.tenders.get(4).label());
+        assertEquals("Chèque, Titre-restaurant, Bon d'achat, Cagnotte fidélité, Crédit client",
                 document.paymentMethods);
+    }
+
+    /**
+     * THE EIGHT TENDERS THIS DOCUMENT USED TO LEAVE IN ENGLISH — one arm of the
+     * switch each, on a single invoice so none is asserted on faith.
+     *
+     * <p>They all fell through to the default arm, which answers the Java class
+     * name: a customer settling on their account read "Credit", a rounding line
+     * read "Rounding" and a foreign settlement "ForeignCurrency". The loop below
+     * also checks the English word is GONE from the joined
+     * {@code paymentMethods}, because a mapping that adds the French label
+     * without replacing the derived one would read as passing.
+     *
+     * <p>SOGEC IS EXCLUDED FROM THAT LOOP, and it is not an oversight: the
+     * French label is "Bon Sogec" — the clearing house keeps its name, so the
+     * word is legitimately on the page and its absence cannot be tested. The
+     * exact label asserted above is what covers that arm.
+     */
+    @Test
+    void namesTheEightTendersThatUsedToPrintInEnglish() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        ticket.payments.add(new CreditPayment(new BigDecimal("1.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.RoundingPayment(new BigDecimal("0.02")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.ForeignCurrencyPayment(new BigDecimal("2.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.BackupPayment(new BigDecimal("3.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.TrdCardPayment(new BigDecimal("4.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.RestoFlashPayment(new BigDecimal("5.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.SupplierGiftCardPayment(new BigDecimal("6.00")));
+        ticket.payments.add(new com.intermarche.pos.domain.payment.SogecPayment(new BigDecimal("7.00")));
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, TestMessages.french());
+        assertEquals(8, document.tenders.size());
+        assertEquals("Crédit client", document.tenders.get(0).label());
+        assertEquals("Arrondi", document.tenders.get(1).label());
+        assertEquals("Devise", document.tenders.get(2).label());
+        assertEquals("Secours monétique", document.tenders.get(3).label());
+        assertEquals("Carte TRD", document.tenders.get(4).label());
+        assertEquals("Resto Flash", document.tenders.get(5).label());
+        assertEquals("Carte cadeau", document.tenders.get(6).label());
+        assertEquals("Bon Sogec", document.tenders.get(7).label());
+        for (String english : List.of("Credit", "Rounding", "ForeignCurrency", "Backup",
+                "TrdCard", "RestoFlash", "SupplierGiftCard")) {
+            assertFalse(document.paymentMethods.contains(english),
+                    "le nom de classe " + english + " ne doit plus figurer sur la facture");
+        }
+    }
+
+    /**
+     * A settlement class this version has no word for keeps its bare type name —
+     * the default arm, deliberately kept: visible on the page beats blank under
+     * an amount, and it names what has to be added.
+     */
+    @Test
+    void fallsBackToTheTypeNameForAnUnknownTender() {
+        Ticket ticket = new Ticket();
+        ticket.store = fullStore();
+        ticket.ticketNumber = "T";
+        ticket.payments.add(new UnknownTenderPayment(new BigDecimal("9.00")));
+        InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
+                ticket, true, TestMessages.french());
+        assertEquals(1, document.tenders.size());
+        assertEquals("UnknownTender", document.tenders.get(0).label());
+    }
+
+    /**
+     * A settlement method this version knows nothing about, used to exercise the
+     * default arm of the tender switch.
+     */
+    private static class UnknownTenderPayment extends com.intermarche.pos.domain.payment.TicketPayment {
+
+        /**
+         * Settles the given amount.
+         *
+         * @param amount the settled amount
+         */
+        UnknownTenderPayment(BigDecimal amount) {
+            super(amount);
+        }
     }
 
     /**
@@ -424,7 +504,7 @@ class InvoiceDocumentTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals("RCS 123 — Capital : 1,00 €", document.legalFooter);
     }
 
@@ -442,7 +522,7 @@ class InvoiceDocumentTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals(1, document.seller.addressLines().size());
         assertEquals("12 rue A", document.seller.addressLines().get(0));
     }
@@ -471,7 +551,7 @@ class InvoiceDocumentTest {
         ticket.lines.add(line("A", "3178530403022", "2", "12.90", "25.80", "0.055", null, "EPICERIE"));
         ticket.payments.add(new CashPayment(new BigDecimal("25.80"), new BigDecimal("30.00")));
         InvoiceDocument document = InvoiceDocument.of(
-                invoice(ticket, fullCustomer(), "C04-F000042"), ticket, true);
+                invoice(ticket, fullCustomer(), "C04-F000042"), ticket, true, TestMessages.french());
 
         Map<String, Object> data = document.asDocumentData();
 
@@ -531,7 +611,8 @@ class InvoiceDocumentTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         Map<String, Object> data = InvoiceDocument
-                .of(invoice(ticket, fullCustomer(), "N"), ticket, true).asDocumentData();
+                .of(invoice(ticket, fullCustomer(), "N"), ticket, true, TestMessages.french())
+                .asDocumentData();
         assertEquals(data.get("seller"), data.get("store"));
     }
 
@@ -548,7 +629,7 @@ class InvoiceDocumentTest {
         ticket.ticketNumber = "T";
         Invoice invoice = invoice(ticket, fullCustomer(), "N");
         invoice.printCount = 2;
-        Map<String, Object> data = InvoiceDocument.of(invoice, ticket, true).asDocumentData();
+        Map<String, Object> data = InvoiceDocument.of(invoice, ticket, true, TestMessages.french()).asDocumentData();
         @SuppressWarnings("unchecked")
         Map<String, Object> head = (Map<String, Object>) data.get("document");
         assertEquals(Boolean.TRUE, head.get("duplicate"));
@@ -570,7 +651,7 @@ class InvoiceDocumentTest {
         AccountCustomer customer = fullCustomer();
         customer.dueDate = java.time.LocalDate.of(2026, 10, 31);
         InvoiceDocument dated = InvoiceDocument.of(
-                invoice(ticket, customer, "C04-F000042"), ticket, true);
+                invoice(ticket, customer, "C04-F000042"), ticket, true, TestMessages.french());
         assertTrue(dated.hasDueDate());
         assertEquals("31/10/2026", dated.dueDate);
         @SuppressWarnings("unchecked")
@@ -578,7 +659,7 @@ class InvoiceDocumentTest {
         assertEquals("31/10/2026", head.get("dueDate"));
         customer.dueDate = null;
         InvoiceDocument undated = InvoiceDocument.of(
-                invoice(ticket, customer, "C04-F000043"), ticket, true);
+                invoice(ticket, customer, "C04-F000043"), ticket, true, TestMessages.french());
         assertFalse(undated.hasDueDate());
         assertEquals("", undated.dueDate);
     }
@@ -596,13 +677,13 @@ class InvoiceDocumentTest {
         AccountCustomer customer = fullCustomer();
         customer.taxId = "PT123456789";
         assertEquals("PT123456789",
-                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, null)
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, null, TestMessages.french())
                         .customerTaxId);
         assertEquals("PT123456789",
-                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, "  ")
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, "  ", TestMessages.french())
                         .customerTaxId);
         assertEquals("PT123456789",
-                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true).customerTaxId);
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, TestMessages.french()).customerTaxId);
     }
 
     /**
@@ -616,7 +697,7 @@ class InvoiceDocumentTest {
         AccountCustomer customer = fullCustomer();
         customer.taxId = "999999990";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, customer, "N"), ticket,
-                true, "CONSUMIDOR FINAL");
+                true, "CONSUMIDOR FINAL", TestMessages.french());
         assertEquals("CONSUMIDOR FINAL", document.customerTaxId);
         assertTrue(document.hasCustomerTaxId());
     }
@@ -632,7 +713,7 @@ class InvoiceDocumentTest {
         ticket.store = fullStore();
         ticket.ticketNumber = "T";
         InvoiceDocument document = InvoiceDocument.of(invoice(ticket, fullCustomer(), "N"),
-                ticket, true);
+                ticket, true, TestMessages.french());
         assertEquals("", document.customerTaxId);
         assertFalse(document.hasCustomerTaxId());
         java.util.Map<String, Object> data = document.asDocumentData();
@@ -652,7 +733,7 @@ class InvoiceDocumentTest {
         AccountCustomer customer = fullCustomer();
         customer.taxId = "PT1";
         java.util.Map<String, Object> data =
-                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, "ANONYME")
+                InvoiceDocument.of(invoice(ticket, customer, "N"), ticket, true, "ANONYME", TestMessages.french())
                         .asDocumentData();
         java.util.Map<?, ?> customerData = (java.util.Map<?, ?>) data.get("customer");
         java.util.Map<?, ?> sellerData = (java.util.Map<?, ?>) data.get("seller");
@@ -672,7 +753,7 @@ class InvoiceDocumentTest {
         ticket.ticketNumber = "T";
         Invoice invoice = invoice(ticket, fullCustomer(), "N");
         invoice.documentNumber = null;
-        Map<String, Object> data = InvoiceDocument.of(invoice, ticket, true).asDocumentData();
+        Map<String, Object> data = InvoiceDocument.of(invoice, ticket, true, TestMessages.french()).asDocumentData();
         @SuppressWarnings("unchecked")
         Map<String, Object> head = (Map<String, Object>) data.get("document");
         assertEquals("", head.get("number"));

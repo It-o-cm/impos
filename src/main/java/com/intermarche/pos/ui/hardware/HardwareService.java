@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 
@@ -49,6 +50,26 @@ public class HardwareService {
     /** Says whether this register is ADMINISTERED with a customer display. */
     @Inject
     com.intermarche.pos.service.CheckoutPointService checkoutPointService;
+
+    /**
+     * How long a weighing waits for an article to be PUT ON THE PLATE, in
+     * milliseconds.
+     *
+     * <p>THE ORDER OF THE TWO GESTURES WAS FORCED, and backwards. The weighing
+     * is an instantaneous read: choosing the article first and laying the fruit
+     * down second read an empty plate, answered {@code POIDS INVALIDE} and
+     * created nothing, so the operator learned to lay the fruit down FIRST and
+     * choose afterwards — the reverse of what the screen asks and of what the
+     * field expert reported. Waiting a moment for the plate to be loaded makes
+     * both orders work, and costs nothing when the article is already there: the
+     * first read returns and the wait never starts.
+     */
+    @ConfigProperty(name = "balance.weighing-wait-ms", defaultValue = "4000")
+    long weighingWaitMs;
+
+    /** How often the plate is re-read while the weighing waits, in milliseconds. */
+    @ConfigProperty(name = "balance.weighing-poll-ms", defaultValue = "200")
+    long weighingPollMs;
 
     /**
      * How recently the customer screen must have polled its page to count as present.
@@ -275,6 +296,39 @@ public class HardwareService {
             LOGGER.info("Exiting method requestWeighing");
             return 0.0;
         }
+    }
+
+    /**
+     * Requests a weighing and WAITS for the article to be laid on the plate.
+     *
+     * <p>Same read as {@link #requestWeighing(java.math.BigDecimal)}, repeated
+     * until the plate carries something or the wait runs out. An article already
+     * on the plate is weighed on the first read, so this costs nothing in the
+     * habitual order; an empty plate gives the operator the few seconds they need
+     * to lay the fruit down after choosing it.
+     *
+     * <p>An interrupted wait stops at once and answers what the plate last read:
+     * a register being shut down does not hold the sale thread on a scale.
+     *
+     * @param tareKg the software tare in kilograms, or null for none
+     * @return the NET weight in kilograms, or 0.0 when nothing was laid down
+     */
+    public double awaitWeighing(java.math.BigDecimal tareKg) {
+        LOGGER.info("Entering method awaitWeighing with tareKg: " + tareKg);
+        long deadline = System.currentTimeMillis() + Math.max(0L, weighingWaitMs);
+        double weight = requestWeighing(tareKg);
+        while (weight <= 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(Math.max(1L, weighingPollMs));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                LOGGER.info("Exiting method awaitWeighing");
+                return weight;
+            }
+            weight = requestWeighing(tareKg);
+        }
+        LOGGER.info("Exiting method awaitWeighing");
+        return weight;
     }
 
     /**

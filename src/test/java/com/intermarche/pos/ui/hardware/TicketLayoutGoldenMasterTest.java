@@ -13,6 +13,7 @@ import com.intermarche.pos.service.TechnicalEventService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -75,6 +76,10 @@ class TicketLayoutGoldenMasterTest {
      */
     private TicketPrinterService newService() {
         TicketPrinterService service = new TicketPrinterService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.hardwareService = mock(HardwareService.class);
         service.technicalEventService = mock(TechnicalEventService.class);
         service.posSettingsService = mock(PosSettingsService.class);

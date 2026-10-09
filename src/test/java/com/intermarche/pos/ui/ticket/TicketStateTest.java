@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.ticket;
 
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.ui.ticket.TicketState.TicketItem;
 import org.junit.jupiter.api.Test;
 
@@ -850,6 +851,7 @@ class TicketStateTest {
     @Test
     void getGlobalDiscountLabelPercentSuffixesRate() {
         TicketState ts = new TicketState();
+        ts.setParent(TestMessages.stateWithMessages());
         addLine(ts, "10.00", "1");
         ts.setGlobalDiscount("PERCENT", new BigDecimal("10"));
         ts.recomputeTotal();
@@ -863,6 +865,7 @@ class TicketStateTest {
     @Test
     void getGlobalDiscountLabelAmountHasNoSuffix() {
         TicketState ts = new TicketState();
+        ts.setParent(TestMessages.stateWithMessages());
         addLine(ts, "10.00", "1");
         ts.setGlobalDiscount("GLOBAL_REMISE", new BigDecimal("3.00"));
         ts.recomputeTotal();
@@ -1494,5 +1497,178 @@ class TicketStateTest {
         noWeight.embeddedUnitPrice = new BigDecimal("4.00");
         assertFalse(noWeight.hasEmbeddedWeight());
         assertEquals("", noWeight.getEmbeddedWeightLabel());
+    }
+
+    /**
+     * A MERGE NEVER CROSSES A SUB-TOTAL. The same EAN scanned after a sub-total
+     * marker starts a NEW line instead of raising the quantity of the line the
+     * marker already totalled — otherwise the printed and announced figure stops
+     * matching the lines above it (reported by the field expert).
+     */
+    @Test
+    void aMergeDoesNotCrossASubtotal() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertTrue(ts.markSubtotal());
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertEquals(2, ts.items.size());
+        assertEquals(0, BigDecimal.ONE.compareTo(ts.items.get(0).quantity));
+        assertEquals(0, BigDecimal.ONE.compareTo(ts.items.get(1).quantity));
+    }
+
+    /**
+     * BELOW the frontier the merge works as before: a second scan of the same
+     * EAN entered after the marker folds into the line entered after it too —
+     * the floor is the LAST frontier, not a ban on merging.
+     */
+    @Test
+    void aMergeStillWorksBelowTheLastSubtotal() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.markSubtotal();
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertEquals(2, ts.items.size());
+        assertEquals(0, new BigDecimal("2").compareTo(ts.items.get(1).quantity));
+    }
+
+    /**
+     * With TWO frontiers only the LAST one floors the merge: a scan after the
+     * second marker ignores the line that sits between the two markers.
+     */
+    @Test
+    void onlyTheLastSubtotalFloorsTheMerge() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.markSubtotal();
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.markSubtotal();
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertEquals(3, ts.items.size());
+    }
+
+    /**
+     * With NO frontier at all the floor is zero and the historical merge is
+     * unchanged — the arm of the loop that returns 0.
+     */
+    @Test
+    void withoutASubtotalTheMergeReachesTheWholeTicket() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertEquals(2, ts.items.size());
+        assertEquals(0, new BigDecimal("2").compareTo(ts.items.get(0).quantity));
+    }
+
+    /**
+     * {@code cancelLine} takes the line out of the cart, keeps it aside for the
+     * screen with its rank, and drops it from the total.
+     */
+    @Test
+    void cancelLineParksTheLineForTheScreen() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        String uid = ts.items.get(0).uid;
+        assertTrue(ts.cancelLine(uid));
+        assertEquals(1, ts.items.size());
+        assertEquals(1, ts.cancelledItems.size());
+        assertTrue(ts.cancelledItems.get(0).cancelled);
+        assertEquals(0, ts.cancelledItems.get(0).displayIndex);
+        assertEquals(0, new BigDecimal("1.00").compareTo(ts.totalAmount));
+    }
+
+    /**
+     * {@code cancelLine} answers false on a null uid and on an unknown one, and
+     * parks nothing — the two refusal arms.
+     */
+    @Test
+    void cancelLineRefusesANullAndAnUnknownUid() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertFalse(ts.cancelLine(null));
+        assertFalse(ts.cancelLine("nope"));
+        assertTrue(ts.cancelledItems.isEmpty());
+        assertEquals(1, ts.items.size());
+    }
+
+    /**
+     * A cancelled line does NOT carry its sub-total frontier away: the marker
+     * belongs to the group, and a parked line holding it would draw a second,
+     * amountless sub-total on the screen.
+     */
+    @Test
+    void aCancelledLineDropsItsSubtotalFrontier() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.markSubtotal();
+        assertTrue(ts.items.get(0).subtotalBoundary);
+        ts.cancelLine(ts.items.get(0).uid);
+        assertFalse(ts.cancelledItems.get(0).subtotalBoundary);
+        assertNull(ts.cancelledItems.get(0).subtotalAmount);
+    }
+
+    /**
+     * {@code displayItems} returns the cart itself when nothing was cancelled —
+     * the short arm — and puts a cancelled line back at its rank otherwise.
+     */
+    @Test
+    void displayItemsPutsCancelledLinesBackAtTheirRank() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        assertSame(ts.items, ts.displayItems());
+        ts.cancelLine(ts.items.get(0).uid);
+        java.util.List<TicketState.TicketItem> shown = ts.displayItems();
+        assertEquals(2, shown.size());
+        assertEquals("PAIN", shown.get(0).label);
+        assertTrue(shown.get(0).cancelled);
+        assertEquals("LAIT", shown.get(1).label);
+    }
+
+    /**
+     * A recorded rank that no longer fits — the cart shrank under it — is
+     * clamped to the end rather than trusted, so the display never throws.
+     */
+    @Test
+    void displayItemsClampsADriftedRank() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("333", null, "OEUF", new BigDecimal("3.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.cancelLine(ts.items.get(2).uid);
+        ts.removeItemById(ts.items.get(0).uid);
+        ts.removeItemById(ts.items.get(0).uid);
+        java.util.List<TicketState.TicketItem> shown = ts.displayItems();
+        assertEquals(1, shown.size());
+        assertEquals("OEUF", shown.get(0).label);
+    }
+
+    /**
+     * A NEGATIVE recorded rank is clamped too (the first leg of the clamp).
+     */
+    @Test
+    void displayItemsClampsANegativeRank() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.cancelLine(ts.items.get(0).uid);
+        ts.cancelledItems.get(0).displayIndex = -5;
+        assertEquals(1, ts.displayItems().size());
+    }
+
+    /**
+     * {@code clear} forgets the cancelled lines as well: a new sale starts with
+     * an empty screen, witnesses included.
+     */
+    @Test
+    void clearForgetsTheCancelledLines() {
+        TicketState ts = new TicketState();
+        ts.addItem("111", null, "PAIN", new BigDecimal("2.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.addItem("222", null, "LAIT", new BigDecimal("1.00"), BigDecimal.ONE, BigDecimal.ZERO);
+        ts.cancelLine(ts.items.get(0).uid);
+        ts.clear();
+        assertTrue(ts.items.isEmpty());
+        assertTrue(ts.cancelledItems.isEmpty());
     }
 }

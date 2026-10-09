@@ -49,6 +49,13 @@ import java.util.List;
 public class WeightedEanScanHandler implements ScanContext.ScanHandler {
 
     /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * Prefixes whose embedded value is the line total (EXP-26): 02, 21, 22, 24,
      * 26, 28. 24 and 26 were misclassified as weight, and 02 was excluded by the
      * old {@code 2\d{12}} fallback filter — both fixed here (LC-02-05-02).
@@ -126,18 +133,18 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
 
         Product product = Product.findActiveByPlu(articleCode);
         if (product == null) {
-            ctx.state.ticket.setError("ARTICLE BALANCE INTROUVABLE (" + articleCode + ")");
+            ctx.state.ticket.setError(i18n.format("op.articleBalanceIntrouvable", articleCode));
             ctx.handled = true;
             return;
         }
         if (product.forbiddenToSale) {
-            ctx.state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+            ctx.state.ticket.setError(i18n.get("op.produitInterditVente"));
             ctx.handled = true;
             return;
         }
         // BO-02-03-11: a recalled article is refused at scan, no line.
         if (com.intermarche.pos.domain.catalog.attribute.ProductAttributes.recall(product)) {
-            ctx.state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+            ctx.state.ticket.setError(i18n.get("op.articleRetraitRappel"));
             ctx.handled = true;
             return;
         }
@@ -153,7 +160,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         if (priceEmbedded) {
             // One physical sticker = one line: refuse the accidental double scan
             if (!ctx.state.ticket.scannedStickerCodes.add(code)) {
-                ctx.state.ticket.setError("ÉTIQUETTE DÉJÀ SCANNÉE");
+                ctx.state.ticket.setError(i18n.get("op.etiquetteDejaScannee"));
                 ctx.handled = true;
                 return;
             }
@@ -190,7 +197,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
             // tare — so no software tare is re-applied here.
             BigDecimal quantityKg = embeddedWeight.setScale(3, RoundingMode.HALF_UP);
             if (quantityKg.signum() <= 0) {
-                ctx.state.ticket.setError("POIDS INVALIDE");
+                ctx.state.ticket.setError(i18n.get("op.poidsInvalide"));
                 ctx.handled = true;
                 return;
             }
@@ -235,7 +242,7 @@ public class WeightedEanScanHandler implements ScanContext.ScanHandler {
         com.intermarche.pos.domain.payment.Currency currency =
                 com.intermarche.pos.domain.payment.Currency.findActiveByCode(iso);
         if (currency == null) {
-            ctx.state.ticket.setError("DEVISE " + iso + " NON PARAMÉTRÉE");
+            ctx.state.ticket.setError(i18n.format("op.deviseNonParametree", iso));
             return null;
         }
         return currency.toEuro(value);

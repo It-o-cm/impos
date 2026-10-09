@@ -139,10 +139,10 @@ public class GroupTIT {
         Assertions.assertTrue(isCurrent(page, "Français"), "the current language must be highlighted");
         // Pick Dutch through the screen: the hidden-field form posts the tag.
         page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName("Néerlandais").setExact(true)).click();
+                new Page.GetByRoleOptions().setName("Nederlands").setExact(true)).click();
         page.navigate(base.toString() + "language-select");
         page.getByText(TITLE_NL).waitFor();
-        Assertions.assertEquals("nl", langOf(page), "choosing Néerlandais must render the interface in Dutch");
+        Assertions.assertEquals("nl", langOf(page), "choosing Nederlands must render the interface in Dutch");
         Assertions.assertNull(employeeLanguage(CASHIER_LOGIN),
                 "the on-screen choice must NOT be written on the employee row");
         page.close();
@@ -221,8 +221,8 @@ public class GroupTIT {
         page.navigate(base.toString() + "language-select");
         page.getByText(TITLE_FR).waitFor();
         Assertions.assertTrue(languageButton(page, "Français").count() > 0, "French must stay offered");
-        Assertions.assertTrue(languageButton(page, "Néerlandais").count() > 0, "Dutch must stay offered");
-        Assertions.assertEquals(0, languageButton(page, "Portugais").count(),
+        Assertions.assertTrue(languageButton(page, "Nederlands").count() > 0, "Dutch must stay offered");
+        Assertions.assertEquals(0, languageButton(page, "Português").count(),
                 "Portuguese must not be offered when it is not in language.available");
         page.close();
     }
@@ -240,7 +240,7 @@ public class GroupTIT {
         page.navigate(base.toString() + "language-select");
         page.getByText(TITLE_FR).waitFor();
         page.getByRole(AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName("Néerlandais").setExact(true)).click();
+                new Page.GetByRoleOptions().setName("Nederlands").setExact(true)).click();
         // The choice redirects to the sale; re-open the selector to confirm it took.
         page.navigate(base.toString() + "language-select");
         page.getByText(TITLE_NL).waitFor();
@@ -324,7 +324,7 @@ public class GroupTIT {
      * Locates a language choice button by its rendered endonym label.
      *
      * @param page the Playwright page carrying the selection screen
-     * @param name the exact button label (e.g. "Français", "Néerlandais")
+     * @param name the exact button label (e.g. "Français", "Nederlands")
      * @return the button locator (possibly matching zero elements)
      */
     private Locator languageButton(Page page, String name) {

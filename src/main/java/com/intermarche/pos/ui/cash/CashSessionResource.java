@@ -46,6 +46,14 @@ public class CashSessionResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(CashSessionResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject @Location("session") Template session;
     /** The X report, read on screen before it is asked for on paper. */
     @Inject @Location("session-report") Template sessionReportPage;
@@ -74,9 +82,9 @@ public class CashSessionResource {
         LOGGER.info("Entering method sessionPage with error: " + error);
         String message = null;
         if ("open-failed".equals(error)) {
-            message = "OUVERTURE IMPOSSIBLE (SESSION DÉJÀ OUVERTE ?)";
+            message = i18n.get("op.ouvertureImpossibleSessionDeja");
         } else if ("no-session".equals(error)) {
-            message = "AUCUNE SESSION OUVERTE";
+            message = i18n.get("op.aucuneSessionOuverte");
         }
         // EXP-02: the float shown at opening is the report of the previous close
         // (what stayed in the drawer), not the administered default — which only
@@ -307,7 +315,7 @@ public class CashSessionResource {
             LOGGER.info("Exiting method variancePage");
             return Response.seeOther(URI.create("/session")).build();
         }
-        String message = "supervisor".equals(error) ? "AUTORISATION SUPERVISEUR REFUSÉE" : null;
+        String message = "supervisor".equals(error) ? i18n.get("op.autorisationSuperviseurRefusee") : null;
         LOGGER.info("Exiting method variancePage");
         return Response.ok(varianceAlert
                 .data("state", state)

@@ -43,6 +43,14 @@ public class RecallResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(RecallResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject @Location("recall") Template recall;
     @Inject BackOfficeDocumentClient documentClient;
     @Inject TicketService ticketService;
@@ -63,8 +71,8 @@ public class RecallResource {
     public TemplateInstance recallPage(@QueryParam("error") String error,
                                        @QueryParam("ok") String ok) {
         LOGGER.info("Entering method recallPage");
-        String message = "no-session".equals(error) ? "AUCUNE SESSION OUVERTE"
-                : ("amount".equals(error) ? "MONTANT OU COMMANDE INVALIDE" : null);
+        String message = "no-session".equals(error) ? i18n.get("op.aucuneSessionOuverte")
+                : ("amount".equals(error) ? i18n.get("op.montantCommandeInvalide") : null);
         LOGGER.info("Exiting method recallPage");
         return recall.data("state", state).data("saved", ok != null).data("error", message);
     }

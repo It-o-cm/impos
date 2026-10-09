@@ -53,6 +53,16 @@ public class TicketPrinterService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(TicketPrinterService.class);
 
+    /**
+     * The localised labels of the paper (LC-13-06-11).
+     *
+     * <p>APPLICATION-SCOPED ON PURPOSE: a card receipt is laid out from the
+     * payment terminal's follower thread, outside any request, and a
+     * request-scoped resolver threw there.
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The back-office parameters (EAN on paper, LC-02-04-04). */
     @jakarta.inject.Inject
     PosSettingsService posSettingsService;
@@ -93,6 +103,48 @@ public class TicketPrinterService {
 
     /** Standard 80mm receipt width, in characters. */
     private static final int WIDTH = 42;
+
+    /**
+     * Names a settlement method as the CUSTOMER reads it on the paper.
+     *
+     * <p>IT WAS THE JAVA CLASS NAME, upper-cased. {@code CashPayment} printed
+     * "CASH" on a French receipt, {@code ChequePayment} printed "CHEQUE" by pure
+     * luck, and {@code SupplierGiftCardPayment} would have printed
+     * "SUPPLIERGIFTCARD". A label the customer reads is not a class name with its
+     * suffix chopped off: it is a word the shop chose, in the language the
+     * register is set to, and {@code LC-07-03-06} names it "ESPECES".
+     *
+     * <p>The switch reads the SIMPLE TYPE NAME rather than the discriminator key
+     * of {@link com.intermarche.pos.domain.payment.PaymentTypes}, to stay the
+     * same shape as the A4 invoice's own tender naming — each document keeps its
+     * own register of words, the paper in capitals without accents because that
+     * is what a thermal head prints, the invoice in sentence case.
+     *
+     * <p>A method this version has no word for falls back to the bare type name,
+     * which is ugly and visible — far better than a blank where an amount is
+     * justified, and it names exactly what has to be added.
+     *
+     * @param payment the settled payment
+     * @return the label, already rendered in both customer languages
+     */
+    private String tenderLabel(TicketPayment payment) {
+        String type = payment.getClass().getSimpleName().replace("Payment", "");
+        return switch (type) {
+            case "Cash" -> i18n.both("paper.especes");
+            case "Card" -> i18n.both("paper.carteBancaire");
+            case "Cheque" -> i18n.both("paper.cheque");
+            case "Voucher" -> i18n.both("paper.bonAchat");
+            case "Fidelity" -> i18n.both("paper.cagnotte2");
+            case "TicketResto" -> i18n.both("paper.ticketResto");
+            case "Credit" -> i18n.both("paper.creditClient");
+            case "Backup" -> i18n.both("paper.secoursMonetique");
+            case "TrdCard" -> i18n.both("paper.carteTrd");
+            case "RestoFlash" -> i18n.both("paper.restoFlash");
+            case "SupplierGiftCard" -> i18n.both("paper.carteCadeau");
+            case "Sogec" -> i18n.both("paper.bonSogec");
+            default -> type.toUpperCase();
+        };
+    }
 
     /**
      * The typesetting primitives of this register's paper, shared with the
@@ -168,7 +220,7 @@ public class TicketPrinterService {
         // text line stays regardless, so a receipt is readable even on a printer that
         // ignores images or a deployment with no logo file.
         sb.append(logoHeader());
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append(center(ticket.store.name, WIDTH)).append("\n");
         sb.append(center(ticket.store.address.city, WIDTH)).append("\n");
         // BO-03-08-03: an administered header message, printed under the store
@@ -179,13 +231,13 @@ public class TicketPrinterService {
         }
         if (duplicata) {
             sb.append("-".repeat(WIDTH)).append("\n");
-            sb.append(center(String.format("*** DUPLICATA N°%d ***", duplicataNumber), WIDTH)).append("\n");
+            sb.append(center(String.format(i18n.get("paper.duplicata"), duplicataNumber), WIDTH)).append("\n");
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Ticket info
-        sb.append(String.format("Ticket: %s%n", ticket.ticketNumber));
-        sb.append(String.format("Date   : %s%n", ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
-        sb.append(String.format("Vendeur: %s%n", ticket.cashier.getFullName()));
+        sb.append(String.format(i18n.get("paper.ticket"), ticket.ticketNumber));
+        sb.append(String.format(i18n.get("paper.date"), ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(String.format(i18n.get("paper.vendeur"), ticket.cashier.getFullName()));
         sb.append("-".repeat(WIDTH)).append("\n");
         // Lines
         // Phase 7: per-line valuation traces (engine advantages), printed as
@@ -205,10 +257,17 @@ public class TicketPrinterService {
         String lineOrder = TicketLineOrder.normalize(posSettingsService.ticketLineOrder());
         boolean groupByFamily = TicketLineOrder.groupsByFamily(lineOrder);
         String printedFamily = null;
+        // BO-03-03-17 / BO-03-03-18: the two rules laid over that order — the
+        // family headings' own order, and the article attribute the lines are
+        // sorted or isolated on.
+        boolean familyAlphabetical = posSettingsService.ticketFamilyAlphabetical();
+        String lineAttribute = posSettingsService.ticketLineAttribute();
+        String lineIsolation = posSettingsService.ticketLineAttributeIsolate();
         // EXP-43: the running sum since the previous SOUS-TOTAL marker, printed at
         // each boundary so each shopper of a shared basket reads their part.
         java.math.BigDecimal subtotalRunning = java.math.BigDecimal.ZERO;
-        for (TicketLine line : TicketLineOrder.apply(ticket.lines, lineOrder)) {
+        for (TicketLine line : TicketLineOrder.apply(ticket.lines, lineOrder,
+                familyAlphabetical, lineAttribute, lineIsolation)) {
             // A cancelled article (lot C4, BO-04-01-16) is kept in the ticket
             // only as a journal witness; it never prints on the receipt.
             if (line.cancelled) continue;
@@ -247,6 +306,22 @@ public class TicketPrinterService {
             // Line total (right-aligned)
             String lineTotal = DF.format(line.totalPrice);
             sb.append(String.format("%" + WIDTH + "s%n", lineTotal));
+            // BO-03-03-22: the line's own discount, rebate or forced price,
+            // printed UNDER the article it changed when the shop asks for it.
+            // The label is the one the register showed on screen, so paper and
+            // screen say the same thing; the amount beside it is what the
+            // modification took off THIS line, which is the figure a customer
+            // checks. A forced price whose original the back office masks
+            // (BO-10-07-12) carries no label and prints nothing — the register
+            // states only what it vouched for on screen.
+            if (posSettingsService.ticketLineDiscountPrint()
+                    && line.modifierLabel != null && !line.modifierLabel.isBlank()) {
+                String modifier = line.modifierLabel.length() > 26
+                        ? line.modifierLabel.substring(0, 26) : line.modifierLabel;
+                BigDecimal saved = lineDiscount(line);
+                sb.append(formatLine("  " + modifier,
+                        saved.signum() == 0 ? "" : "-" + DF.format(saved) + " E"));
+            }
             // Engine advantage on this line: printed as a signed delta, and
             // the CORRECTION on its own line. The two are separated because
             // they go opposite ways: printing a ticket that went up under an
@@ -260,7 +335,7 @@ public class TicketPrinterService {
                         .subtract(valuation.localTotal).subtract(correction);
                 if (delta.signum() != 0) {
                     String advLabel = valuation.advantageLabel != null ? valuation.advantageLabel
-                            : (valuation.offerLabel != null ? valuation.offerLabel : "AVANTAGE");
+                            : (valuation.offerLabel != null ? valuation.offerLabel : i18n.both("paper.avantage"));
                     if (advLabel.length() > 26) advLabel = advLabel.substring(0, 26);
                     // LINE places it under the article; FOOTER — or a null
                     // placement, the default — defers it to the totals block.
@@ -272,7 +347,7 @@ public class TicketPrinterService {
                 }
                 if (correction.signum() > 0) {
                     String corLabel = valuation.correctionLabel != null
-                            ? valuation.correctionLabel : "AJUSTEMENT";
+                            ? valuation.correctionLabel : i18n.both("paper.ajustement");
                     if (corLabel.length() > 26) corLabel = corLabel.substring(0, 26);
                     sb.append(formatLine("  " + corLabel, "+" + DF.format(correction) + " E"));
                 }
@@ -280,7 +355,7 @@ public class TicketPrinterService {
             // EXP-43: the SOUS-TOTAL drawn after this line, summing the lines since
             // the previous marker. A ticket with no marker prints exactly as before.
             if (line.subtotalBoundary) {
-                sb.append(formatLine("SOUS-TOTAL", DF.format(subtotalRunning) + " E"));
+                sb.append(formatLine(i18n.both("paper.sousTotal"), DF.format(subtotalRunning) + " E"));
                 subtotalRunning = java.math.BigDecimal.ZERO;
             }
         }
@@ -291,10 +366,21 @@ public class TicketPrinterService {
         // no advantage, or all of them placed under their line — prints nothing.
         sb.append(footerAdvantages);
         if (ticket.globalDiscountApplied != null) {
-            sb.append(formatLine("REMISE TICKET",
+            sb.append(formatLine(i18n.both("paper.remiseTicket"),
                     "-" + DF.format(ticket.globalDiscountApplied) + " E"));
         }
-        sb.append(formatLine("TOTAL TTC", DF.format(ticket.totalIncludingTax) + " E"));
+        // BO-03-03-24: everything the customer saved at once — the line-level
+        // modifications plus the ticket discount — on one line under the
+        // totals. A basket that saved nothing prints nothing: a line stating
+        // "0,00" of savings says nothing and costs paper.
+        if (posSettingsService.ticketImmediateDiscountTotal()) {
+            BigDecimal immediate = immediateDiscountTotal(ticket);
+            if (immediate.signum() > 0) {
+                sb.append(formatLine(i18n.both("paper.totalRemisesImmediates"),
+                        "-" + DF.format(immediate) + " E"));
+            }
+        }
+        sb.append(formatLine(i18n.both("paper.totalTtc"), DF.format(ticket.totalIncludingTax) + " E"));
         // Loyalty section (imfid lot 3): the DISPLAYED projection and its rule
         // labels — the only rule data that travels to the POS (spec §3),
         // indicative by doctrine (the ingestion's recomputation prevails).
@@ -302,6 +388,14 @@ public class TicketPrinterService {
         // duplicata — here or on the store node — restates the very figures the
         // customer was shown rather than the projection of whatever sale the
         // register happens to be on.
+        // BO-03-03-32: the card this sale was attached to, named in the card
+        // advantage zone. Printed whatever the earn and before it: a customer
+        // who presented a card and earned nothing still reads WHICH card was
+        // read, which is what a disputed attachment comes back on.
+        if (posSettingsService.fidelityPrintCardNumber()
+                && ticket.fidelityCard != null && !ticket.fidelityCard.isBlank()) {
+            sb.append(formatLine(i18n.both("paper.carteFidelite"), ticket.fidelityCard));
+        }
         // BO-10-03-15: the advantage section is printed only when the back
         // office activated the fidelity advantages; disabled, no section.
         if (posSettingsService.fidelityAdvantagesEnabled()
@@ -311,13 +405,13 @@ public class TicketPrinterService {
                 // imfid response C: a card-less ticket shows what a card would
                 // have earned. No balances, no "cagnotte du jour".
                 for (String messageLine
-                        : wrap("Avec la carte, vous auriez gagne :", WIDTH)) {
+                        : wrap(i18n.both("paper.avecCarteVousAuriez"), WIDTH)) {
                     sb.append(messageLine).append("\n");
                 }
-                sb.append(formatLine("  CAGNOTTE",
+                sb.append(formatLine(i18n.both("paper.cagnotte"),
                         "+" + DF.format(ticket.fidelityEarnTotal) + " E"));
             } else {
-                sb.append(formatLine("CAGNOTTE DU JOUR",
+                sb.append(formatLine(i18n.both("paper.cagnotteJour"),
                         "+" + DF.format(ticket.fidelityEarnTotal) + " E"));
                 appendFidelityAdvantages(sb, ticket);
                 // imfid response B: the forecast balance after the sale, under an
@@ -326,7 +420,7 @@ public class TicketPrinterService {
                 if (ticket.fidelityProjectedAfterEarn != null) {
                     sb.append(formatLine(posSettingsService.fidelityProjectedLabel(),
                             DF.format(ticket.fidelityProjectedAfterEarn) + " E"));
-                    sb.append(center("(PREVISIONNEL)", WIDTH)).append("\n");
+                    sb.append(center(i18n.both("paper.previsionnel"), WIDTH)).append("\n");
                 }
             }
         }
@@ -338,6 +432,15 @@ public class TicketPrinterService {
         // receipt says nothing at all. The administered layout already received
         // it through the document data; the built-in layout below is what prints
         // until a template is administered, and it was the one staying silent.
+        // BO-03-03-31 / BO-03-03-34: the card's balance zone, at the foot of
+        // the loyalty section. Only for a presented card, and never for an
+        // anonymous projection: that one has no balance to state, only what a
+        // card WOULD have earned.
+        if (posSettingsService.fidelityPrintBalances()
+                && ticket.fidelityCard != null && !ticket.fidelityCard.isBlank()
+                && !ticket.fidelityAnonymousProjection) {
+            appendFidelityBalances(sb, ticket);
+        }
         String fidelityMessage = unavailableMessage(ticket,
                 ticket.fidelityCard != null && !ticket.fidelityCard.isBlank());
         if (!fidelityMessage.isEmpty()) {
@@ -345,7 +448,20 @@ public class TicketPrinterService {
                 sb.append(messageLine).append("\n");
             }
         }
-        sb.append(formatLine("Dont TVA", DF.format(ticket.totalVat) + " E"));
+        // BO-03-03-28: the shop's word to a customer who presented no card,
+        // when the programme DID answer — distinct from the offline message
+        // above, which answers for a programme that could not be asked. Said
+        // once: a ticket already carrying the offline text says nothing more.
+        if (fidelityMessage.isEmpty()
+                && (ticket.fidelityCard == null || ticket.fidelityCard.isBlank())) {
+            String nonHolder = posSettingsService.fidelityNonHolderMessage();
+            if (nonHolder != null && !nonHolder.isBlank()) {
+                for (String messageLine : wrap(nonHolder, WIDTH)) {
+                    sb.append(messageLine).append("\n");
+                }
+            }
+        }
+        sb.append(formatLine(i18n.both("paper.dontTva"), DF.format(ticket.totalVat) + " E"));
         // Per-rate VAT ventilation (same rule as the persisted totals)
         VatBreakdown breakdown = new VatBreakdown();
         for (TicketLine line : ticket.lines) {
@@ -358,15 +474,15 @@ public class TicketPrinterService {
         // back office asks for it; disabled, the ticket carries no breakdown.
         if (posSettingsService.vatBreakdownEnabled()) {
             for (VatBreakdown.Bucket bucket : breakdown.getBuckets()) {
-                sb.append(formatLine("  TVA " + bucket.getRateFormatted(),
-                        "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
+                sb.append(formatLine(i18n.both("paper.tva") + bucket.getRateFormatted(),
+                        i18n.both("paper.ht") + DF.format(bucket.totalExcludingTax) + i18n.both("paper.tva") + DF.format(bucket.vatAmount)));
             }
         }
         sb.append("\n");
         // Payments
-        sb.append(center("REGLEMENT", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.reglement"), WIDTH)).append("\n");
         for (TicketPayment payment : ticket.payments) {
-            String method = payment.getClass().getSimpleName().replace("Payment", "").toUpperCase();
+            String method = tenderLabel(payment);
             // LC-07-03-06: the rounding is stored with the sign the ledger needs
             // (so the settlements sum to the total) and PRINTED with the opposite
             // one, because on paper it reads as the adjustment to what the customer
@@ -376,19 +492,34 @@ public class TicketPrinterService {
             // customer and the accounts both need — what was handed over, what it
             // was worth, and the rate that connects them.
             if (payment instanceof com.intermarche.pos.domain.payment.ForeignCurrencyPayment devise) {
-                sb.append(formatLine("DEVISE " + safe(devise.currencyCode),
+                sb.append(formatLine(i18n.both("paper.devise") + safe(devise.currencyCode),
                         DF.format(payment.amount) + " E"));
                 sb.append("  ").append(DF.format(devise.foreignAmount)).append(" ")
-                        .append(safe(devise.currencyCode)).append("  TAUX ")
+                        .append(safe(devise.currencyCode)).append(i18n.both("paper.taux"))
                         .append(devise.exchangeRate == null ? "" : devise.exchangeRate.toPlainString())
                         .append("\n");
                 continue;
             }
             if (payment instanceof com.intermarche.pos.domain.payment.RoundingPayment) {
-                sb.append(formatLine("ARRONDI", DF.format(payment.amount.negate()) + " E"));
+                sb.append(formatLine(i18n.both("paper.arrondi"), DF.format(payment.amount.negate()) + " E"));
                 continue;
             }
             sb.append(formatLine(method, DF.format(payment.amount) + " E"));
+            // THE CHANGE IS PRINTED, under the cash line it belongs to. The
+            // settlement line carries what was APPLIED to the sale, which is not
+            // what the customer handed over: a receipt showing only 24,60 for a
+            // 50,00 note leaves them with no written trace of the 25,40 they were
+            // given back, and no way to check it after they have left the lane.
+            // Only when there is something to say: an exact sum, or a settlement
+            // that recorded no tender, prints nothing.
+            if (payment instanceof com.intermarche.pos.domain.payment.CashPayment cash
+                    && cash.tenderedAmount != null
+                    && cash.tenderedAmount.compareTo(payment.amount) > 0) {
+                sb.append(formatLine(i18n.both("paper.donne"),
+                        DF.format(cash.tenderedAmount) + " E"));
+                sb.append(formatLine(i18n.both("paper.renduMonnaie"),
+                        DF.format(cash.tenderedAmount.subtract(payment.amount)) + " E"));
+            }
             // LC-08-04-06 [sic LC-07-09-06]: a credit settlement names its debtor
             // under its own line — date, account number, account name. A month
             // later this receipt is what the account is reconciled against, and an
@@ -398,7 +529,7 @@ public class TicketPrinterService {
                 // ticket.creationDate unconditionally in its header above, so a
                 // null date would have thrown before reaching this credit line.
                 String saleDay = ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
-                sb.append("  ").append(saleDay).append("  COMPTE ")
+                sb.append("  ").append(saleDay).append(i18n.both("paper.compte"))
                         .append(credit.accountNumber == null ? "" : credit.accountNumber)
                         .append("\n");
                 sb.append("  ").append(credit.accountName == null ? "" : credit.accountName)
@@ -408,7 +539,7 @@ public class TicketPrinterService {
         // Footer, with the online digital receipt link
         sb.append("\n");
         if (ticket.digitalKey != null) {
-            sb.append(center("Votre ticket en ligne :", WIDTH)).append("\n");
+            sb.append(center(i18n.both("paper.votreTicketLigne"), WIDTH)).append("\n");
             sb.append(center("/t/" + ticket.id + "/" + ticket.digitalKey, WIDTH)).append("\n");
             sb.append("\n");
         }
@@ -426,8 +557,8 @@ public class TicketPrinterService {
                 }
             }
         }
-        sb.append(center("MERCI DE VOTRE VISITE", WIDTH)).append("\n");
-        sb.append(center("A BIENTOT", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.merciVotreVisite"), WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.bientot"), WIDTH)).append("\n");
         // BO-03-08-03 / BO-03-08-05: an administered footer message, printed
         // after the courtesy line; absent or blank, nothing is printed.
         String footerMessage = posSettingsService.ticketFooterMessage();
@@ -918,7 +1049,10 @@ public class TicketPrinterService {
             return lines;
         }
         String order = TicketLineOrder.normalize(posSettingsService.ticketLineOrder());
-        for (TicketLine line : TicketLineOrder.apply(ticket.lines, order)) {
+        for (TicketLine line : TicketLineOrder.apply(ticket.lines, order,
+                posSettingsService.ticketFamilyAlphabetical(),
+                posSettingsService.ticketLineAttribute(),
+                posSettingsService.ticketLineAttributeIsolate())) {
             if (line.cancelled) continue;
             lines.add(java.util.Map.of(
                     "label", safe(line.productLabel),
@@ -1064,20 +1198,20 @@ public class TicketPrinterService {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
-        sb.append(center(report.closing ? "RAPPORT Z - CLOTURE" : "RAPPORT X - LECTURE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
+        sb.append(center(report.closing ? i18n.get("paper.rapportZCloture") : i18n.get("paper.rapportXLecture"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("Session : %s%n", session.sessionNumber));
-        sb.append(String.format("Caisse  : %s%n", session.terminalId));
-        sb.append(String.format("Ouverte : %s%n", session.openingDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(String.format(i18n.get("paper.session"), session.sessionNumber));
+        sb.append(String.format(i18n.get("paper.caisse"), session.terminalId));
+        sb.append(String.format(i18n.get("paper.ouverte"), session.openingDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (report.closing && session.closingDate != null) {
-            sb.append(String.format("Fermée  : %s%n", session.closingDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+            sb.append(String.format(i18n.get("paper.fermee"), session.closingDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("Tickets clos", String.valueOf(report.ticketCount)));
-        sb.append(formatLine("CA TTC", DF.format(report.totalIncludingTax) + " E"));
+        sb.append(formatLine(i18n.get("paper.ticketsClos"), String.valueOf(report.ticketCount)));
+        sb.append(formatLine(i18n.get("paper.caTtc"), DF.format(report.totalIncludingTax) + " E"));
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("REGLEMENTS", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.reglements"), WIDTH)).append("\n");
         // BO-03-02-25: a tender the back office does not put in detail is not
         // hidden, it is summed — the report still balances, it just says less
         // about tenders the store does not want line by line.
@@ -1085,37 +1219,37 @@ public class TicketPrinterService {
             sb.append(formatLine(row.method(), row.amountFormatted() + " E"));
         }
         if (report.isCarryingUndetailedMethods()) {
-            sb.append(formatLine("Autres reglements",
+            sb.append(formatLine(i18n.get("paper.autresReglements"),
                     report.getOtherMethodsTotalFormatted() + " E"));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (report.totalRefunds.signum() > 0) {
-            sb.append(formatLine("Remboursements", DF.format(report.totalRefunds) + " E"));
+            sb.append(formatLine(i18n.get("paper.remboursements"), DF.format(report.totalRefunds) + " E"));
         }
         // BO-03-02-21 and BO-03-02-30: what goes to the bank and what goes to the
         // fidelity programme are stated only when the store administered tenders
         // for them — a nil line would say something the store never asked.
         if (report.bankDepositTotal.signum() > 0) {
-            sb.append(formatLine("Remise en banque",
+            sb.append(formatLine(i18n.get("paper.remiseBanque"),
                     report.getBankDepositTotalFormatted() + " E"));
         }
         if (report.fidelityReportedTotal.signum() > 0) {
-            sb.append(formatLine("Dont remontee fidelite",
+            sb.append(formatLine(i18n.get("paper.dontRemonteeFidelite"),
                     report.getFidelityReportedTotalFormatted() + " E"));
         }
-        sb.append(formatLine("Fond de caisse", DF.format(session.openingFloat) + " E"));
-        sb.append(formatLine("Especes theorique", DF.format(report.theoreticalCash) + " E"));
+        sb.append(formatLine(i18n.get("paper.fondCaisse"), DF.format(session.openingFloat) + " E"));
+        sb.append(formatLine(i18n.get("paper.especesTheorique"), DF.format(report.theoreticalCash) + " E"));
         // The cashier's own declaration, stated only when they made one, and stated
         // next to the theoretical — the comparison is the whole point of asking.
         if (report.isDeclared()) {
-            sb.append(formatLine("Especes declarees", DF.format(report.declaredCash) + " E"));
-            sb.append(formatLine("Ecart declaration",
+            sb.append(formatLine(i18n.get("paper.especesDeclarees"), DF.format(report.declaredCash) + " E"));
+            sb.append(formatLine(i18n.get("paper.ecartDeclaration"),
                     DF.format(report.declaredCashVariance) + " E"));
         }
         if (report.closing) {
-            sb.append(formatLine("Especes comptees", DF.format(session.countedAmount) + " E"));
-            sb.append(formatLine("ECART", DF.format(session.variance) + " E"));
-            sb.append(formatLine("Prelevement", DF.format(session.withdrawnAmount) + " E"));
+            sb.append(formatLine(i18n.get("paper.especesComptees"), DF.format(session.countedAmount) + " E"));
+            sb.append(formatLine(i18n.get("paper.ecart"), DF.format(session.variance) + " E"));
+            sb.append(formatLine(i18n.get("paper.prelevement"), DF.format(session.withdrawnAmount) + " E"));
         }
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
@@ -1152,7 +1286,7 @@ public class TicketPrinterService {
         StringBuilder sb = new StringBuilder();
         // Header
         if (original != null && original.store != null) {
-            sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+            sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
             sb.append(center(original.store.name, WIDTH)).append("\n");
             if (original.store.address != null) {
                 sb.append(center(original.store.address.city, WIDTH)).append("\n");
@@ -1160,12 +1294,12 @@ public class TicketPrinterService {
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Refund title
-        sb.append(center("TICKET DE RETOUR", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.ticketRetour"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         // Refund info
-        sb.append(String.format("Date   : %s%n", refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+        sb.append(String.format(i18n.get("paper.date"), refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (original != null) {
-            sb.append(String.format("Ticket Original: %s%n", original.ticketNumber));
+            sb.append(String.format(i18n.get("paper.ticketOriginal"), original.ticketNumber));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Lines
@@ -1179,16 +1313,16 @@ public class TicketPrinterService {
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         // Total, method and VAT restitution
-        sb.append(formatLine("TOTAL REMBOURSE", DF.format(refund.totalAmount) + " E"));
+        sb.append(formatLine(i18n.both("paper.totalRembourse"), DF.format(refund.totalAmount) + " E"));
         if (refund.refundMethod != null) {
-            sb.append(formatLine("Mode", refundMethodLabel(refund.refundMethod)));
+            sb.append(formatLine(i18n.both("paper.mode"), refundMethodLabel(refund.refundMethod)));
         }
         // LC-05-05-03: the chosen return reason is printed on the return ticket
         // when the store administers it (return.print-reason) and a reason was
         // actually chosen; otherwise the paper stays as before.
         if (posSettingsService.printReturnReason()
                 && refund.returnReason != null && !refund.returnReason.isBlank()) {
-            sb.append(String.format("Motif  : %s%n", refund.returnReason));
+            sb.append(String.format(i18n.get("paper.motif"), refund.returnReason));
         }
         VatBreakdown refundBreakdown = new VatBreakdown();
         for (RefundLine line : refund.lines) {
@@ -1198,15 +1332,15 @@ public class TicketPrinterService {
         // BO-10-06-04: same VAT-breakdown gate on the refund ticket.
         if (posSettingsService.vatBreakdownEnabled()) {
             for (VatBreakdown.Bucket bucket : refundBreakdown.getBuckets()) {
-                sb.append(formatLine("  TVA " + bucket.getRateFormatted(),
-                        "HT " + DF.format(bucket.totalExcludingTax) + "  TVA " + DF.format(bucket.vatAmount)));
+                sb.append(formatLine(i18n.both("paper.tva") + bucket.getRateFormatted(),
+                        i18n.both("paper.ht") + DF.format(bucket.totalExcludingTax) + i18n.both("paper.tva") + DF.format(bucket.vatAmount)));
             }
         }
         sb.append(refundRecalculationBlock(refund));
         sb.append("\n");
         // Footer
         sb.append("\n");
-        sb.append(center("MERCI DE VOTRE VISITE", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.merciVotreVisite"), WIDTH)).append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printRefund");
@@ -1240,13 +1374,13 @@ public class TicketPrinterService {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("RECALCUL DES AVANTAGES", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.recalculAvantages"), WIDTH)).append("\n");
         if (recomputed) {
             BigDecimal withdrawn = refund.withdrawnGenerosity == null
                     ? BigDecimal.ZERO : refund.withdrawnGenerosity;
-            sb.append(formatLine("AVANTAGE REPRIS", DF.format(withdrawn) + " E"));
+            sb.append(formatLine(i18n.both("paper.avantageRepris"), DF.format(withdrawn) + " E"));
             if (refund.keptAdvantages != null && !refund.keptAdvantages.isBlank()) {
-                sb.append("Avantages conserves :\n");
+                sb.append(i18n.get("paper.avantagesConserves"));
                 for (String label : refund.keptAdvantages.split(" \\| ")) {
                     sb.append(String.format("  - %s%n",
                             label.length() > WIDTH - 4 ? label.substring(0, WIDTH - 4) : label));
@@ -1254,12 +1388,12 @@ public class TicketPrinterService {
             }
         }
         if (unavailable) {
-            sb.append("Moteur indisponible :\n");
-            sb.append("recalcul non effectue\n");
+            sb.append(i18n.get("paper.moteurIndisponible"));
+            sb.append(i18n.get("paper.recalculNonEffectue"));
         }
         if (refund.loyaltyRecalculationSent) {
-            sb.append("Cagnotte et coupons :\n");
-            sb.append("recalcul transmis au programme\n");
+            sb.append(i18n.get("paper.cagnotteCoupons"));
+            sb.append(i18n.get("paper.recalculTransmisProgramme"));
         }
         LOGGER.info("Exiting method refundRecalculationBlock");
         return sb.toString();
@@ -1277,7 +1411,10 @@ public class TicketPrinterService {
      *         till has no logo
      */
     private String logoHeader() {
-        String logo = ReceiptLogo.directive();
+        // BO-03-03-14: the head's own width, as the shop states it. A printer
+        // built by hand in a unit test answers zero, which the logo reads as
+        // "no width administered" and renders at its default.
+        String logo = ReceiptLogo.directive(posSettingsService.logoWidthDots());
         return logo.isEmpty() ? "" : logo + "\n";
     }
 
@@ -1298,7 +1435,7 @@ public class TicketPrinterService {
      */
     private String brandBanner() {
         String logo = ReceiptLogo.directive();
-        return logo.isEmpty() ? center("INTERMARCHE", WIDTH) + "\n" : logo + "\n";
+        return logo.isEmpty() ? center(i18n.get("paper.intermarche"), WIDTH) + "\n" : logo + "\n";
     }
 
     /**
@@ -1314,22 +1451,22 @@ public class TicketPrinterService {
         StringBuilder sb = new StringBuilder();
         sb.append(logoHeader());
         sb.append(center("*".repeat(WIDTH), WIDTH)).append("\n");
-        sb.append(center("MODE FORMATION", WIDTH)).append("\n");
-        sb.append(center("TICKET NON VALABLE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.modeFormation"), WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.ticketNonValable"), WIDTH)).append("\n");
         sb.append(center("*".repeat(WIDTH), WIDTH)).append("\n\n");
         for (com.intermarche.pos.ui.ticket.TicketState.TicketItem item : state.ticket.items) {
             sb.append(formatLine(item.label, item.getPriceFormatted() + " E"));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (state.ticket.globalDiscountApplied != null) {
-            sb.append(formatLine("REMISE TICKET",
+            sb.append(formatLine(i18n.get("paper.remiseTicket"),
                     "-" + DF.format(state.ticket.globalDiscountApplied) + " E"));
         }
-        sb.append(formatLine("TOTAL", state.ticket.getTotalFormatted() + " E"));
+        sb.append(formatLine(i18n.get("paper.total"), state.ticket.getTotalFormatted() + " E"));
         for (com.intermarche.pos.ui.payment.PaymentState.PaymentEntry entry : state.payment.payments) {
             sb.append(formatLine("  " + entry.method, DF.format(entry.amount) + " E"));
         }
-        sb.append("\n").append(center("*** FORMATION - SANS VALEUR ***", WIDTH)).append("\n\n");
+        sb.append("\n").append(center(i18n.get("paper.formationSansValeur"), WIDTH)).append("\n\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printTrainingReceipt");
@@ -1349,18 +1486,18 @@ public class TicketPrinterService {
         LOGGER.info("Entering method printRefundVoucher with refund: " + refund + ", number: " + number + ", validUntil: " + validUntil);
         // LC-05-06-07: the AVOIR carries a scannable Code-128 of its registry
         // number (for reprise d'avoir) and, when set, an end of validity.
-        String validityLine = validUntil == null ? "" : String.format("Valable jusqu'au : %s%n",
+        String validityLine = validUntil == null ? "" : String.format(i18n.get("paper.valableJusqu"),
                 validUntil.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
         String sb = brandBanner() +
-                center("AVOIR", WIDTH) + "\n" +
+                center(i18n.both("paper.avoir"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine("MONTANT", DF.format(refund.totalAmount) + " E") +
-                String.format("Emis le : %s%n",
+                formatLine(i18n.both("paper.montant"), DF.format(refund.totalAmount) + " E") +
+                String.format(i18n.get("paper.emis"),
                         refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))) +
                 validityLine +
                 "\n" + center("N° " + number, WIDTH) + "\n" +
                 center(barcode(number), WIDTH) + "\n" +
-                center("(scannable en caisse - solde au registre)", WIDTH) + "\n" +
+                center(i18n.both("paper.scannableCaisseSoldeRegistre"), WIDTH) + "\n" +
                 "\n";
         hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
@@ -1377,10 +1514,10 @@ public class TicketPrinterService {
     public void printLoyaltyCredit(java.math.BigDecimal amount) {
         LOGGER.info("Entering method printLoyaltyCredit with amount: " + amount);
         String sb = brandBanner() +
-                center("REMBOURSEMENT EN CAGNOTTE", WIDTH) + "\n" +
+                center(i18n.both("paper.remboursementCagnotte"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine("CREDIT CARTE", "+" + DF.format(amount) + " E") +
-                center("(visible sur la carte sous quelques minutes)", WIDTH) + "\n" +
+                formatLine(i18n.both("paper.creditCarte"), "+" + DF.format(amount) + " E") +
+                center(i18n.both("paper.visibleCarteSousQuelques"), WIDTH) + "\n" +
                 "\n";
         hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
@@ -1407,12 +1544,12 @@ public class TicketPrinterService {
             LOGGER.info("Exiting method printGiftCardVoucher");
             return;
         }
-        String sb = center("INTERMARCHE", WIDTH) + "\n" +
-                center("CARTE CADEAU", WIDTH) + "\n" +
+        String sb = center(i18n.get("paper.intermarche"), WIDTH) + "\n" +
+                center(i18n.both("paper.carteCadeau"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine("MONTANT CHARGE", DF.format(amount) + " E") +
+                formatLine(i18n.both("paper.montantCharge"), DF.format(amount) + " E") +
                 "\n" + center("N° " + number, WIDTH) + "\n" +
-                center("(scannable en caisse - solde au registre)", WIDTH) + "\n" +
+                center(i18n.both("paper.scannableCaisseSoldeRegistre"), WIDTH) + "\n" +
                 "\n";
         hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
@@ -1442,12 +1579,12 @@ public class TicketPrinterService {
             LOGGER.info("Exiting method printChangeVoucher");
             return;
         }
-        String sb = center("INTERMARCHE", WIDTH) + "\n" +
-                center("AVOIR - RENDU DE MONNAIE", WIDTH) + "\n" +
+        String sb = center(i18n.get("paper.intermarche"), WIDTH) + "\n" +
+                center(i18n.both("paper.avoirRenduMonnaie"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine("MONTANT", DF.format(amount) + " E") +
+                formatLine(i18n.both("paper.montant"), DF.format(amount) + " E") +
                 "\n" + center("N° " + number, WIDTH) + "\n" +
-                center("(scannable en caisse - solde au registre)", WIDTH) + "\n" +
+                center(i18n.both("paper.scannableCaisseSoldeRegistre"), WIDTH) + "\n" +
                 "\n";
         hardwareService.printReceipt(sb);
         hardwareService.cutPaper();
@@ -1462,11 +1599,11 @@ public class TicketPrinterService {
      */
     private String refundMethodLabel(Refund.RefundMethod method) {
         return switch (method) {
-            case CASH -> "ESPECES";
-            case CARD -> "CARTE BANCAIRE";
-            case VOUCHER -> "BON D'ACHAT";
-            case LOYALTY -> "CAGNOTTE";
-            case CREDIT -> "CREDIT CLIENT";
+            case CASH -> i18n.get("paper.especes");
+            case CARD -> i18n.get("paper.carteBancaire");
+            case VOUCHER -> i18n.get("paper.bonAchat");
+            case LOYALTY -> i18n.get("paper.cagnotte2");
+            case CREDIT -> i18n.get("paper.creditClient");
         };
     }
 
@@ -1534,12 +1671,12 @@ public class TicketPrinterService {
      */
     public void printOperatorBadge(com.intermarche.pos.domain.people.Employee employee) {
         LOGGER.info("Entering method printOperatorBadge with employee: " + employee);
-        String sb = logoHeader() + center("BADGE OPERATEUR", WIDTH) + "\n" +
+        String sb = logoHeader() + center(i18n.get("paper.badgeOperateur"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
-                formatLine("OPERATEUR", employee.loginName) +
-                formatLine("BADGE", employee.badgeId != null ? employee.badgeId : "-") +
+                formatLine(i18n.get("paper.operateur"), employee.loginName) +
+                formatLine(i18n.get("paper.badge"), employee.badgeId != null ? employee.badgeId : "-") +
                 "-".repeat(WIDTH) + "\n" +
-                center("SCANNEZ OU SAISISSEZ CE NUMERO", WIDTH) + "\n";
+                center(i18n.get("paper.scannezSaisissezNumero"), WIDTH) + "\n";
         hardwareService.printReceipt(sb);
         LOGGER.info("Exiting method printOperatorBadge");
     }
@@ -1556,7 +1693,7 @@ public class TicketPrinterService {
         LOGGER.info("Entering method printParkedTicket with draft: " + draft);
         StringBuilder sb = new StringBuilder();
         sb.append(logoHeader());
-        sb.append(center("TICKET EN ATTENTE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.ticketAttente"), WIDTH)).append("\n");
         sb.append(center(draft.ticketNumber, WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         for (TicketLine line : draft.lines) {
@@ -1568,8 +1705,8 @@ public class TicketPrinterService {
                     DF.format(line.totalPrice) + " E"));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("TOTAL EN ATTENTE", DF.format(draft.totalIncludingTax) + " E"));
-        sb.append(center("SCANNEZ CE NUMERO POUR REPRENDRE", WIDTH)).append("\n");
+        sb.append(formatLine(i18n.get("paper.totalAttente"), DF.format(draft.totalIncludingTax) + " E"));
+        sb.append(center(i18n.get("paper.scannezNumeroReprendre"), WIDTH)).append("\n");
         hardwareService.printReceipt(sb.toString());
         LOGGER.info("Exiting method printParkedTicket");
     }
@@ -1594,7 +1731,7 @@ public class TicketPrinterService {
             LOGGER.info("Exiting method printTicketIdentityBarcode");
             return;
         }
-        String sb = center("IDENTIFIANT TICKET", WIDTH) + "\n" +
+        String sb = center(i18n.both("paper.identifiantTicket"), WIDTH) + "\n" +
                 "-".repeat(WIDTH) + "\n" +
                 center(ticket.ticketNumber, WIDTH) + "\n" +
                 "\n" + barcode(ticket.ticketNumber) + "\n";
@@ -1638,19 +1775,19 @@ public class TicketPrinterService {
             }
             StringBuilder sb = new StringBuilder();
             cardHeader(sb, ticket.store != null ? ticket.store.name : null, mention);
-            sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
-            sb.append(String.format("Date   : %s%n",
+            sb.append(String.format(i18n.get("paper.ticket2"), ticket.ticketNumber));
+            sb.append(String.format(i18n.get("paper.date"),
                     ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
             sb.append("-".repeat(WIDTH)).append("\n");
-            sb.append(formatLine("MONTANT", DF.format(card.amount) + " E"));
+            sb.append(formatLine(i18n.both("paper.montant"), DF.format(card.amount) + " E"));
             if (card.authorizationNumber != null && !card.authorizationNumber.isBlank()) {
-                sb.append(formatLine("AUTORISATION", card.authorizationNumber));
+                sb.append(formatLine(i18n.both("paper.autorisation"), card.authorizationNumber));
             }
             if (card.degradedMode) {
-                sb.append(center("MODE DEGRADE", WIDTH)).append("\n");
+                sb.append(center(i18n.both("paper.modeDegrade"), WIDTH)).append("\n");
             }
             if (signatureRequired) {
-                sb.append("\n").append(center("SIGNATURE DU CLIENT", WIDTH)).append("\n\n\n");
+                sb.append("\n").append(center(i18n.both("paper.signatureClient"), WIDTH)).append("\n\n\n");
             }
             sb.append("\n");
             hardwareService.printReceipt(sb.toString());
@@ -1699,33 +1836,33 @@ public class TicketPrinterService {
             return 1;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         if (ticket.store != null) {
             sb.append(center(ticket.store.name, WIDTH)).append("\n");
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("PAIEMENT FIDELITE", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.paiementFidelite"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("Ticket : %s%n", safe(ticket.ticketNumber)));
+        sb.append(String.format(i18n.get("paper.ticket2"), safe(ticket.ticketNumber)));
         if (ticket.terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), ticket.terminalId));
         }
         if (ticket.creationDate != null) {
-            sb.append(String.format("Date   : %s%n",
+            sb.append(String.format(i18n.get("paper.date"),
                     ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("PAIEMENT TOTAL FID", DF.format(used) + " E"));
-        sb.append(formatLine("CARTE", safe(ticket.fidelityCard)));
+        sb.append(formatLine(i18n.both("paper.paiementTotalFid"), DF.format(used) + " E"));
+        sb.append(formatLine(i18n.both("paper.carte"), safe(ticket.fidelityCard)));
         if (ticket.fidelityAvailableBalance != null) {
-            sb.append(formatLine("SOLDE AVANT", DF.format(ticket.fidelityAvailableBalance) + " E"));
+            sb.append(formatLine(i18n.both("paper.soldeAvant"), DF.format(ticket.fidelityAvailableBalance) + " E"));
         }
         // imfid response B: the ledger balance after the burn, read from the
         // confirmation, never recomputed by the register.
         if (ticket.fidelityBalanceAfter != null) {
-            sb.append(formatLine("SOLDE APRES", DF.format(ticket.fidelityBalanceAfter) + " E"));
+            sb.append(formatLine(i18n.both("paper.soldeApres"), DF.format(ticket.fidelityBalanceAfter) + " E"));
         }
-        sb.append("\n").append(center("SIGNATURE DU CLIENT", WIDTH)).append("\n\n\n");
+        sb.append("\n").append(center(i18n.both("paper.signatureClient"), WIDTH)).append("\n\n\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printLoyaltyReceipt");
@@ -1776,7 +1913,7 @@ public class TicketPrinterService {
         LOGGER.info("Entering method printWithdrawalTicket with methodLabel: " + methodLabel + ", amount: " + amount + ", lines: " + lines + ", operator: " + operator + ", terminalId: " + terminalId);
         // BO-03-03: the store's own layout first, the built-in one otherwise.
         String administered = administeredLayout(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.WITHDRAWAL_TICKET,
-                movementDocumentData("PRELEVEMENT", methodLabel, null, null, amount, lines,
+                movementDocumentData(i18n.get("paper.prelevement2"), methodLabel, null, null, amount, lines,
                         operator, terminalId));
         if (administered != null) {
             hardwareService.printReceipt(administered);
@@ -1785,18 +1922,18 @@ public class TicketPrinterService {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("PRELEVEMENT", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.prelevement2"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("Moyen  : %s%n", methodLabel));
+        sb.append(String.format(i18n.get("paper.moyen"), methodLabel));
         if (terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), terminalId));
         }
-        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (lines != null) {
@@ -1807,9 +1944,9 @@ public class TicketPrinterService {
                 sb.append("-".repeat(WIDTH)).append("\n");
             }
         }
-        sb.append(formatLine("TOTAL PRELEVE", DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalPreleve"), DF.format(amount) + " E"));
         sb.append("\n");
-        sb.append("Signature: ..............................\n");
+        sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printWithdrawalTicket");
@@ -1834,18 +1971,18 @@ public class TicketPrinterService {
             String operator, String terminalId) {
         LOGGER.info("Entering method printFloatCountTicket with total: " + total + ", lines: " + lines + ", operator: " + operator + ", terminalId: " + terminalId);
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("COMPTAGE DE CONTROLE", WIDTH)).append("\n");
-        sb.append(center("(fond de caisse)", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.comptageControle"), WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.fondCaisse2"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         if (terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), terminalId));
         }
-        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (lines != null) {
@@ -1856,9 +1993,9 @@ public class TicketPrinterService {
                 sb.append("-".repeat(WIDTH)).append("\n");
             }
         }
-        sb.append(formatLine("TOTAL COMPTE", DF.format(total) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalCompte"), DF.format(total) + " E"));
         sb.append("\n");
-        sb.append(center("Document de controle - aucun mouvement", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.documentControleAucunMouvement"), WIDTH)).append("\n");
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
@@ -1888,30 +2025,30 @@ public class TicketPrinterService {
             String tenderLabel, String operator, String terminalId) {
         LOGGER.info("Entering method printMovementTicket with typeLabel: " + typeLabel + ", amount: " + amount + ", reason: " + reason + ", tenderLabel: " + tenderLabel + ", operator: " + operator + ", terminalId: " + terminalId);
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("MOUVEMENT DE CAISSE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.mouvementCaisse"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         if (terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), terminalId));
         }
-        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("TYPE", typeLabel == null ? "" : typeLabel));
+        sb.append(formatLine(i18n.get("paper.type"), typeLabel == null ? "" : typeLabel));
         if (reason != null && !reason.isBlank()) {
-            sb.append(formatLine("MOTIF", reason));
+            sb.append(formatLine(i18n.get("paper.motif2"), reason));
         }
         if (tenderLabel != null && !tenderLabel.isBlank()) {
-            sb.append(formatLine("MOYEN", tenderLabel));
+            sb.append(formatLine(i18n.get("paper.moyen2"), tenderLabel));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.montant"), DF.format(amount) + " E"));
         sb.append("\n");
-        sb.append("Signature: ..............................\n");
+        sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printMovementTicket");
@@ -1932,17 +2069,17 @@ public class TicketPrinterService {
             String operator, String terminalId) {
         LOGGER.info("Entering method printDepositTicket with amount: " + amount + ", lines: " + lines + ", operator: " + operator + ", terminalId: " + terminalId);
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("APPORT DE MONNAIE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.apportMonnaie"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         if (terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), terminalId));
         }
-        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (lines != null) {
@@ -1953,9 +2090,9 @@ public class TicketPrinterService {
                 sb.append("-".repeat(WIDTH)).append("\n");
             }
         }
-        sb.append(formatLine("TOTAL APPORTE", DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.totalApporte"), DF.format(amount) + " E"));
         sb.append("\n");
-        sb.append("Signature: ..............................\n");
+        sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printDepositTicket");
@@ -1973,18 +2110,18 @@ public class TicketPrinterService {
     public void printSettlementVoucher(CashSessionService.SessionReport report, String operator) {
         LOGGER.info("Entering method printSettlementVoucher with operator: " + operator);
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("BORDEREAU DE REGLEMENT", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.bordereauReglement"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         if (report != null && report.session != null) {
-            sb.append(String.format("Session : %s%n", report.session.sessionNumber));
-            sb.append(String.format("Caisse  : %s%n", report.session.terminalId));
+            sb.append(String.format(i18n.get("paper.session"), report.session.sessionNumber));
+            sb.append(String.format(i18n.get("paper.caisse"), report.session.terminalId));
         }
-        sb.append(String.format("Date    : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date2"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         if (report != null) {
@@ -1992,10 +2129,10 @@ public class TicketPrinterService {
                 sb.append(formatLine(row.method(), row.amountFormatted() + " E"));
             }
             sb.append("-".repeat(WIDTH)).append("\n");
-            sb.append(formatLine("TOTAL TTC", (report.getTotalIncludingTaxFormatted()) + " E"));
+            sb.append(formatLine(i18n.get("paper.totalTtc"), (report.getTotalIncludingTaxFormatted()) + " E"));
         }
         sb.append("\n");
-        sb.append("Signature: ..............................\n");
+        sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printSettlementVoucher");
@@ -2019,7 +2156,7 @@ public class TicketPrinterService {
         LOGGER.info("Entering method printTransferTicket with fromLabel: " + fromLabel + ", toLabel: " + toLabel + ", amount: " + amount + ", operator: " + operator + ", terminalId: " + terminalId);
         // BO-03-03: the store's own layout first, the built-in one otherwise.
         String administered = administeredLayout(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.TRANSFER_TICKET,
-                movementDocumentData("TRANSFERT REGLEMENT", null, fromLabel, toLabel, amount,
+                movementDocumentData(i18n.get("paper.transfertReglement"), null, fromLabel, toLabel, amount,
                         null, operator, terminalId));
         if (administered != null) {
             hardwareService.printReceipt(administered);
@@ -2028,24 +2165,24 @@ public class TicketPrinterService {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("TRANSFERT REGLEMENT", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.transfertReglement"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         if (terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), terminalId));
         }
-        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("DE", fromLabel));
-        sb.append(formatLine("VERS", toLabel));
-        sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
+        sb.append(formatLine(i18n.get("paper.de"), fromLabel));
+        sb.append(formatLine(i18n.get("paper.vers"), toLabel));
+        sb.append(formatLine(i18n.get("paper.montant"), DF.format(amount) + " E"));
         sb.append("\n");
-        sb.append("Signature: ..............................\n");
+        sb.append(i18n.get("paper.signature"));
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printTransferTicket");
@@ -2075,22 +2212,22 @@ public class TicketPrinterService {
             java.util.List<String[]> rows, BigDecimal total) {
         LOGGER.info("Entering method printChangeOrder with terminalId: " + terminalId + ", operatorNumber: " + operatorNumber + ", total: " + total);
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("COMMANDE DE MONNAIE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.commandeMonnaie"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
         if (terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), terminalId));
         }
         String operator = ((operatorNumber == null ? "" : operatorNumber) + " "
                 + (operatorName == null ? "" : operatorName)).trim();
         if (!operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
-        sb.append(String.format("Date   : %s%n", java.time.LocalDateTime.now()
+        sb.append(String.format(i18n.get("paper.date"), java.time.LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("%-20s%10s%12s%n", "DENOMINATION", "MONTANT", "NBR.ROUL."));
+        sb.append(String.format("%-20s%10s%12s%n", i18n.get("paper.denomination"), i18n.get("paper.montant"), i18n.get("paper.nbrRoul")));
         sb.append("-".repeat(WIDTH)).append("\n");
         if (rows != null) {
             for (String[] row : rows) {
@@ -2106,9 +2243,9 @@ public class TicketPrinterService {
         // paper and that sum to her manager, who hands back the rolls. The slip used
         // to list the denominations and leave the amount to be added up by hand.
         if (total != null) {
-            sb.append(formatLine("TOTAL A REMETTRE", DF.format(total) + " E"));
+            sb.append(formatLine(i18n.get("paper.totalRemettre"), DF.format(total) + " E"));
             sb.append("\n");
-            sb.append("Signature: ..............................\n");
+            sb.append(i18n.get("paper.signature"));
         }
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
@@ -2144,26 +2281,26 @@ public class TicketPrinterService {
             return false;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         if (ticket.store != null) {
             sb.append(center(ticket.store.name, WIDTH)).append("\n");
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("TICKET ABANDONNE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.ticketAbandonne"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+        sb.append(String.format(i18n.get("paper.ticket2"), ticket.ticketNumber));
         if (ticket.terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), ticket.terminalId));
         }
-        sb.append(String.format("Date   : %s%n",
+        sb.append(String.format(i18n.get("paper.date"),
                 java.time.LocalDateTime.now()
                         .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (operator != null && !operator.isBlank()) {
-            sb.append(String.format("Operateur : %s%n", operator));
+            sb.append(String.format(i18n.get("paper.operateur2"), operator));
         }
         // LC-04-04-11: the reason, printed on the paper and not only journalled.
         if (reason != null && !reason.isBlank()) {
-            sb.append(String.format("Motif  : %s%n", reason));
+            sb.append(String.format(i18n.get("paper.motif"), reason));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
         BigDecimal abandoned = BigDecimal.ZERO;
@@ -2182,9 +2319,9 @@ public class TicketPrinterService {
         if (withDetail) {
             sb.append("-".repeat(WIDTH)).append("\n");
         }
-        sb.append(formatLine("MONTANT ABANDONNE", DF.format(abandoned) + " E"));
+        sb.append(formatLine(i18n.get("paper.montantAbandonne"), DF.format(abandoned) + " E"));
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("AUCUN ENCAISSEMENT", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.aucunEncaissement"), WIDTH)).append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
         LOGGER.info("Exiting method printAbandonTicket");
@@ -2228,23 +2365,32 @@ public class TicketPrinterService {
             return 0;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         if (ticket.store != null) {
             sb.append(center(ticket.store.name, WIDTH)).append("\n");
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("ARTICLES A ENLEVER", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.articlesEnlever"), WIDTH)).append("\n");
+        // WHERE TO GO. The customer pays at the till and DRIVES to the collection
+        // point — the BATI counter in a hardware store, the DRIVE in a food one —
+        // so the slip that proves what is owed to them has to name the place. One
+        // place per store; blank when none is administered, and the slip then
+        // names none rather than inventing one.
+        String collectPoint = posSettingsService.collectPointLabel();
+        if (collectPoint != null && !collectPoint.isBlank()) {
+            sb.append(center(i18n.format("paper.retraitAu", collectPoint.trim()), WIDTH)).append("\n");
+        }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+        sb.append(String.format(i18n.get("paper.ticket2"), ticket.ticketNumber));
         if (ticket.terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), ticket.terminalId));
         }
         if (ticket.creationDate != null) {
-            sb.append(String.format("Date   : %s%n",
+            sb.append(String.format(i18n.get("paper.date"),
                     ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("ARTICLE", "A RETIRER")).append("\n");
+        sb.append(formatLine(i18n.both("paper.article"), i18n.both("paper.retirer"))).append("\n");
         for (TicketLine line : marked) {
             String label = line.productLabel.length() > 30
                     ? line.productLabel.substring(0, 30) : line.productLabel;
@@ -2255,17 +2401,31 @@ public class TicketPrinterService {
             // The two blanks the desk fills in. They are per ARTICLE and not per
             // voucher: a customer who collects half a pallet leaves with the same
             // sheet, and the next trip is written on the same line.
-            sb.append("  Retire : ............  Reste : ............\n");
+            sb.append(i18n.get("paper.retireReste"));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append("Date du retrait : ......../......../........\n\n");
-        sb.append("Vendeur  : ..............................\n");
-        sb.append("Signature: ..............................\n\n");
-        sb.append("Client   : ..............................\n");
-        sb.append("Signature: ..............................\n");
+        sb.append(i18n.get("paper.dateRetrait"));
+        sb.append(i18n.get("paper.vendeur2"));
+        sb.append(i18n.get("paper.signature2"));
+        sb.append(i18n.get("paper.client"));
+        sb.append(i18n.get("paper.signature"));
         sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
-        hardwareService.printReceipt(sb.toString());
-        hardwareService.cutPaper();
+        // TWO COPIES, AND THEY ARE NOT THE SAME SHEET. The slip is not a fiscal
+        // document — it is the proof that goods left the shop. The collection
+        // desk KEEPS one, which the manager collects in the evening; the customer
+        // KEEPS one, carrying the per-article "retire / reste" boxes they come
+        // back with. One copy cannot do both, and two identical ones would leave
+        // nobody able to tell an honoured slip from an open one. The count is
+        // administered, because the process belongs to the store.
+        int copies = posSettingsService.collectVoucherCopies();
+        for (int copy = 1; copy <= copies; copy++) {
+            String mark = copies == 1 ? ""
+                    : center(i18n.both(copy == 1 ? "paper.exemplaireMagasin"
+                            : "paper.exemplaireClient"), WIDTH) + "\n"
+                            + "-".repeat(WIDTH) + "\n";
+            hardwareService.printReceipt(mark + sb);
+            hardwareService.cutPaper();
+        }
         LOGGER.info("Exiting method printCollectionVoucher");
         return marked.size();
     }
@@ -2298,19 +2458,19 @@ public class TicketPrinterService {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         if (ticket.store != null) {
             sb.append(center(ticket.store.name, WIDTH)).append("\n");
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("BON POUR ECHANGE", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.bonEchange"), WIDTH)).append("\n");
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(String.format("Ticket : %s%n", ticket.ticketNumber));
+        sb.append(String.format(i18n.get("paper.ticket2"), ticket.ticketNumber));
         if (ticket.terminalId != null) {
-            sb.append(String.format("Caisse : %s%n", ticket.terminalId));
+            sb.append(String.format(i18n.get("paper.caisse2"), ticket.terminalId));
         }
         if (ticket.creationDate != null) {
-            sb.append(String.format("Date   : %s%n",
+            sb.append(String.format(i18n.get("paper.date"),
                     ticket.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
@@ -2323,7 +2483,7 @@ public class TicketPrinterService {
             sb.append(formatLine(label, DF.format(line.quantity)));
         }
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(center("AUCUN MONTANT NE FIGURE SUR CE BON", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.aucunMontantNeFigure"), WIDTH)).append("\n");
         sb.append("\n").append(barcode(ticket.ticketNumber)).append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
@@ -2343,7 +2503,7 @@ public class TicketPrinterService {
         LOGGER.info("Entering method printCardCreditReceipt with refund: " + refund);
         // BO-03-03: the store's own layout first, the built-in one otherwise.
         String administered = administeredLayout(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.CARD_RECEIPT,
-                cardDocumentData("CREDIT", refund.totalAmount, null, refund.terminalId,
+                cardDocumentData(i18n.both("paper.credit"), refund.totalAmount, null, refund.terminalId,
                         refund.creationDate == null ? null : refund.creationDate.format(
                                 DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         if (administered != null) {
@@ -2353,12 +2513,12 @@ public class TicketPrinterService {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        cardHeader(sb, null, "CREDIT");
-        sb.append(String.format("Caisse : %s%n", refund.terminalId));
-        sb.append(String.format("Date   : %s%n",
+        cardHeader(sb, null, i18n.both("paper.credit"));
+        sb.append(String.format(i18n.get("paper.caisse2"), refund.terminalId));
+        sb.append(String.format(i18n.get("paper.date"),
                 refund.creationDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         sb.append("-".repeat(WIDTH)).append("\n");
-        sb.append(formatLine("MONTANT CREDITE", DF.format(refund.totalAmount) + " E"));
+        sb.append(formatLine(i18n.both("paper.montantCredite"), DF.format(refund.totalAmount) + " E"));
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
         hardwareService.cutPaper();
@@ -2379,7 +2539,7 @@ public class TicketPrinterService {
         LOGGER.info("Entering method printCardTnaReceipt with amount: " + amount + ", frame: " + frame);
         // BO-03-03: the store's own layout first, the built-in one otherwise.
         String administered = administeredLayout(com.intermarche.pos.domain.setting.DocumentTemplate.DocumentType.CARD_RECEIPT,
-                cardDocumentData("ABANDON DEBIT", amount, frame, null, null));
+                cardDocumentData(i18n.both("paper.abandonDebit"), amount, frame, null, null));
         if (administered != null) {
             hardwareService.printReceipt(administered);
             hardwareService.cutPaper();
@@ -2387,14 +2547,14 @@ public class TicketPrinterService {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        cardHeader(sb, null, "ABANDON DEBIT");
+        cardHeader(sb, null, i18n.both("paper.abandonDebit"));
         if (frame != null && !frame.isBlank()) {
             sb.append(frame);
             if (!frame.endsWith("\n")) {
                 sb.append("\n");
             }
         } else if (amount != null) {
-            sb.append(formatLine("MONTANT", DF.format(amount) + " E"));
+            sb.append(formatLine(i18n.both("paper.montant"), DF.format(amount) + " E"));
         }
         sb.append("\n");
         hardwareService.printReceipt(sb.toString());
@@ -2412,11 +2572,11 @@ public class TicketPrinterService {
      *        sale receipt
      */
     private void cardHeader(StringBuilder sb, String storeName, String mention) {
-        sb.append(center("INTERMARCHE", WIDTH)).append("\n");
+        sb.append(center(i18n.get("paper.intermarche"), WIDTH)).append("\n");
         if (storeName != null) {
             sb.append(center(storeName, WIDTH)).append("\n");
         }
-        sb.append(center("TICKET CARTE BANCAIRE", WIDTH)).append("\n");
+        sb.append(center(i18n.both("paper.ticketCarteBancaire"), WIDTH)).append("\n");
         if (mention != null) {
             sb.append(center("*** " + mention + " ***", WIDTH)).append("\n");
         }

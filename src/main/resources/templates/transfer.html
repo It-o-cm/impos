@@ -10,7 +10,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Transfert de règlement</title>
+  <title>{inject:i18n.get('transfer.transfertReglement')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -37,8 +37,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>TRANSFERT DE RÈGLEMENT</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('transfer.transfertReglement2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -48,7 +48,7 @@
           <div class="error-box">{error}</div>
         {/if}
         {#if saved}
-          <div class="ok-box">TRANSFERT ENREGISTRÉ</div>
+          <div class="ok-box">{inject:i18n.get('transfer.transfertEnregistre')}</div>
         {/if}
 
         <h2>Transfert de règlement</h2>
@@ -57,11 +57,11 @@
          ! source ET un autre en destination — une seule des deux listes vide, il
          ! n'y a rien à corriger. !}
         {#if sources.isEmpty || destinations.isEmpty}
-          <div class="empty">AUCUN MOYEN DE PAIEMENT PARAMÉTRÉ POUR LE TRANSFERT</div>
+          <div class="empty">{inject:i18n.get('transfer.aucunMoyenPaiementParametre')}</div>
         {#else}
           <form id="transferForm" method="post" action="/action/transfer/record">
             <div class="form-row">
-              <label for="from">Moyen source</label>
+              <label for="from">{inject:i18n.get('transfer.moyenSource')}</label>
               <select id="from" name="from">
                 {#for method in sources}
                   <option value="{method.key}" data-theoretical="{method.amount}">{method.label}</option>
@@ -70,7 +70,7 @@
             </div>
             <div class="ceiling" id="ceiling">—</div>
             <div class="form-row">
-              <label for="to">Moyen destination</label>
+              <label for="to">{inject:i18n.get('transfer.moyenDestination')}</label>
               <select id="to" name="to">
                 {#for method in destinations}
                   <option value="{method.key}">{method.label}</option>
@@ -78,7 +78,7 @@
               </select>
             </div>
             <div class="form-row">
-              <label for="amountDisplay">Montant €</label>
+              <label for="amountDisplay">{inject:i18n.get('transfer.montant')}</label>
               <div id="amountDisplay" class="kb-display pad-display"></div>
               <input type="hidden" id="amountHidden" name="amount" value="0">
             </div>
@@ -94,11 +94,11 @@
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
       {#if sources.isEmpty || destinations.isEmpty}
         <span></span>
       {#else}
-        <button type="submit" form="transferForm" class="btn btn-lg btn-success" style="width: 13.75rem;">VALIDER LE TRANSFERT</button>
+        <button type="submit" form="transferForm" class="btn btn-lg btn-success" style="width: 13.75rem;">{inject:i18n.get('transfer.validerTransfert')}</button>
       {/if}
     </div>
   </div>
@@ -137,7 +137,7 @@
           hiddenId: 'amountHidden',
           containerId: 'amountKbArea',
           keyboardType: 'price',
-          mode: 'decimal',
+          mode: 'cents',
           maxLength: 9,
           initialValue: '0',
           onChange: toggleManagerHint

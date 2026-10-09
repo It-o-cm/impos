@@ -55,11 +55,23 @@ class EndorsementServiceTest {
      * @return a credential status wrapping the given employee
      */
     private AuthService.CredentialStatus status(Employee employee) {
+        return status(employee, false);
+    }
+
+    /**
+     * Builds a real {@link AuthService.CredentialStatus} through its private
+     * constructor, carrying the lockout flag too.
+     *
+     * @param employee the authenticated employee, or null for a failed check
+     * @param locked true for an account under PIN lockout
+     * @return a credential status wrapping the given employee and flag
+     */
+    private AuthService.CredentialStatus status(Employee employee, boolean locked) {
         try {
             Constructor<AuthService.CredentialStatus> ctor =
                     AuthService.CredentialStatus.class.getDeclaredConstructor(Employee.class, boolean.class);
             ctor.setAccessible(true);
-            return ctor.newInstance(employee, false);
+            return ctor.newInstance(employee, locked);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
@@ -159,6 +171,92 @@ class EndorsementServiceTest {
         // stays in the detail, but the badge column is null (never matches a range).
         verify(service.technicalEventService).log(
                 TechnicalEvent.EventType.ENDORSEMENT_DENIED, "CANCEL_TICKET par ?", null);
+    }
+
+    // --- authorizeOutcome ---
+
+    /**
+     * {@code authorizeOutcome()} answers GRANTED for an authenticated MANAGER
+     * and journals the grant, exactly as {@code authorize()} does — the boolean
+     * form delegates here, so one check and one journal entry.
+     */
+    @Test
+    void authorizeOutcomeGrantsAManager() {
+        EndorsementService service = newService();
+        when(service.authService.checkCredentials("mgr", "1234"))
+                .thenReturn(status(employee(Employee.EmployeeRole.MANAGER)));
+        assertEquals(AuthService.CheckOutcome.GRANTED,
+                service.authorizeOutcome("mgr", "1234", "SESSION_FORCE_CLOSE"));
+        verify(service.technicalEventService).log(
+                TechnicalEvent.EventType.ENDORSEMENT_GRANTED, "SESSION_FORCE_CLOSE par mgr", "mgr");
+    }
+
+    /**
+     * {@code authorizeOutcome()} answers GRANTED for an ADMIN too (the second
+     * arm of the role test).
+     */
+    @Test
+    void authorizeOutcomeGrantsAnAdmin() {
+        EndorsementService service = newService();
+        when(service.authService.checkCredentials("adm", "1234"))
+                .thenReturn(status(employee(Employee.EmployeeRole.ADMIN)));
+        assertEquals(AuthService.CheckOutcome.GRANTED,
+                service.authorizeOutcome("adm", "1234", "SESSION_FORCE_CLOSE"));
+    }
+
+    /**
+     * {@code authorizeOutcome()} answers DENIED on a failed credential check
+     * that is NOT a lockout (isSuccess false, locked false).
+     */
+    @Test
+    void authorizeOutcomeDeniesAWrongCode() {
+        EndorsementService service = newService();
+        when(service.authService.checkCredentials("mgr", "0000")).thenReturn(status(null, false));
+        assertEquals(AuthService.CheckOutcome.DENIED,
+                service.authorizeOutcome("mgr", "0000", "SESSION_FORCE_CLOSE"));
+        verify(service.technicalEventService).log(
+                TechnicalEvent.EventType.ENDORSEMENT_DENIED, "SESSION_FORCE_CLOSE par mgr", "mgr");
+    }
+
+    /**
+     * {@code authorizeOutcome()} answers DENIED for an authenticated employee
+     * whose role is NEITHER manager nor admin (isSuccess true, both role arms
+     * false) — a valid code that is not enough is a refusal, not a lockout.
+     */
+    @Test
+    void authorizeOutcomeDeniesAnInsufficientRole() {
+        EndorsementService service = newService();
+        when(service.authService.checkCredentials("cashier", "1234"))
+                .thenReturn(status(employee(Employee.EmployeeRole.CASHIER)));
+        assertEquals(AuthService.CheckOutcome.DENIED,
+                service.authorizeOutcome("cashier", "1234", "SESSION_FORCE_CLOSE"));
+    }
+
+    /**
+     * {@code authorizeOutcome()} answers LOCKED when the account is under PIN
+     * lockout (isSuccess false, locked true) — the refusal retyping cannot fix,
+     * and the one the screens must name.
+     */
+    @Test
+    void authorizeOutcomeNamesTheLockout() {
+        EndorsementService service = newService();
+        when(service.authService.checkCredentials("mgr", "1234")).thenReturn(status(null, true));
+        assertEquals(AuthService.CheckOutcome.LOCKED,
+                service.authorizeOutcome("mgr", "1234", "SESSION_FORCE_CLOSE"));
+        verify(service.technicalEventService).log(
+                TechnicalEvent.EventType.ENDORSEMENT_DENIED, "SESSION_FORCE_CLOSE par mgr", "mgr");
+    }
+
+    /**
+     * The boolean {@code authorize()} is GRANTED and nothing else: a LOCKED
+     * outcome answers false, like a plain refusal, so the ten call sites that
+     * only need a yes or no are unchanged by the outcome form.
+     */
+    @Test
+    void authorizeIsFalseOnALockout() {
+        EndorsementService service = newService();
+        when(service.authService.checkCredentials("mgr", "1234")).thenReturn(status(null, true));
+        assertFalse(service.authorize("mgr", "1234", "SESSION_FORCE_CLOSE"));
     }
 
     // --- requestAuthorization / requestPriceModification / clearRequest ---

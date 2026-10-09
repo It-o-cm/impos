@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Appel Superviseur</title>
+    <title>{inject:i18n.get('supervisor.appelSuperviseur')}</title>
     <style>
         /* --- CSS STRICT DU DESIGN ORIGINAL --- */
         {#include theme /}
@@ -70,8 +70,8 @@
 
 <div class="pos-terminal">
     <div class="top-bar">
-        <span class="store-name">INTERMARCHÉ</span>
-        <span id="opInfo">CAISSE 04 | Opérateur : MARIE</span>
+        <span class="store-name">{inject:i18n.get('common.store')}</span>
+        <span id="opInfo">{inject:i18n.get('supervisor.caisse04OperateurMarie')}</span>
         <span id="clock">--:--:--</span>
     </div>
     <div class="main-area"></div>
@@ -82,11 +82,11 @@
         <div class="overlay-panel">
         <!-- On garde le header pour la consistance, mais le design centré utilise tout l'espace -->
         <div class="overlay-header">
-            <div class="overlay-title">APPEL SUPERVISEUR</div>
+            <div class="overlay-title">{inject:i18n.get('supervisor.appelSuperviseur2')}</div>
         </div>
 
         <div class="content-area" style="display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px;">
-            <div style="color:var(--text-muted); font-size:var(--fs-section); text-transform:uppercase;">Motif de l'appel</div>
+            <div style="color:var(--text-muted); font-size:var(--fs-section); text-transform:uppercase;">{inject:i18n.get('supervisor.motifLAppel')}</div>
             {! EXP-84 : la liste des motifs est administrée (supervisor.service-reasons),
              ! plus les quatre boutons figés. EXP-19 : un message libre facultatif
              ! accompagne le motif ; chaque bouton motif soumet le formulaire avec le
@@ -96,7 +96,7 @@
                  ! une borne sans clavier. Afficheur en lecture seule, clavier
                  ! alphabetique compact, et c'est le champ cache qui part avec le
                  ! motif choisi. !}
-                <div id="supMessage" class="pad-display" data-placeholder="Message libre (facultatif)" style="width:39rem; padding:12px; font-size:var(--fs-body); background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;"></div>
+                <div id="supMessage" class="pad-display" data-placeholder="{inject:i18n.get('supervisor.messageLibreFacultatif')}" style="width:39rem; padding:12px; font-size:var(--fs-body); background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;"></div>
                 <input type="hidden" name="message" id="supMessageValue" value="">
                 <div id="supMessageKbArea" class="pos-kb-compact" style="width:39rem;"></div>
                 <div style="display:grid; grid-template-columns:repeat(2, 18.75rem); gap:14px;">
@@ -106,13 +106,13 @@
                 </div>
             </form>
             <a href="/" class="btn btn-muted" style="width:15.625rem; height:4.375rem; margin-top:20px;">
-                RETOUR
+                {inject:i18n.get('common.back')}
             </a>
         </div>
 
         {#if supervisorLogged}
         <div class="health-section">
-            <div class="health-title">Santé des échanges</div>
+            <div class="health-title">{inject:i18n.get('supervisor.santeEchanges')}</div>
             <div class="health-banner {#if health.healthy}health-ok{#else}health-warn{/if}" role="status">
                 {#if health.healthy}Tous les canaux de cette caisse sont au vert.{#else}Un canal de cette caisse demande attention.{/if}
             </div>
@@ -121,9 +121,9 @@
             {/if}
 
             <div class="health-card">
-                <div class="health-card-title">Remontée des tickets vers le nœud</div>
+                <div class="health-card-title">{inject:i18n.get('supervisor.remonteeTicketsVersN')}</div>
                 <table class="health-table">
-                    <thead><tr><th>File</th><th>Plus ancien</th><th>Dernière erreur</th></tr></thead>
+                    <thead><tr><th>{inject:i18n.get('supervisor.file')}</th><th>{inject:i18n.get('supervisor.plusAncien')}</th><th>{inject:i18n.get('supervisor.derniereErreur')}</th></tr></thead>
                     <tbody id="health-uplink" data-refresh-url="/supervisor/health/uplink">
                         {#fragment id=uplink}
                         <tr class="{#if health.uplink.lastError}row-error{/if}">
@@ -138,13 +138,13 @@
 
             <div class="health-card">
                 <div class="health-card-head">
-                    <div class="health-card-title">File de consommation</div>
+                    <div class="health-card-title">{inject:i18n.get('supervisor.fileConsommation')}</div>
                     <form method="post" action="/supervisor/health/consumption/replay">
-                        <button class="btn btn-warning" type="submit" style="color:black; height:2.5rem;">Rejouer</button>
+                        <button class="btn btn-warning" type="submit" style="color:black; height:2.5rem;">{inject:i18n.get('supervisor.rejouer')}</button>
                     </form>
                 </div>
                 <table class="health-table">
-                    <thead><tr><th>En attente</th><th>En échec</th><th>Dernière erreur</th></tr></thead>
+                    <thead><tr><th>{inject:i18n.get('supervisor.attente')}</th><th>{inject:i18n.get('supervisor.echec')}</th><th>Dernière erreur</th></tr></thead>
                     <tbody id="health-consumption" data-refresh-url="/supervisor/health/consumption">
                         {#fragment id=consumption}
                         <tr class="{#if health.consumption.failed > 0}row-error{/if}">
@@ -158,9 +158,9 @@
             </div>
 
             <div class="health-card">
-                <div class="health-card-title">Livraison des flux au moteur</div>
+                <div class="health-card-title">{inject:i18n.get('supervisor.livraisonFluxMoteur')}</div>
                 <table class="health-table">
-                    <thead><tr><th>Flux</th><th>État</th><th>Dernière erreur</th></tr></thead>
+                    <thead><tr><th>{inject:i18n.get('supervisor.flux')}</th><th>{inject:i18n.get('supervisor.etat')}</th><th>Dernière erreur</th></tr></thead>
                     <tbody id="health-feeds" data-refresh-url="/supervisor/health/feeds">
                         {#fragment id=feeds}
                         {#for feed in health.feeds}
@@ -171,7 +171,7 @@
                         </tr>
                         {/for}
                         {#if health.feeds.isEmpty()}
-                        <tr><td colspan="3" class="cell-empty">Aucun flux reçu sur cette caisse.</td></tr>
+                        <tr><td colspan="3" class="cell-empty">{inject:i18n.get('supervisor.aucunFluxRecuCaisse')}</td></tr>
                         {/if}
                         {/fragment}
                     </tbody>
@@ -180,14 +180,14 @@
 
             <div class="health-card">
                 <div class="health-card-head">
-                    <div class="health-card-title">Tirage des référentiels</div>
+                    <div class="health-card-title">{inject:i18n.get('supervisor.tirageReferentiels')}</div>
                     <form method="post" action="/supervisor/health/feeds/replay">
-                        <button class="btn btn-warning" type="submit" style="color:black; height:2.5rem;">Relancer le tirage</button>
+                        <button class="btn btn-warning" type="submit" style="color:black; height:2.5rem;">{inject:i18n.get('supervisor.relancerTirage')}</button>
                     </form>
                 </div>
                 <div class="health-card-sub">Tirage automatique toutes les {health.pullSeconds} s. Dernier tirage réussi : {health.lastPull}.</div>
                 <table class="health-table">
-                    <thead><tr><th>Domaine</th><th>Empreinte appliquée</th><th>Appliqué</th><th>Dernière erreur</th></tr></thead>
+                    <thead><tr><th>{inject:i18n.get('supervisor.domaine')}</th><th>{inject:i18n.get('supervisor.empreinteAppliquee')}</th><th>{inject:i18n.get('supervisor.applique')}</th><th>Dernière erreur</th></tr></thead>
                     <tbody>
                         {#for pull in health.pulls}
                         <tr class="{#if pull.lastError}row-error{/if}">
@@ -198,7 +198,7 @@
                         </tr>
                         {/for}
                         {#if health.pulls.isEmpty()}
-                        <tr><td colspan="4" class="cell-empty">Aucun référentiel appliqué (caisse fraîchement démarrée).</td></tr>
+                        <tr><td colspan="4" class="cell-empty">{inject:i18n.get('supervisor.aucunReferentielAppliqueCaisse')}</td></tr>
                         {/if}
                     </tbody>
                 </table>

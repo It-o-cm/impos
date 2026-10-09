@@ -124,7 +124,7 @@
       {#if document.number}
       <div class="num">N° de {document.title.toLowerCase} {document.number}</div>
       {#else}
-      <div class="num draft">N° attribué à l'émission</div>
+      <div class="num draft">{inject:i18n.get('invoice.nAttribueLEmission')}</div>
       {/if}
       {#if document.duplicate}
       <div class="dup">*** DUPLICATA N°{document.duplicateNumber} ***</div>
@@ -158,22 +158,22 @@
     <div class="box meta">
     <table>
       <tr>
-        <td class="k">Date de facturation</td><td class="v">{document.issueDate}</td>
-        <td class="k2">N° de ticket</td><td>{document.ticketNumber}</td>
+        <td class="k">{inject:i18n.get('invoice.dateFacturation')}</td><td class="v">{document.issueDate}</td>
+        <td class="k2">{inject:i18n.get('invoice.nTicket')}</td><td>{document.ticketNumber}</td>
       </tr>
       <tr>
-        <td class="k">Type de document</td><td class="v">{document.title}</td>
-        <td class="k2">Date de la vente</td><td>{document.saleDate}</td>
+        <td class="k">{inject:i18n.get('invoice.typeDocument')}</td><td class="v">{document.title}</td>
+        <td class="k2">{inject:i18n.get('invoice.dateVente')}</td><td>{document.saleDate}</td>
       </tr>
       <tr>
-        <td class="k">Point de vente</td><td class="v">Caisse {document.terminal}</td>
-        <td class="k2">Moyen de paiement</td><td>{document.paymentMethods}</td>
+        <td class="k">{inject:i18n.get('invoice.pointVente')}</td><td class="v">Caisse {document.terminal}</td>
+        <td class="k2">{inject:i18n.get('invoice.moyenPaiement')}</td><td>{document.paymentMethods}</td>
       </tr>
       {! BO-02-04-08 : l'échéance figure obligatoirement sur la facture et le
        ! bon de livraison, et seulement quand le client en porte une. !}
       {#if document.hasDueDate}
       <tr>
-        <td class="k">Échéance</td><td class="v">{document.dueDate}</td>
+        <td class="k">{inject:i18n.get('invoice.echeance')}</td><td class="v">{document.dueDate}</td>
         <td class="k2"></td><td></td>
       </tr>
       {/if}
@@ -184,12 +184,12 @@
   <table class="lines">
     <thead>
       <tr>
-        <th style="width:46%">Description</th>
-        <th>Quantité</th>
-        <th>TVA</th>
-        <th>PV HT</th>
-        <th>PV TTC</th>
-        <th>Total TTC</th>
+        <th style="width:46%">{inject:i18n.get('invoice.description')}</th>
+        <th>{inject:i18n.get('invoice.quantite')}</th>
+        <th>{inject:i18n.get('invoice.tva')}</th>
+        <th>{inject:i18n.get('invoice.pvHt')}</th>
+        <th>{inject:i18n.get('invoice.pvTtc')}</th>
+        <th>{inject:i18n.get('invoice.totalTtc')}</th>
       </tr>
     </thead>
     <tbody>
@@ -210,7 +210,7 @@
     <div class="left">
       <table class="vat">
         <thead>
-          <tr><th>Taux TVA</th><th>Base HT</th><th>Montant TVA</th><th>Total TTC</th></tr>
+          <tr><th>{inject:i18n.get('invoice.tauxTva')}</th><th>{inject:i18n.get('invoice.baseHt')}</th><th>{inject:i18n.get('invoice.montantTva')}</th><th>Total TTC</th></tr>
         </thead>
         <tbody>
           {#for row in document.vatRows}
@@ -227,7 +227,7 @@
     <div class="mid">
       {#if document.tenders.size > 0}
       <div class="settle">
-        <div class="h">Mode de règlement :</div>
+        <div class="h">{inject:i18n.get('invoice.modeReglement')}</div>
         <table>
           {#for tender in document.tenders}
           <tr><td>- {tender.label}</td><td class="amt">{tender.amount} €</td></tr>
@@ -239,10 +239,10 @@
     <div class="right">
       <div class="box totals">
         <table>
-          <tr><td>Sous-total HT</td><td class="amt">{document.totalExcludingTax} €</td></tr>
-          <tr><td>Total TVA</td><td class="amt">{document.totalVat} €</td></tr>
-          <tr><td>Sous-total TTC</td><td class="amt">{document.totalIncludingTax} €</td></tr>
-          <tr class="due"><td>Montant à payer</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+          <tr><td>{inject:i18n.get('invoice.sousTotalHt')}</td><td class="amt">{document.totalExcludingTax} €</td></tr>
+          <tr><td>{inject:i18n.get('invoice.totalTva')}</td><td class="amt">{document.totalVat} €</td></tr>
+          <tr><td>{inject:i18n.get('invoice.sousTotalTtc')}</td><td class="amt">{document.totalIncludingTax} €</td></tr>
+          <tr class="due"><td>{inject:i18n.get('invoice.montantPayer')}</td><td class="amt">{document.totalIncludingTax} €</td></tr>
         </table>
       </div>
     </div>
@@ -263,25 +263,25 @@
          où le doigt est sur ÉMETTRE. Un numéro de facture est une séquence
          légale sans trou ; tant qu'il n'est pas tiré, abandonner ne coûte rien. -->
     {#if !issued}
-    <div class="draft-note">Brouillon — aucun numéro attribué, rien n'est écrit</div>
+    <div class="draft-note">{inject:i18n.get('invoice.brouillonAucunNumeroAttribue')}</div>
     {/if}
     <div class="nav-controls">
     {#if issued}
-    <a class="btn btn-muted" href="/">RETOUR</a>
+    <a class="btn btn-muted" href="/">{inject:i18n.get('common.back')}</a>
     {#else}
-    <a class="btn btn-muted" href="/invoice/abandon">ABANDONNER</a>
+    <a class="btn btn-muted" href="/invoice/abandon">{inject:i18n.get('invoice.abandonner')}</a>
     {/if}
 
     <span class="pos-pager">
       {#if pageCount > 1}
         {#if hasPrev}
-        <a class="btn btn-sm btn-muted" href="{pageUrl}{prevPage}">PRÉCÉDENT</a>
+        <a class="btn btn-sm btn-muted" href="{pageUrl}{prevPage}">{inject:i18n.get('invoice.precedent')}</a>
         {#else}
         <span class="btn btn-sm btn-muted off">PRÉCÉDENT</span>
         {/if}
         <span class="pos-pager-info">PAGE {page} / {pageCount}</span>
         {#if hasNext}
-        <a class="btn btn-sm btn-muted" href="{pageUrl}{nextPage}">SUIVANT</a>
+        <a class="btn btn-sm btn-muted" href="{pageUrl}{nextPage}">{inject:i18n.get('lock.next')}</a>
         {#else}
         <span class="btn btn-sm btn-muted off">SUIVANT</span>
         {/if}
@@ -289,10 +289,10 @@
     </span>
 
     {#if issued}
-    <a class="btn btn-primary" href="/invoice">NOUVELLE FACTURE</a>
+    <a class="btn btn-primary" href="/invoice">{inject:i18n.get('invoice.nouvelleFacture')}</a>
     {#else}
     <form method="post" action="/invoice/issue" style="margin:0">
-      <button class="btn btn-success" type="submit">ÉMETTRE ET IMPRIMER</button>
+      <button class="btn btn-success" type="submit">{inject:i18n.get('invoice.emettreImprimer')}</button>
     </form>
     {/if}
     </div>

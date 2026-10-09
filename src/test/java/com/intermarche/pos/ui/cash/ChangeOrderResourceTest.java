@@ -5,6 +5,7 @@ import com.intermarche.pos.service.TicketNumberService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.auth.AuthState;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.core.Response;
@@ -52,6 +53,10 @@ class ChangeOrderResourceTest {
      */
     private ChangeOrderResource newResource() {
         ChangeOrderResource resource = new ChangeOrderResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         AuthState auth = new AuthState();
         auth.operatorBadgeId = "17";
@@ -60,6 +65,7 @@ class ChangeOrderResourceTest {
         resource.state.changeOrder = new ChangeOrderState();
         when(resource.state.getOperatorName()).thenReturn("Marie");
         resource.cashCountService = new CashCountService();
+        resource.cashCountService.i18n = TestMessages.french();
         resource.posSettingsService = mock(PosSettingsService.class);
         resource.ticketPrinterService = mock(TicketPrinterService.class);
         resource.ticketNumberService = mock(TicketNumberService.class);

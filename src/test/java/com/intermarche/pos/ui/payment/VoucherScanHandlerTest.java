@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.payment;
 import com.intermarche.pos.domain.barcode.CouponType;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.scanner.ScanContext;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +49,10 @@ class VoucherScanHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new VoucherScanHandler();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        handler.i18n = TestMessages.french();
         handler.voucherService = voucherService;
         handler.couponCheckService = couponCheckService;
         org.mockito.Mockito.lenient().when(couponCheckService.worst(org.mockito.ArgumentMatchers.any()))

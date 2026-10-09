@@ -11,7 +11,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mouvement Financier</title>
+  <title>{inject:i18n.get('financialmovement.mouvementFinancier')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -37,8 +37,8 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>MOUVEMENT FINANCIER</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('financialmovement.mouvementFinancier2')}</span>
       <span id="clock"></span>
     </div>
 
@@ -48,13 +48,13 @@
           <div class="error-box">{error}</div>
         {/if}
         {#if saved}
-          <div class="ok-box">MOUVEMENT ENREGISTRÉ</div>
+          <div class="ok-box">{inject:i18n.get('financialmovement.mouvementEnregistre')}</div>
         {/if}
 
-        <h2>Mouvement financier</h2>
+        <h2>{inject:i18n.get('financialmovement.mouvementFinancier3')}</h2>
         <form method="post" action="/action/financial-movement/record">
           <div class="form-row">
-            <label for="source">Perçu en</label>
+            <label for="source">{inject:i18n.get('financialmovement.percu')}</label>
             <select id="source" name="source">
               {#for option in sources}
                 <option value="{option.key}">{option.label}</option>
@@ -62,7 +62,7 @@
             </select>
           </div>
           <div class="form-row">
-            <label for="destination">Rendu en</label>
+            <label for="destination">{inject:i18n.get('financialmovement.rendu')}</label>
             <select id="destination" name="destination">
               {#for option in destinations}
                 <option value="{option.key}">{option.label}</option>
@@ -70,7 +70,7 @@
             </select>
           </div>
           <div class="form-row">
-            <label for="amountDisplay">Montant €</label>
+            <label for="amountDisplay">{inject:i18n.get('financialmovement.montant')}</label>
             <div id="amountDisplay" class="kb-display pad-display"></div>
             <input type="hidden" id="amountHidden" name="amount" value="0">
           </div>
@@ -79,14 +79,14 @@
           <div class="hint" id="managerHint" style="display:none;">Au-delà de {threshold} €, un aval manager sera demandé.</div>
 
           <div class="actions">
-            <button type="submit" class="btn btn-success">ENREGISTRER LE MOUVEMENT</button>
+            <button type="submit" class="btn btn-success">{inject:i18n.get('financialmovement.enregistrerMouvement')}</button>
           </div>
         </form>
       </div>
     </div>
 
     <div class="bottom-nav">
-      <a href="/" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+      <a href="/" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 
@@ -107,7 +107,7 @@
         hiddenId: 'amountHidden',
         containerId: 'amountKbArea',
         keyboardType: 'price',
-        mode: 'decimal',
+        mode: 'cents',
         maxLength: 9,
         initialValue: '0',
         onChange: toggleManagerHint

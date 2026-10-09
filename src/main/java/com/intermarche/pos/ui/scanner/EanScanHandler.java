@@ -26,6 +26,13 @@ import java.math.BigDecimal;
 @Priority(2)
 public class EanScanHandler implements ScanContext.ScanHandler {
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @jakarta.inject.Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     @jakarta.inject.Inject
     com.intermarche.pos.ui.ticket.TicketService ticketService;
 
@@ -55,21 +62,21 @@ public class EanScanHandler implements ScanContext.ScanHandler {
             // code whose EAN13 key is wrong is refused before any lookup.
             if (posSettingsService.ean13CheckDigitEnabled() && ctx.code.length() == 13
                     && !hasValidChecksum(ctx.code)) {
-                ctx.state.ticket.setError("CODE EAN INVALIDE");
+                ctx.state.ticket.setError(i18n.get("op.codeEanInvalide"));
                 ctx.handled = true;
                 return;
             }
             Product p = Product.find("ean = ?1 and active = true", ctx.code).firstResult();
             if (p != null) {
                 if (p.forbiddenToSale) {
-                    ctx.state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+                    ctx.state.ticket.setError(i18n.get("op.produitInterditVente"));
                     ctx.handled = true;
                     return;
                 }
 
                 // BO-02-03-11: a recalled article is refused at scan, no line.
                 if (ProductAttributes.recall(p)) {
-                    ctx.state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+                    ctx.state.ticket.setError(i18n.get("op.articleRetraitRappel"));
                     ctx.handled = true;
                     return;
                 }

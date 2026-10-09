@@ -12,7 +12,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Badge opérateur</title>
+    <title>{inject:i18n.get('badgeprint.badgeOperateur')}</title>
     <style>
         {#include theme /}
         body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -41,36 +41,31 @@
 <div class="pos-terminal">
 
     <div class="top-bar">
-        <span class="store-name">BADGE OPÉRATEUR</span>
+        <span class="store-name">{inject:i18n.get('badgeprint.badgeOperateur2')}</span>
         <span id="clock"></span>
     </div>
 
     <div class="main-area">
         <form class="work" method="post" action="/action/badge-print">
             <div class="side">
-                <h2>Réimpression d'un badge</h2>
-                <p>Saisissez le numéro de l'opérateur dont le badge doit être réimprimé.
-                   Le badge porte le numéro que la caisse scanne ou que l'opérateur saisit
-                   à la prise de poste.</p>
-                <p><strong>La demande attend un aval manager.</strong> Le papier ne sort
-                   pas tout de suite : la demande est mise en attente et un responsable la
-                   valide sur l'écran de vente. Un badge est une clé d'accès, il ne se
-                   réimprime pas sans témoin.</p>
+                <h2>{inject:i18n.get('badgeprint.reimpressionDBadge')}</h2>
+                <p>{inject:i18n.get('badgeprint.saisissezNumeroLOperateur')}</p>
+                <p><strong>{inject:i18n.get('badgeprint.demandeAttendAvalManager')}</strong> {inject:i18n.get('badgeprint.papierNeSortPas')}</p>
             </div>
             <div class="entry">
-                <div class="entry-title">Numéro d'opérateur</div>
+                <div class="entry-title">{inject:i18n.get('badgeprint.numeroDOperateur')}</div>
                 <div id="opDisplay" class="display pad-display"></div>
                 <input type="hidden" name="operator" id="opHidden" value="">
                 <div class="keyboard pos-kb-compact" id="opKbArea"></div>
                 <div class="actions">
-                    <button type="submit" class="btn btn-primary">DEMANDER L'IMPRESSION</button>
+                    <button type="submit" class="btn btn-primary">{inject:i18n.get('badgeprint.demanderLImpression')}</button>
                 </div>
             </div>
         </form>
     </div>
 
     <div class="bottom-nav">
-        <a href="/" class="btn btn-muted">RETOUR</a>
+        <a href="/" class="btn btn-muted">{inject:i18n.get('common.back')}</a>
     </div>
 </div>
 

@@ -79,6 +79,10 @@ public class TerminalClientProducer {
     @Inject
     PosSettingsService posSettingsService;
 
+    /** The localised operator messages handed to the clients this producer builds. */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The register state carrying the operator's own forcing (LC-07-08-02). */
     @Inject
     com.intermarche.pos.ui.PosState state;
@@ -107,9 +111,10 @@ public class TerminalClientProducer {
                 return new AutoAcceptTerminalClient();
             case "verifone":
                 return new VerifoneTerminalClient(
-                        new VerifoneTransport(verifoneHost, verifonePort, verifoneTimeoutMs));
+                        new VerifoneTransport(verifoneHost, verifonePort, verifoneTimeoutMs), i18n);
             case "bridge":
-                return new HardwareBridgeTerminalClient(hardwareClient, bridgePollMs, bridgeDeadlineMs);
+                return new HardwareBridgeTerminalClient(hardwareClient, bridgePollMs,
+                        bridgeDeadlineMs, i18n);
             case "virtual":
                 return virtualTerminalClient;
             default:

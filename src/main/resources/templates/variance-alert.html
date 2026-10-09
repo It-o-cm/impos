@@ -10,7 +10,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Écart de caisse</title>
+  <title>{inject:i18n.get('variancealert.ecartCaisse')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -28,6 +28,8 @@
     .sup-form h2 { margin: 0; font-size: var(--fs-label); color: var(--text-muted); text-transform: uppercase; }
     .sup-form input { padding: 10px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
     .sup-form input.active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
+    .sup-field { padding: 10px; font-size: var(--fs-field); background: var(--bg-page); color: var(--text-main); border: 2px solid var(--primary); border-radius: 6px; }
+    .sup-field.active { border-color: var(--success); box-shadow: 0 0 0 2px var(--success) inset; }
     .sup-kb { max-width: 26rem; margin: 0 auto; }
   </style>
 </head>
@@ -46,27 +48,26 @@
         {#if amountVisible}
           <div class="variance-amount">{pending.varianceFormatted} €</div>
         {#else}
-          <div class="variance-amount">AU-DELÀ DU SEUIL</div>
+          <div class="variance-amount">{inject:i18n.get('variancealert.delaSeuil')}</div>
         {/if}
       </div>
       <div class="variance-hint">
-        L'écart dépasse le seuil autorisé. Recomptez le tiroir, ou faites valider
-        l'écart par un superviseur — la clôture ne passe pas autrement.
+        {inject:i18n.get('variancealert.lEcartDepasseSeuil')}
       </div>
       <div class="exits">
-        <a href="/cash-count" class="btn btn-warning" style="width:14rem;">RECOMPTER</a>
+        <a href="/cash-count" class="btn btn-warning" style="width:14rem;">{inject:i18n.get('variancealert.recompter')}</a>
       </div>
       {! Les deux champs etaient libres et la borne n'a pas de clavier: l'aval
        ! superviseur, seule autre issue que le recomptage, etait inatteignable.
-       ! Un seul pave, rebranche sur le champ touche. !}
-      <form class="sup-form" method="post" action="/action/session/close-endorsed">
-        <h2>Validation superviseur</h2>
-        <div id="dispSupervisor" class="pad-display" data-placeholder="Identifiant superviseur" onclick="activateField('supervisor')"></div>
-        <input type="hidden" name="supervisor" id="valSupervisor" value="">
-        <div id="dispSupervisorPin" class="pad-display" data-placeholder="Code superviseur" onclick="activateField('supervisorPin')"></div>
-        <input type="hidden" name="supervisorPassword" id="valSupervisorPin" value="">
+       ! C'est maintenant le volet d'identification de l'ouverture, partage par
+       ! les quatre ecrans qui demandent un superviseur. !}
+      <form class="sup-form" method="post" action="/action/session/close-endorsed" onsubmit="return SupAuth.fill(this)">
+        <h2>{inject:i18n.get('variancealert.validationSuperviseur')}</h2>
+        {#include supervisor-auth padContainer='varianceKbArea' displayClass='sup-field' /}
+        <input type="hidden" name="supervisor">
+        <input type="hidden" name="supervisorPassword">
         <div class="sup-kb pos-kb-compact" id="varianceKbArea"></div>
-        <button type="submit" class="btn btn-danger">VALIDER L'ÉCART ET CLÔTURER</button>
+        <button type="submit" class="btn btn-danger">{inject:i18n.get('variancealert.validerLEcartCloturer')}</button>
       </form>
     </div>
   </div>
@@ -74,33 +75,10 @@
   {#include keyboard-lib /}
 
   <script>
-    /* L'identifiant se tape en lettres, le code en chiffres et masque. */
-    const VARIANCE_FIELDS = {
-        supervisor:    { display: 'dispSupervisor',    hidden: 'valSupervisor',    type: 'alpha',  mode: 'text', max: 32 },
-        supervisorPin: { display: 'dispSupervisorPin', hidden: 'valSupervisorPin', type: 'numpad', mode: 'pin',  max: 8 }
-    };
-
-    function activateField(name) {
-        const field = VARIANCE_FIELDS[name];
-        if (!field || !document.getElementById(field.hidden)) { return; }
-        Object.values(VARIANCE_FIELDS).forEach(f => {
-            const el = document.getElementById(f.display);
-            if (el) { el.classList.remove('active'); }
-        });
-        document.getElementById(field.display).classList.add('active');
-        PosInput.setup({
-            displayId: field.display,
-            hiddenId: field.hidden,
-            containerId: 'varianceKbArea',
-            keyboardType: field.type,
-            mode: field.mode,
-            uppercase: false,
-            maxLength: field.max,
-            initialValue: document.getElementById(field.hidden).value || ''
-        });
-    }
-
-    activateField('supervisor');
+    /* Le volet partage prend le pave des l'affichage: le recomptage et l'aval
+       superviseur sont les deux seules issues de cet ecran, et l'aval est celle
+       qui se tape. */
+    SupAuth.focus();
   </script>
 </body>
 </html>

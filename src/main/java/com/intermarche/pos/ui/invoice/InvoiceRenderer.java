@@ -42,35 +42,36 @@ public final class InvoiceRenderer {
      * @param document the laid-out document
      * @return the document, one entry per line, without trailing newlines
      */
-    public static List<String> render(InvoiceDocument document) {
+    public static List<String> render(InvoiceDocument document, com.intermarche.pos.ui.Messages i18n) {
         List<String> out = new ArrayList<>();
-        seller(out, document.seller);
+        seller(out, document.seller, i18n);
         out.add(RULE);
         out.add(center(document.title));
         if (document.isDuplicate()) {
-            out.add(center("*** DUPLICATA N°" + document.duplicateNumber + " ***"));
+            out.add(center(i18n.format("doc.duplicataEncadre", document.duplicateNumber)));
         }
         out.add(RULE);
-        out.add(pair("N° " + document.title, document.number));
-        out.add(pair("Date", document.issueDate));
+        out.add(pair(i18n.format("doc.numeroDe", document.title), document.number));
+        out.add(pair(i18n.get("doc.dateCourt"), document.issueDate));
         // BO-02-04-08: l'échéance figure obligatoirement sur le document, et
         // seulement quand le client en porte une — une ligne « Échéance » vide
         // se lirait comme un paiement immédiat.
         if (document.hasDueDate()) {
-            out.add(pair("Echeance", document.dueDate));
+            out.add(pair(i18n.get("doc.echeanceCourt"), document.dueDate));
         }
-        out.add(pair("Ticket", document.ticketNumber));
+        out.add(pair(i18n.get("doc.ticketCourt"), document.ticketNumber));
         out.add(RULE);
-        customer(out, document.customer, document.hasCustomerTaxId() ? document.customerTaxId : "");
+        customer(out, document.customer,
+                document.hasCustomerTaxId() ? document.customerTaxId : "", i18n);
         out.add(RULE);
-        articles(out, document.lines);
+        articles(out, document.lines, i18n);
         out.add(RULE);
-        vat(out, document.vatRows);
+        vat(out, document.vatRows, i18n);
         out.add(RULE);
-        out.add(pair("TOTAL HT", document.totalExcludingTax + " E"));
-        out.add(pair("TOTAL TVA", document.totalVat + " E"));
-        out.add(pair("TOTAL TTC", document.totalIncludingTax + " E"));
-        tenders(out, document.tenders);
+        out.add(pair(i18n.get("doc.totalHtPapier"), document.totalExcludingTax + " E"));
+        out.add(pair(i18n.get("doc.totalTvaPapier"), document.totalVat + " E"));
+        out.add(pair(i18n.get("doc.totalTtcPapier"), document.totalIncludingTax + " E"));
+        tenders(out, document.tenders, i18n);
         return out;
     }
 
@@ -111,8 +112,9 @@ public final class InvoiceRenderer {
      * @param out    the lines being built
      * @param seller who sells
      */
-    private static void seller(List<String> out, InvoiceDocument.Party seller) {
-        out.add(center("INTERMARCHE"));
+    private static void seller(List<String> out, InvoiceDocument.Party seller,
+            com.intermarche.pos.ui.Messages i18n) {
+        out.add(center(i18n.get("paper.intermarche")));
         out.add(center(seller.name()));
         if (!seller.legalName().isEmpty()) {
             out.add(center(seller.legalName()));
@@ -121,13 +123,13 @@ public final class InvoiceRenderer {
             out.add(center(addressLine));
         }
         if (!seller.phone().isEmpty()) {
-            out.add(center("Tel. " + seller.phone()));
+            out.add(center(i18n.get("doc.telCourt") + seller.phone()));
         }
         if (!seller.siret().isEmpty()) {
-            out.add(center("SIRET " + seller.siret()));
+            out.add(center(i18n.get("doc.siret") + seller.siret()));
         }
         if (!seller.vatNumber().isEmpty()) {
-            out.add(center("TVA " + seller.vatNumber()));
+            out.add(center(i18n.get("doc.tvaNumero") + seller.vatNumber()));
         }
     }
 
@@ -140,10 +142,10 @@ public final class InvoiceRenderer {
      *                 empty when the document carries none
      */
     private static void customer(List<String> out, InvoiceDocument.Party customer,
-            String taxId) {
-        out.add("CLIENT");
+            String taxId, com.intermarche.pos.ui.Messages i18n) {
+        out.add(i18n.get("doc.clientMajuscule"));
         if (!customer.accountNumber().isEmpty()) {
-            out.add(indented("N° compte : " + customer.accountNumber()));
+            out.add(indented(i18n.get("doc.numeroCompte") + customer.accountNumber()));
         }
         out.add(indented(customer.name()));
         if (!customer.contact().isEmpty()) {
@@ -153,13 +155,13 @@ public final class InvoiceRenderer {
             out.add(indented(addressLine));
         }
         if (!customer.siret().isEmpty()) {
-            out.add(indented("SIRET " + customer.siret()));
+            out.add(indented(i18n.get("doc.siret") + customer.siret()));
         }
         if (!customer.vatNumber().isEmpty()) {
-            out.add(indented("TVA " + customer.vatNumber()));
+            out.add(indented(i18n.get("doc.tvaNumero") + customer.vatNumber()));
         }
         if (!taxId.isEmpty()) {
-            out.add(indented("NIF " + taxId));
+            out.add(indented(i18n.get("doc.nif") + taxId));
         }
     }
 
@@ -174,7 +176,8 @@ public final class InvoiceRenderer {
      * @param out   the lines being built
      * @param lines the article rows
      */
-    private static void articles(List<String> out, List<InvoiceDocument.Line> lines) {
+    private static void articles(List<String> out, List<InvoiceDocument.Line> lines,
+            com.intermarche.pos.ui.Messages i18n) {
         for (InvoiceDocument.Line line : lines) {
             out.add(truncate(line.label()));
             if (!line.attributes().isEmpty()) {
@@ -184,7 +187,7 @@ public final class InvoiceRenderer {
                 out.add(indented(line.ean()));
             }
             out.add(pair("  " + line.quantity() + " x " + line.unitIncludingTax()
-                            + " (HT " + line.unitExcludingTax() + ")",
+                            + i18n.format("doc.htEntreParentheses", line.unitExcludingTax()),
                     line.totalIncludingTax()));
         }
     }
@@ -195,8 +198,10 @@ public final class InvoiceRenderer {
      * @param out  the lines being built
      * @param rows the VAT rows
      */
-    private static void vat(List<String> out, List<InvoiceDocument.VatRow> rows) {
-        out.add(pair("TVA", amounts("Base HT", "TVA", "TTC")));
+    private static void vat(List<String> out, List<InvoiceDocument.VatRow> rows,
+            com.intermarche.pos.ui.Messages i18n) {
+        out.add(pair(i18n.get("doc.tvaCourt"), amounts(i18n.get("doc.baseHt"),
+                i18n.get("doc.tvaCourt"), i18n.get("doc.ttc"))));
         for (InvoiceDocument.VatRow row : rows) {
             out.add(pair(INDENT + row.rate(),
                     amounts(row.excludingTax(), row.vat(), row.includingTax())));
@@ -210,12 +215,13 @@ public final class InvoiceRenderer {
      * @param out     the lines being built
      * @param tenders the settlement rows
      */
-    private static void tenders(List<String> out, List<InvoiceDocument.Tender> tenders) {
+    private static void tenders(List<String> out, List<InvoiceDocument.Tender> tenders,
+            com.intermarche.pos.ui.Messages i18n) {
         if (tenders.isEmpty()) {
             return;
         }
         out.add(RULE);
-        out.add("REGLEMENT");
+        out.add(i18n.get("doc.reglementMajuscule"));
         for (InvoiceDocument.Tender tender : tenders) {
             out.add(pair(INDENT + tender.label(), tender.amount() + " E"));
         }

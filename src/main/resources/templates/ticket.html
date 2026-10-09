@@ -13,7 +13,7 @@
         <div class="item-details">
             <strong>✔ {state.ticket.transientError}</strong>
         </div>
-        <span class="price" style="color:var(--success);">OK</span>
+        <span class="price" style="color:var(--success);">{inject:i18n.get('ticket.ok')}</span>
     </div>
     {#else if state.ticket.transientWarn}
     <div class="receipt-item warning-line">
@@ -27,7 +27,7 @@
         <div class="item-details">
             <strong>⚠️ {state.ticket.transientError}</strong>
         </div>
-        <span class="price" style="color:var(--danger);">ERR</span>
+        <span class="price" style="color:var(--danger);">{inject:i18n.get('ticket.err')}</span>
     </div>
     {/if}
 {/if}
@@ -57,19 +57,23 @@
     </div>
 {/for}
 
-{#if state.ticket.items.empty}
+{! Vacuite de l'AFFICHAGE et non du panier : un ticket dont toutes les lignes
+ ! ont ete annulees n'a plus d'article, mais il a encore quelque chose a montrer. !}
+{#if state.visibleItems.isEmpty()}
     <div class="receipt-empty">{waitingLabel}</div>
 {#else}
     {#for item in state.visibleItems}
-        <a href="/action/select/{item.uid}" class="receipt-item-link">
-            <div class="receipt-item {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
+        {! Une ligne ANNULEE reste visible, barree, et n'est plus cliquable :
+         ! elle a quitte le panier, donc aucun geste ne la prend pour cible. !}
+        <a href="{#if item.cancelled}#{#else}/action/select/{item.uid}{/if}" class="receipt-item-link">
+            <div class="receipt-item {#if item.cancelled}cancelled{/if} {#if item.negative}negative{/if} {#if item == state.selectedItem}selected{/if}" data-uid="{item.uid}">
                 <div class="item-details">
                     {item.html.raw}
                     {#if item.toCollect}
                     <!-- LC-02-08-04 : l'indicateur. Sur la ligne elle-même et non dans
                          une colonne à part : ce que l'opérateur cherche du regard,
                          c'est « laquelle de ces lignes », pas « combien ». -->
-                    <span class="to-collect-badge">À ENLEVER</span>
+                    <span class="to-collect-badge">{inject:i18n.get('ticket.enlever')}</span>
                     {/if}
                     {#if showEan && item.ean}
                     <div style="font-size:var(--fs-row-sub); color:var(--text-muted);">{item.ean}</div>
@@ -92,7 +96,7 @@
         {#if item.subtotalBoundary}
         <!-- EXP-43 : le sous-total du groupe depuis le marqueur précédent. -->
         <div class="receipt-item" style="border-left-color:var(--warning); color:var(--warning); font-weight:bold;">
-            <div class="item-details">SOUS-TOTAL</div>
+            <div class="item-details">{inject:i18n.get('ticket.sousTotal')}</div>
             <span class="price" style="color:var(--warning);">{item.subtotalFormatted} €</span>
         </div>
         {/if}
@@ -131,7 +135,7 @@
     <!-- Navigation -->
     <div class="ticket-nav">
         {#if state.hasPreviousPage}
-            <a href="/action/ticket/prev" class="btn btn-muted nav-btn">PRÉCÉDENT</a>
+            <a href="/action/ticket/prev" class="btn btn-muted nav-btn">{inject:i18n.get('ticket.precedent')}</a>
         {#else}
             <div></div>
         {/if}
@@ -139,7 +143,7 @@
         <span class="nav-info">Page {state.ticketCurrentPageDisplay} / {state.ticketTotalPages}</span>
 
         {#if state.hasNextPage}
-            <a href="/action/ticket/next" class="btn btn-muted nav-btn">SUIVANT</a>
+            <a href="/action/ticket/next" class="btn btn-muted nav-btn">{inject:i18n.get('lock.next')}</a>
         {#else}
             <div></div>
         {/if}

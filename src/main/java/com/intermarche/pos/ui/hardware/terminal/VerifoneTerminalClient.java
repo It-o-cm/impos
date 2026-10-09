@@ -31,14 +31,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class VerifoneTerminalClient implements PaymentTerminalClient {
 
+
     private static final Logger LOGGER = Logger.getLogger(VerifoneTerminalClient.class);
 
-    /** Operator-facing message while the protocol is not implemented. */
-    static final String MSG_NOT_IMPLEMENTED =
-            "MONETIQUE VERIFONE NON DISPONIBLE - SPECIFICATION PROTOCOLE REQUISE";
+    /** Bundle key of the message shown while the protocol is not implemented. */
+    static final String MSG_NOT_IMPLEMENTED_KEY = "op.monetiqueVerifoneNonDisponible";
 
-    /** Operator-facing message when the monetique client is unreachable. */
-    static final String MSG_UNREACHABLE = "CLIENT MONETIQUE INJOIGNABLE";
+    /** Bundle key of the message shown when the monetique client is unreachable. */
+    static final String MSG_UNREACHABLE_KEY = "op.clientMonetiqueInjoignable";
 
     /** The TCP transport to the local monetique client. */
     private final VerifoneTransport transport;
@@ -62,12 +62,24 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     private final AtomicBoolean abortRequested = new AtomicBoolean(false);
 
     /**
+     * The localised operator messages (LC-13-06).
+     *
+     * <p>HANDED OVER AND NOT INJECTED: this client is built by
+     * {@link TerminalClientProducer}, not by the container, so an injected field
+     * would stay null. The producer is a bean and passes its own resolver.
+     */
+    private final com.intermarche.pos.ui.Messages i18n;
+
+    /**
      * Creates the client over the given transport.
      *
      * @param transport the TCP transport to the local monetique client
+     * @param i18n the resolver of the operator-facing messages
      */
-    public VerifoneTerminalClient(VerifoneTransport transport) {
+    public VerifoneTerminalClient(VerifoneTransport transport,
+            com.intermarche.pos.ui.Messages i18n) {
         this.transport = transport;
+        this.i18n = i18n;
     }
 
     /**
@@ -148,24 +160,24 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
     private void submitExchange(String operation, BigDecimal amount,
                                 TerminalTransactionCallback callback) {
         if (!busy.compareAndSet(false, true)) {
-            callback.onError("TRANSACTION MONETIQUE DEJA EN COURS");
+            callback.onError(i18n.get("op.transactionMonetiqueDeja"));
             return;
         }
         abortRequested.set(false);
         exchanges.submit(() -> {
             try {
                 if (!transport.isReachable()) {
-                    callback.onError(MSG_UNREACHABLE);
+                    callback.onError(i18n.get(MSG_UNREACHABLE_KEY));
                     return;
                 }
                 String response = transport.exchange(buildRequest(operation, amount));
                 handleResponse(response, amount, callback);
             } catch (UnsupportedOperationException e) {
                 LOGGER.warnf("Verifone exchange not implemented: %s", e.getMessage());
-                callback.onError(MSG_NOT_IMPLEMENTED);
+                callback.onError(i18n.get(MSG_NOT_IMPLEMENTED_KEY));
             } catch (Exception e) {
                 LOGGER.errorf(e, "Verifone %s exchange failed", operation);
-                callback.onError(MSG_UNREACHABLE);
+                callback.onError(i18n.get(MSG_UNREACHABLE_KEY));
             } finally {
                 busy.set(false);
                 abortRequested.set(false);
@@ -209,7 +221,7 @@ public class VerifoneTerminalClient implements PaymentTerminalClient {
                 tags.get(VerifoneTags.PAYMENT_MEAN_FALLBACK));
         // EXP-54: trace the real card entry mode the terminal returns.
         outcome.entryMode = mapEntryMode(tags.get(VerifoneTags.ENTRY_MODE));
-        callback.onError(MSG_NOT_IMPLEMENTED);
+        callback.onError(i18n.get(MSG_NOT_IMPLEMENTED_KEY));
     }
 
     /**

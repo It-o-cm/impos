@@ -37,6 +37,13 @@ public class TicketEmailResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(TicketEmailResource.class);
 
+    /**
+     * The localised operator messages: the refusals this screen shows are
+     * bundle keys, never French literals (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The register state: the last closed ticket and the attached card's holder. */
     @Inject
     PosState state;
@@ -106,20 +113,20 @@ public class TicketEmailResource {
         // comes back (a Z closing between the two requests, say).
         if (state.trainingMode) {
             LOGGER.info("Exiting method sendEmail");
-            return page(address, PosState.TRAINING_FORBIDDEN, false);
+            return page(address, i18n.get(PosState.TRAINING_FORBIDDEN_KEY), false);
         }
         if (state.lastClosedTicketId == null) {
             LOGGER.info("Exiting method sendEmail");
-            return page(address, PosState.NO_LAST_TICKET, false);
+            return page(address, i18n.get(PosState.NO_LAST_TICKET_KEY), false);
         }
         if (!address.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
             LOGGER.info("Exiting method sendEmail");
-            return page(address, "ADRESSE INVALIDE", false);
+            return page(address, i18n.get("op.adresseInvalide"), false);
         }
         Ticket ticket = Ticket.findById(state.lastClosedTicketId);
         if (ticket == null) {
             LOGGER.info("Exiting method sendEmail");
-            return page(address, "AUCUN TICKET À ENVOYER", false);
+            return page(address, i18n.get("op.aucunTicketEnvoyer"), false);
         }
         // The address the customer gave at the till belongs to the ticket, exactly as
         // the one typed on their own page does: a later send finds it again.
@@ -195,20 +202,20 @@ public class TicketEmailResource {
         String address = state.fidelity.holderEmail == null ? "" : state.fidelity.holderEmail;
         if (state.trainingMode) {
             LOGGER.info("Exiting method sendSms");
-            return page(address, number, PosState.TRAINING_FORBIDDEN, false, false);
+            return page(address, number, i18n.get(PosState.TRAINING_FORBIDDEN_KEY), false, false);
         }
         if (state.lastClosedTicketId == null) {
             LOGGER.info("Exiting method sendSms");
-            return page(address, number, PosState.NO_LAST_TICKET, false, false);
+            return page(address, number, i18n.get(PosState.NO_LAST_TICKET_KEY), false, false);
         }
         if (!number.matches("[+0-9][0-9 .]{5,19}")) {
             LOGGER.info("Exiting method sendSms");
-            return page(address, number, "NUMÉRO INVALIDE", false, false);
+            return page(address, number, i18n.get("op.numeroInvalide"), false, false);
         }
         Ticket ticket = Ticket.findById(state.lastClosedTicketId);
         if (ticket == null) {
             LOGGER.info("Exiting method sendSms");
-            return page(address, number, "AUCUN TICKET À ENVOYER", false, false);
+            return page(address, number, i18n.get("op.aucunTicketEnvoyer"), false, false);
         }
         ticketSmsService.send(ticket, number);
         LOGGER.info("Exiting method sendSms");

@@ -11,7 +11,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rappel par code</title>
+  <title>{inject:i18n.get('recall.rappelCode')}</title>
   <style>
     {#include theme /}
     body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -35,35 +35,35 @@
 <body data-theme="{posTheme}">
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
-      <span>RAPPEL PAR CODE</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
+      <span>{inject:i18n.get('recall.rappelCode2')}</span>
       <span id="clock"></span>
     </div>
     <div class="main-area">
       <div class="panel">
         {#if error??}<div class="error-box">{error}</div>{/if}
-        {#if saved}<div class="ok-box">ACOMPTE ENREGISTRÉ</div>{/if}
+        {#if saved}<div class="ok-box">{inject:i18n.get('recall.acompteEnregistre')}</div>{/if}
 
         <div class="card">
-          <h3>Devis, commande, bon de vente, click &amp; collect</h3>
+          <h3>{inject:i18n.get('recall.devisCommandeBonVente')}</h3>
           <form class="row" method="post" action="/action/recall">
-            <div id="dispCode" class="pad-display" data-placeholder="Code du document" onclick="activateField('code')"></div>
+            <div id="dispCode" class="pad-display" data-placeholder="{inject:i18n.get('recall.codeDocument')}" onclick="activateField('code')"></div>
             <input type="hidden" name="code" id="valCode" value="">
-            <button type="submit" class="btn btn-primary">RAPPELER</button>
+            <button type="submit" class="btn btn-primary">{inject:i18n.get('recall.rappeler')}</button>
           </form>
         </div>
 
         <div class="card">
-          <h3>Acompte sur commande</h3>
+          <h3>{inject:i18n.get('recall.acompteCommande')}</h3>
           <form method="post" action="/action/recall/acompte">
             <div class="row">
-              <div id="dispOrder" class="pad-display" data-placeholder="N° commande" onclick="activateField('order')"></div>
+              <div id="dispOrder" class="pad-display" data-placeholder="{inject:i18n.get('recall.nCommande')}" onclick="activateField('order')"></div>
               <input type="hidden" name="orderReference" id="valOrder" value="">
             </div>
             <div class="row">
-              <div id="dispAmount" class="pad-display" data-placeholder="Montant €" onclick="activateField('amount')"></div>
+              <div id="dispAmount" class="pad-display" data-placeholder="{inject:i18n.get('recall.montant')}" onclick="activateField('amount')"></div>
               <input type="hidden" name="amount" id="valAmount" value="">
-              <button type="submit" class="btn btn-success">ENREGISTRER L'ACOMPTE</button>
+              <button type="submit" class="btn btn-success">{inject:i18n.get('recall.enregistrerLAcompte')}</button>
             </div>
           </form>
         </div>
@@ -75,7 +75,7 @@
       </div>
     </div>
     <div class="bottom-nav">
-      <a class="btn btn-muted" href="/" style="width: 11.25rem;">RETOUR</a>
+      <a class="btn btn-muted" href="/" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
     </div>
   </div>
 
@@ -89,7 +89,7 @@
     const RECALL_FIELDS = {
         code:   { display: 'dispCode',   hidden: 'valCode',   type: 'searchAlpha', mode: 'text',    max: 30 },
         order:  { display: 'dispOrder',  hidden: 'valOrder',  type: 'searchAlpha', mode: 'text',    max: 30 },
-        amount: { display: 'dispAmount', hidden: 'valAmount', type: 'price',       mode: 'decimal', max: 10 }
+        amount: { display: 'dispAmount', hidden: 'valAmount', type: 'price',       mode: 'cents', max: 10 }
     };
 
     function activateField(name) {

@@ -6,6 +6,7 @@ import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -79,6 +80,10 @@ class WeightedEanScanHandlerTest {
      */
     private WeightedEanScanHandler newHandler() {
         WeightedEanScanHandler handler = new WeightedEanScanHandler();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        handler.i18n = TestMessages.french();
         handler.pricePrefixes = Arrays.asList("21", "22");
         handler.weightPrefixes = Arrays.asList("23", "24", "25", "26");
         handler.defaultVatRate = DEFAULT_VAT;

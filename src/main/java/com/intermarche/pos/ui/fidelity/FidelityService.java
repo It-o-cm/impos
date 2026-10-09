@@ -20,6 +20,13 @@ public class FidelityService {
 
     private static final Logger LOGGER = Logger.getLogger(FidelityService.class);
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The loyalty-service client (phase: imfid integration, lot 1). */
     @Inject
     ImfidClient imfidClient;
@@ -197,13 +204,13 @@ public class FidelityService {
         LOGGER.info("Entering method lookupCards with phone: " + phone + ", email: " + email + ", name: " + name + ", firstName: " + firstName + ", city: " + city);
         LookupView view = new LookupView();
         if (!imfidClient.isConfigured() || System.currentTimeMillis() < fidSkipUntil) {
-            view.message = "SERVICE FIDÉLITÉ INDISPONIBLE";
+            view.message = i18n.get("op.serviceFideliteIndisponible");
             LOGGER.info("Exiting method lookupCards");
             return view;
         }
         boolean hasCriterion = notBlank(phone) || notBlank(email) || notBlank(name) || notBlank(city);
         if (!hasCriterion) {
-            view.message = "SAISISSEZ UN TÉLÉPHONE, UN E-MAIL, UN NOM OU UNE VILLE";
+            view.message = i18n.get("op.saisissezTelephoneEMail");
             LOGGER.info("Exiting method lookupCards");
             return view;
         }
@@ -212,30 +219,30 @@ public class FidelityService {
             if (result.crmManaged) {
                 // Addendum §2: identity lives in the CRM — out of imfid's
                 // contract, and no CRM connector exists on this register.
-                view.message = "IDENTITÉS GÉRÉES PAR LE CRM - RECHERCHE INDISPONIBLE EN CAISSE";
+                view.message = i18n.get("op.identitesGereesCrmRecherche");
                 LOGGER.info("Exiting method lookupCards");
                 return view;
             }
             if (result.matches == null) {
                 LOGGER.warnf("Lookup fidélité refusé: %s", result.refusalReason);
-                view.message = "RECHERCHE REFUSÉE PAR LE SERVICE FIDÉLITÉ";
+                view.message = i18n.get("op.rechercheRefuseeServiceFidelite");
                 LOGGER.info("Exiting method lookupCards");
                 return view;
             }
             view.matches = result.matches;
             if (result.matches.isEmpty()) {
-                view.message = "AUCUNE CARTE TROUVÉE - ESSAYEZ UN AUTRE CRITÈRE";
+                view.message = i18n.get("op.aucuneCarteTrouveeEssayez");
             } else if (result.matches.size() >= 20) {
                 // Addendum §3.3: the list is CAPPED at 20 — a full page means
                 // truncation, ask for a more discriminating criterion.
-                view.message = "TROP DE CORRESPONDANCES - PRÉCISEZ LE CRITÈRE (TÉLÉPHONE)";
+                view.message = i18n.get("op.tropCorrespondancesPrecisezCritere");
             }
             LOGGER.info("Exiting method lookupCards");
             return view;
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             LOGGER.warnf("Lookup fidélité indisponible (%s)", e.getMessage());
-            view.message = "SERVICE FIDÉLITÉ INDISPONIBLE";
+            view.message = i18n.get("op.serviceFideliteIndisponible");
             LOGGER.info("Exiting method lookupCards");
             return view;
         }
@@ -263,7 +270,7 @@ public class FidelityService {
         LOGGER.info("Entering method attachLookedUpCard with state: " + state + ", card: " + card + ", lastName: " + lastName + ", firstName: " + firstName + ", status: " + status + ", email: " + email);
         if ("RESILIATED".equals(status)) {
             LOGGER.info("Exiting method attachLookedUpCard");
-            return "CARTE RÉSILIÉE - INVITER LE CLIENT À PASSER À L'ACCUEIL";
+            return i18n.get("op.carteResilieeInviterClient");
         }
         validateCard(state, card);
         // BO-10-03-04: the holder's name is carried onto the register only when
@@ -281,7 +288,7 @@ public class FidelityService {
         if ("PENDING_ACTIVATION".equals(status)) {
             // The card earns but cannot burn (reservation would answer 422
             // ACCOUNT_STATUS) — tell the cashier so the client is told.
-            state.ticket.setError("CARTE EN ATTENTE D'ACTIVATION - CAGNOTTE SANS UTILISATION");
+            state.ticket.setError(i18n.get("op.carteAttenteActivationCagnotte"));
         }
         LOGGER.info("Exiting method attachLookedUpCard");
         return null;
@@ -350,17 +357,17 @@ public class FidelityService {
         LOGGER.info("Entering method reserveLease with state: " + state + ", requested: " + requested + ", remaining: " + remaining);
         if (!state.fidelity.active) {
             LOGGER.info("Exiting method reserveLease");
-            return BurnVerdict.refuse("CARTE FIDÉLITÉ REQUISE");
+            return BurnVerdict.refuse(i18n.get("op.carteFideliteRequise"));
         }
         if (!imfidClient.isConfigured() || System.currentTimeMillis() < fidSkipUntil) {
             LOGGER.info("Exiting method reserveLease");
-            return BurnVerdict.refuse("SERVICE FIDÉLITÉ INDISPONIBLE");
+            return BurnVerdict.refuse(i18n.get("op.serviceFideliteIndisponible"));
         }
         try {
             ImfidClient.AccountInfo account = imfidClient.account(state.fidelity.label);
             if (account == null) {
                 LOGGER.info("Exiting method reserveLease");
-                return BurnVerdict.refuse("CARTE FIDÉLITÉ INCONNUE");
+                return BurnVerdict.refuse(i18n.get("op.carteFideliteInconnue"));
             }
             java.math.BigDecimal cap = remaining;
             if (state.fidelity.burnableBase != null) {
@@ -371,7 +378,7 @@ public class FidelityService {
             }
             if (cap.signum() <= 0) {
                 LOGGER.info("Exiting method reserveLease");
-                return BurnVerdict.refuse("CAGNOTTE: AUCUN MONTANT UTILISABLE");
+                return BurnVerdict.refuse(i18n.get("op.cagnotteAucunMontantUtilisable"));
             }
             java.math.BigDecimal amount = (requested == null || requested.signum() <= 0)
                     ? cap : requested.min(cap);
@@ -390,24 +397,24 @@ public class FidelityService {
                     LOGGER.info("Exiting method reserveLease");
                     return BurnVerdict.grant(amount);
                 }
-                case 404 -> { LOGGER.info("Exiting method reserveLease"); return BurnVerdict.refuse("CARTE FIDÉLITÉ INCONNUE"); }
+                case 404 -> { LOGGER.info("Exiting method reserveLease"); return BurnVerdict.refuse(i18n.get("op.carteFideliteInconnue")); }
                 case 409 -> { LOGGER.info("Exiting method reserveLease"); return BurnVerdict.refuse("CAGNOTTE RÉSERVÉE SUR UNE AUTRE CAISSE"); }
                 case 422 -> {
                     LOGGER.info("Exiting method reserveLease");
                     return BurnVerdict.refuse(switch (result.reason == null ? "" : result.reason) {
-                        case "INSUFFICIENT_BALANCE" -> "SOLDE CAGNOTTE INSUFFISANT";
-                        case "DAILY_RULE" -> "CAGNOTTE DÉJÀ UTILISÉE AUJOURD'HUI";
-                        case "ACCOUNT_STATUS" -> "COMPTE FIDÉLITÉ INACTIF";
-                        default -> "PAIEMENT FIDÉLITÉ REFUSÉ";
+                        case "INSUFFICIENT_BALANCE" -> i18n.get("op.soldeCagnotteInsuffisant");
+                        case "DAILY_RULE" -> i18n.get("op.cagnotteDejaUtiliseeAujourd");
+                        case "ACCOUNT_STATUS" -> i18n.get("op.compteFideliteInactif");
+                        default -> i18n.get("op.paiementFideliteRefuse");
                     });
                 }
-                default -> { LOGGER.info("Exiting method reserveLease"); return BurnVerdict.refuse("PAIEMENT FIDÉLITÉ REFUSÉ"); }
+                default -> { LOGGER.info("Exiting method reserveLease"); return BurnVerdict.refuse(i18n.get("op.paiementFideliteRefuse")); }
             }
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
             LOGGER.warnf("imfid indisponible au burn (%s)", e.getMessage());
             LOGGER.info("Exiting method reserveLease");
-            return BurnVerdict.refuse("SERVICE FIDÉLITÉ INDISPONIBLE");
+            return BurnVerdict.refuse(i18n.get("op.serviceFideliteIndisponible"));
         }
     }
 
@@ -569,26 +576,26 @@ public class FidelityService {
         LOGGER.info("Entering method loadConsultation with state: " + state);
         Consultation view = new Consultation();
         if (!state.fidelity.active) {
-            view.message = "AUCUNE CARTE ATTACHÉE — SCANNEZ OU SAISISSEZ LA CARTE";
+            view.message = i18n.get("op.aucuneCarteAttacheeScannez");
             LOGGER.info("Exiting method loadConsultation");
             return view;
         }
         if (!imfidClient.isConfigured()) {
-            view.message = "SERVICE FIDÉLITÉ NON CONFIGURÉ";
+            view.message = i18n.get("op.serviceFideliteNonConfigure");
             LOGGER.info("Exiting method loadConsultation");
             return view;
         }
         try {
             ImfidClient.AccountInfo account = imfidClient.account(state.fidelity.label);
             if (account == null) {
-                view.message = "CARTE FIDÉLITÉ INCONNUE";
+                view.message = i18n.get("op.carteFideliteInconnue");
                 LOGGER.info("Exiting method loadConsultation");
                 return view;
             }
             view.status = switch (account.status == null ? "" : account.status) {
-                case "ACTIVE" -> "ACTIF";
-                case "PENDING_ACTIVATION" -> "EN ATTENTE D'ACTIVATION";
-                case "RESILIATED" -> "RÉSILIÉ";
+                case "ACTIVE" -> i18n.get("op.actif");
+                case "PENDING_ACTIVATION" -> i18n.get("op.attenteActivation");
+                case "RESILIATED" -> i18n.get("op.resilie");
                 default -> account.status;
             };
             view.balance = account.balance;
@@ -598,14 +605,15 @@ public class FidelityService {
             if (movementsPage != null && movementsPage.items != null) {
                 for (ImfidClient.Movement movement : movementsPage.items) {
                     String label = switch (movement.type == null ? "" : movement.type) {
-                        case "EARN" -> "CAGNOTTE"
-                                + (movement.ruleCode != null ? " (" + movement.ruleCode + ")" : "");
-                        case "BURN" -> "UTILISATION EN CAISSE";
-                        case "RETURN_DEBIT" -> "REPRISE SUR RETOUR";
-                        case "REFUND_CREDIT" -> "REMBOURSEMENT EN CAGNOTTE";
-                        case "ADJUSTMENT" -> "AJUSTEMENT";
-                        case "EXPIRY" -> "PÉREMPTION";
-                        case "ACTIVATION_VOID" -> "ANNULATION D'ACTIVATION";
+                        case "EARN" -> movement.ruleCode != null
+                                ? i18n.format("op.cagnotteRegle", movement.ruleCode)
+                                : i18n.get("op.cagnotte");
+                        case "BURN" -> i18n.get("op.utilisationCaisse");
+                        case "RETURN_DEBIT" -> i18n.get("op.repriseRetour");
+                        case "REFUND_CREDIT" -> i18n.get("op.remboursementCagnotte");
+                        case "ADJUSTMENT" -> i18n.get("op.ajustement");
+                        case "EXPIRY" -> i18n.get("op.peremption");
+                        case "ACTIVATION_VOID" -> i18n.get("op.annulationActivation");
                         default -> movement.type;
                     };
                     String date = movement.fiscalDate != null ? movement.fiscalDate
@@ -618,7 +626,7 @@ public class FidelityService {
             }
         } catch (Exception e) {
             fidSkipUntil = System.currentTimeMillis() + RETRY_SECONDS * 1000L;
-            view.message = "SERVICE FIDÉLITÉ INDISPONIBLE";
+            view.message = i18n.get("op.serviceFideliteIndisponible");
         }
         LOGGER.info("Exiting method loadConsultation");
         return view;

@@ -38,6 +38,14 @@ public class PaymentResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(PaymentResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject Template pay;
     @Inject PaymentService paymentService;
     @Inject VoucherService voucherService;
@@ -722,14 +730,14 @@ public class PaymentResource {
                 : null;
 
         if (type == null) {
-            state.payment.voucherError = "Type de bon inconnu";
+            state.payment.voucherError = i18n.get("op.typeBonInconnu");
             state.touch();
             LOGGER.info("Exiting method validateVoucherNumber");
             return Response.seeOther(URI.create("/pay")).build();
         }
 
         if (number == null || !type.matches(number)) {
-            state.payment.voucherError = "Numéro non reconnu — vérifiez la saisie";
+            state.payment.voucherError = i18n.get("op.numeroNonReconnuVerifiez");
             state.touch();
             LOGGER.info("Exiting method validateVoucherNumber");
             return Response.seeOther(URI.create("/pay")).build();

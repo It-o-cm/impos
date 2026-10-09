@@ -234,6 +234,16 @@ public class TicketLine extends BaseEntity {
     public String unitName;
 
     /**
+     * Whether the article was of the DECIMAL-QUANTITY type ({@code LC-02-13-02}),
+     * sold by the metre, the square metre or the litre. Snapshotted and read back
+     * on recovery for the same reason as {@link #discountForbidden}: a draft
+     * recovered after a restart must still let the quantity key accept the
+     * decimals that article is sold in, instead of rounding it to whole units.
+     */
+    @Column(name = "decimal_quantity")
+    public boolean decimalQuantity;
+
+    /**
      * Every identifier the GS1 code that rang this line carried, as the technical
      * journal writes them ({@code LC-11-03-02}), or null on a line rung any other way.
      * <p>

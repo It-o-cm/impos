@@ -36,6 +36,13 @@ import java.util.List;
 @Priority(2)
 public class VoucherScanHandler implements ScanContext.ScanHandler {
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     @Inject
     VoucherService voucherService;
 
@@ -62,7 +69,7 @@ public class VoucherScanHandler implements ScanContext.ScanHandler {
         if (!state.payment.paymentInProgress) {
             CouponType matched = voucherService.resolveType(ctx.code);
             if (matched != null) {
-                state.ticket.setError("BON VALABLE EN PHASE PAIEMENT");
+                state.ticket.setError(i18n.get("op.bonValablePhasePaiement"));
                 ctx.handled = true;
             }
             return;

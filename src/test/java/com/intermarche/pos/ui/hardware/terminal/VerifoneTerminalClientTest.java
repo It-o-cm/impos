@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -189,8 +190,8 @@ class VerifoneTerminalClientTest {
      */
     @Test
     void unreachableClientReportsError() throws InterruptedException {
-        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(false));
-        assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, awaitError(client, "10.00"));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(false), TestMessages.french());
+        assertEquals("CLIENT MONETIQUE INJOIGNABLE", awaitError(client, "10.00"));
     }
 
     /**
@@ -201,8 +202,8 @@ class VerifoneTerminalClientTest {
      */
     @Test
     void reachableClientReportsNotImplemented() throws InterruptedException {
-        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(true));
-        assertEquals(VerifoneTerminalClient.MSG_NOT_IMPLEMENTED, awaitError(client, "10.00"));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(true), TestMessages.french());
+        assertEquals("MONETIQUE VERIFONE NON DISPONIBLE - SPECIFICATION PROTOCOLE REQUISE", awaitError(client, "10.00"));
     }
 
     /**
@@ -212,7 +213,7 @@ class VerifoneTerminalClientTest {
      */
     @Test
     void creditSharesExchangeDiscipline() throws InterruptedException {
-        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(false));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(false), TestMessages.french());
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> error = new AtomicReference<>();
         client.requestCredit(new BigDecimal("3.00"), new TerminalTransactionCallback() {
@@ -248,7 +249,7 @@ class VerifoneTerminalClientTest {
             }
         });
         assertTrue(latch.await(5, TimeUnit.SECONDS));
-        assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, error.get());
+        assertEquals("CLIENT MONETIQUE INJOIGNABLE", error.get());
     }
 
     /**
@@ -258,7 +259,7 @@ class VerifoneTerminalClientTest {
      */
     @Test
     void hooksNameAndIdleAbortAreInert() {
-        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(true));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(new StubTransport(true), TestMessages.french());
         client.onRegisterOpened();
         client.onRegisterClosed();
         client.abort();
@@ -281,8 +282,8 @@ class VerifoneTerminalClientTest {
         VerifoneTransport transport = Mockito.mock(VerifoneTransport.class);
         Mockito.when(transport.isReachable()).thenReturn(true);
         Mockito.when(transport.exchange(ArgumentMatchers.anyString())).thenReturn("{D16}72");
-        VerifoneTerminalClient client = new VerifoneTerminalClient(transport);
-        assertEquals(VerifoneTerminalClient.MSG_NOT_IMPLEMENTED, awaitError(client, "12.00"));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(transport, TestMessages.french());
+        assertEquals("MONETIQUE VERIFONE NON DISPONIBLE - SPECIFICATION PROTOCOLE REQUISE", awaitError(client, "12.00"));
     }
 
     /**
@@ -302,8 +303,8 @@ class VerifoneTerminalClientTest {
         Mockito.when(transport.isReachable()).thenReturn(true);
         Mockito.when(transport.exchange(ArgumentMatchers.anyString()))
                 .thenThrow(new IllegalStateException("boom"));
-        VerifoneTerminalClient client = new VerifoneTerminalClient(transport);
-        assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, awaitError(client, "8.00"));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(transport, TestMessages.french());
+        assertEquals("CLIENT MONETIQUE INJOIGNABLE", awaitError(client, "8.00"));
     }
 
     /**
@@ -318,7 +319,7 @@ class VerifoneTerminalClientTest {
     void secondExchangeWhileBusyIsRejected() throws InterruptedException {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        VerifoneTerminalClient client = new VerifoneTerminalClient(blockingTransport(entered, release));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(blockingTransport(entered, release), TestMessages.french());
         LatchingCallback first = new LatchingCallback();
         client.requestDebit(new BigDecimal("5.00"), first);
         assertTrue(entered.await(5, TimeUnit.SECONDS), "exchange never started");
@@ -328,7 +329,7 @@ class VerifoneTerminalClientTest {
         assertEquals("TRANSACTION MONETIQUE DEJA EN COURS", second.error.get());
         release.countDown();
         assertTrue(first.latch.await(5, TimeUnit.SECONDS), "first exchange never ended");
-        assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, first.error.get());
+        assertEquals("CLIENT MONETIQUE INJOIGNABLE", first.error.get());
     }
 
     /**
@@ -343,14 +344,14 @@ class VerifoneTerminalClientTest {
     void abortWhileBusyFlagsInFlightExchange() throws InterruptedException {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        VerifoneTerminalClient client = new VerifoneTerminalClient(blockingTransport(entered, release));
+        VerifoneTerminalClient client = new VerifoneTerminalClient(blockingTransport(entered, release), TestMessages.french());
         LatchingCallback callback = new LatchingCallback();
         client.requestDebit(new BigDecimal("9.00"), callback);
         assertTrue(entered.await(5, TimeUnit.SECONDS), "exchange never started");
         client.abort();
         release.countDown();
         assertTrue(callback.latch.await(5, TimeUnit.SECONDS), "exchange never ended");
-        assertEquals(VerifoneTerminalClient.MSG_UNREACHABLE, callback.error.get());
+        assertEquals("CLIENT MONETIQUE INJOIGNABLE", callback.error.get());
     }
 
     /**

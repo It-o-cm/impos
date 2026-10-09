@@ -42,6 +42,14 @@ public class AuthResource {
     private static final org.jboss.logging.Logger LOGGER =
             org.jboss.logging.Logger.getLogger(AuthResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
+
     @Inject Template lock;
 
     /** The blocking hardware-status page shown when a peripheral is down. */
@@ -71,6 +79,14 @@ public class AuthResource {
     PosState state;
 
     /**
+     * How long one poll of the shared supervisor panel keeps the badge mailbox
+     * armed. Three seconds for a one-second poll: two missed polls — a slow
+     * till, a garbage collection — do not drop the reader under the supervisor's
+     * hand, and a panel that is gone stops routing badges within three seconds.
+     */
+    private static final long SUPERVISOR_BADGE_ARMING_MS = 3000L;
+
+    /**
      * Shows the lock page (logging the current operator out) with an optional
      * error message.
      *
@@ -93,17 +109,17 @@ public class AuthResource {
         }
         String message = null;
         if ("locked".equals(error)) {
-            message = "COMPTE VERROUILLÉ - RÉESSAYEZ PLUS TARD";
+            message = i18n.get("op.compteVerrouilleReessayezPlus");
         } else if ("supervisor".equals(error)) {
-            message = "AUTORISATION SUPERVISEUR REFUSÉE";
+            message = i18n.get("op.autorisationSuperviseurRefusee");
         } else if ("deactivated".equals(error)) {
             // BO-03-09-01: the back office took this checkout point out of
             // service. Naming the cause is the whole point — a lane that just
             // refuses every code reads as a broken lane, and someone spends the
             // morning on the credentials.
-            message = "CAISSE HORS SERVICE - POINT DE CONTACT DÉSACTIVÉ AU BACK OFFICE";
+            message = i18n.get("op.caisseHorsServicePoint");
         } else if (error != null) {
-            message = "IDENTIFIANTS INCORRECTS";
+            message = i18n.get("op.identifiantsIncorrects");
         }
         LOGGER.info("Exiting method lockPage");
         return lock.data("state", state).data("error", message)
@@ -129,6 +145,32 @@ public class AuthResource {
         LOGGER.info("Exiting method getLockData");
         return Map.of("scannedBadge", badge != null ? badge : "",
                 "passwordRequired", posSettingsService.passwordRequiredOnOpen());
+    }
+
+    /**
+     * Arms the supervisor-identification mailbox and returns whatever badge was
+     * presented since the last call — the one endpoint the shared supervisor
+     * panel polls, on all four screens that ask for one.
+     *
+     * <p>ARMING AND COLLECTING IN THE SAME CALL is what makes the arming safe.
+     * The panel polls once a second while it is on screen; each poll re-arms for
+     * a little longer than that interval, so the register routes a badge to the
+     * panel exactly while the panel is there to receive it, and stops a breath
+     * after it leaves. No page has to remember to disarm — and a page that
+     * crashes, or a till that is walked away from, disarms itself.
+     *
+     * @return a JSON map with the presented badge, or an empty string
+     */
+    @GET
+    @Path("/supervisor-badge-data")
+    @Produces(MediaType.APPLICATION_JSON)
+    @DrawerMayBeOpen
+    public Map<String, Object> getSupervisorBadgeData() {
+        LOGGER.info("Entering method getSupervisorBadgeData");
+        state.auth.armSupervisorBadge(SUPERVISOR_BADGE_ARMING_MS);
+        String badge = state.auth.takeSupervisorBadge();
+        LOGGER.info("Exiting method getSupervisorBadgeData");
+        return Map.of("scannedBadge", badge != null ? badge : "");
     }
 
     /**
@@ -329,21 +371,37 @@ public class AuthResource {
             return Response.ok(closeView(obstacle, message(obstacle)), MediaType.TEXT_HTML).build();
         }
         if (supervisor != null && !supervisor.isBlank()) {
-            if (endorsementService.authorize(supervisor, supervisorPassword,
-                    SessionCloseService.FORCE_CLOSE_ACTION)) {
+            AuthService.CheckOutcome endorsed = endorsementService.authorizeOutcome(
+                    supervisor, supervisorPassword, SessionCloseService.FORCE_CLOSE_ACTION);
+            if (endorsed == AuthService.CheckOutcome.GRANTED) {
                 sessionCloseService.close(state, "superviseur en caisse");
                 LOGGER.info("Exiting method closeRegister");
                 return Response.seeOther(URI.create("/lock")).build();
             }
+            // A LOCKED supervisor account is named as such. "Autorisation
+            // refusée" on a blocked account is the message that sends a
+            // supervisor retyping a code that is right.
+            String refusal = endorsed == AuthService.CheckOutcome.LOCKED
+                    ? i18n.get("op.compteVerrouilleReessayezPlus")
+                    : i18n.get("op.autorisationSuperviseurRefusee2");
             LOGGER.info("Exiting method closeRegister");
-            return Response.ok(closeView(obstacle, "Autorisation superviseur refusée."),
-                    MediaType.TEXT_HTML).build();
+            return Response.ok(closeView(obstacle, refusal), MediaType.TEXT_HTML).build();
         }
-        if (obstacle == SessionCloseService.Obstacle.PASSWORD
-                && sessionCloseService.passwordMatches(state, password)) {
-            sessionCloseService.close(state, null);
-            LOGGER.info("Exiting method closeRegister");
-            return Response.seeOther(URI.create("/lock")).build();
+        if (obstacle == SessionCloseService.Obstacle.PASSWORD) {
+            AuthService.CheckOutcome keyed = sessionCloseService.passwordOutcome(state, password);
+            if (keyed == AuthService.CheckOutcome.GRANTED) {
+                sessionCloseService.close(state, null);
+                LOGGER.info("Exiting method closeRegister");
+                return Response.seeOther(URI.create("/lock")).build();
+            }
+            // The operator's own account under lockout: the closing says so
+            // instead of blaming the code, and the supervisor form below it is
+            // the way out the operator can actually take.
+            if (keyed == AuthService.CheckOutcome.LOCKED) {
+                LOGGER.info("Exiting method closeRegister");
+                return Response.ok(closeView(obstacle, i18n.get("op.compteVerrouilleReessayezPlus")),
+                        MediaType.TEXT_HTML).build();
+            }
         }
         LOGGER.info("Exiting method closeRegister");
         return Response.ok(closeView(obstacle, message(obstacle)), MediaType.TEXT_HTML).build();
@@ -371,11 +429,11 @@ public class AuthResource {
      */
     private String message(SessionCloseService.Obstacle obstacle) {
         if (obstacle == SessionCloseService.Obstacle.IN_TRANSACTION) {
-            return "Une vente est en cours : terminez ou abandonnez le ticket avant de fermer.";
+            return i18n.get("op.venteCoursTerminezAbandonnez");
         }
         return obstacle == SessionCloseService.Obstacle.PASSWORD
-                ? "Code opérateur incorrect."
-                : "Des tickets en attente exigent une autorisation superviseur.";
+                ? i18n.get("op.codeOperateurIncorrect")
+                : i18n.get("op.ticketsAttenteExigentAutorisation");
     }
 
     /**
@@ -415,14 +473,19 @@ public class AuthResource {
     public Response forceUnlock(@FormParam("supervisor") String supervisor,
                                 @FormParam("supervisorPassword") String supervisorPassword) {
         LOGGER.info("Entering method forceUnlock");
-        if (endorsementService.authorize(supervisor, supervisorPassword,
-                AuthService.FORCE_UNLOCK_ACTION) && authService.forceResume(state)) {
+        AuthService.CheckOutcome endorsed = endorsementService.authorizeOutcome(
+                supervisor, supervisorPassword, AuthService.FORCE_UNLOCK_ACTION);
+        if (endorsed == AuthService.CheckOutcome.GRANTED && authService.forceResume(state)) {
             state.touch();
             LOGGER.info("Exiting method forceUnlock");
             return Response.seeOther(URI.create("/pin-change")).build();
         }
         LOGGER.info("Exiting method forceUnlock");
-        return Response.seeOther(URI.create("/lock?error=supervisor")).build();
+        // "locked" is the lock page's own code for an account under PIN lockout:
+        // a blocked supervisor is told so, not that their authorization was
+        // refused — the one refusal retyping cannot fix.
+        return Response.seeOther(URI.create(endorsed == AuthService.CheckOutcome.LOCKED
+                ? "/lock?error=locked" : "/lock?error=supervisor")).build();
     }
 
     /**
@@ -442,14 +505,16 @@ public class AuthResource {
     public Response forceCloseAbandoned(@FormParam("supervisor") String supervisor,
                                         @FormParam("supervisorPassword") String supervisorPassword) {
         LOGGER.info("Entering method forceCloseAbandoned");
-        if (endorsementService.authorize(supervisor, supervisorPassword,
-                SessionCloseService.FORCE_CLOSE_ACTION)) {
+        AuthService.CheckOutcome endorsed = endorsementService.authorizeOutcome(
+                supervisor, supervisorPassword, SessionCloseService.FORCE_CLOSE_ACTION);
+        if (endorsed == AuthService.CheckOutcome.GRANTED) {
             sessionCloseService.close(state, "poste abandonné — superviseur");
             state.touch();
             LOGGER.info("Exiting method forceCloseAbandoned");
             return Response.seeOther(URI.create("/lock")).build();
         }
         LOGGER.info("Exiting method forceCloseAbandoned");
-        return Response.seeOther(URI.create("/lock?error=supervisor")).build();
+        return Response.seeOther(URI.create(endorsed == AuthService.CheckOutcome.LOCKED
+                ? "/lock?error=locked" : "/lock?error=supervisor")).build();
     }
 }

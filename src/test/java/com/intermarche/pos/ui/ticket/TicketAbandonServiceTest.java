@@ -3,6 +3,7 @@ package com.intermarche.pos.ui.ticket;
 import com.intermarche.pos.service.PosSettingsService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.payment.PaymentState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -74,6 +75,10 @@ class TicketAbandonServiceTest {
     @BeforeEach
     void setUp() {
         service = new TicketAbandonService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         state = new PosState();
         settings = new FakeSettings();
         service.state = state;

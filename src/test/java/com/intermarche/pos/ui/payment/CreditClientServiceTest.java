@@ -7,6 +7,7 @@ import com.intermarche.pos.service.sync.RefPullService;
 import com.intermarche.pos.service.sync.register.SyncOutboxService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,10 @@ class CreditClientServiceTest {
      */
     private CreditClientService newService() {
         CreditClientService service = new CreditClientService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.paymentService = mock(PaymentService.class);
         service.posSettingsService = mock(PosSettingsService.class);
         service.syncOutboxService = mock(SyncOutboxService.class);
@@ -255,7 +260,7 @@ class CreditClientServiceTest {
             service.selectByNumber(state, NUMBER);
         }
         assertSame(customer, state.payment.creditCustomer);
-        assertEquals(CreditClientService.NO_CREDIT_GRANTED, state.payment.creditError);
+        assertEquals("COMPTE SANS AUTORISATION DE CREDIT", state.payment.creditError);
     }
 
     /**
@@ -391,7 +396,7 @@ class CreditClientServiceTest {
         CreditClientService service = newService();
         PosState state = newState("10.00");
         assertFalse(service.processCredit(state, new BigDecimal("10.00")));
-        assertEquals(CreditClientService.NO_ACCOUNT, state.payment.creditError);
+        assertEquals("COMPTE CLIENT NON IDENTIFIE", state.payment.creditError);
         verify(service.paymentService, never()).processCredit(any(), any(), any(), eq(false));
     }
 
@@ -404,7 +409,7 @@ class CreditClientServiceTest {
         PosState state = newState("10.00");
         state.payment.creditCustomer = newCustomer(null, "0.00");
         assertFalse(service.processCredit(state, new BigDecimal("10.00")));
-        assertEquals(CreditClientService.NO_CREDIT_GRANTED, state.payment.creditError);
+        assertEquals("COMPTE SANS AUTORISATION DE CREDIT", state.payment.creditError);
     }
 
     /**
@@ -419,7 +424,7 @@ class CreditClientServiceTest {
         PosState state = newState("10.00");
         state.payment.creditCustomer = newCustomer("1000.00", "0.00");
         assertFalse(service.processCredit(state, new BigDecimal("10.00")));
-        assertEquals(CreditClientService.DEGRADED, state.payment.creditError);
+        assertEquals("REFERENTIEL CLIENT NON A JOUR - CREDIT REFUSE", state.payment.creditError);
     }
 
     /**
@@ -433,7 +438,7 @@ class CreditClientServiceTest {
         PosState state = newState("10.00");
         state.payment.creditCustomer = newCustomer("1000.00", "0.00");
         assertFalse(service.processCredit(state, new BigDecimal("10.00")));
-        assertEquals(CreditClientService.DEGRADED, state.payment.creditError);
+        assertEquals("REFERENTIEL CLIENT NON A JOUR - CREDIT REFUSE", state.payment.creditError);
     }
 
     /**
@@ -643,7 +648,7 @@ class CreditClientServiceTest {
         PosState state = newState("10.00");
         state.payment.creditCustomer = newCustomer("100.00", "0.00");
         assertFalse(service.authorizeOverLimit(state, "chef", "mdp"));
-        assertEquals(CreditClientService.NO_ACCOUNT, state.payment.creditError);
+        assertEquals("COMPTE CLIENT NON IDENTIFIE", state.payment.creditError);
     }
 
     /**
@@ -656,7 +661,7 @@ class CreditClientServiceTest {
         PosState state = newState("10.00");
         state.payment.creditPendingAmount = new BigDecimal("10.00");
         assertFalse(service.authorizeOverLimit(state, "chef", "mdp"));
-        assertEquals(CreditClientService.NO_ACCOUNT, state.payment.creditError);
+        assertEquals("COMPTE CLIENT NON IDENTIFIE", state.payment.creditError);
     }
 
     /**
@@ -920,7 +925,7 @@ class CreditClientServiceTest {
         AccountCustomer customer = newCustomer("1000.00", "0.00");
         state.payment.creditCustomer = customer;
         assertFalse(service.processCredit(state, new BigDecimal("20.00")));
-        assertEquals(CreditClientService.PARTIAL_REFUSED, state.payment.creditError);
+        assertEquals("PAIEMENT PARTIEL EN CREDIT CLIENT NON AUTORISE", state.payment.creditError);
         verify(service.paymentService, never()).processCredit(any(), any(), any(), eq(false));
     }
 
@@ -965,7 +970,7 @@ class CreditClientServiceTest {
         PosState other = newState("10.00");
         other.payment.creditCustomer = newCustomer("1000.00", "0.00");
         assertFalse(blank.processCredit(other, new BigDecimal("10.00")));
-        assertEquals(CreditClientService.DEGRADED, other.payment.creditError);
+        assertEquals("REFERENTIEL CLIENT NON A JOUR - CREDIT REFUSE", other.payment.creditError);
     }
 
     /**

@@ -738,4 +738,87 @@ class HardwareServiceTest {
         assertTrue(devices.get(2).absent());
         verify(client, never()).setDisplay(anyString());
     }
+
+    /**
+     * Builds a service whose weighing wait is short enough for a test: the wait
+     * is what is under test, not its duration.
+     *
+     * @param client the hardware client stub
+     * @return a service waiting at most 300 ms, re-reading every 10 ms
+     */
+    private HardwareService newWaitingService(HardwareClient client) {
+        HardwareService service = serviceWith(client);
+        service.weighingWaitMs = 300L;
+        service.weighingPollMs = 10L;
+        return service;
+    }
+
+    /**
+     * An article ALREADY on the plate is weighed on the first read: the wait
+     * never starts, and the scale is asked exactly once — the habitual order
+     * costs nothing.
+     */
+    @Test
+    void awaitWeighingReturnsTheFirstReadWhenThePlateIsLoaded() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0")).thenReturn("1,250");
+        HardwareService service = newWaitingService(client);
+        assertEquals(1.250, service.awaitWeighing(null), 0.0001);
+        verify(client, times(1)).getWeightWithTare("0");
+    }
+
+    /**
+     * An EMPTY plate is re-read until the article is laid down: choosing the
+     * article and then weighing it is the order the screen asks for, and it is
+     * the one that used to fail.
+     */
+    @Test
+    void awaitWeighingWaitsForTheArticleToBeLaidDown() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0")).thenReturn("0,000", "0,000", "0,750");
+        HardwareService service = newWaitingService(client);
+        assertEquals(0.750, service.awaitWeighing(null), 0.0001);
+        verify(client, times(3)).getWeightWithTare("0");
+    }
+
+    /**
+     * A plate that stays empty answers zero once the wait runs out — the caller
+     * then refuses the weighing as it always did. The deadline arm.
+     */
+    @Test
+    void awaitWeighingGivesUpOnAPlateThatStaysEmpty() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0")).thenReturn("0,000");
+        HardwareService service = newWaitingService(client);
+        assertEquals(0.0, service.awaitWeighing(null), 0.0001);
+        verify(client, atLeast(2)).getWeightWithTare("0");
+    }
+
+    /**
+     * A zero wait reads the plate ONCE and answers: the register can be
+     * administered back to the instantaneous behaviour (the clamp arm of the
+     * deadline).
+     */
+    @Test
+    void awaitWeighingWithoutWaitReadsOnlyOnce() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0")).thenReturn("0,000");
+        HardwareService service = newWaitingService(client);
+        service.weighingWaitMs = 0L;
+        assertEquals(0.0, service.awaitWeighing(null), 0.0001);
+        verify(client, times(1)).getWeightWithTare("0");
+    }
+
+    /**
+     * The software tare travels with every read of the wait, not only the first:
+     * the scale nets the tare on the weighing that finally succeeds.
+     */
+    @Test
+    void awaitWeighingSendsTheTareOnEveryRead() {
+        HardwareClient client = mock(HardwareClient.class);
+        when(client.getWeightWithTare("0.035")).thenReturn("0,000", "0,715");
+        HardwareService service = newWaitingService(client);
+        assertEquals(0.715, service.awaitWeighing(new java.math.BigDecimal("0.035")), 0.0001);
+        verify(client, times(2)).getWeightWithTare("0.035");
+    }
 }

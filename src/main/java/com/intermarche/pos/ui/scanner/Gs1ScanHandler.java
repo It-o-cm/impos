@@ -51,6 +51,13 @@ import java.util.List;
 @Priority(1)
 public class Gs1ScanHandler implements ScanContext.ScanHandler {
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** Applies a GS1 gift document or coupon as a settlement. */
     @Inject
     VoucherService voucherService;
@@ -156,15 +163,14 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
                 : message.value(Gs1ApplicationIdentifier.GCN);
         CouponType type = gift ? giftTypeOf(number) : couponType();
         if (type == null) {
-            state.ticket.setError(gift ? "CHEQUE CADEAU GS1 NON PARAMETRE"
-                    : "COUPON GS1 NON PARAMETRE");
+            state.ticket.setError(i18n.get(gift ? "op.chequeCadeauGs1Non" : "op.couponGs1NonParametre"));
             return true;
         }
         // A payment paper is presented at the payment. Outside it, the cashier is told
         // the moment rather than the code — the code IS known, which is exactly what
         // the generic "unknown code" would deny.
         if (!state.payment.paymentInProgress) {
-            state.ticket.setError("BON VALABLE EN PHASE PAIEMENT");
+            state.ticket.setError(i18n.get("op.bonValablePhasePaiement"));
             return true;
         }
         // LC-11-03-13: an expired coupon is refused or announced, as the shop says.
@@ -256,8 +262,8 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         if (expiry == null || !level.speaks() || !expiry.isBefore(LocalDate.now())) {
             return false;
         }
-        String message1 = "BON EXPIRE LE " + expiry.format(
-                java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        String message1 = i18n.format("op.bonExpireLe", expiry.format(
+                java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")));
         state.ticket.setError(message1);
         return level.blocks();
     }
@@ -278,15 +284,15 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
      */
     private boolean handleArticle(PosState state, Gs1Message message, Product product) {
         if (product == null) {
-            state.ticket.setError("ARTICLE GS1 INTROUVABLE (" + message.getArticleCode() + ")");
+            state.ticket.setError(i18n.format("op.articleGs1Introuvable", message.getArticleCode()));
             return true;
         }
         if (product.forbiddenToSale) {
-            state.ticket.setError("PRODUIT INTERDIT À LA VENTE");
+            state.ticket.setError(i18n.get("op.produitInterditVente"));
             return true;
         }
         if (ProductAttributes.recall(product)) {
-            state.ticket.setError("ARTICLE EN RETRAIT/RAPPEL");
+            state.ticket.setError(i18n.get("op.articleRetraitRappel"));
             return true;
         }
         // LC-02-03-12: the code names the lot, and that lot is one of the recalled
@@ -294,7 +300,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         // instead of asking the cashier to read the pack — the pack already said so.
         String batch = message.value(Gs1ApplicationIdentifier.BATCH);
         if (ProductAttributes.lotRecalled(product, batch)) {
-            state.ticket.setError("PRODUIT EN RAPPEL - LOT " + batch);
+            state.ticket.setError(i18n.format("op.produitRappelLot", batch));
             return true;
         }
         // LC-02-03-13: the article carries a lot recall but this code does not say
@@ -310,7 +316,7 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         BigDecimal count = countOf(message);
         if (count != null && state.priceModState.active
                 && state.priceModState.type == com.intermarche.pos.ui.PriceModType.QUANTITY) {
-            state.ticket.setError("QUANTITÉ DÉJÀ PORTÉE PAR LE CODE GS1");
+            state.ticket.setError(i18n.get("op.quantiteDejaPorteeCode"));
             return true;
         }
         LocalDate expiry = message.date(Gs1ApplicationIdentifier.EXPIRY);
@@ -367,14 +373,14 @@ public class Gs1ScanHandler implements ScanContext.ScanHandler {
         LocalDate today = LocalDate.now();
         int warnDays = Math.max(posSettingsService.gs1ExpiryWarnDays(), 0);
         if (expiry.isBefore(today)) {
-            state.ticket.setError("ARTICLE PERIME LE " + formatted(expiry));
+            state.ticket.setError(i18n.format("op.articlePerime", formatted(expiry)));
             return level.blocks();
         }
         if (!expiry.isAfter(today.plusDays(warnDays))) {
             // Near or reached. It is a warning even at the blocking level: the article
             // is still within its date, and refusing it would refuse a sale the law and
             // the shop both allow.
-            state.ticket.setError("DATE COURTE : " + formatted(expiry));
+            state.ticket.setError(i18n.format("op.dateCourte", formatted(expiry)));
             return false;
         }
         return false;

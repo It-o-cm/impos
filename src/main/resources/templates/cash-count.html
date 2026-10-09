@@ -20,7 +20,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Comptage Caisse</title>
+    <title>{inject:i18n.get('cashcount.comptageCaisse')}</title>
     <style>
       {#include theme /}
       body { background-color: var(--bg-page); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -62,7 +62,7 @@
 
   <div class="pos-terminal">
     <div class="top-bar">
-      <span class="store-name">INTERMARCHÉ</span>
+      <span class="store-name">{inject:i18n.get('common.store')}</span>
       <span id="opInfo">CAISSE 04 | Opérateur : {state.operatorName}</span>
       <span id="clock">--:--:--</span>
     </div>
@@ -70,9 +70,9 @@
     <div class="main-area">
       <div class="count-list-area">
         <div class="tabs-container">
-          <button class="tab-btn active" onclick="switchTab('bills', this)">BILLETS</button>
-          <button class="tab-btn" onclick="switchTab('coins', this)">PIÈCES</button>
-          <button class="tab-btn" onclick="switchTab('rolls', this)">ROULEAUX</button>
+          <button class="tab-btn active" onclick="switchTab('bills', this)">{inject:i18n.get('cashcount.billets')}</button>
+          <button class="tab-btn" onclick="switchTab('coins', this)">{inject:i18n.get('cashcount.pieces')}</button>
+          <button class="tab-btn" onclick="switchTab('rolls', this)">{inject:i18n.get('cashcount.rouleaux')}</button>
         </div>
 
         <div class="items-scroll" id="listContainer">
@@ -88,13 +88,13 @@
 
       <div class="action-area">
         <div class="total-box">
-          <div class="total-label">Total Compté</div>
+          <div class="total-label">{inject:i18n.get('cashcount.totalCompte')}</div>
           <div class="total-amount" id="totalDisplay">0,00 €</div>
         </div>
 
         {#if paperTenders.size > 0}
         <div class="paper-box" style="border:1px solid var(--border-color);border-radius:8px;padding:10px;">
-          <div class="paper-title" style="color:var(--text-muted);text-transform:uppercase;font-size:var(--fs-label);margin-bottom:6px;">Moyens papier — quantités (EXP-83)</div>
+          <div class="paper-title" style="color:var(--text-muted);text-transform:uppercase;font-size:var(--fs-label);margin-bottom:6px;">{inject:i18n.get('cashcount.moyensPapierQuantitesExp')}</div>
           {! Les champs partent VIDES et la quantite attendue n'est plus affichee: un
            ! champ prerempli de la reponse attendue n'est pas une declaration, c'est
            ! une validation. La caissiere compte ses cheques et saisit ce qu'elle
@@ -119,15 +119,15 @@
            The way out used to be called ANNULER and sat on the right next to
            CLOTURER (Z), so the two keys that end this screen looked alike and
            the one that goes back read as a refusal of the count. -->
-      <a href="/session" class="btn btn-muted" style="width: 11.25rem;">RETOUR</a>
+      <a href="/session" class="btn btn-muted" style="width: 11.25rem;">{inject:i18n.get('common.back')}</a>
       <form id="closeForm" method="post" action="/action/session/close" onsubmit="return prepareClose();" style="display:flex; gap:15px; align-items:center;">
-        <label for="withdrawnDisplay" style="color: var(--text-muted); font-weight: bold;">PRÉLÈVEMENT €</label>
+        <label for="withdrawnDisplay" style="color: var(--text-muted); font-weight: bold;">{inject:i18n.get('cashcount.prelevement')}</label>
         <div id="withdrawnDisplay" class="pad-display" onclick="selectWithdrawn()" style="width:6.875rem; padding:12px; font-size:var(--fs-field); font-weight:bold; text-align:right; background:var(--bg-page); color:var(--text-main); border:1px solid var(--border-color); border-radius:6px;"></div>
         <input type="hidden" id="withdrawn" name="withdrawn" value="0">
         <input type="hidden" id="counted" name="counted" value="0">
         <input type="hidden" id="detail" name="detail" value="">
         <input type="hidden" id="paperDeclaration" name="paperDeclaration" value="">
-        <button type="submit" class="btn btn-lg btn-success" style="width: 11.25rem;">CLÔTURER (Z)</button>
+        <button type="submit" class="btn btn-lg btn-success" style="width: 11.25rem;">{inject:i18n.get('cashcount.cloturerZ')}</button>
       </form>
     </div>
   </div>
@@ -186,8 +186,7 @@
       });
 
       const currentQty = window.cashState[id] || 0;
-      PosInput.buffer = currentQty.toString();
-      PosInput.updateDisplay();
+      PosInput.prefill(currentQty.toString());
     }
 
     function updateItemDisplay(element, qty, value) {
@@ -280,7 +279,7 @@
         displayId: 'withdrawnDisplay',
         hiddenId: 'withdrawn',
         keyboardType: 'price',
-        mode: 'decimal',
+        mode: 'cents',
         maxLength: 9,
         placeholder: "0,00",
         initialValue: (document.getElementById('withdrawn').value || '0').replace(',', '.')

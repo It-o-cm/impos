@@ -11,6 +11,7 @@ import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.auth.AuthState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
@@ -66,6 +67,10 @@ class FinancialMovementResourceTest {
      */
     private FinancialMovementResource newResource() {
         FinancialMovementResource resource = new FinancialMovementResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.state = mock(PosState.class);
         AuthState auth = new AuthState();
         auth.operatorId = 7L;

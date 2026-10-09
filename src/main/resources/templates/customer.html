@@ -10,7 +10,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Écran Client</title>
+  <title>{inject:i18n.get('customer.ecranClient')}</title>
   <style>
     {#include theme /}
     body { background: var(--bg-page); color: var(--text-main); height: 100vh; overflow: hidden; }
@@ -42,12 +42,12 @@
   </style>
 </head>
 <body data-theme="{posTheme}">
-  <div id="trainingBanner" style="display:none; position:fixed; top:0; left:0; right:0; background:var(--warning); color:#000; text-align:center; font-weight:bold; padding:6px; letter-spacing:2px; z-index:10;">MODE FORMATION</div>
+  <div id="trainingBanner" style="display:none; position:fixed; top:0; left:0; right:0; background:var(--warning); color:#000; text-align:center; font-weight:bold; padding:6px; letter-spacing:2px; z-index:10;">{inject:i18n.get('customer.modeFormation')}</div>
 
   <!-- Welcome -->
   <div class="screen center-screen active" id="welcomeScreen">
-    <div class="brand-big">INTERMARCHÉ</div>
-    <div class="subtitle" id="welcomeMessage">Bienvenue</div>
+    <div class="brand-big">{inject:i18n.get('common.store')}</div>
+    <div class="subtitle" id="welcomeMessage">{inject:i18n.get('customer.welcome')}</div>
   </div>
 
   <!-- Running cart -->
@@ -59,17 +59,17 @@
     <div class="cart-lines" id="cartLines"></div>
     <div class="cart-footer">
       <span class="remaining" id="remainingZone"></span>
-      <span><span class="label">Total&nbsp;</span><span class="total" id="totalZone">0,00 €</span></span>
+      <span><span class="label">{inject:i18n.get('customer.totalNbsp')}</span><span class="total" id="totalZone">0,00 €</span></span>
     </div>
   </div>
 
   <!-- Thank you -->
   <div class="screen center-screen" id="thanksScreen">
-    <div class="brand-big">MERCI !</div>
+    <div class="brand-big">{inject:i18n.get('customer.merci')}</div>
     <div class="change-big" id="changeZone"></div>
     <img class="qr-img" id="qrImg" alt="" style="display:none;">
     <div class="digital-hint" id="digitalZone"></div>
-    <div class="subtitle">À bientôt</div>
+    <div class="subtitle">{inject:i18n.get('customer.bientot')}</div>
   </div>
 
   <div id="displayMessage" style="display:none; position:fixed; bottom:0; left:0; right:0; background:var(--surface, #222); color:var(--text, #fff); text-align:center; font-size:1.6rem; font-weight:bold; padding:10px; letter-spacing:2px; z-index:10;"></div>

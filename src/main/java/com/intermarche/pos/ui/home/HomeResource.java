@@ -45,6 +45,13 @@ public class HomeResource {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(HomeResource.class);
 
+    /**
+     * The localised operator messages: every sentence this class stamps on the
+     * register's message band is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     @Inject Template main;
     @Inject Template supervisor;
     @Inject Template ticket;
@@ -210,7 +217,8 @@ public class HomeResource {
         result.put("fidelitySummary", state.fidelity.getDisplaySummary());
         result.put("fidelityEarn", state.fidelity.earnTotal != null
                 && state.fidelity.earnTotal.signum() > 0
-                ? String.format("AVANTAGE CARTE %.2f €", state.fidelity.earnTotal).replace('.', ',')
+                ? i18n.format("op.avantageCarte",
+                        String.format("%.2f", state.fidelity.earnTotal).replace('.', ','))
                 : null);
         LOGGER.info("Exiting method getTicketFragment");
         return result;
@@ -503,7 +511,7 @@ public class HomeResource {
     public TemplateInstance endSupervisorSession() {
         LOGGER.info("Entering method endSupervisorSession");
         endorsementService.endSupervisorSession(state);
-        state.ticket.setNotice("FIN SUPERVISEUR");
+        state.ticket.setNotice(i18n.get("main.finSuperviseur"));
         state.touch();
         LOGGER.info("Exiting method endSupervisorSession");
         return home();
@@ -689,7 +697,7 @@ public class HomeResource {
             if (rawValue == null || rawValue.isEmpty()) rawValue = "0";
             value = new BigDecimal(rawValue.replace(",", "."));
         } catch (NumberFormatException e) {
-            state.ticket.setError("VALEUR INVALIDE");
+            state.ticket.setError(i18n.get("op.valeurInvalide"));
             state.priceModState.clear();
             state.touch();
             LOGGER.info("Exiting method submitPriceMod");
@@ -701,7 +709,7 @@ public class HomeResource {
         // falling through the dispatch in silence.
         PriceModType mode = PriceModType.of(type);
         if (mode == null) {
-            state.ticket.setError("MODIFICATION INCONNUE");
+            state.ticket.setError(i18n.get("op.modificationInconnue"));
             state.priceModState.clear();
             state.touch();
             LOGGER.info("Exiting method submitPriceMod");

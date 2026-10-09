@@ -4,6 +4,7 @@ import com.intermarche.pos.service.sync.ConsumptionDeliveryService;
 import com.intermarche.pos.service.sync.RefPullService;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.endorsement.EndorsementService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 import jakarta.ws.rs.ForbiddenException;
@@ -39,6 +40,10 @@ class ExchangeHealthResourceTest {
      */
     private ExchangeHealthResource newResource() {
         ExchangeHealthResource resource = new ExchangeHealthResource();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        resource.i18n = TestMessages.french();
         resource.supervisor = mock(Template.class);
         resource.exchangeHealthService = mock(ExchangeHealthService.class);
         resource.consumptionDeliveryService = mock(ConsumptionDeliveryService.class);

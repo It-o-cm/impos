@@ -34,6 +34,14 @@ public class TicketAbandonService {
     /** Technical log of this class. */
     private static final Logger LOGGER = Logger.getLogger(TicketAbandonService.class);
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The register state whose abandon this service governs. */
     @Inject
     PosState state;
@@ -140,11 +148,11 @@ public class TicketAbandonService {
         }
         if (external) {
             LOGGER.info("Exiting method blockingReason");
-            return "REGLEMENT PARTIEL AVEC APPEL EXTERNE - ANNULEZ-LE D'ABORD";
+            return i18n.get("op.reglementPartielAvecAppel");
         }
         if (local) {
             LOGGER.info("Exiting method blockingReason");
-            return "REGLEMENT PARTIEL ENREGISTRE - ANNULEZ-LE D'ABORD";
+            return i18n.get("op.reglementPartielEnregistreAnnulez");
         }
         LOGGER.info("Exiting method blockingReason");
         return null;
@@ -222,14 +230,14 @@ public class TicketAbandonService {
         String chosen = reason == null ? "" : reason.trim();
         if (requiresReason() && chosen.isEmpty()) {
             LOGGER.info("Exiting method prepare");
-            return "MOTIF D'ABANDON OBLIGATOIRE";
+            return i18n.get("op.motifAbandonObligatoire");
         }
         // A reason the shop does not offer is refused rather than journalled: the
         // screen is a list of buttons, so anything else came from a stale page or a
         // hand-made request, and the reason is what the back-office reports count.
         if (!chosen.isEmpty() && !reasons().contains(chosen)) {
             LOGGER.info("Exiting method prepare");
-            return "MOTIF D'ABANDON INCONNU";
+            return i18n.get("op.motifAbandonInconnu");
         }
         state.abandonReason = chosen;
         state.abandonPrintRequested = print;

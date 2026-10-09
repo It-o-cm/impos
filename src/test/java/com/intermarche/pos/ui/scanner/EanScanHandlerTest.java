@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.catalog.VatRate;
 import com.intermarche.pos.domain.catalog.Product;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.ticket.TicketState;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -77,6 +78,10 @@ class EanScanHandlerTest {
      */
     private EanScanHandler newHandler(boolean parksTheScan) {
         EanScanHandler handler = new EanScanHandler();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        handler.i18n = TestMessages.french();
         handler.defaultVatRate = DEFAULT_VAT;
         handler.ticketService = mock(com.intermarche.pos.ui.ticket.TicketService.class);
         when(handler.ticketService.suspendForAgeCheck(any(), any(), any(), any(), any()))

@@ -5,6 +5,7 @@ import com.intermarche.pos.domain.session.TechnicalEvent;
 import com.intermarche.pos.service.*;
 import com.intermarche.pos.ui.PosState;
 import com.intermarche.pos.ui.hardware.TicketPrinterService;
+import com.intermarche.pos.ui.TestMessages;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,10 @@ class TicketParkingServiceTest {
      */
     private TicketParkingService newService() {
         TicketParkingService service = new TicketParkingService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         service.state = new PosState();
         service.ticketPersistenceService = mock(TicketPersistenceService.class);
         service.ticketRecoveryService = mock(TicketRecoveryService.class);

@@ -33,7 +33,8 @@ public final class ReceiptLogo {
      * Width the logo is printed at, in dots.
      *
      * <p>An 80 mm head prints 8 dots per millimetre, so 576 dots edge to edge; 384 is
-     * 48 mm, a header that reads without eating the roll. The logo is scaled to it in
+     * 48 mm, a header that reads without eating the roll. It is the DEFAULT only:
+     * {@code print.logo-width-dots} states the head's own width (BO-03-03-14). The logo is scaled to it in
      * BOTH directions: a wordmark exported small would otherwise print at a fifth of
      * the paper's width, and one exported for screen would eat the margins.
      */
@@ -51,11 +52,17 @@ public final class ReceiptLogo {
     private static final int BLUE_WEIGHT = 114;
     private static final int WEIGHT_TOTAL = 1000;
 
-    /** The directive, computed once; empty when there is no printable logo. */
-    private static String directive;
-
-    /** Whether the logo has been looked for already. */
-    private static boolean loaded;
+    /**
+     * The directives already computed, keyed by the print width in dots; the
+     * value is empty when there is no printable logo.
+     *
+     * <p>Keyed on the width because the width is ADMINISTERED (BO-03-03-14): a
+     * shop that widens its logo must see the wider one on the next receipt,
+     * without anyone having to remember to clear a cache, and a register that
+     * never changes it still decodes the file once.
+     */
+    private static final java.util.Map<Integer, String> DIRECTIVES =
+            new java.util.HashMap<>();
 
     /** The logo as a data URI, computed once; empty when there is no logo file. */
     private static String dataUri;
@@ -68,17 +75,38 @@ public final class ReceiptLogo {
     }
 
     /**
-     * The print directive carrying the logo.
+     * The print directive carrying the logo, at the default width.
      *
      * @return the directive line WITHOUT its newline, or empty when this till has no
      *         logo or the file could not be read
      */
     public static synchronized String directive() {
-        if (!loaded) {
-            loaded = true;
-            directive = read().orElse("");
+        return directive(PRINT_WIDTH);
+    }
+
+    /**
+     * The print directive carrying the logo, at the width the shop administers
+     * (BO-03-03-14).
+     *
+     * <p>The width is the printer's, not the layout's: an Epson TMH6000 prints
+     * 8 dots per millimetre, so the same logo file has to be rasterised again
+     * when the shop states a different head width. A width narrower than one
+     * packed byte cannot be rasterised at all and falls back to the default
+     * rather than failing a receipt.
+     *
+     * @param widthDots the width to print at, in thermal-head dots
+     * @return the directive line WITHOUT its newline, or empty when this till has no
+     *         logo or the file could not be read
+     */
+    public static synchronized String directive(int widthDots) {
+        int width = widthDots < DOTS_PER_BYTE ? PRINT_WIDTH : widthDots;
+        String cached = DIRECTIVES.get(width);
+        if (cached != null) {
+            return cached;
         }
-        return directive;
+        String computed = read(width).orElse("");
+        DIRECTIVES.put(width, computed);
+        return computed;
     }
 
     /**
@@ -125,7 +153,7 @@ public final class ReceiptLogo {
                 LOGGER.warnf("Logo illisible (%s) : document sans logo", RESOURCE);
                 return Optional.empty();
             }
-            BufferedImage fitted = fit(source);
+            BufferedImage fitted = fit(source, PRINT_WIDTH);
             if (fitted == null) {
                 LOGGER.warnf("Logo entierement blanc (%s) : document sans logo", RESOURCE);
                 return Optional.empty();
@@ -140,11 +168,12 @@ public final class ReceiptLogo {
     }
 
     /**
-     * Reads the logo and encodes it.
+     * Reads the logo and encodes it at the given width.
      *
+     * @param width the width to rasterise at, in dots
      * @return the directive, or empty when there is nothing printable
      */
-    private static Optional<String> read() {
+    private static Optional<String> read(int width) {
         try (InputStream stream = ReceiptLogo.class.getResourceAsStream(RESOURCE)) {
             if (stream == null) {
                 LOGGER.infof("Aucun logo de ticket (%s absent) : en-tete texte seul", RESOURCE);
@@ -155,7 +184,7 @@ public final class ReceiptLogo {
                 LOGGER.warnf("Logo de ticket illisible (%s) : en-tete texte seul", RESOURCE);
                 return Optional.empty();
             }
-            BufferedImage fitted = fit(source);
+            BufferedImage fitted = fit(source, width);
             if (fitted == null) {
                 LOGGER.warnf("Logo de ticket entierement blanc (%s) : en-tete texte seul", RESOURCE);
                 return Optional.empty();
@@ -177,23 +206,24 @@ public final class ReceiptLogo {
      * printed as it is, it wastes paper and shrinks what can be read.
      *
      * @param source the decoded file
+     * @param width the width to scale to, in dots
      * @return an opaque, paper-width image, or {@code null} when the file has no ink
      */
-    private static BufferedImage fit(BufferedImage source) {
+    private static BufferedImage fit(BufferedImage source, int width) {
         BufferedImage opaque = flatten(source);
         Rectangle ink = inkBounds(opaque);
         if (ink == null) {
             return null;
         }
         BufferedImage cropped = opaque.getSubimage(ink.x, ink.y, ink.width, ink.height);
-        int height = Math.max(1, cropped.getHeight() * PRINT_WIDTH / cropped.getWidth());
-        BufferedImage fitted = new BufferedImage(PRINT_WIDTH, height, BufferedImage.TYPE_INT_RGB);
+        int height = Math.max(1, cropped.getHeight() * width / cropped.getWidth());
+        BufferedImage fitted = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D canvas = fitted.createGraphics();
         canvas.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         canvas.setColor(Color.WHITE);
-        canvas.fillRect(0, 0, PRINT_WIDTH, height);
-        canvas.drawImage(cropped, 0, 0, PRINT_WIDTH, height, null);
+        canvas.fillRect(0, 0, width, height);
+        canvas.drawImage(cropped, 0, 0, width, height, null);
         canvas.dispose();
         return fitted;
     }

@@ -42,7 +42,15 @@ public class ChequeReadingService {
     private static final String RAW_KEY = "raw";
 
     /** Operator-facing message of a reader that could not be reached at all. */
-    private static final String UNREACHABLE = "LECTEUR DE CHEQUES INJOIGNABLE";
+    private static final String UNREACHABLE_KEY = "op.lecteurChequesInjoignable";
+
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
 
     /** The bridge in front of the reader. */
     @Inject
@@ -88,7 +96,7 @@ public class ChequeReadingService {
             hardware.startCheque(endorsement == null ? "" : endorsement);
         } catch (RuntimeException e) {
             LOGGER.errorf(e, "Le pont materiel a refuse la lecture du cheque");
-            onError.accept(UNREACHABLE);
+            onError.accept(i18n.get(UNREACHABLE_KEY));
             LOGGER.info("Exiting method read");
             return;
         }
@@ -110,7 +118,7 @@ public class ChequeReadingService {
                 status = parse(hardware.getChequeStatus());
             } catch (RuntimeException e) {
                 LOGGER.errorf(e, "Lecture de l'etat du cheque impossible");
-                onError.accept(UNREACHABLE);
+                onError.accept(i18n.get(UNREACHABLE_KEY));
                 return;
             }
             if (STATE_DONE.equals(status.get(STATE_KEY))) {
@@ -122,7 +130,7 @@ public class ChequeReadingService {
             }
         }
         LOGGER.errorf("Aucune lecture de cheque apres %d ms", deadlineMillis);
-        onError.accept("PAS DE REPONSE DU LECTEUR DE CHEQUES");
+        onError.accept(i18n.get("op.pasReponseLecteurCheques"));
     }
 
     /**
@@ -143,7 +151,7 @@ public class ChequeReadingService {
         String raw = status.get(RAW_KEY);
         if (raw == null || raw.isBlank()) {
             LOGGER.errorf("Lecture terminee sans ligne magnetique ni cause");
-            onError.accept("CHEQUE NON LU");
+            onError.accept(i18n.get("op.chequeNonLu"));
             return;
         }
         onRead.accept(raw);

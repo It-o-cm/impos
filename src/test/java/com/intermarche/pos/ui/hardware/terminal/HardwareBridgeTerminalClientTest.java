@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.hardware.terminal;
 
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.ui.hardware.HardwareClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,7 +49,8 @@ class HardwareBridgeTerminalClientTest {
      * @return the client under test
      */
     private HardwareBridgeTerminalClient newClient(long pollMillis, long deadlineMillis) {
-        return new HardwareBridgeTerminalClient(hardware, pollMillis, deadlineMillis);
+        return new HardwareBridgeTerminalClient(hardware, pollMillis, deadlineMillis,
+                TestMessages.french());
     }
 
     /**
@@ -122,7 +124,7 @@ class HardwareBridgeTerminalClientTest {
         doThrow(new RuntimeException("boom")).when(hardware).startPayment(anyString());
         TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
         newClient(10, 10000).requestDebit(new BigDecimal("12.34"), callback);
-        verify(callback).onError(UNREACHABLE);
+        verify(callback).onError("TERMINAL DE PAIEMENT INJOIGNABLE");
         verify(hardware).startPayment("1234");
         verify(hardware, never()).getPaymentStatus();
     }
@@ -177,7 +179,7 @@ class HardwareBridgeTerminalClientTest {
                 .thenReturn("state=DONE\nfailure=OUT OF SERVICE\napproved=true");
         TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
         newClient(10, 10000).requestDebit(new BigDecimal("3.00"), callback);
-        verify(callback, timeout(2000)).onError(UNREACHABLE);
+        verify(callback, timeout(2000)).onError("TERMINAL DE PAIEMENT INJOIGNABLE");
         verify(callback, never()).onAccepted(any());
         verify(callback, never()).onRefused(any());
     }
@@ -224,7 +226,7 @@ class HardwareBridgeTerminalClientTest {
         when(hardware.getPaymentStatus()).thenThrow(new RuntimeException("io"));
         TerminalTransactionCallback callback = mock(TerminalTransactionCallback.class);
         newClient(10, 10000).requestDebit(new BigDecimal("4.00"), callback);
-        verify(callback, timeout(2000)).onError(UNREACHABLE);
+        verify(callback, timeout(2000)).onError("TERMINAL DE PAIEMENT INJOIGNABLE");
         verify(callback, never()).onAccepted(any());
         verify(callback, never()).onRefused(any());
     }

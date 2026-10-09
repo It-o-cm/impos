@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.invoice;
 
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.domain.payment.AccountCustomer;
 import com.intermarche.pos.domain.payment.CardPayment;
 import com.intermarche.pos.domain.sale.DocumentType;
@@ -114,7 +115,7 @@ class InvoiceRendererTest {
         ticket.creationDate = LocalDateTime.of(2026, 9, 9, 16, 12);
         ticket.lines.add(line("CAFE", "3178530403022", "2", "12.90", "25.80", "0.055", "EPICERIE"));
         ticket.payments.add(new CardPayment(new BigDecimal("56.60")));
-        return InvoiceDocument.of(invoice(ticket, customer, printCount), ticket, true);
+        return InvoiceDocument.of(invoice(ticket, customer, printCount), ticket, true, TestMessages.french());
     }
 
     /**
@@ -134,7 +135,7 @@ class InvoiceRendererTest {
         ticket.store = store;
         ticket.ticketNumber = "T";
         ticket.lines.add(line("ARTICLE", null, "1", "1.00", "1.00", "0.20", null));
-        return InvoiceDocument.of(invoice(ticket, customer, 0), ticket, false);
+        return InvoiceDocument.of(invoice(ticket, customer, 0), ticket, false, TestMessages.french());
     }
 
     /**
@@ -154,7 +155,7 @@ class InvoiceRendererTest {
      */
     @Test
     void statesEveryBlockOfAFullDocument() {
-        List<String> lines = InvoiceRenderer.render(full(0));
+        List<String> lines = InvoiceRenderer.render(full(0), TestMessages.french());
         assertTrue(carries(lines, "MAGASIN"));
         assertTrue(carries(lines, "SA JANSELIN"));
         assertTrue(carries(lines, "Tel. 0102030405"));
@@ -189,7 +190,7 @@ class InvoiceRendererTest {
      */
     @Test
     void omitsEveryOptionalBlockOfABareDocument() {
-        List<String> lines = InvoiceRenderer.render(bare());
+        List<String> lines = InvoiceRenderer.render(bare(), TestMessages.french());
         assertFalse(carries(lines, "SA JANSELIN"));
         assertFalse(carries(lines, "Tel."));
         assertFalse(carries(lines, "SIRET"));
@@ -209,7 +210,7 @@ class InvoiceRendererTest {
      */
     @Test
     void marksADuplicateUnderTheTitle() {
-        List<String> lines = InvoiceRenderer.render(full(2));
+        List<String> lines = InvoiceRenderer.render(full(2), TestMessages.french());
         assertTrue(carries(lines, "*** DUPLICATA N°2 ***"));
     }
 
@@ -230,7 +231,8 @@ class InvoiceRendererTest {
         ticket.lines.add(line("ARTICLE AU LIBELLE INTERMINABLE QUI NE TIENDRA JAMAIS SUR LA LIGNE",
                 null, "1", "1.00", "1.00", "0.20", null));
         List<String> lines = InvoiceRenderer.render(
-                InvoiceDocument.of(invoice(ticket, customer, 0), ticket, false));
+                InvoiceDocument.of(invoice(ticket, customer, 0), ticket, false, TestMessages.french()),
+                TestMessages.french());
         for (String rendered : lines) {
             assertTrue(rendered.length() <= InvoiceRenderer.WIDTH,
                     "ligne trop large : " + rendered);
@@ -245,7 +247,7 @@ class InvoiceRendererTest {
     @Test
     void printsTheDocumentsOwnFigures() {
         InvoiceDocument document = full(0);
-        List<String> lines = InvoiceRenderer.render(document);
+        List<String> lines = InvoiceRenderer.render(document, TestMessages.french());
         assertTrue(carries(lines, document.totalExcludingTax + " E"));
         assertTrue(carries(lines, document.totalVat + " E"));
         assertTrue(carries(lines, document.totalIncludingTax + " E"));
@@ -328,7 +330,7 @@ class InvoiceRendererTest {
      */
     @Test
     void theDueDateIsPrintedWhenTheCustomerCarriesOne() {
-        List<String> lines = InvoiceRenderer.render(full(0));
+        List<String> lines = InvoiceRenderer.render(full(0), TestMessages.french());
         assertTrue(lines.stream().anyMatch(line -> line.contains("Echeance")),
                 () -> "no due-date line in " + lines);
         assertTrue(lines.stream().anyMatch(line -> line.contains("31/10/2026")),
@@ -341,7 +343,7 @@ class InvoiceRendererTest {
      */
     @Test
     void noDueDateLineWhenTheCustomerCarriesNone() {
-        List<String> lines = InvoiceRenderer.render(bare());
+        List<String> lines = InvoiceRenderer.render(bare(), TestMessages.french());
         assertTrue(lines.stream().noneMatch(line -> line.contains("Echeance")),
                 () -> "a due-date line was printed for a customer without terms: " + lines);
     }
@@ -365,9 +367,9 @@ class InvoiceRendererTest {
      */
     @Test
     void printsTheFiscalIdentifierOnlyWhenTheDocumentCarriesOne() {
-        assertTrue(InvoiceRenderer.render(full(0)).stream()
+        assertTrue(InvoiceRenderer.render(full(0), TestMessages.french()).stream()
                 .anyMatch(line -> line.contains("NIF PT123456789")));
-        assertFalse(InvoiceRenderer.render(bare()).stream()
+        assertFalse(InvoiceRenderer.render(bare(), TestMessages.french()).stream()
                 .anyMatch(line -> line.contains("NIF ")));
     }
 }

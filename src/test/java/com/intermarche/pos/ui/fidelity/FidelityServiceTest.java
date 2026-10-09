@@ -1,6 +1,7 @@
 package com.intermarche.pos.ui.fidelity;
 
 import com.intermarche.pos.ui.PosState;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -46,6 +47,10 @@ class FidelityServiceTest {
     @Test
     void validateCardAssignsCardThenTouches() {
         FidelityService service = new FidelityService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         PosState state = newState();
         service.validateCard(state, "1234567890123");
         InOrder order = inOrder(state.fidelity, state);
@@ -61,6 +66,7 @@ class FidelityServiceTest {
     @Test
     void validateCardForwardsNullCardVerbatim() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         PosState state = newState();
         service.validateCard(state, null);
         verify(state.fidelity).assignCard(null);
@@ -76,6 +82,7 @@ class FidelityServiceTest {
     @Test
     void validateCardUsesStatesOwnFidelityInstance() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         PosState state = newState();
         FidelityState fidelity = state.fidelity;
         service.validateCard(state, "42");
@@ -94,6 +101,7 @@ class FidelityServiceTest {
      */
     private FidelityService serviceWithCard(String card) {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
         service.posSettingsService = mock(com.intermarche.pos.service.PosSettingsService.class);
@@ -237,6 +245,7 @@ class FidelityServiceTest {
     @Test
     void validateCardReadsNoPromotionWhenImfidIsNotConfigured() throws Exception {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         com.intermarche.pos.ui.PosState state = new com.intermarche.pos.ui.PosState();
@@ -254,6 +263,7 @@ class FidelityServiceTest {
     @Test
     void reserveLeaseRefusesWhenNotConfigured() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         FidelityService.BurnVerdict verdict = service.reserveLease(
@@ -935,6 +945,7 @@ class FidelityServiceTest {
     @Test
     void onStartReadsTheTargetWhenConfigured() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
         when(service.imfidClient.targetUrl()).thenReturn("http://localhost:8060");
@@ -949,6 +960,7 @@ class FidelityServiceTest {
     @Test
     void onStartAsksNoTargetWhenNotConfigured() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         service.onStart(null);
@@ -1266,6 +1278,7 @@ class FidelityServiceTest {
     @Test
     void loadConsultationSaysWhenTheServiceIsNotConfigured() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         FidelityService.Consultation view =
@@ -1409,6 +1422,7 @@ class FidelityServiceTest {
     @Test
     void refreshEarnAsksNothingWhenTheServiceIsNotConfigured() throws Exception {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         PosState state = stateWithCard("2990000000019");
@@ -1511,6 +1525,7 @@ class FidelityServiceTest {
      */
     private FidelityService lookupService() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
         service.posSettingsService = settings(true);
@@ -1559,6 +1574,7 @@ class FidelityServiceTest {
     @Test
     void lookupCardsUnavailableWhenNotConfigured() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         LookupView view = service.lookupCards("06", null, null, null);
@@ -1702,6 +1718,7 @@ class FidelityServiceTest {
     @Test
     void attachPendingCardWarnsAndDefaultsStatus() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         service.posSettingsService = settings(true);
@@ -1723,6 +1740,7 @@ class FidelityServiceTest {
     @Test
     void attachActiveCardDefaultsStatusWhenRefreshSilent() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         service.posSettingsService = settings(true);
@@ -1773,6 +1791,7 @@ class FidelityServiceTest {
     @Test
     void refreshSkipsWhenNotConfigured() throws Exception {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         PosState state = new PosState();
@@ -1837,6 +1856,7 @@ class FidelityServiceTest {
      */
     private FidelityService attachService() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         service.posSettingsService = settings(true);
@@ -1951,6 +1971,7 @@ class FidelityServiceTest {
     @Test
     void anunconfiguredProgrammeIsNotUnavailable() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(false);
         assertFalse(service.isUnavailable());
@@ -1963,6 +1984,7 @@ class FidelityServiceTest {
     @Test
     void aconfiguredProgrammeThatAnswersIsAvailable() {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
         assertFalse(service.isUnavailable());
@@ -1977,6 +1999,7 @@ class FidelityServiceTest {
     @Test
     void aconfiguredProgrammeThatFailedIsUnavailable() throws Exception {
         FidelityService service = new FidelityService();
+        service.i18n = TestMessages.french();
         service.imfidClient = mock(ImfidClient.class);
         when(service.imfidClient.isConfigured()).thenReturn(true);
         when(service.imfidClient.earn(any(), any())).thenThrow(new java.io.IOException("down"));

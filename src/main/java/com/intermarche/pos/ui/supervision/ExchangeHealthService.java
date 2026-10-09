@@ -46,6 +46,14 @@ public class ExchangeHealthService {
     /** How a waiting element's timestamp is shortened for the screen. */
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("dd/MM HH:mm:ss");
 
+
+    /**
+     * The localised operator messages: every sentence this class shows the
+     * operator is a bundle key, never a French literal (LC-13-06).
+     */
+    @Inject
+    com.intermarche.pos.ui.Messages i18n;
+
     /** The engine feed keeper (per-feed acknowledged state). */
     @Inject
     EngineFeedService engineFeedService;
@@ -253,16 +261,16 @@ public class ExchangeHealthService {
      * Maps one feed's acknowledged state to a screen status label.
      *
      * @param state the per-feed state from the keeper
-     * @return "Erreur" when it carries an error, "À jour" when acknowledged,
-     *         "En attente" otherwise
+     * @return the localised "Erreur" when it carries an error, "À jour" when
+     *         acknowledged, "En attente" otherwise
      */
     private String feedStatus(EngineFeedService.FeedState state) {
         LOGGER.info("Entering method feedStatus");
         if (state.lastError() != null) {
             LOGGER.info("Exiting method feedStatus");
-            return "Erreur";
+            return i18n.get("op.erreur");
         }
         LOGGER.info("Exiting method feedStatus");
-        return state.applied() ? "À jour" : "En attente";
+        return state.applied() ? i18n.get("op.jour") : i18n.get("supervisor.attente");
     }
 }

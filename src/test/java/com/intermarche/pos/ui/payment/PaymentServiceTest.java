@@ -11,6 +11,7 @@ import com.intermarche.pos.ui.hardware.terminal.AutoAcceptTerminalClient;
 import com.intermarche.pos.ui.hardware.terminal.PaymentTerminalClient;
 import com.intermarche.pos.ui.hardware.terminal.TerminalOutcome;
 import com.intermarche.pos.ui.hardware.terminal.TerminalTransactionCallback;
+import com.intermarche.pos.ui.TestMessages;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -110,6 +111,10 @@ class PaymentServiceTest {
     @BeforeEach
     void setUp() {
         service = new PaymentService();
+        // The operator messages come from the French bundle, so every
+        // assertion below keeps the literal sentence the register shows
+        // (LC-13-06).
+        service.i18n = TestMessages.french();
         hardwareService = mock(HardwareService.class);
         ticketPersistenceService = mock(TicketPersistenceService.class);
         valuationService = mock(ValuationService.class);

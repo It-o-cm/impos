@@ -34,7 +34,7 @@ class PosMenuTest {
         for (PosMenu menu : PosMenu.ALL) {
             assertFalse(menu.getKey() == null || menu.getKey().isBlank(),
                     "clé manquante pour " + menu);
-            assertFalse(menu.getLabel() == null || menu.getLabel().isBlank(),
+            assertFalse(menu.getLabelKey() == null || menu.getLabelKey().isBlank(),
                     "libellé manquant pour " + menu);
         }
     }

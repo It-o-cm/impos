@@ -1,5 +1,6 @@
 package com.intermarche.pos.ui.invoice;
 
+import com.intermarche.pos.ui.TestMessages;
 import com.intermarche.pos.domain.store.Store;
 import com.intermarche.pos.domain.sale.DocumentType;
 import com.intermarche.pos.domain.sale.Invoice;
@@ -124,7 +125,7 @@ class InvoiceResourceTest {
         invoice.terminalId = "C04";
         invoice.ticketNumber = "T-1";
         invoice.issueDate = LocalDateTime.of(2026, 9, 9, 16, 12);
-        return InvoiceDocument.of(invoice, ticket, false);
+        return InvoiceDocument.of(invoice, ticket, false, TestMessages.french());
     }
 
     // --- showInvoiceScreen ---
